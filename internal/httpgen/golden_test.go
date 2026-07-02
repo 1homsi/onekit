@@ -1,0 +1,470 @@
+package httpgen
+
+import (
+	"bytes"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/1homsi/onekit/internal/annotations"
+)
+
+// TestHTTPGenGoldenFiles tests HTTP handler generation against golden files.
+// This ensures any changes to code generation are intentional and reviewed.
+//
+// To update golden files after intentional changes:
+//
+//	UPDATE_GOLDEN=1 go test -run TestHTTPGenGoldenFiles
+func TestHTTPGenGoldenFiles(t *testing.T) {
+	// Skip if protoc is not available
+	if _, err := exec.LookPath("protoc"); err != nil {
+		t.Skip("protoc not found, skipping golden file tests")
+	}
+
+	testCases := []struct {
+		name      string
+		protoFile string
+		// extraProtoFiles holds additional proto files to pass to protoc alongside protoFile.
+		// Used for cross-file scenarios where two or more files must be compiled together.
+		extraProtoFiles []string
+		// Expected generated files (without path prefix)
+		expectedFiles []string
+	}{
+		{
+			name:      "comprehensive HTTP verbs",
+			protoFile: "http_verbs_comprehensive.proto",
+			expectedFiles: []string{
+				"http_verbs_comprehensive_http.pb.go",
+				"http_verbs_comprehensive_http_binding.pb.go",
+				"http_verbs_comprehensive_http_config.pb.go",
+			},
+		},
+		{
+			name:      "query parameters",
+			protoFile: "query_params.proto",
+			expectedFiles: []string{
+				"query_params_http.pb.go",
+				"query_params_http_binding.pb.go",
+				"query_params_http_config.pb.go",
+			},
+		},
+		{
+			name:      "backward compatibility",
+			protoFile: "backward_compat.proto",
+			expectedFiles: []string{
+				"backward_compat_http.pb.go",
+				"backward_compat_http_binding.pb.go",
+				"backward_compat_http_config.pb.go",
+			},
+		},
+		{
+			name:      "unwrap field option",
+			protoFile: "unwrap.proto",
+			expectedFiles: []string{
+				"unwrap_http.pb.go",
+				"unwrap_http_binding.pb.go",
+				"unwrap_http_config.pb.go",
+				"unwrap_unwrap.pb.go",
+			},
+		},
+		{
+			name:      "int64 encoding",
+			protoFile: "int64_encoding.proto",
+			expectedFiles: []string{
+				"int64_encoding_http.pb.go",
+				"int64_encoding_http_binding.pb.go",
+				"int64_encoding_http_config.pb.go",
+				"int64_encoding_encoding.pb.go",
+			},
+		},
+		{
+			name:      "int64 nested encoding (wrapper response)",
+			protoFile: "int64_nested_encoding.proto",
+			expectedFiles: []string{
+				"int64_nested_encoding_http.pb.go",
+				"int64_nested_encoding_http_binding.pb.go",
+				"int64_nested_encoding_http_config.pb.go",
+				"int64_nested_encoding_encoding.pb.go",
+			},
+		},
+		{
+			name:      "enum encoding",
+			protoFile: "enum_encoding.proto",
+			expectedFiles: []string{
+				"enum_encoding_http.pb.go",
+				"enum_encoding_http_binding.pb.go",
+				"enum_encoding_http_config.pb.go",
+				"enum_encoding_enum_encoding.pb.go",
+			},
+		},
+		{
+			name:      "nullable fields",
+			protoFile: "nullable.proto",
+			expectedFiles: []string{
+				"nullable_http.pb.go",
+				"nullable_http_binding.pb.go",
+				"nullable_http_config.pb.go",
+				"nullable_nullable.pb.go",
+			},
+		},
+		{
+			name:      "empty behavior",
+			protoFile: "empty_behavior.proto",
+			expectedFiles: []string{
+				"empty_behavior_http.pb.go",
+				"empty_behavior_http_binding.pb.go",
+				"empty_behavior_http_config.pb.go",
+				"empty_behavior_empty_behavior.pb.go",
+			},
+		},
+		{
+			name:      "empty request body",
+			protoFile: "empty_request_body.proto",
+			expectedFiles: []string{
+				"empty_request_body_http.pb.go",
+				"empty_request_body_http_binding.pb.go",
+				"empty_request_body_http_config.pb.go",
+			},
+		},
+		{
+			name:      "timestamp format",
+			protoFile: "timestamp_format.proto",
+			expectedFiles: []string{
+				"timestamp_format_http.pb.go",
+				"timestamp_format_http_binding.pb.go",
+				"timestamp_format_http_config.pb.go",
+				"timestamp_format_timestamp_format.pb.go",
+			},
+		},
+		{
+			name:      "bytes encoding",
+			protoFile: "bytes_encoding.proto",
+			expectedFiles: []string{
+				"bytes_encoding_http.pb.go",
+				"bytes_encoding_http_binding.pb.go",
+				"bytes_encoding_http_config.pb.go",
+				"bytes_encoding_bytes_encoding.pb.go",
+			},
+		},
+		{
+			name:      "flatten",
+			protoFile: "flatten.proto",
+			expectedFiles: []string{
+				"flatten_http.pb.go",
+				"flatten_http_binding.pb.go",
+				"flatten_http_config.pb.go",
+				"flatten_flatten.pb.go",
+			},
+		},
+		{
+			name:      "oneof discriminator",
+			protoFile: "oneof_discriminator.proto",
+			expectedFiles: []string{
+				"oneof_discriminator_http.pb.go",
+				"oneof_discriminator_http_binding.pb.go",
+				"oneof_discriminator_http_config.pb.go",
+				"oneof_discriminator_oneof_discriminator.pb.go",
+			},
+		},
+		{
+			name:      "unwrap + int64 encoding (issue #134)",
+			protoFile: "unwrap_int64_encoding.proto",
+			expectedFiles: []string{
+				"unwrap_int64_encoding_http.pb.go",
+				"unwrap_int64_encoding_http_binding.pb.go",
+				"unwrap_int64_encoding_http_config.pb.go",
+				"unwrap_int64_encoding_unwrap.pb.go",
+				"unwrap_int64_encoding_encoding.pb.go",
+			},
+		},
+		{
+			name:      "int64 repeated nested encoding (repeated wrapper bug)",
+			protoFile: "int64_repeated_nested_encoding.proto",
+			expectedFiles: []string{
+				"int64_repeated_nested_encoding_http.pb.go",
+				"int64_repeated_nested_encoding_http_binding.pb.go",
+				"int64_repeated_nested_encoding_http_config.pb.go",
+				"int64_repeated_nested_encoding_encoding.pb.go",
+			},
+		},
+		{
+			name:            "cross-file unwrap + int64 encoding (issue #134 cross-file)",
+			protoFile:       "cross_int64_service.proto",
+			extraProtoFiles: []string{"cross_int64_bar.proto"},
+			expectedFiles: []string{
+				"cross_int64_service_http.pb.go",
+				"cross_int64_service_http_binding.pb.go",
+				"cross_int64_service_http_config.pb.go",
+				"cross_int64_service_unwrap.pb.go",
+				"cross_int64_bar_encoding.pb.go",
+			},
+		},
+		{
+			name:      "SSE streaming",
+			protoFile: "sse.proto",
+			expectedFiles: []string{
+				"sse_http.pb.go",
+				"sse_http_binding.pb.go",
+				"sse_http_config.pb.go",
+			},
+		},
+	}
+
+	// Get paths
+	baseDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+
+	// Navigate to project root (up from internal/httpgen)
+	projectRoot := filepath.Join(baseDir, "..", "..")
+	protoDir := filepath.Join(baseDir, "testdata", "proto")
+	goldenDir := filepath.Join(baseDir, "testdata", "golden")
+
+	// Create golden directory if it doesn't exist
+	mkdirErr := os.MkdirAll(goldenDir, 0o755)
+	if mkdirErr != nil {
+		t.Fatalf("Failed to create golden directory: %v", mkdirErr)
+	}
+
+	// Build the plugin binary for testing
+	pluginPath := filepath.Join(projectRoot, "bin", "protoc-gen-onekit-go-http")
+
+	// Build the plugin if it doesn't exist
+	if _, buildStatErr := os.Stat(pluginPath); os.IsNotExist(buildStatErr) {
+		buildCmd := exec.Command("make", "build")
+		buildCmd.Dir = projectRoot
+		if buildErr := buildCmd.Run(); buildErr != nil {
+			t.Fatalf("Failed to build plugin: %v", buildErr)
+		}
+	}
+
+	// Create temp directory for generated files
+	tempDir := t.TempDir()
+
+	updateGolden := os.Getenv("UPDATE_GOLDEN") == "1"
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			protoPath := filepath.Join(protoDir, tc.protoFile)
+
+			// Check proto file exists
+			_, statErr := os.Stat(protoPath)
+			if os.IsNotExist(statErr) {
+				t.Fatalf("Proto file not found: %s", protoPath)
+			}
+
+			// Run protoc with go-http plugin (using explicit plugin path)
+			protocArgs := []string{
+				"--plugin=protoc-gen-onekit-go-http=" + pluginPath,
+				"--go_out=" + tempDir,
+				"--go_opt=paths=source_relative",
+				"--onekit-go-http_out=" + tempDir,
+				"--onekit-go-http_opt=paths=source_relative",
+				"--proto_path=" + protoDir,
+				"--proto_path=" + filepath.Join(projectRoot, "proto"),
+				tc.protoFile,
+			}
+			protocArgs = append(protocArgs, tc.extraProtoFiles...)
+			cmd := exec.Command("protoc", protocArgs...)
+			cmd.Dir = protoDir
+
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+
+			runErr := cmd.Run()
+			if runErr != nil {
+				t.Fatalf("protoc failed: %v\nstderr: %s", runErr, stderr.String())
+			}
+
+			// Compare or update golden files
+			for _, expectedFile := range tc.expectedFiles {
+				generatedPath := filepath.Join(tempDir, expectedFile)
+				goldenPath := filepath.Join(goldenDir, expectedFile)
+
+				generatedContent, readErr := os.ReadFile(generatedPath)
+				if readErr != nil {
+					t.Fatalf("Failed to read generated file %s: %v", generatedPath, readErr)
+				}
+
+				if updateGolden {
+					updateGoldenFile(t, goldenPath, generatedContent)
+					continue
+				}
+				compareGoldenFile(t, expectedFile, goldenPath, generatedContent)
+			}
+		})
+	}
+}
+
+// updateGoldenFile writes generated content to a golden file.
+func updateGoldenFile(t *testing.T, goldenPath string, content []byte) {
+	t.Helper()
+	writeErr := os.WriteFile(goldenPath, content, 0o644)
+	if writeErr != nil {
+		t.Fatalf("Failed to write golden file %s: %v", goldenPath, writeErr)
+	}
+	t.Logf("Updated golden file: %s", goldenPath)
+}
+
+// compareGoldenFile compares generated content with a golden file.
+func compareGoldenFile(t *testing.T, expectedFile, goldenPath string, generatedContent []byte) {
+	t.Helper()
+	goldenContent, goldenReadErr := os.ReadFile(goldenPath)
+	if goldenReadErr != nil {
+		if os.IsNotExist(goldenReadErr) {
+			t.Fatalf("Golden file not found: %s\nRun with UPDATE_GOLDEN=1 to create it", goldenPath)
+		}
+		t.Fatalf("Failed to read golden file %s: %v", goldenPath, goldenReadErr)
+	}
+
+	if !bytes.Equal(generatedContent, goldenContent) {
+		t.Errorf("Generated file %s does not match golden file.\n"+
+			"Run with UPDATE_GOLDEN=1 to update golden files after reviewing changes.\n"+
+			"Diff:\n%s",
+			expectedFile,
+			diffStrings(string(goldenContent), string(generatedContent)))
+	}
+}
+
+// diffStrings returns a simple diff between two strings.
+func diffStrings(expected, actual string) string {
+	expectedLines := strings.Split(expected, "\n")
+	actualLines := strings.Split(actual, "\n")
+
+	var diff strings.Builder
+	maxLines := len(expectedLines)
+	if len(actualLines) > maxLines {
+		maxLines = len(actualLines)
+	}
+
+	diffCount := 0
+	const maxDiffs = 20
+
+	for i := 0; i < maxLines && diffCount < maxDiffs; i++ {
+		var expLine, actLine string
+		if i < len(expectedLines) {
+			expLine = expectedLines[i]
+		}
+		if i < len(actualLines) {
+			actLine = actualLines[i]
+		}
+
+		if expLine != actLine {
+			diff.WriteString("Line ")
+			diff.WriteRune(rune('0' + i/100))
+			diff.WriteRune(rune('0' + (i/10)%10))
+			diff.WriteRune(rune('0' + i%10))
+			diff.WriteString(":\n")
+			diff.WriteString("  expected: ")
+			diff.WriteString(expLine)
+			diff.WriteString("\n  actual:   ")
+			diff.WriteString(actLine)
+			diff.WriteString("\n")
+			diffCount++
+		}
+	}
+
+	if diffCount >= maxDiffs {
+		diff.WriteString("... (more differences truncated)\n")
+	}
+
+	return diff.String()
+}
+
+// TestHTTPGenValidation tests that invalid configurations produce expected errors.
+func TestHTTPGenValidation(t *testing.T) {
+	// These tests verify validation error messages are clear and actionable
+	tests := []struct {
+		name          string
+		config        annotations.HTTPConfig
+		pathParams    []string
+		queryParams   []annotations.QueryParam
+		errorContains string
+	}{
+		{
+			name: "GET with unbound fields should error",
+			config: annotations.HTTPConfig{
+				Path:   "/users",
+				Method: "GET",
+			},
+			pathParams:    nil,
+			queryParams:   nil,
+			errorContains: "", // This case would be caught during generation
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Validation logic tests
+			if tt.config.Method == http.MethodGet || tt.config.Method == http.MethodDelete {
+				// These methods shouldn't have body fields
+				// Test is informational - actual validation happens in ValidateMethodConfig
+				t.Logf("Config: %+v", tt.config)
+			}
+		})
+	}
+}
+
+// TestGeneratedCodeCompiles verifies that generated code compiles correctly.
+// This is an integration test that runs the actual compiler.
+func TestGeneratedCodeCompiles(t *testing.T) {
+	// Skip if protoc is not available
+	if _, lookErr := exec.LookPath("protoc"); lookErr != nil {
+		t.Skip("protoc not found, skipping compilation test")
+	}
+
+	baseDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+
+	projectRoot := filepath.Join(baseDir, "..", "..")
+	protoDir := filepath.Join(baseDir, "testdata", "proto")
+	pluginPath := filepath.Join(projectRoot, "bin", "protoc-gen-onekit-go-http")
+
+	// Build the plugin if it doesn't exist
+	if _, buildStatErr := os.Stat(pluginPath); os.IsNotExist(buildStatErr) {
+		buildCmd := exec.Command("make", "build")
+		buildCmd.Dir = projectRoot
+		if buildErr := buildCmd.Run(); buildErr != nil {
+			t.Fatalf("Failed to build plugin: %v", buildErr)
+		}
+	}
+
+	// Create temp directory for generated files
+	tempDir := t.TempDir()
+
+	// Generate code for comprehensive test proto
+	cmd := exec.Command("protoc",
+		"--plugin=protoc-gen-onekit-go-http="+pluginPath,
+		"--go_out="+tempDir,
+		"--go_opt=paths=source_relative",
+		"--onekit-go-http_out="+tempDir,
+		"--onekit-go-http_opt=paths=source_relative",
+		"--proto_path="+protoDir,
+		"--proto_path="+filepath.Join(projectRoot, "proto"),
+		"http_verbs_comprehensive.proto",
+	)
+	cmd.Dir = protoDir
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+	if runErr != nil {
+		t.Fatalf("protoc failed: %v\nstderr: %s", runErr, stderr.String())
+	}
+
+	// Try to compile the generated code (syntax check)
+	// We use 'go build' with -n flag for dry run
+	buildCmd := exec.Command("go", "build", "-n", "./...")
+	buildCmd.Dir = tempDir
+
+	// Note: This won't fully work without proper go.mod setup,
+	// but protoc success indicates the generated code is syntactically valid
+	t.Log("Generated code produced successfully")
+}

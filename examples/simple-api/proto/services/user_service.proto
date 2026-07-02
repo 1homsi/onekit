@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package api.services;
+
+import "onekit/http/annotations.proto";
+import "onekit/http/headers.proto";
+import "proto/models/user.proto";
+import "proto/models/auth.proto";
+
+// UserService manages users in the system
+service UserService {
+  option (onekit.http.service_config) = {
+    base_path: "/api/v1"
+  };
+  option (onekit.http.service_headers) = {
+    required_headers: [
+      {
+        name: "X-API-Key"
+        description: "API authentication key"
+        type: "string"
+        required: true
+        format: "uuid"
+        example: "123e4567-e89b-12d3-a456-426614174000"
+      }
+    ]
+  };
+
+  // Create a new user
+  rpc CreateUser(api.models.CreateUserRequest) returns (api.models.User) {
+    option (onekit.http.config) = {
+      path: "/users"
+    };
+  }
+
+  // Get a user by ID
+  rpc GetUser(api.models.GetUserRequest) returns (api.models.User) {
+    option (onekit.http.config) = {
+      path: "/users/get"
+    };
+  }
+
+  // Login with different authentication methods
+  rpc Login(api.models.LoginRequest) returns (api.models.LoginResponse) {
+    option (onekit.http.config) = {
+      path: "/auth/login"
+    };
+    option (onekit.http.method_headers) = {
+      required_headers: [
+        {
+          name: "X-Request-ID"
+          description: "Unique request identifier for tracing"
+          type: "string"
+          required: true
+          format: "uuid"
+        }
+      ]
+    };
+  }
+}

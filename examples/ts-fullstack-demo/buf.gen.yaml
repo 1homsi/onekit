@@ -1,0 +1,21 @@
+version: v2
+
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/1homsi/onekit/examples/ts-fullstack-demo/gen
+    - file_option: go_package_prefix
+      module: buf.build/1homsi/onekit
+      value: ""
+
+plugins:
+  # TypeScript HTTP server
+  - local: ../../bin/protoc-gen-onekit-ts-server
+    out: ./server/generated
+    opt: paths=source_relative
+
+  # TypeScript HTTP client
+  - local: ../../bin/protoc-gen-onekit-ts-client
+    out: ./client/generated
+    opt: paths=source_relative

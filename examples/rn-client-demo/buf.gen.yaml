@@ -1,0 +1,37 @@
+version: v2
+
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/1homsi/onekit/examples/rn-client-demo/api
+    - file_option: go_package_prefix
+      module: buf.build/googleapis/googleapis
+      value: ""
+    - file_option: go_package_prefix
+      module: buf.build/bufbuild/protovalidate
+      value: ""
+    - file_option: go_package_prefix
+      module: buf.build/1homsi/onekit
+      value: ""
+
+plugins:
+  # Go protobuf types
+  - local: protoc-gen-go
+    out: ./api
+    opt: module=github.com/1homsi/onekit/examples/rn-client-demo/api
+
+  # Go HTTP server handlers
+  - local: ../../bin/protoc-gen-onekit-go-http
+    out: api
+    opt:
+      - module=github.com/1homsi/onekit/examples/rn-client-demo/api
+      - generate_mock=false
+
+  - local: ../../bin/protoc-gen-onekit-openapiv3
+    out: ./docs
+
+  # TypeScript HTTP client
+  - local: ../../bin/protoc-gen-onekit-ts-client
+    out: ./app/generated
+    opt: paths=source_relative

@@ -1,0 +1,90 @@
+syntax = "proto3";
+
+package testdata.flatten;
+
+option go_package = "github.com/1homsi/onekit/internal/httpgen/testdata/flatten;flatten";
+
+import "onekit/http/annotations.proto";
+
+// Address is a child message used for flattening.
+message Address {
+  string street = 1;
+  string city = 2;
+  string zip = 3;
+}
+
+// ContactInfo is a non-flattened child message.
+message ContactInfo {
+  string email = 1;
+  string phone = 2;
+}
+
+// SimpleFlatten demonstrates basic flatten without prefix.
+// Address fields (street, city, zip) are promoted to parent level.
+message SimpleFlatten {
+  string id = 1;
+  Address address = 2 [(onekit.http.flatten) = true];
+}
+
+// DualFlatten demonstrates flatten with prefix (two flattened fields of same type).
+// Uses prefixes to disambiguate billing and shipping address fields.
+message DualFlatten {
+  string id = 1;
+  Address billing = 2 [
+    (onekit.http.flatten) = true,
+    (onekit.http.flatten_prefix) = "billing_"
+  ];
+  Address shipping = 3 [
+    (onekit.http.flatten) = true,
+    (onekit.http.flatten_prefix) = "shipping_"
+  ];
+}
+
+// MixedFlatten demonstrates a mix of flattened and non-flattened fields.
+message MixedFlatten {
+  string id = 1;
+  Address address = 2 [(onekit.http.flatten) = true];
+  ContactInfo contact = 3;
+  string notes = 4;
+}
+
+// PlainNested has no flatten annotation (backward compatible).
+message PlainNested {
+  string id = 1;
+  Address address = 2;
+}
+
+// FlattenService tests flatten in service RPCs.
+service FlattenService {
+  option (onekit.http.service_config) = {
+    base_path: "/api/v1"
+  };
+
+  rpc TestSimpleFlatten(SimpleFlatten) returns (SimpleFlatten) {
+    option (onekit.http.config) = {
+      path: "/flatten/simple"
+      method: HTTP_METHOD_POST
+    };
+  }
+
+  rpc TestDualFlatten(DualFlatten) returns (DualFlatten) {
+    option (onekit.http.config) = {
+      path: "/flatten/dual"
+      method: HTTP_METHOD_POST
+    };
+  }
+
+  rpc TestMixedFlatten(MixedFlatten) returns (MixedFlatten) {
+    option (onekit.http.config) = {
+      path: "/flatten/mixed"
+      method: HTTP_METHOD_POST
+    };
+  }
+
+  rpc TestPlainNested(PlainNested) returns (PlainNested) {
+    option (onekit.http.config) = {
+      path: "/flatten/plain"
+      method: HTTP_METHOD_POST
+    };
+  }
+}

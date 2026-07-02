@@ -1,0 +1,197 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: true
+          
+      - name: Setup Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: '25.1'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Setup Buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          version: latest
+          
+      - name: Install dependencies
+        run: |
+          go mod download
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          
+      - name: Run tests
+        run: ./scripts/run_tests.sh
+        
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-artifacts
+          path: dist/
+          
+  docker:
+    name: Docker Images
+    runs-on: ubuntu-latest
+    needs: release
+    strategy:
+        matrix:
+          plugin:
+          - name: onekit-go-http
+            dockerfile: Dockerfile.http
+          - name: onekit-openapiv3
+            dockerfile: Dockerfile.openapi
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            ghcr.io/${{ github.repository_owner }}/protoc-gen-${{ matrix.plugin.name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+            
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/${{ matrix.plugin.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          
+  announce:
+    name: Announce Release
+    runs-on: ubuntu-latest
+    needs: [release, docker]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        
+      - name: Get release info
+        id: release
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG=${GITHUB_REF#refs/tags/}
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+          
+      - name: Create announcement issue
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const tag = '${{ steps.release.outputs.tag }}';
+            const version = '${{ steps.release.outputs.version }}';
+            
+            const { data: release } = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag: tag
+            });
+            
+            const issueBody = `## onekit ${tag} has been released
+
+            ### What's New
+            ${release.body}
+
+            ### Installation
+
+            #### Using Go
+            \`\`\`bash
+            go install github.com/1homsi/onekit/cmd/protoc-gen-onekit-go-http@${tag}
+            go install github.com/1homsi/onekit/cmd/protoc-gen-onekit-go-client@${tag}
+            go install github.com/1homsi/onekit/cmd/protoc-gen-onekit-ts-client@${tag}
+            go install github.com/1homsi/onekit/cmd/protoc-gen-onekit-ts-server@${tag}
+            go install github.com/1homsi/onekit/cmd/protoc-gen-onekit-py-client@${tag}
+            go install github.com/1homsi/onekit/cmd/protoc-gen-onekit-openapiv3@${tag}
+            \`\`\`
+
+            #### Using Docker
+            \`\`\`bash
+            docker pull ghcr.io/1homsi/protoc-gen-onekit-go-http:${version}
+            docker pull ghcr.io/1homsi/protoc-gen-onekit-openapiv3:${version}
+            \`\`\`
+
+            #### Download Binaries
+            Download pre-built binaries from the [release page](${release.html_url}).
+
+            ### Documentation
+            - [Getting Started](https://github.com/1homsi/onekit#quick-start)
+            - [API Documentation](https://pkg.go.dev/github.com/1homsi/onekit)
+            - [Examples](https://github.com/1homsi/onekit/tree/main/examples)
+
+            ---
+            _This is an automated release announcement._`;
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Release ${tag}`,
+              body: issueBody,
+              labels: ['release', 'announcement']
+            });

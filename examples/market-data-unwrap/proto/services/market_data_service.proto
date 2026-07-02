@@ -1,0 +1,125 @@
+syntax = "proto3";
+package marketdata.services;
+
+import "buf/validate/validate.proto";
+import "onekit/http/annotations.proto";
+import "onekit/http/headers.proto";
+import "proto/models/option_bar.proto";
+
+// GetOptionBarsRequest is the request to get historical option bars.
+message GetOptionBarsRequest {
+  // Comma-separated list of option symbols in OCC format.
+  string symbols = 1 [
+    (buf.validate.field).required = true,
+    (onekit.http.query) = { name: "symbols" },
+    (onekit.http.field_examples) = { values: ["TSLA260123C00335000", "AAPL240119C00150000,AAPL240119P00145000"] }
+  ];
+  // Bar timeframe (e.g., 1Min, 5Min, 1Hour, 1Day).
+  string timeframe = 2 [
+    (buf.validate.field).required = true,
+    (onekit.http.query) = { name: "timeframe" },
+    (onekit.http.field_examples) = { values: ["1Day", "1Hour", "5Min"] }
+  ];
+  // Start timestamp (RFC 3339 or YYYY-MM-DD).
+  string start = 3 [
+    (onekit.http.query) = { name: "start" },
+    (onekit.http.field_examples) = { values: ["2025-12-01", "2025-12-15T09:30:00Z"] }
+  ];
+  // End timestamp (RFC 3339 or YYYY-MM-DD).
+  string end = 4 [
+    (onekit.http.query) = { name: "end" },
+    (onekit.http.field_examples) = { values: ["2025-12-31", "2025-12-15T16:00:00Z"] }
+  ];
+  // Maximum number of bars to return (1-10000, default 1000).
+  int32 limit = 5 [
+    (onekit.http.query) = { name: "limit" },
+    (buf.validate.field).int32 = { gte: 1, lte: 10000 },
+    (onekit.http.field_examples) = { values: ["100", "1000"] }
+  ];
+  // Page token for pagination.
+  string page_token = 6 [
+    (onekit.http.query) = { name: "page_token" },
+    (onekit.http.field_examples) = { values: ["dG9rZW4xMjM="] }
+  ];
+  // Sort order (asc, desc).
+  string sort = 7 [
+    (onekit.http.query) = { name: "sort" },
+    (buf.validate.field).string = { in: ["asc", "desc"] },
+    (onekit.http.field_examples) = { values: ["asc", "desc"] }
+  ];
+}
+
+// GetOptionBarsResponse contains the option bars data.
+// The map values use the unwrap annotation for cleaner JSON serialization:
+// {"bars": {"TSLA260123C00335000": [...bars...]}} instead of {"bars": {"TSLA260123C00335000": {"bars": [...]}}}
+message GetOptionBarsResponse {
+  // Map of symbol to list of bars. Each symbol maps directly to an array of bars.
+  map<string, marketdata.models.OptionBarsList> bars = 1;
+  // Next page token for pagination, null if no more pages.
+  string next_page_token = 2 [(onekit.http.field_examples) = { values: ["eyJwYWdlIjogMn0="] }];
+}
+
+// GetLatestOptionBarsRequest is the request to get the latest option bars.
+message GetLatestOptionBarsRequest {
+  // Comma-separated list of option symbols.
+  string symbols = 1 [
+    (buf.validate.field).required = true,
+    (onekit.http.query) = { name: "symbols" },
+    (onekit.http.field_examples) = { values: ["TSLA260123C00335000"] }
+  ];
+  // Data feed (indicative, opra).
+  string feed = 2 [
+    (onekit.http.query) = { name: "feed" },
+    (buf.validate.field).string = { in: ["indicative", "opra"] },
+    (onekit.http.field_examples) = { values: ["opra", "indicative"] }
+  ];
+}
+
+// GetLatestOptionBarsResponse contains the latest option bar for each symbol.
+message GetLatestOptionBarsResponse {
+  // Map of symbol to latest bar.
+  map<string, marketdata.models.OptionBar> bars = 1;
+}
+
+// MarketDataService provides option market data endpoints.
+service MarketDataService {
+  option (onekit.http.service_config) = {
+    base_path: "/v2/options"
+  };
+
+  // Service-level API key header for authentication
+  option (onekit.http.service_headers) = {
+    required_headers: [
+      {
+        name: "APCA-API-KEY-ID"
+        description: "Market data API key ID for authentication"
+        type: "string"
+        required: true
+        example: "PKXXXXXXXXXXXXXXXX"
+      },
+      {
+        name: "APCA-API-SECRET-KEY"
+        description: "Market data API secret key for authentication"
+        type: "string"
+        required: true
+        example: "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+      }
+    ]
+  };
+
+  // GetOptionBars retrieves historical option bars for the specified symbols.
+  rpc GetOptionBars(GetOptionBarsRequest) returns (GetOptionBarsResponse) {
+    option (onekit.http.config) = {
+      path: "/bars"
+      method: HTTP_METHOD_GET
+    };
+  }
+
+  // GetLatestOptionBars retrieves the latest option bar for each symbol.
+  rpc GetLatestOptionBars(GetLatestOptionBarsRequest) returns (GetLatestOptionBarsResponse) {
+    option (onekit.http.config) = {
+      path: "/bars/latest"
+      method: HTTP_METHOD_GET
+    };
+  }
+}
