@@ -105,7 +105,7 @@ changelog:
 
 release:
   github:
-    owner: 1homsi
+    owner: stackxio
     name: onekit
   name_template: "onekit v{{ .Version }}"
   header: |
@@ -116,15 +116,15 @@ release:
     ## Install with Go
 
     ```bash
-    go install github.com/1homsi/onekit/cmd/protoc-gen-onekit-go-http@v{{ .Version }}
-    go install github.com/1homsi/onekit/cmd/protoc-gen-onekit-go-client@v{{ .Version }}
-    go install github.com/1homsi/onekit/cmd/protoc-gen-onekit-ts-client@v{{ .Version }}
-    go install github.com/1homsi/onekit/cmd/protoc-gen-onekit-ts-server@v{{ .Version }}
-    go install github.com/1homsi/onekit/cmd/protoc-gen-onekit-py-client@v{{ .Version }}
-    go install github.com/1homsi/onekit/cmd/protoc-gen-onekit-openapiv3@v{{ .Version }}
+    go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-go-http@v{{ .Version }}
+    go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-go-client@v{{ .Version }}
+    go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-ts-client@v{{ .Version }}
+    go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-ts-server@v{{ .Version }}
+    go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-py-client@v{{ .Version }}
+    go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-openapiv3@v{{ .Version }}
     ```
 
-    Full changelog: https://github.com/1homsi/onekit/compare/{{ .PreviousTag }}...v{{ .Version }}
+    Full changelog: https://github.com/stackxio/onekit/compare/{{ .PreviousTag }}...v{{ .Version }}
   prerelease: auto
   draft: false
   replace_existing_draft: true

@@ -6,7 +6,7 @@ package generated
 import (
 	"context"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 // SSEServiceServer is the server API for SSEService service.
@@ -27,7 +27,7 @@ func RegisterSSEServiceServer(server SSEServiceServer, opts ...ServerOption) err
 	getStatusHandler := BindingMiddleware[GetStatusRequest](
 		genericHandler(server.GetStatus, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getStatusPathParams, getStatusQueryParams,
-		"GET", "", config.errorHandler, config.marshalOpts,
+		"GET", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/v1/status", getStatusHandler)
@@ -36,7 +36,7 @@ func RegisterSSEServiceServer(server SSEServiceServer, opts ...ServerOption) err
 	streamEventsHandler := SSEHandler[StreamEventsRequest](
 		server.StreamEvents, config.errorHandler, serviceHeaders, methodHeaders,
 		streamEventsPathParams, streamEventsQueryParams,
-		"GET", config.marshalOpts,
+		"GET", config.maxRequestBytes, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/v1/events", streamEventsHandler)
@@ -45,7 +45,7 @@ func RegisterSSEServiceServer(server SSEServiceServer, opts ...ServerOption) err
 	streamResourceEventsHandler := SSEHandler[StreamResourceEventsRequest](
 		server.StreamResourceEvents, config.errorHandler, serviceHeaders, methodHeaders,
 		streamResourceEventsPathParams, streamResourceEventsQueryParams,
-		"GET", config.marshalOpts,
+		"GET", config.maxRequestBytes, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/v1/resources/{resource_id}/events", streamResourceEventsHandler)
@@ -54,7 +54,7 @@ func RegisterSSEServiceServer(server SSEServiceServer, opts ...ServerOption) err
 	streamFilteredEventsHandler := SSEHandler[StreamFilteredEventsRequest](
 		server.StreamFilteredEvents, config.errorHandler, serviceHeaders, methodHeaders,
 		streamFilteredEventsPathParams, streamFilteredEventsQueryParams,
-		"GET", config.marshalOpts,
+		"GET", config.maxRequestBytes, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/v1/events/filtered", streamFilteredEventsHandler)

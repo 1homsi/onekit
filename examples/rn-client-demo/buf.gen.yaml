@@ -4,7 +4,7 @@ managed:
   enabled: true
   override:
     - file_option: go_package_prefix
-      value: github.com/1homsi/onekit/examples/rn-client-demo/api
+      value: github.com/stackxio/onekit/examples/rn-client-demo/api
     - file_option: go_package_prefix
       module: buf.build/googleapis/googleapis
       value: ""
@@ -12,20 +12,20 @@ managed:
       module: buf.build/bufbuild/protovalidate
       value: ""
     - file_option: go_package_prefix
-      module: buf.build/1homsi/onekit
+      module: buf.build/stackxio/onekit
       value: ""
 
 plugins:
   # Go protobuf types
   - local: protoc-gen-go
     out: ./api
-    opt: module=github.com/1homsi/onekit/examples/rn-client-demo/api
+    opt: module=github.com/stackxio/onekit/examples/rn-client-demo/api
 
   # Go HTTP server handlers
   - local: ../../bin/protoc-gen-onekit-go-http
     out: api
     opt:
-      - module=github.com/1homsi/onekit/examples/rn-client-demo/api
+      - module=github.com/stackxio/onekit/examples/rn-client-demo/api
       - generate_mock=false
 
   - local: ../../bin/protoc-gen-onekit-openapiv3

@@ -6,7 +6,7 @@ package crossint64
 import (
 	"context"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 // BarsServiceServer is the server API for BarsService service.
@@ -24,7 +24,7 @@ func RegisterBarsServiceServer(server BarsServiceServer, opts ...ServerOption) e
 	getBarsHandler := BindingMiddleware[GetBarsRequest](
 		genericHandler(server.GetBars, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getBarsPathParams, getBarsQueryParams,
-		"GET", "", config.errorHandler, config.marshalOpts,
+		"GET", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /v2/bars", getBarsHandler)

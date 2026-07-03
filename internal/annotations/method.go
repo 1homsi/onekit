@@ -3,7 +3,7 @@ package annotations
 import (
 	"strings"
 
-	"github.com/1homsi/onekit/http"
+	"github.com/stackxio/onekit/http"
 )
 
 // HTTP method string constants (uppercase).

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package testdata.flatten;
 
-option go_package = "github.com/1homsi/onekit/internal/httpgen/testdata/flatten;flatten";
+option go_package = "github.com/stackxio/onekit/internal/httpgen/testdata/flatten;flatten";
 
 import "onekit/http/annotations.proto";
 

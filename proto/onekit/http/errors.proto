@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package onekit.http;
 
-option go_package = "github.com/1homsi/onekit/http;http";
+option go_package = "github.com/stackxio/onekit/http;http";
 
 // ValidationError is returned when request validation fails.
 // It contains a list of field violations describing what went wrong.

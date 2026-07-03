@@ -5,7 +5,7 @@ package validation_showcase.models;
 import "buf/validate/validate.proto";
 import "onekit/http/annotations.proto";
 
-option go_package = "github.com/1homsi/onekit/examples/validation-showcase/api/proto/models;models";
+option go_package = "github.com/stackxio/onekit/examples/validation-showcase/api/proto/models;models";
 
 // OrderStatus represents the lifecycle state of an order.
 enum OrderStatus {

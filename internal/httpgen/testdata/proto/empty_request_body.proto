@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package testdata.empty_request_body;
 
-option go_package = "github.com/1homsi/onekit/internal/httpgen/testdata/emptyrequestbody;emptyrequestbody";
+option go_package = "github.com/stackxio/onekit/internal/httpgen/testdata/emptyrequestbody;emptyrequestbody";
 
 import "onekit/http/annotations.proto";
 

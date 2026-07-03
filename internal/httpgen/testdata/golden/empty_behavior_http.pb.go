@@ -6,7 +6,7 @@ package emptybehavior
 import (
 	"context"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 // EmptyBehaviorServiceServer is the server API for EmptyBehaviorService service.
@@ -24,7 +24,7 @@ func RegisterEmptyBehaviorServiceServer(server EmptyBehaviorServiceServer, opts 
 	getResponseHandler := BindingMiddleware[GetResponseRequest](
 		genericHandler(server.GetResponse, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getResponsePathParams, getResponseQueryParams,
-		"GET", "", config.errorHandler, config.marshalOpts,
+		"GET", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/v1/responses/{id}", getResponseHandler)

@@ -7,8 +7,8 @@ import (
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	onekithttp "github.com/1homsi/onekit/http"
-	"github.com/1homsi/onekit/internal/annotations"
+	onekithttp "github.com/stackxio/onekit/http"
+	"github.com/stackxio/onekit/internal/annotations"
 )
 
 // writeMessage emits a Python @dataclass plus to_dict / from_dict serialization

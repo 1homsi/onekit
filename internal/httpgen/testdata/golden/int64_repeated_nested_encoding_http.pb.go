@@ -6,7 +6,7 @@ package int64repeatednested
 import (
 	"context"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 // StockServiceServer is the server API for StockService service.
@@ -24,7 +24,7 @@ func RegisterStockServiceServer(server StockServiceServer, opts ...ServerOption)
 	getStocksHandler := BindingMiddleware[GetStocksRequest](
 		genericHandler(server.GetStocks, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getStocksPathParams, getStocksQueryParams,
-		"GET", "", config.errorHandler, config.marshalOpts,
+		"GET", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/v1/stocks/{market}", getStocksHandler)

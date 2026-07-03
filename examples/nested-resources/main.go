@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/1homsi/onekit/examples/nested-resources/api/proto/models"
-	"github.com/1homsi/onekit/examples/nested-resources/api/proto/services"
+	"github.com/stackxio/onekit/examples/nested-resources/api/proto/models"
+	"github.com/stackxio/onekit/examples/nested-resources/api/proto/services"
 )
 
 // OrganizationService implements the OrganizationServiceServer interface.

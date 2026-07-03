@@ -4,7 +4,7 @@ package validation;
 
 import "buf/validate/validate.proto";
 
-option go_package = "github.com/1homsi/onekit/internal/openapiv3/testdata/validation;validation";
+option go_package = "github.com/stackxio/onekit/internal/openapiv3/testdata/validation;validation";
 
 // Message testing all validation constraints
 message ValidationMessage {

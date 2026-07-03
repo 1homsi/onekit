@@ -1,10 +1,10 @@
-module github.com/1homsi/onekit/examples/marshal-options
+module github.com/stackxio/onekit/examples/marshal-options
 
 go 1.26.0
 
 require (
 	buf.build/go/protovalidate v1.2.0
-	github.com/1homsi/onekit v0.0.0
+	github.com/stackxio/onekit v0.0.0
 	google.golang.org/protobuf v1.36.11
 )
 
@@ -19,4 +19,4 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250811230008-5f3141c8851a // indirect
 )
 
-replace github.com/1homsi/onekit => ../..
+replace github.com/stackxio/onekit => ../..

@@ -6,7 +6,7 @@ package generated
 import (
 	"context"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 // NoAnnotationsServiceServer is the server API for NoAnnotationsService service.
@@ -25,7 +25,7 @@ func RegisterNoAnnotationsServiceServer(server NoAnnotationsServiceServer, opts 
 	simpleActionHandler := BindingMiddleware[SimpleRequest](
 		genericHandler(server.SimpleAction, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		simpleActionPathParams, simpleActionQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /generated/simple_action", simpleActionHandler)
@@ -34,7 +34,7 @@ func RegisterNoAnnotationsServiceServer(server NoAnnotationsServiceServer, opts 
 	anotherActionHandler := BindingMiddleware[AnotherRequest](
 		genericHandler(server.AnotherAction, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		anotherActionPathParams, anotherActionQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /generated/another_action", anotherActionHandler)
@@ -85,7 +85,7 @@ func RegisterBasePathOnlyServiceServer(server BasePathOnlyServiceServer, opts ..
 	actionOneHandler := BindingMiddleware[ActionRequest](
 		genericHandler(server.ActionOne, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		actionOnePathParams, actionOneQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v2/action_one", actionOneHandler)
@@ -94,7 +94,7 @@ func RegisterBasePathOnlyServiceServer(server BasePathOnlyServiceServer, opts ..
 	actionTwoHandler := BindingMiddleware[ActionRequest](
 		genericHandler(server.ActionTwo, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		actionTwoPathParams, actionTwoQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v2/action_two", actionTwoHandler)

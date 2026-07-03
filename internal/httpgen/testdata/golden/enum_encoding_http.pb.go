@@ -6,7 +6,7 @@ package enumencoding
 import (
 	"context"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 // EnumEncodingServiceServer is the server API for EnumEncodingService service.
@@ -24,7 +24,7 @@ func RegisterEnumEncodingServiceServer(server EnumEncodingServiceServer, opts ..
 	getEnumTestHandler := BindingMiddleware[GetEnumTestRequest](
 		genericHandler(server.GetEnumTest, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getEnumTestPathParams, getEnumTestQueryParams,
-		"GET", "", config.errorHandler, config.marshalOpts,
+		"GET", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/v1/test/enum/{id}", getEnumTestHandler)

@@ -966,7 +966,7 @@ const file_proto_onekit_http_annotations_proto_rawDesc = "" +
 	"\aflatten\x12\x1d.google.protobuf.FieldOptions\x18\xe3\x86\x03 \x01(\bR\aflatten\x88\x01\x01:I\n" +
 	"\x0eflatten_prefix\x12\x1d.google.protobuf.FieldOptions\x18\xe4\x86\x03 \x01(\tR\rflattenPrefix\x88\x01\x01:E\n" +
 	"\n" +
-	"enum_value\x12!.google.protobuf.EnumValueOptions\x18܆\x03 \x01(\tR\tenumValue\x88\x01\x01B$Z\"github.com/1homsi/onekit/http;httpb\x06proto3"
+	"enum_value\x12!.google.protobuf.EnumValueOptions\x18܆\x03 \x01(\tR\tenumValue\x88\x01\x01B&Z$github.com/stackxio/onekit/http;httpb\x06proto3"
 
 var (
 	file_proto_onekit_http_annotations_proto_rawDescOnce sync.Once

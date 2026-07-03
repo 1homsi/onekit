@@ -10,8 +10,8 @@ import (
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	"github.com/1homsi/onekit/http"
-	"github.com/1homsi/onekit/internal/annotations"
+	"github.com/stackxio/onekit/http"
+	"github.com/stackxio/onekit/internal/annotations"
 )
 
 // Header type constants for OpenAPI type mapping.

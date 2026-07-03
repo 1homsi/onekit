@@ -7,8 +7,8 @@ import (
 
 	"google.golang.org/protobuf/compiler/protogen"
 
-	"github.com/1homsi/onekit/http"
-	"github.com/1homsi/onekit/internal/annotations"
+	"github.com/stackxio/onekit/http"
+	"github.com/stackxio/onekit/internal/annotations"
 )
 
 // Generator handles HTTP code generation for protobuf services.
@@ -72,6 +72,10 @@ func (g *Generator) generateFile(file *protogen.File) error {
 	// Validate enum annotations first - fail fast if conflicting annotations exist
 	if err := g.validateEnumAnnotationsInFile(file); err != nil {
 		return fmt.Errorf("enum annotation validation failed: %w", err)
+	}
+
+	if err := validateDirectJSONEncodingComposition(file); err != nil {
+		return fmt.Errorf("json annotation validation failed: %w", err)
 	}
 
 	// Generate error implementation file if there are messages ending with Error
@@ -181,7 +185,7 @@ func (g *Generator) generateHTTPFile(file *protogen.File) error {
 	gf.P("import (")
 	gf.P(`"context"`)
 	gf.P()
-	gf.P(`onekithttp "github.com/1homsi/onekit/http"`)
+	gf.P(`onekithttp "github.com/stackxio/onekit/http"`)
 	gf.P(")")
 	gf.P()
 
@@ -250,7 +254,7 @@ func (g *Generator) generateService(gf *protogen.GeneratedFile, file *protogen.F
 				annotations.LowerFirst(method.GoName),
 				"QueryParams,",
 			)
-			gf.P(`"`, httpMethod, `", config.marshalOpts,`)
+			gf.P(`"`, httpMethod, `", config.maxRequestBytes, config.marshalOpts,`)
 			gf.P(")")
 		} else {
 			// Resolve body field selection (body: "<field>" annotation)
@@ -276,7 +280,7 @@ func (g *Generator) generateService(gf *protogen.GeneratedFile, file *protogen.F
 				annotations.LowerFirst(method.GoName),
 				"QueryParams,",
 			)
-			gf.P(`"`, httpMethod, `", "`, bodyFieldName, `", config.errorHandler, config.marshalOpts,`)
+			gf.P(`"`, httpMethod, `", "`, bodyFieldName, `", config.maxRequestBytes, config.errorHandler, config.marshalOpts,`)
 			gf.P(")")
 		}
 		gf.P()
@@ -327,7 +331,7 @@ func (g *Generator) generateBindingFile(file *protogen.File) error {
 	gf.P(`"google.golang.org/protobuf/proto"`)
 	gf.P(`"google.golang.org/protobuf/reflect/protoreflect"`)
 	gf.P()
-	gf.P(`onekithttp "github.com/1homsi/onekit/http"`)
+	gf.P(`onekithttp "github.com/stackxio/onekit/http"`)
 	gf.P(")")
 	gf.P()
 
@@ -392,7 +396,7 @@ func (g *Generator) generateBindingFile(file *protogen.File) error {
 	gf.P("// instead of the whole request message (body field selection).")
 	gf.P("func BindingMiddleware[Req any](next http.Handler, serviceHeaders, methodHeaders []*onekithttp.Header,")
 	gf.P(
-		"pathParams []PathParamConfig, queryParams []QueryParamConfig, httpMethod string, bodyField string, errorHandler ErrorHandler, marshalOpts protojson.MarshalOptions) http.Handler {",
+		"pathParams []PathParamConfig, queryParams []QueryParamConfig, httpMethod string, bodyField string, maxRequestBytes int64, errorHandler ErrorHandler, marshalOpts protojson.MarshalOptions) http.Handler {",
 	)
 	gf.P("return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
 	gf.P("// Validate headers first")
@@ -408,6 +412,9 @@ func (g *Generator) generateBindingFile(file *protogen.File) error {
 	gf.P("// calls proto.Reset(), which would wipe any previously-set fields.")
 	gf.P("// By binding body first, path and query params applied afterwards take precedence.")
 	gf.P(`if httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH" {`)
+	gf.P("if maxRequestBytes > 0 {")
+	gf.P("r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)")
+	gf.P("}")
 	gf.P("var err error")
 	gf.P(`if bodyField != "" {`)
 	gf.P("err = bindBodyToField(r, toBind, bodyField)")
@@ -944,11 +951,14 @@ func (g *Generator) generateServerOptionType(gf *protogen.GeneratedFile) {
 }
 
 func (g *Generator) generateServerConfigurationStruct(gf *protogen.GeneratedFile) {
+	gf.P("const DefaultMaxRequestBytes int64 = 10 << 20")
+	gf.P()
 	gf.P("type serverConfiguration struct {")
 	gf.P("mux *http.ServeMux")
 	gf.P("withMux bool")
 	gf.P("errorHandler ErrorHandler")
 	gf.P("marshalOpts protojson.MarshalOptions")
+	gf.P("maxRequestBytes int64")
 	gf.P("}")
 	gf.P()
 }
@@ -958,6 +968,7 @@ func (g *Generator) generateConfigFunctions(gf *protogen.GeneratedFile) {
 	gf.P("return &serverConfiguration{")
 	gf.P("mux: http.DefaultServeMux,")
 	gf.P("withMux: false,")
+	gf.P("maxRequestBytes: DefaultMaxRequestBytes,")
 	gf.P("}")
 	gf.P("}")
 	gf.P()
@@ -997,6 +1008,15 @@ func (g *Generator) generateServerOptions(gf *protogen.GeneratedFile) {
 	gf.P("func WithMarshalOptions(opts protojson.MarshalOptions) ServerOption {")
 	gf.P("return func(c *serverConfiguration) {")
 	gf.P("c.marshalOpts = opts")
+	gf.P("}")
+	gf.P("}")
+	gf.P()
+
+	gf.P("// WithMaxRequestBytes configures the maximum request body size accepted by")
+	gf.P("// generated binding handlers. Values <= 0 disable request body size limiting.")
+	gf.P("func WithMaxRequestBytes(maxBytes int64) ServerOption {")
+	gf.P("return func(c *serverConfiguration) {")
+	gf.P("c.maxRequestBytes = maxBytes")
 	gf.P("}")
 	gf.P("}")
 	gf.P()
@@ -1833,6 +1853,7 @@ func (g *Generator) generateSSETypes(gf *protogen.GeneratedFile) {
 	gf.P("pathParams []PathParamConfig,")
 	gf.P("queryParams []QueryParamConfig,")
 	gf.P("httpMethod string,")
+	gf.P("maxRequestBytes int64,")
 	gf.P("marshalOpts protojson.MarshalOptions,")
 	gf.P(") http.Handler {")
 	gf.P("return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
@@ -1852,6 +1873,9 @@ func (g *Generator) generateSSETypes(gf *protogen.GeneratedFile) {
 	// Body binding for POST/PUT/PATCH — must happen before path/query binding
 	gf.P("// Bind body FIRST (protojson.Unmarshal calls proto.Reset, which would wipe path/query values)")
 	gf.P(`if httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH" {`)
+	gf.P("if maxRequestBytes > 0 {")
+	gf.P("r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)")
+	gf.P("}")
 	gf.P("if err := bindDataBasedOnContentType(r, req); err != nil {")
 	gf.P("validationErr := &onekithttp.ValidationError{")
 	gf.P("Violations: []*onekithttp.FieldViolation{")

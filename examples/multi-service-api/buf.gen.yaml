@@ -7,7 +7,7 @@ managed:
   override:
     # Set default Go package prefix for generated code
     - file_option: go_package_prefix
-      value: github.com/1homsi/onekit/examples/multi-service-api/api
+      value: github.com/stackxio/onekit/examples/multi-service-api/api
     # Disable package prefix for Google APIs (use their standard packages)
     - file_option: go_package_prefix
       module: buf.build/googleapis/googleapis
@@ -18,7 +18,7 @@ managed:
       value: ""
     # Disable package prefix for onekit (use standard import path)
     - file_option: go_package_prefix
-      module: buf.build/1homsi/onekit
+      module: buf.build/stackxio/onekit
       value: ""
 
 # Local protoc plugins (installed via make install)
@@ -26,7 +26,7 @@ plugins:
   # Standard Go protobuf code generation
   - local: protoc-gen-go
     out: ./api
-    opt: module=github.com/1homsi/onekit/examples/multi-service-api/api
+    opt: module=github.com/stackxio/onekit/examples/multi-service-api/api
 
   # OpenAPI v3 documentation generation in YAML format.
   # Per-service files (UserService.openapi.yaml, AdminService.openapi.yaml, ...)
@@ -71,5 +71,5 @@ plugins:
   - local: ../../bin/protoc-gen-onekit-go-http
     out: api
     opt:
-      - module=github.com/1homsi/onekit/examples/multi-service-api/api
+      - module=github.com/stackxio/onekit/examples/multi-service-api/api
       - generate_mock=false

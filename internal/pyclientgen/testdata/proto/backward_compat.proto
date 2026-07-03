@@ -4,7 +4,7 @@ syntax = "proto3";
 
 package test.httpgen.compat;
 
-option go_package = "github.com/1homsi/onekit/internal/httpgen/testdata/generated;generated";
+option go_package = "github.com/stackxio/onekit/internal/httpgen/testdata/generated;generated";
 
 // Service without any HTTP annotations - should use defaults
 service NoAnnotationsService {

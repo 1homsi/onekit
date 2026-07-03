@@ -1,4 +1,4 @@
-module github.com/1homsi/onekit
+module github.com/stackxio/onekit
 
 go 1.26.0
 

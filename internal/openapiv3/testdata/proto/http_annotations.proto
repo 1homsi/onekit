@@ -4,7 +4,7 @@ package http_test;
 
 import "onekit/http/annotations.proto";
 
-option go_package = "github.com/1homsi/onekit/internal/openapiv3/testdata/http;http";
+option go_package = "github.com/stackxio/onekit/internal/openapiv3/testdata/http;http";
 
 // Simple request message
 message CreateUserRequest {

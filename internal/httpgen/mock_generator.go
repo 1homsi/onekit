@@ -6,7 +6,7 @@ import (
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	"github.com/1homsi/onekit/internal/annotations"
+	"github.com/stackxio/onekit/internal/annotations"
 )
 
 // generateMockFile generates a mock server implementation file.
@@ -26,6 +26,7 @@ func (g *Generator) generateMockFile(file *protogen.File) error {
 	gf.P(`"time"`)
 	gf.P()
 	gf.P(`"google.golang.org/protobuf/proto"`)
+	gf.P(`"google.golang.org/protobuf/reflect/protoreflect"`)
 	gf.P(")")
 	gf.P()
 
@@ -176,37 +177,17 @@ func (g *Generator) generateMockFieldAssignments(
 		fieldName := field.GoName
 		fieldPath := messageName + "." + string(field.Desc.Name())
 
+		if field.Desc.IsList() && !field.Desc.IsMap() {
+			g.generateMockRepeatedFieldAssignment(gf, field, varName, fieldPath)
+			continue
+		}
+
 		// Generate assignment based on field type
 		switch field.Desc.Kind() {
 		case protoreflect.StringKind:
-			gf.P(
-				varName,
-				".",
-				fieldName,
-				" = selectStringExample(\"",
-				fieldPath,
-				"\", ",
-				g.getDefaultGenerator(field),
-				")",
-			)
-		case protoreflect.Int32Kind, protoreflect.Int64Kind:
-			gf.P(varName, ".", fieldName, " = selectIntExample(\"", fieldPath, "\", ", g.getDefaultValue(field), ")")
-		case protoreflect.BoolKind:
-			gf.P(varName, ".", fieldName, " = selectBoolExample(\"", fieldPath, "\", ", g.getDefaultValue(field), ")")
-		case protoreflect.FloatKind, protoreflect.DoubleKind:
-			gf.P(varName, ".", fieldName, " = selectFloatExample(\"", fieldPath, "\", ", g.getDefaultValue(field), ")")
-		case protoreflect.MessageKind:
-			switch {
-			case field.Desc.IsMap():
-				// Handle map fields
-				g.generateMockMapFieldAssignment(gf, field, varName)
-			case field.Desc.IsList():
-				gf.P("// TODO: Handle repeated message field ", fieldName)
-			default:
-				gf.P(varName, ".", fieldName, " = &", field.Message.GoIdent, "{}")
-				g.generateMockFieldAssignments(gf, field.Message, varName+"."+fieldName)
-			}
-		case protoreflect.EnumKind,
+			g.generateMockReflectFieldAssignment(gf, field, varName, fieldPath)
+		case protoreflect.Int32Kind,
+			protoreflect.Int64Kind,
 			protoreflect.Sint32Kind,
 			protoreflect.Uint32Kind,
 			protoreflect.Sint64Kind,
@@ -214,14 +195,66 @@ func (g *Generator) generateMockFieldAssignments(
 			protoreflect.Sfixed32Kind,
 			protoreflect.Fixed32Kind,
 			protoreflect.Sfixed64Kind,
-			protoreflect.Fixed64Kind,
-			protoreflect.BytesKind,
-			protoreflect.GroupKind:
-			gf.P("// TODO: Handle field ", fieldName, " of type ", field.Desc.Kind())
+			protoreflect.Fixed64Kind:
+			g.generateMockReflectFieldAssignment(gf, field, varName, fieldPath)
+		case protoreflect.BoolKind:
+			g.generateMockReflectFieldAssignment(gf, field, varName, fieldPath)
+		case protoreflect.FloatKind, protoreflect.DoubleKind:
+			g.generateMockReflectFieldAssignment(gf, field, varName, fieldPath)
+		case protoreflect.MessageKind:
+			if field.Desc.IsMap() {
+				// Handle map fields
+				g.generateMockMapFieldAssignment(gf, field, varName)
+			} else {
+				gf.P(varName, ".", fieldName, " = &", field.Message.GoIdent, "{}")
+				g.generateMockFieldAssignments(gf, field.Message, varName+"."+fieldName)
+			}
+		case protoreflect.EnumKind, protoreflect.BytesKind:
+			g.generateMockReflectFieldAssignment(gf, field, varName, fieldPath)
+		case protoreflect.GroupKind:
+			gf.P("// Skipping unsupported group field ", fieldName)
 		default:
-			gf.P("// TODO: Handle field ", fieldName, " of type ", field.Desc.Kind())
+			gf.P("// Skipping unsupported field ", fieldName, " of type ", field.Desc.Kind())
 		}
 	}
+}
+
+func (g *Generator) generateMockReflectFieldAssignment(
+	gf *protogen.GeneratedFile,
+	field *protogen.Field,
+	varName string,
+	fieldPath string,
+) {
+	gf.P(
+		`setMockField(`,
+		varName,
+		`, "`,
+		field.Desc.Name(),
+		`", `,
+		g.getMockReflectValueExpr(field, fieldPath),
+		`)`,
+	)
+}
+
+// generateMockRepeatedFieldAssignment generates sample values for repeated fields.
+func (g *Generator) generateMockRepeatedFieldAssignment(
+	gf *protogen.GeneratedFile,
+	field *protogen.Field,
+	varName string,
+	fieldPath string,
+) {
+	fieldName := field.GoName
+
+	if field.Desc.Kind() == protoreflect.MessageKind {
+		gf.P(varName, ".", fieldName, " = []*", gf.QualifiedGoIdent(field.Message.GoIdent), "{{}}")
+		elemVar := varName + "." + fieldName + "[0]"
+		g.generateMockFieldAssignments(gf, field.Message, elemVar)
+		return
+	}
+
+	elemType := g.getGoTypeScalar(gf, field)
+	valueExpr := g.getMockScalarValueExpr(gf, field, fieldPath)
+	gf.P(varName, ".", fieldName, " = []", elemType, "{", valueExpr, "}")
 }
 
 // generateMockMapFieldAssignment generates code to populate a map field with sample data.
@@ -237,7 +270,7 @@ func (g *Generator) generateMockMapFieldAssignment(
 	valueField := field.Message.Fields[1]
 
 	// Initialize the map with properly qualified types
-	keyType := g.getGoTypeScalar(keyField)
+	keyType := g.getGoTypeScalar(gf, keyField)
 
 	// Generate a sample key
 	sampleKey := g.getSampleMapKey(keyField)
@@ -261,15 +294,15 @@ func (g *Generator) generateMockMapFieldAssignment(
 		g.generateMockFieldAssignments(gf, valueField.Message, mapValueVar)
 	} else {
 		// Value is a scalar type
-		valueType := g.getGoTypeScalar(valueField)
+		valueType := g.getGoTypeScalar(gf, valueField)
 		gf.P(varName, ".", fieldName, " = make(map[", keyType, "]", valueType, ")")
-		defaultValue := g.getDefaultValue(valueField)
-		gf.P(varName, ".", fieldName, "[", sampleKey, "] = ", defaultValue)
+		valueExpr := g.getMockScalarValueExpr(gf, valueField, string(field.Desc.Name())+".value")
+		gf.P(varName, ".", fieldName, "[", sampleKey, "] = ", valueExpr)
 	}
 }
 
 // getGoTypeScalar returns the Go type string for scalar fields only.
-func (g *Generator) getGoTypeScalar(field *protogen.Field) string {
+func (g *Generator) getGoTypeScalar(gf *protogen.GeneratedFile, field *protogen.Field) string {
 	switch field.Desc.Kind() {
 	case protoreflect.StringKind:
 		return kindString
@@ -290,13 +323,71 @@ func (g *Generator) getGoTypeScalar(field *protogen.Field) string {
 	case protoreflect.BytesKind:
 		return "[]byte"
 	case protoreflect.MessageKind:
-		return "*" + field.Message.GoIdent.GoName
+		return "*" + gf.QualifiedGoIdent(field.Message.GoIdent)
 	case protoreflect.EnumKind:
-		return kindInt32
+		return gf.QualifiedGoIdent(field.Enum.GoIdent)
 	case protoreflect.GroupKind:
 		return kindInterface
 	default:
 		return kindInterface
+	}
+}
+
+func (g *Generator) getMockScalarValueExpr(
+	gf *protogen.GeneratedFile,
+	field *protogen.Field,
+	fieldPath string,
+) string {
+	switch field.Desc.Kind() {
+	case protoreflect.StringKind:
+		return `selectStringExample("` + fieldPath + `", ` + g.getDefaultGenerator(field) + `)`
+	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
+		return g.getGoTypeScalar(gf, field) + `(selectIntExample("` + fieldPath + `", 42))`
+	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
+		return g.getGoTypeScalar(gf, field) + `(selectIntExample("` + fieldPath + `", 42))`
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+		return g.getGoTypeScalar(gf, field) + `(selectUintExample("` + fieldPath + `", 42))`
+	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		return g.getGoTypeScalar(gf, field) + `(selectUintExample("` + fieldPath + `", 42))`
+	case protoreflect.BoolKind:
+		return `selectBoolExample("` + fieldPath + `", true)`
+	case protoreflect.FloatKind:
+		return `float32(selectFloatExample("` + fieldPath + `", 3.14))`
+	case protoreflect.DoubleKind:
+		return `selectFloatExample("` + fieldPath + `", 3.14)`
+	case protoreflect.BytesKind:
+		return `[]byte(selectStringExample("` + fieldPath + `", generateString))`
+	case protoreflect.EnumKind:
+		return gf.QualifiedGoIdent(field.Enum.GoIdent) + `(selectIntExample("` + fieldPath + `", 0))`
+	default:
+		return `nil`
+	}
+}
+
+func (g *Generator) getMockReflectValueExpr(field *protogen.Field, fieldPath string) string {
+	switch field.Desc.Kind() {
+	case protoreflect.StringKind:
+		return `protoreflect.ValueOfString(selectStringExample("` + fieldPath + `", ` + g.getDefaultGenerator(field) + `))`
+	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
+		return `protoreflect.ValueOfInt32(int32(selectIntExample("` + fieldPath + `", 42)))`
+	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
+		return `protoreflect.ValueOfInt64(selectIntExample("` + fieldPath + `", 42))`
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+		return `protoreflect.ValueOfUint32(uint32(selectUintExample("` + fieldPath + `", 42)))`
+	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		return `protoreflect.ValueOfUint64(selectUintExample("` + fieldPath + `", 42))`
+	case protoreflect.BoolKind:
+		return `protoreflect.ValueOfBool(selectBoolExample("` + fieldPath + `", true))`
+	case protoreflect.FloatKind:
+		return `protoreflect.ValueOfFloat32(float32(selectFloatExample("` + fieldPath + `", 3.14)))`
+	case protoreflect.DoubleKind:
+		return `protoreflect.ValueOfFloat64(selectFloatExample("` + fieldPath + `", 3.14))`
+	case protoreflect.BytesKind:
+		return `protoreflect.ValueOfBytes([]byte(selectStringExample("` + fieldPath + `", generateString)))`
+	case protoreflect.EnumKind:
+		return `protoreflect.ValueOfEnum(protoreflect.EnumNumber(selectIntExample("` + fieldPath + `", 0)))`
+	default:
+		return `protoreflect.Value{}`
 	}
 }
 
@@ -378,9 +469,22 @@ func (g *Generator) getDefaultValue(field *protogen.Field) string {
 
 // generateMockHelpers generates helper functions for mock data generation.
 func (g *Generator) generateMockHelpers(gf *protogen.GeneratedFile) {
+	g.generateSetMockFieldHelper(gf)
 	g.generateExampleSelectors(gf)
 	g.generateDefaultGenerators(gf)
 	g.generateInitFunction(gf)
+}
+
+func (g *Generator) generateSetMockFieldHelper(gf *protogen.GeneratedFile) {
+	gf.P("func setMockField(msg proto.Message, fieldName string, value protoreflect.Value) {")
+	gf.P("fields := msg.ProtoReflect().Descriptor().Fields()")
+	gf.P("field := fields.ByName(protoreflect.Name(fieldName))")
+	gf.P("if field == nil {")
+	gf.P("return")
+	gf.P("}")
+	gf.P("msg.ProtoReflect().Set(field, value)")
+	gf.P("}")
+	gf.P()
 }
 
 // generateExampleSelectors generates functions to select examples from predefined values.
@@ -401,6 +505,19 @@ func (g *Generator) generateExampleSelectors(gf *protogen.GeneratedFile) {
 	gf.P("if examples, ok := fieldExamples[fieldPath]; ok && len(examples) > 0 {")
 	gf.P("example := examples[rand.Intn(len(examples))]")
 	gf.P("if v, err := strconv.ParseInt(example, 10, 64); err == nil {")
+	gf.P("return v")
+	gf.P("}")
+	gf.P("}")
+	gf.P("return defaultValue")
+	gf.P("}")
+	gf.P()
+
+	// Uint example selector
+	gf.P("// selectUintExample selects a random example or returns a default value.")
+	gf.P("func selectUintExample(fieldPath string, defaultValue uint64) uint64 {")
+	gf.P("if examples, ok := fieldExamples[fieldPath]; ok && len(examples) > 0 {")
+	gf.P("example := examples[rand.Intn(len(examples))]")
+	gf.P("if v, err := strconv.ParseUint(example, 10, 64); err == nil {")
 	gf.P("return v")
 	gf.P("}")
 	gf.P("}")

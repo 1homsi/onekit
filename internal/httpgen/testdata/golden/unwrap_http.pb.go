@@ -6,7 +6,7 @@ package generated
 import (
 	"context"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 // OptionDataServiceServer is the server API for OptionDataService service.
@@ -24,7 +24,7 @@ func RegisterOptionDataServiceServer(server OptionDataServiceServer, opts ...Ser
 	getOptionBarsHandler := BindingMiddleware[GetOptionBarsRequest](
 		genericHandler(server.GetOptionBars, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getOptionBarsPathParams, getOptionBarsQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/options/bars", getOptionBarsHandler)
@@ -66,7 +66,7 @@ func RegisterUnwrapServiceServer(server UnwrapServiceServer, opts ...ServerOptio
 	getOptionBarsHandler := BindingMiddleware[GetOptionBarsRequest](
 		genericHandler(server.GetOptionBars, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getOptionBarsPathParams, getOptionBarsQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/options/bars", getOptionBarsHandler)
@@ -75,7 +75,7 @@ func RegisterUnwrapServiceServer(server UnwrapServiceServer, opts ...ServerOptio
 	getRootMapHandler := BindingMiddleware[GetOptionBarsRequest](
 		genericHandler(server.GetRootMap, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getRootMapPathParams, getRootMapQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/root/map", getRootMapHandler)
@@ -84,7 +84,7 @@ func RegisterUnwrapServiceServer(server UnwrapServiceServer, opts ...ServerOptio
 	getRootRepeatedHandler := BindingMiddleware[GetOptionBarsRequest](
 		genericHandler(server.GetRootRepeated, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getRootRepeatedPathParams, getRootRepeatedQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/root/repeated", getRootRepeatedHandler)
@@ -93,7 +93,7 @@ func RegisterUnwrapServiceServer(server UnwrapServiceServer, opts ...ServerOptio
 	getRootMapWithValueUnwrapHandler := BindingMiddleware[GetOptionBarsRequest](
 		genericHandler(server.GetRootMapWithValueUnwrap, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getRootMapWithValueUnwrapPathParams, getRootMapWithValueUnwrapQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/root/map-value-unwrap", getRootMapWithValueUnwrapHandler)

@@ -8,7 +8,7 @@ syntax = "proto3";
 
 package test.pyclientgen.errors;
 
-option go_package = "github.com/1homsi/onekit/internal/pyclientgen/testdata/generated;generated";
+option go_package = "github.com/stackxio/onekit/internal/pyclientgen/testdata/generated;generated";
 
 import "onekit/http/annotations.proto";
 

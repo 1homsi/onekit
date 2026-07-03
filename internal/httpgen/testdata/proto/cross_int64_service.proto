@@ -4,7 +4,7 @@ syntax = "proto3";
 
 package test.httpgen.crossint64;
 
-option go_package = "github.com/1homsi/onekit/internal/httpgen/testdata/generated/crossint64;crossint64";
+option go_package = "github.com/stackxio/onekit/internal/httpgen/testdata/generated/crossint64;crossint64";
 
 import "onekit/http/annotations.proto";
 import "cross_int64_bar.proto";

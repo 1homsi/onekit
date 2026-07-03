@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package nested;
 
-option go_package = "github.com/1homsi/onekit/internal/openapiv3/testdata/nested;nested";
+option go_package = "github.com/stackxio/onekit/internal/openapiv3/testdata/nested;nested";
 
 // Top-level message with nested messages
 message Organization {

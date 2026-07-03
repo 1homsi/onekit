@@ -5,7 +5,7 @@ package headers;
 import "onekit/http/annotations.proto";
 import "onekit/http/headers.proto";
 
-option go_package = "github.com/1homsi/onekit/internal/openapiv3/testdata/headers;headers";
+option go_package = "github.com/stackxio/onekit/internal/openapiv3/testdata/headers;headers";
 
 // Simple request message
 message HeaderRequest {

@@ -7,7 +7,7 @@
 package models
 
 import (
-	_ "github.com/1homsi/onekit/http"
+	_ "github.com/stackxio/onekit/http"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -333,7 +333,7 @@ const file_proto_models_portfolio_proto_rawDesc = "" +
 	"\x18ASSET_CLASS_FIXED_INCOME\x10\x02\x12\x19\n" +
 	"\x15ASSET_CLASS_COMMODITY\x10\x03\x12\x16\n" +
 	"\x12ASSET_CLASS_CRYPTO\x10\x04B\x81\x02\n" +
-	"\x1ecom.examples.enumparams.modelsB\x0ePortfolioProtoP\x01ZEgithub.com/1homsi/onekit/examples/enum-params/api/proto/models\xa2\x02\x03EEM\xaa\x02\x1aExamples.Enumparams.Models\xca\x02\x1aExamples\\Enumparams\\Models\xe2\x02&Examples\\Enumparams\\Models\\GPBMetadata\xea\x02\x1cExamples::Enumparams::Modelsb\x06proto3"
+	"\x1ecom.examples.enumparams.modelsB\x0ePortfolioProtoP\x01ZEgithub.com/stackxio/onekit/examples/enum-params/api/proto/models\xa2\x02\x03EEM\xaa\x02\x1aExamples.Enumparams.Models\xca\x02\x1aExamples\\Enumparams\\Models\xe2\x02&Examples\\Enumparams\\Models\\GPBMetadata\xea\x02\x1cExamples::Enumparams::Modelsb\x06proto3"
 
 var (
 	file_proto_models_portfolio_proto_rawDescOnce sync.Once

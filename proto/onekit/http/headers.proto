@@ -4,7 +4,7 @@ package onekit.http;
 
 import "google/protobuf/descriptor.proto";
 
-option go_package = "github.com/1homsi/onekit/http;http";
+option go_package = "github.com/stackxio/onekit/http;http";
 
 // AuthType marks a header as an authentication credential.
 // Headers with an auth type are emitted as OpenAPI securitySchemes

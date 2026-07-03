@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/1homsi/onekit/examples/python-client-demo/api/proto"
+	pb "github.com/stackxio/onekit/examples/python-client-demo/api/proto"
 	"google.golang.org/protobuf/proto"
 )
 

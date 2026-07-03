@@ -33,15 +33,12 @@ func generateTestFiles(t *testing.T, protoFile string) *generatedFiles {
 	projectRoot := filepath.Join(baseDir, "..", "..")
 	protoDir := filepath.Join(baseDir, "testdata", "proto")
 	tempDir := t.TempDir()
-	pluginPath := filepath.Join(projectRoot, "bin", "protoc-gen-onekit-go-http")
+	pluginPath := filepath.Join(tempDir, "protoc-gen-onekit-go-http")
 
-	// Build the plugin if it doesn't exist
-	if _, buildStatErr := os.Stat(pluginPath); os.IsNotExist(buildStatErr) {
-		buildCmd := exec.Command("make", "build")
-		buildCmd.Dir = projectRoot
-		if buildErr := buildCmd.Run(); buildErr != nil {
-			t.Fatalf("Failed to build plugin: %v", buildErr)
-		}
+	buildCmd := exec.Command("go", "build", "-o", pluginPath, "./cmd/protoc-gen-onekit-go-http")
+	buildCmd.Dir = projectRoot
+	if output, buildErr := buildCmd.CombinedOutput(); buildErr != nil {
+		t.Fatalf("Failed to build plugin: %v\n%s", buildErr, output)
 	}
 
 	// Generate code (using explicit plugin path)
@@ -109,8 +106,20 @@ func TestErrorHandlerConfigGeneration(t *testing.T) {
 	})
 
 	t.Run("serverConfiguration has errorHandler field", func(t *testing.T) {
-		if !strings.Contains(files.config, "errorHandler ErrorHandler") {
+		if !strings.Contains(files.config, "errorHandler") || !strings.Contains(files.config, "ErrorHandler") {
 			t.Error("errorHandler field not found in serverConfiguration")
+		}
+	})
+
+	t.Run("serverConfiguration has max request size field", func(t *testing.T) {
+		for _, want := range []string{
+			"const DefaultMaxRequestBytes int64 = 10 << 20",
+			"maxRequestBytes int64",
+			"maxRequestBytes: DefaultMaxRequestBytes",
+		} {
+			if !strings.Contains(files.config, want) {
+				t.Errorf("max request size config missing %q", want)
+			}
 		}
 	})
 
@@ -120,6 +129,18 @@ func TestErrorHandlerConfigGeneration(t *testing.T) {
 		}
 		if !strings.Contains(files.config, "c.errorHandler = handler") {
 			t.Error("WithErrorHandler implementation not correct")
+		}
+	})
+
+	t.Run("WithMaxRequestBytes function is generated", func(t *testing.T) {
+		for _, want := range []string{
+			"func WithMaxRequestBytes(maxBytes int64) ServerOption",
+			"c.maxRequestBytes = maxBytes",
+			"Values <= 0 disable request body size limiting.",
+		} {
+			if !strings.Contains(files.config, want) {
+				t.Errorf("WithMaxRequestBytes generation missing %q", want)
+			}
 		}
 	})
 
@@ -296,7 +317,7 @@ func TestErrorHandlerIntegration(t *testing.T) {
 	})
 
 	t.Run("BindingMiddleware receives errorHandler", func(t *testing.T) {
-		if !strings.Contains(files.http, ", config.errorHandler, config.marshalOpts,") {
+		if !strings.Contains(files.http, ", config.maxRequestBytes, config.errorHandler, config.marshalOpts,") {
 			t.Error("BindingMiddleware should receive config.errorHandler and config.marshalOpts")
 		}
 	})
@@ -309,9 +330,15 @@ func TestErrorHandlerEdgeCases(t *testing.T) {
 	t.Run("BindingMiddleware signature includes errorHandler", func(t *testing.T) {
 		if !strings.Contains(
 			files.binding,
-			"httpMethod string, bodyField string, errorHandler ErrorHandler, marshalOpts protojson.MarshalOptions) http.Handler",
+			"httpMethod string, bodyField string, maxRequestBytes int64, errorHandler ErrorHandler, marshalOpts protojson.MarshalOptions) http.Handler",
 		) {
 			t.Error("BindingMiddleware should have errorHandler and marshalOpts as trailing parameters")
+		}
+	})
+
+	t.Run("BindingMiddleware applies max request size", func(t *testing.T) {
+		if !strings.Contains(files.binding, "r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)") {
+			t.Error("BindingMiddleware should wrap request body with http.MaxBytesReader")
 		}
 	})
 

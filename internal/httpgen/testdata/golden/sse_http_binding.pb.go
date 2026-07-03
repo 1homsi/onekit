@@ -22,7 +22,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 const (
@@ -71,7 +71,7 @@ func getRequest[Req any](ctx context.Context) Req {
 // When bodyField is non-empty, the request body binds into that sub-message field
 // instead of the whole request message (body field selection).
 func BindingMiddleware[Req any](next http.Handler, serviceHeaders, methodHeaders []*onekithttp.Header,
-	pathParams []PathParamConfig, queryParams []QueryParamConfig, httpMethod string, bodyField string, errorHandler ErrorHandler, marshalOpts protojson.MarshalOptions) http.Handler {
+	pathParams []PathParamConfig, queryParams []QueryParamConfig, httpMethod string, bodyField string, maxRequestBytes int64, errorHandler ErrorHandler, marshalOpts protojson.MarshalOptions) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Validate headers first
 		if validationErr := validateHeaders(r, serviceHeaders, methodHeaders); validationErr != nil {
@@ -86,6 +86,9 @@ func BindingMiddleware[Req any](next http.Handler, serviceHeaders, methodHeaders
 		// calls proto.Reset(), which would wipe any previously-set fields.
 		// By binding body first, path and query params applied afterwards take precedence.
 		if httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH" {
+			if maxRequestBytes > 0 {
+				r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
+			}
 			var err error
 			if bodyField != "" {
 				err = bindBodyToField(r, toBind, bodyField)
@@ -979,6 +982,7 @@ func SSEHandler[Req any](
 	pathParams []PathParamConfig,
 	queryParams []QueryParamConfig,
 	httpMethod string,
+	maxRequestBytes int64,
 	marshalOpts protojson.MarshalOptions,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -992,6 +996,9 @@ func SSEHandler[Req any](
 
 		// Bind body FIRST (protojson.Unmarshal calls proto.Reset, which would wipe path/query values)
 		if httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH" {
+			if maxRequestBytes > 0 {
+				r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
+			}
 			if err := bindDataBasedOnContentType(r, req); err != nil {
 				validationErr := &onekithttp.ValidationError{
 					Violations: []*onekithttp.FieldViolation{

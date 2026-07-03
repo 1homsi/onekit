@@ -4,13 +4,13 @@
 package services
 
 import (
-	models "github.com/1homsi/onekit/examples/enum-params/api/proto/models"
+	models "github.com/stackxio/onekit/examples/enum-params/api/proto/models"
 )
 
 import (
 	"context"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 // PortfolioServiceServer is the server API for PortfolioService service.

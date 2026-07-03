@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package simple;
 
-option go_package = "github.com/1homsi/onekit/internal/openapiv3/testdata/simple;simple";
+option go_package = "github.com/stackxio/onekit/internal/openapiv3/testdata/simple;simple";
 
 // Simple message for testing basic OpenAPI generation
 message SimpleRequest {

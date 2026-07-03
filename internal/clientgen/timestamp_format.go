@@ -5,8 +5,8 @@ import (
 
 	"google.golang.org/protobuf/compiler/protogen"
 
-	"github.com/1homsi/onekit/http"
-	"github.com/1homsi/onekit/internal/annotations"
+	"github.com/stackxio/onekit/http"
+	"github.com/stackxio/onekit/internal/annotations"
 )
 
 // TimestampFormatContext holds information about messages that need custom JSON encoding

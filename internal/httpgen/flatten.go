@@ -6,7 +6,7 @@ import (
 
 	"google.golang.org/protobuf/compiler/protogen"
 
-	"github.com/1homsi/onekit/internal/annotations"
+	"github.com/stackxio/onekit/internal/annotations"
 )
 
 // FlattenContext holds information about messages that need custom JSON encoding

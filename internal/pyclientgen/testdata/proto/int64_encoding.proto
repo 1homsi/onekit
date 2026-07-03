@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package testdata.int64encoding;
 
-option go_package = "github.com/1homsi/onekit/internal/httpgen/testdata/int64encoding;int64encoding";
+option go_package = "github.com/stackxio/onekit/internal/httpgen/testdata/int64encoding;int64encoding";
 
 import "onekit/http/annotations.proto";
 

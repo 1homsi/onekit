@@ -7,7 +7,7 @@ import (
 	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
 	"github.com/pb33f/libopenapi/orderedmap"
 
-	"github.com/1homsi/onekit/http"
+	"github.com/stackxio/onekit/http"
 )
 
 // splitAuthHeaders partitions headers into authentication headers (auth_type set)

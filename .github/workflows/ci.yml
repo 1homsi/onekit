@@ -243,7 +243,7 @@ jobs:
           coverage-file-name: coverage/coverage.out
 
   coverage-check:
-    name: Coverage Status Check
+    name: Coverage Target Report
     runs-on: ubuntu-latest
     needs: coverage
     if: always()
@@ -262,7 +262,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: false
           
-      - name: Check coverage threshold
+      - name: Report coverage target
         run: |
           coverage_file="coverage/coverage.out"
           if [ -f "$coverage_file" ]; then
@@ -272,20 +272,18 @@ jobs:
             
             echo "Coverage: ${total_coverage}"
             
-            # Set threshold (85%)
+            # Report target (85%). This job is informational and does not fail CI.
             threshold=85
             if [ "${coverage_num%.*}" -ge "$threshold" ]; then
-              echo "OK: Coverage meets threshold (${threshold}%)"
+              echo "OK: Coverage meets target (${threshold}%)"
               echo "COVERAGE_STATUS=OK: ${total_coverage}" >> $GITHUB_ENV
             else
-              echo "WARN: Coverage below threshold (${threshold}%) - This is currently a warning"
+              echo "WARN: Coverage below target (${threshold}%) - informational only"
               echo "COVERAGE_STATUS=WARN: ${total_coverage}" >> $GITHUB_ENV
-              # Don't fail, just warn
             fi
           else
             echo "WARN: No coverage file found"
             echo "COVERAGE_STATUS=WARN: No coverage" >> $GITHUB_ENV
-            # Don't fail, just warn
           fi
           
       - name: Update commit status
@@ -332,8 +330,16 @@ jobs:
           
       - name: Test plugin execution
         run: |
-          test -x ./bin/protoc-gen-onekit-go-http
-          test -x ./bin/protoc-gen-onekit-openapiv3
+          for plugin in \
+            protoc-gen-onekit-go-http \
+            protoc-gen-onekit-go-client \
+            protoc-gen-onekit-ts-client \
+            protoc-gen-onekit-ts-server \
+            protoc-gen-onekit-py-client \
+            protoc-gen-onekit-openapiv3
+          do
+            test -x "./bin/$plugin"
+          done
           
       - name: Upload binaries
         uses: actions/upload-artifact@v7
@@ -363,6 +369,11 @@ jobs:
         with:
           version: ${{ env.PROTOC_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
           
       - name: Install protoc-gen-go dependency
         run: |
@@ -394,51 +405,59 @@ jobs:
           # Create test directory
           mkdir -p integration-test-output
           
-          echo "Testing plugins with simple_service.proto (has services)..."
-          # Test all plugins with simple_service.proto (has services)
+          echo "Testing all plugins with http_verbs_comprehensive.proto (has services and annotations)..."
           protoc \
             --plugin=protoc-gen-onekit-go-http=bin/protoc-gen-onekit-go-http \
+            --plugin=protoc-gen-onekit-go-client=bin/protoc-gen-onekit-go-client \
+            --plugin=protoc-gen-onekit-ts-client=bin/protoc-gen-onekit-ts-client \
+            --plugin=protoc-gen-onekit-ts-server=bin/protoc-gen-onekit-ts-server \
+            --plugin=protoc-gen-onekit-py-client=bin/protoc-gen-onekit-py-client \
             --plugin=protoc-gen-onekit-openapiv3=bin/protoc-gen-onekit-openapiv3 \
             --go_out=integration-test-output \
-            --go_opt=module=github.com/1homsi/onekit \
+            --go_opt=paths=source_relative \
             --onekit-go-http_out=integration-test-output \
-            --onekit-go-http_opt=module=github.com/1homsi/onekit \
+            --onekit-go-http_opt=paths=source_relative \
+            --onekit-go-client_out=integration-test-output \
+            --onekit-go-client_opt=paths=source_relative \
+            --onekit-ts-client_out=integration-test-output \
+            --onekit-ts-client_opt=paths=source_relative \
+            --onekit-ts-server_out=integration-test-output \
+            --onekit-ts-server_opt=paths=source_relative \
+            --onekit-py-client_out=integration-test-output \
+            --onekit-py-client_opt=paths=source_relative \
             --onekit-openapiv3_out=integration-test-output \
-            --proto_path=internal/openapiv3/testdata/proto \
-            internal/openapiv3/testdata/proto/simple_service.proto
+            --proto_path=internal/httpgen/testdata/proto \
+            --proto_path=proto \
+            http_verbs_comprehensive.proto
 
           # Debug: List all generated files
           echo "Generated files:"
-          find integration-test-output -type f -name "*.go" -o -name "*.yaml" | sort
+          find integration-test-output -type f | sort
 
-          # Verify HTTP handler output for service proto
-          echo "Checking HTTP handler outputs..."
-          if [ -f "integration-test-output/internal/openapiv3/testdata/simple/simple_service_http.pb.go" ]; then
-            echo "simple_service_http.pb.go found"
-          else
-            echo "simple_service_http.pb.go missing"
-            exit 1
-          fi
-
-          # Verify OpenAPI output for service proto (this should exist!)
-          echo "Checking OpenAPI outputs..."
-          openapi_files=$(find integration-test-output -name "*.openapi.yaml" | wc -l)
-          if [ "$openapi_files" -gt 0 ]; then
-            echo "Found $openapi_files OpenAPI service file(s)"
-            find integration-test-output -name "*.openapi.yaml"
-          else
-            echo "No OpenAPI files found - this should not happen with simple_service.proto"
-            echo "Available YAML files:"
-            find integration-test-output -name "*.yaml" -o -name "*.yml" || echo "No YAML files found"
-            exit 1
-          fi
+          echo "Checking generated outputs..."
+          test -f integration-test-output/http_verbs_comprehensive.pb.go
+          test -f integration-test-output/http_verbs_comprehensive_http.pb.go
+          test -f integration-test-output/http_verbs_comprehensive_http_binding.pb.go
+          test -f integration-test-output/http_verbs_comprehensive_http_config.pb.go
+          test -f integration-test-output/http_verbs_comprehensive_client.pb.go
+          test -f integration-test-output/http_verbs_comprehensive_client.ts
+          test -f integration-test-output/http_verbs_comprehensive_server.ts
+          test -f integration-test-output/http_verbs_comprehensive_client.py
+          test "$(find integration-test-output -name '*.openapi.yaml' | wc -l)" -gt 0
           
       - name: Compile generated code
         run: |
           cd integration-test-output
-          go mod init test-module
+          go mod init github.com/stackxio/onekit/internal/httpgen/testdata/generated
+          go mod edit -replace github.com/stackxio/onekit=..
           go mod tidy
           go build ./...
+
+          npx --yes -p typescript@latest tsc --noEmit --target es2022 --module esnext \
+            http_verbs_comprehensive_client.ts \
+            http_verbs_comprehensive_server.ts
+
+          python3 -m py_compile http_verbs_comprehensive_client.py
 
   status-check:
     name: PR Status Summary

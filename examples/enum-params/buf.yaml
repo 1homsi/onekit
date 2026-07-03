@@ -1,6 +1,6 @@
 version: v2
 deps:
-  - buf.build/1homsi/onekit
+  - buf.build/stackxio/onekit
 lint:
   use:
     - STANDARD

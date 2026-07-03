@@ -1,5 +1,5 @@
 version: v2
-name: buf.build/1homsi/onekit
+name: buf.build/stackxio/onekit
 deps:
   - buf.build/bufbuild/protovalidate
 breaking:

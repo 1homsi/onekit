@@ -1,13 +1,13 @@
 #!/bin/bash
 
 # Test Coverage Analysis Script
-# This script runs tests for all packages and analyzes coverage against a 85% threshold
+# This script runs tests for all packages and generates informational coverage reports.
 # Cross-platform compatible (macOS and Linux)
 
 set -e
 
 # Configuration
-COVERAGE_THRESHOLD=85
+COVERAGE_TARGET=85
 COVERAGE_DIR="coverage"
 COVERAGE_PROFILE="$COVERAGE_DIR/coverage.out"
 COVERAGE_HTML="$COVERAGE_DIR/coverage.html"
@@ -147,16 +147,16 @@ generate_coverage_summary() {
         echo -e "${BLUE}Overall Coverage: ${total_coverage}${NC}"
         
         # Per-file coverage
-        echo -e "${BLUE}Per-file Coverage:${NC}"
+        echo -e "${BLUE}Per-file Coverage (target: ${COVERAGE_TARGET}%):${NC}"
         go tool cover -func="$COVERAGE_PROFILE" | grep -v "total:" | while read -r line; do
             local file=$(echo "$line" | awk '{print $1}')
             local coverage=$(echo "$line" | awk '{print $3}')
             local coverage_num=$(echo "$coverage" | sed 's/%//')
             
-            if (( $(echo "$coverage_num" | cut -d. -f1) >= $COVERAGE_THRESHOLD )); then
+            if (( $(echo "$coverage_num" | cut -d. -f1) >= $COVERAGE_TARGET )); then
                 echo -e "${GREEN}  OK:  $file: $coverage${NC}"
             else
-                echo -e "${RED}  FAIL:  $file: $coverage${NC}"
+                echo -e "${YELLOW}  LOW: $file: $coverage${NC}"
             fi
         done
         
@@ -233,7 +233,7 @@ main() {
         echo -e "${GREEN}All tests passed!${NC}"
         exit 0
     else
-        echo -e "${GREEN}OK: All tests passed! Coverage analysis complete.${NC}"
+        echo -e "${GREEN}OK: All tests passed! Coverage reports generated for visibility.${NC}"
         exit 0
     fi
 }

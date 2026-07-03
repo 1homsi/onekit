@@ -7,8 +7,8 @@ import (
 
 	"google.golang.org/protobuf/compiler/protogen"
 
-	onekithttp "github.com/1homsi/onekit/http"
-	"github.com/1homsi/onekit/internal/annotations"
+	onekithttp "github.com/stackxio/onekit/http"
+	"github.com/stackxio/onekit/internal/annotations"
 )
 
 // Generator handles HTTP client code generation for protobuf services.
@@ -41,6 +41,10 @@ func (g *Generator) generateFile(file *protogen.File) error {
 	// Validate enum annotations first - fail fast if conflicting annotations exist
 	if err := g.validateEnumAnnotationsInFile(file); err != nil {
 		return fmt.Errorf("enum annotation validation failed: %w", err)
+	}
+
+	if err := validateDirectJSONEncodingComposition(file); err != nil {
+		return fmt.Errorf("json annotation validation failed: %w", err)
 	}
 
 	// Generate nullable encoding file if there are messages with nullable fields
@@ -203,7 +207,7 @@ func (g *Generator) writeImports(gf *protogen.GeneratedFile, needsBytes, needsUR
 	gf.P(`"google.golang.org/protobuf/encoding/protojson"`)
 	gf.P(`"google.golang.org/protobuf/proto"`)
 	gf.P()
-	gf.P(`onekithttp "github.com/1homsi/onekit/http"`)
+	gf.P(`onekithttp "github.com/stackxio/onekit/http"`)
 	gf.P(")")
 	gf.P()
 }

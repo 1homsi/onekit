@@ -6,7 +6,7 @@ package generated
 import (
 	"context"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 // QueryParamServiceServer is the server API for QueryParamService service.
@@ -30,7 +30,7 @@ func RegisterQueryParamServiceServer(server QueryParamServiceServer, opts ...Ser
 	searchWithTypesHandler := BindingMiddleware[SearchWithTypesRequest](
 		genericHandler(server.SearchWithTypes, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		searchWithTypesPathParams, searchWithTypesQueryParams,
-		"GET", "", config.errorHandler, config.marshalOpts,
+		"GET", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/search/typed", searchWithTypesHandler)
@@ -39,7 +39,7 @@ func RegisterQueryParamServiceServer(server QueryParamServiceServer, opts ...Ser
 	searchRequiredHandler := BindingMiddleware[SearchRequiredRequest](
 		genericHandler(server.SearchRequired, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		searchRequiredPathParams, searchRequiredQueryParams,
-		"GET", "", config.errorHandler, config.marshalOpts,
+		"GET", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/search/required", searchRequiredHandler)
@@ -48,7 +48,7 @@ func RegisterQueryParamServiceServer(server QueryParamServiceServer, opts ...Ser
 	searchCustomNamesHandler := BindingMiddleware[SearchCustomNamesRequest](
 		genericHandler(server.SearchCustomNames, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		searchCustomNamesPathParams, searchCustomNamesQueryParams,
-		"GET", "", config.errorHandler, config.marshalOpts,
+		"GET", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/search/custom", searchCustomNamesHandler)
@@ -57,7 +57,7 @@ func RegisterQueryParamServiceServer(server QueryParamServiceServer, opts ...Ser
 	getWithFiltersHandler := BindingMiddleware[GetWithFiltersRequest](
 		genericHandler(server.GetWithFilters, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getWithFiltersPathParams, getWithFiltersQueryParams,
-		"GET", "", config.errorHandler, config.marshalOpts,
+		"GET", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/resources/{resource_id}/items", getWithFiltersHandler)
@@ -66,7 +66,7 @@ func RegisterQueryParamServiceServer(server QueryParamServiceServer, opts ...Ser
 	searchAdvancedHandler := BindingMiddleware[SearchAdvancedRequest](
 		genericHandler(server.SearchAdvanced, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		searchAdvancedPathParams, searchAdvancedQueryParams,
-		"GET", "", config.errorHandler, config.marshalOpts,
+		"GET", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/search/advanced", searchAdvancedHandler)
@@ -75,7 +75,7 @@ func RegisterQueryParamServiceServer(server QueryParamServiceServer, opts ...Ser
 	getByRegionHandler := BindingMiddleware[GetByRegionRequest](
 		genericHandler(server.GetByRegion, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getByRegionPathParams, getByRegionQueryParams,
-		"GET", "", config.errorHandler, config.marshalOpts,
+		"GET", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/regions/{region}", getByRegionHandler)
@@ -84,7 +84,7 @@ func RegisterQueryParamServiceServer(server QueryParamServiceServer, opts ...Ser
 	getDefaultsHandler := BindingMiddleware[EmptyRequest](
 		genericHandler(server.GetDefaults, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getDefaultsPathParams, getDefaultsQueryParams,
-		"GET", "", config.errorHandler, config.marshalOpts,
+		"GET", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/defaults", getDefaultsHandler)

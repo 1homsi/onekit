@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/1homsi/onekit/examples/validation-showcase/api/proto/models"
-	"github.com/1homsi/onekit/examples/validation-showcase/api/proto/services"
+	"github.com/stackxio/onekit/examples/validation-showcase/api/proto/models"
+	"github.com/stackxio/onekit/examples/validation-showcase/api/proto/services"
 )
 
 // OrderService implements the OrderServiceServer interface.

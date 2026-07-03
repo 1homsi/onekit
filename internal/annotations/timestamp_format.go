@@ -6,7 +6,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/1homsi/onekit/http"
+	"github.com/stackxio/onekit/http"
 )
 
 // TimestampFormatValidationError represents an error in timestamp_format annotation validation.

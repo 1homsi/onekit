@@ -8,7 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/1homsi/onekit/http"
+	"github.com/stackxio/onekit/http"
 )
 
 // ErrNoBodyField means the HTTP body binding uses the whole request message.

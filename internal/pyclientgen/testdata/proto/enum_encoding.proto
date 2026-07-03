@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package testdata.enumencoding;
 
-option go_package = "github.com/1homsi/onekit/internal/httpgen/testdata/enumencoding;enumencoding";
+option go_package = "github.com/stackxio/onekit/internal/httpgen/testdata/enumencoding;enumencoding";
 
 import "onekit/http/annotations.proto";
 

@@ -7,7 +7,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/1homsi/onekit/http"
+	"github.com/stackxio/onekit/http"
 )
 
 // GetServiceHeaders extracts header configuration from service options.

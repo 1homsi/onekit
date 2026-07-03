@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package noservices;
 
-option go_package = "github.com/1homsi/onekit/internal/openapiv3/testdata/noservices;noservices";
+option go_package = "github.com/stackxio/onekit/internal/openapiv3/testdata/noservices;noservices";
 
 // This proto file contains only message definitions and no services.
 // The OpenAPI generator should not generate any output files for this,

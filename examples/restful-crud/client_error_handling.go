@@ -13,10 +13,10 @@ import (
 	"net/http"
 	"time"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 
-	"github.com/1homsi/onekit/examples/restful-crud/api/proto/models"
-	"github.com/1homsi/onekit/examples/restful-crud/api/proto/services"
+	"github.com/stackxio/onekit/examples/restful-crud/api/proto/models"
+	"github.com/stackxio/onekit/examples/restful-crud/api/proto/services"
 )
 
 func main() {

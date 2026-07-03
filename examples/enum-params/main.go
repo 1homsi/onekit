@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/1homsi/onekit/examples/enum-params/api/proto/models"
-	"github.com/1homsi/onekit/examples/enum-params/api/proto/services"
+	"github.com/stackxio/onekit/examples/enum-params/api/proto/models"
+	"github.com/stackxio/onekit/examples/enum-params/api/proto/services"
 )
 
 // sampleHoldings is a simple in-memory portfolio.

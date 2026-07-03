@@ -27,17 +27,21 @@ type ErrorHandler func(w http.ResponseWriter, r *http.Request, err error) proto.
 // ServerOption configures a Server
 type ServerOption func(c *serverConfiguration)
 
+const DefaultMaxRequestBytes int64 = 10 << 20
+
 type serverConfiguration struct {
-	mux          *http.ServeMux
-	withMux      bool
-	errorHandler ErrorHandler
-	marshalOpts  protojson.MarshalOptions
+	mux             *http.ServeMux
+	withMux         bool
+	errorHandler    ErrorHandler
+	marshalOpts     protojson.MarshalOptions
+	maxRequestBytes int64
 }
 
 func getDefaultConfiguration() *serverConfiguration {
 	return &serverConfiguration{
-		mux:     http.DefaultServeMux,
-		withMux: false,
+		mux:             http.DefaultServeMux,
+		withMux:         false,
+		maxRequestBytes: DefaultMaxRequestBytes,
 	}
 }
 
@@ -71,5 +75,13 @@ func WithErrorHandler(handler ErrorHandler) ServerOption {
 func WithMarshalOptions(opts protojson.MarshalOptions) ServerOption {
 	return func(c *serverConfiguration) {
 		c.marshalOpts = opts
+	}
+}
+
+// WithMaxRequestBytes configures the maximum request body size accepted by
+// generated binding handlers. Values <= 0 disable request body size limiting.
+func WithMaxRequestBytes(maxBytes int64) ServerOption {
+	return func(c *serverConfiguration) {
+		c.maxRequestBytes = maxBytes
 	}
 }

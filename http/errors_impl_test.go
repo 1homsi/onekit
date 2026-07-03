@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/1homsi/onekit/http"
+	"github.com/stackxio/onekit/http"
 )
 
 func TestValidationError_Error(t *testing.T) {

@@ -4,7 +4,7 @@ syntax = "proto3";
 
 package test.httpgen.samepkg;
 
-option go_package = "github.com/1homsi/onekit/internal/httpgen/testdata/generated/samepkg;samepkg";
+option go_package = "github.com/stackxio/onekit/internal/httpgen/testdata/generated/samepkg;samepkg";
 
 import "onekit/http/annotations.proto";
 

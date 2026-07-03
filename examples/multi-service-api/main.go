@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/1homsi/onekit/examples/multi-service-api/api/proto/models"
-	"github.com/1homsi/onekit/examples/multi-service-api/api/proto/services/adminservice"
-	"github.com/1homsi/onekit/examples/multi-service-api/api/proto/services/publicservice"
-	"github.com/1homsi/onekit/examples/multi-service-api/api/proto/services/userservice"
+	"github.com/stackxio/onekit/examples/multi-service-api/api/proto/models"
+	"github.com/stackxio/onekit/examples/multi-service-api/api/proto/services/adminservice"
+	"github.com/stackxio/onekit/examples/multi-service-api/api/proto/services/publicservice"
+	"github.com/stackxio/onekit/examples/multi-service-api/api/proto/services/userservice"
 )
 
 // === Public Service Implementation ===

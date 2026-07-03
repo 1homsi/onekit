@@ -1,11 +1,11 @@
-module github.com/1homsi/onekit/examples/error-handler
+module github.com/stackxio/onekit/examples/error-handler
 
 go 1.26.0
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260209202127-80ab13bee0bf.1
 	buf.build/go/protovalidate v0.14.0
-	github.com/1homsi/onekit v0.0.0-20250818125809-ff61bcf670dd
+	github.com/stackxio/onekit v0.0.0-20250818125809-ff61bcf670dd
 	github.com/google/uuid v1.6.0
 	google.golang.org/protobuf v1.36.11
 )
@@ -21,4 +21,4 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240826202546-f6391c0de4c7 // indirect
 )
 
-replace github.com/1homsi/onekit => ../..
+replace github.com/stackxio/onekit => ../..

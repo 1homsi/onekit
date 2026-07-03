@@ -6,7 +6,7 @@ package unwrapint64encoding
 import (
 	"context"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 // TestServiceServer is the server API for TestService service.
@@ -24,7 +24,7 @@ func RegisterTestServiceServer(server TestServiceServer, opts ...ServerOption) e
 	getCombinedHandler := BindingMiddleware[Request](
 		genericHandler(server.GetCombined, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getCombinedPathParams, getCombinedQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/combined", getCombinedHandler)

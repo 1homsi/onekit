@@ -6,7 +6,7 @@ package timestampformat
 import (
 	"context"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 // TimestampFormatServiceServer is the server API for TimestampFormatService service.
@@ -25,7 +25,7 @@ func RegisterTimestampFormatServiceServer(server TimestampFormatServiceServer, o
 	createTimestampFormatHandler := BindingMiddleware[TimestampFormatTest](
 		genericHandler(server.CreateTimestampFormat, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		createTimestampFormatPathParams, createTimestampFormatQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/timestamp-format", createTimestampFormatHandler)
@@ -34,7 +34,7 @@ func RegisterTimestampFormatServiceServer(server TimestampFormatServiceServer, o
 	getTimestampFormatHandler := BindingMiddleware[TimestampFormatRequest](
 		genericHandler(server.GetTimestampFormat, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getTimestampFormatPathParams, getTimestampFormatQueryParams,
-		"GET", "", config.errorHandler, config.marshalOpts,
+		"GET", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/v1/timestamp-format/{id}", getTimestampFormatHandler)

@@ -1,14 +1,14 @@
 blank_issues_enabled: false
 contact_links:
   - name: Questions & Discussions
-    url: https://github.com/1homsi/onekit/discussions
+    url: https://github.com/stackxio/onekit/discussions
     about: Ask questions and discuss ideas with the community
   - name: Security Issues
-    url: https://github.com/1homsi/onekit/security/advisories/new
+    url: https://github.com/stackxio/onekit/security/advisories/new
     about: Report security vulnerabilities privately
   - name: Documentation
-    url: https://github.com/1homsi/onekit/tree/main/docs
+    url: https://github.com/stackxio/onekit/tree/main/docs
     about: Read the documentation before opening an issue
   - name: Examples
-    url: https://github.com/1homsi/onekit/tree/main/examples
+    url: https://github.com/stackxio/onekit/tree/main/examples
     about: Check out working examples that might answer your question

@@ -6,7 +6,7 @@ import "buf/validate/validate.proto";
 import "onekit/http/annotations.proto";
 import "proto/models/shared.proto";
 
-option go_package = "github.com/1homsi/onekit/examples/multi-service-api/api/proto/models;models";
+option go_package = "github.com/stackxio/onekit/examples/multi-service-api/api/proto/models;models";
 
 // Tenant represents a multi-tenant organization.
 message Tenant {

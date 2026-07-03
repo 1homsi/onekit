@@ -6,7 +6,7 @@ package generated
 import (
 	"context"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 // BodySelectServiceServer is the server API for BodySelectService service.
@@ -26,7 +26,7 @@ func RegisterBodySelectServiceServer(server BodySelectServiceServer, opts ...Ser
 	updateProfileHandler := BindingMiddleware[UpdateProfileRequest](
 		genericHandler(server.UpdateProfile, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		updateProfilePathParams, updateProfileQueryParams,
-		"PUT", "profile", config.errorHandler, config.marshalOpts,
+		"PUT", "profile", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("PUT /api/v1/users/{user_id}/profile", updateProfileHandler)
@@ -35,7 +35,7 @@ func RegisterBodySelectServiceServer(server BodySelectServiceServer, opts ...Ser
 	createNoteHandler := BindingMiddleware[CreateNoteRequest](
 		genericHandler(server.CreateNote, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		createNotePathParams, createNoteQueryParams,
-		"POST", "note", config.errorHandler, config.marshalOpts,
+		"POST", "note", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/notes", createNoteHandler)
@@ -44,7 +44,7 @@ func RegisterBodySelectServiceServer(server BodySelectServiceServer, opts ...Ser
 	createProfileHandler := BindingMiddleware[CreateProfileRequest](
 		genericHandler(server.CreateProfile, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		createProfilePathParams, createProfileQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/profiles", createProfileHandler)

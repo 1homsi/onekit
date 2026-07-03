@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/1homsi/onekit/internal/annotations"
+	"github.com/stackxio/onekit/internal/annotations"
 )
 
 // TestUnwrapFileGeneration tests that the unwrap file is generated correctly.

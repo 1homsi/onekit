@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/1homsi/onekit/internal/annotations"
+	"github.com/stackxio/onekit/internal/annotations"
 )
 
 // TestRequestParamName verifies that the request parameter is named "req" only

@@ -6,7 +6,7 @@ package flatten
 import (
 	"context"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 // FlattenServiceServer is the server API for FlattenService service.
@@ -27,7 +27,7 @@ func RegisterFlattenServiceServer(server FlattenServiceServer, opts ...ServerOpt
 	testSimpleFlattenHandler := BindingMiddleware[SimpleFlatten](
 		genericHandler(server.TestSimpleFlatten, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		testSimpleFlattenPathParams, testSimpleFlattenQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/flatten/simple", testSimpleFlattenHandler)
@@ -36,7 +36,7 @@ func RegisterFlattenServiceServer(server FlattenServiceServer, opts ...ServerOpt
 	testDualFlattenHandler := BindingMiddleware[DualFlatten](
 		genericHandler(server.TestDualFlatten, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		testDualFlattenPathParams, testDualFlattenQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/flatten/dual", testDualFlattenHandler)
@@ -45,7 +45,7 @@ func RegisterFlattenServiceServer(server FlattenServiceServer, opts ...ServerOpt
 	testMixedFlattenHandler := BindingMiddleware[MixedFlatten](
 		genericHandler(server.TestMixedFlatten, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		testMixedFlattenPathParams, testMixedFlattenQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/flatten/mixed", testMixedFlattenHandler)
@@ -54,7 +54,7 @@ func RegisterFlattenServiceServer(server FlattenServiceServer, opts ...ServerOpt
 	testPlainNestedHandler := BindingMiddleware[PlainNested](
 		genericHandler(server.TestPlainNested, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		testPlainNestedPathParams, testPlainNestedQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/flatten/plain", testPlainNestedHandler)

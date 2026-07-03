@@ -11,7 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/pluginpb"
 
-	"github.com/1homsi/onekit/internal/openapiv3"
+	"github.com/stackxio/onekit/internal/openapiv3"
 )
 
 // bundleConfig holds origin-level metadata for the bundled OpenAPI document.

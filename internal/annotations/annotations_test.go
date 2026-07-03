@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/1homsi/onekit/http"
+	"github.com/stackxio/onekit/http"
 )
 
 func TestHTTPMethodToString(t *testing.T) {

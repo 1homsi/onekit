@@ -6,7 +6,7 @@ package int64encoding
 import (
 	"context"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 // Int64EncodingServiceServer is the server API for Int64EncodingService service.
@@ -24,7 +24,7 @@ func RegisterInt64EncodingServiceServer(server Int64EncodingServiceServer, opts 
 	getInt64TestHandler := BindingMiddleware[GetInt64TestRequest](
 		genericHandler(server.GetInt64Test, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getInt64TestPathParams, getInt64TestQueryParams,
-		"GET", "", config.errorHandler, config.marshalOpts,
+		"GET", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/v1/test/int64/{id}", getInt64TestHandler)

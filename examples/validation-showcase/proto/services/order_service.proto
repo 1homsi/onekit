@@ -6,7 +6,7 @@ import "proto/models/order.proto";
 import "onekit/http/annotations.proto";
 import "onekit/http/headers.proto";
 
-option go_package = "github.com/1homsi/onekit/examples/validation-showcase/api/proto/services;services";
+option go_package = "github.com/stackxio/onekit/examples/validation-showcase/api/proto/services;services";
 
 // OrderService demonstrates comprehensive request validation with buf.validate.
 // This example showcases all validation patterns: strings, numbers, arrays, maps, nested messages.

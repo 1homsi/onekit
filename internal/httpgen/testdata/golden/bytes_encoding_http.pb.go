@@ -6,7 +6,7 @@ package bytesencoding
 import (
 	"context"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 // BytesEncodingServiceServer is the server API for BytesEncodingService service.
@@ -25,7 +25,7 @@ func RegisterBytesEncodingServiceServer(server BytesEncodingServiceServer, opts 
 	testBytesEncodingHandler := BindingMiddleware[BytesEncodingTest](
 		genericHandler(server.TestBytesEncoding, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		testBytesEncodingPathParams, testBytesEncodingQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/bytes-encoding", testBytesEncodingHandler)
@@ -34,7 +34,7 @@ func RegisterBytesEncodingServiceServer(server BytesEncodingServiceServer, opts 
 	getBytesEncodingHandler := BindingMiddleware[BytesEncodingRequest](
 		genericHandler(server.GetBytesEncoding, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		getBytesEncodingPathParams, getBytesEncodingQueryParams,
-		"GET", "", config.errorHandler, config.marshalOpts,
+		"GET", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("GET /api/v1/bytes-encoding/{id}", getBytesEncodingHandler)

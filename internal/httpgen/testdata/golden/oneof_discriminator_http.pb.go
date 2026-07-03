@@ -6,7 +6,7 @@ package oneofdiscriminator
 import (
 	"context"
 
-	onekithttp "github.com/1homsi/onekit/http"
+	onekithttp "github.com/stackxio/onekit/http"
 )
 
 // OneofDiscriminatorServiceServer is the server API for OneofDiscriminatorService service.
@@ -26,7 +26,7 @@ func RegisterOneofDiscriminatorServiceServer(server OneofDiscriminatorServiceSer
 	testFlattenedEventHandler := BindingMiddleware[FlattenedEvent](
 		genericHandler(server.TestFlattenedEvent, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		testFlattenedEventPathParams, testFlattenedEventQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/events/flattened", testFlattenedEventHandler)
@@ -35,7 +35,7 @@ func RegisterOneofDiscriminatorServiceServer(server OneofDiscriminatorServiceSer
 	testNestedEventHandler := BindingMiddleware[NestedEvent](
 		genericHandler(server.TestNestedEvent, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		testNestedEventPathParams, testNestedEventQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/events/nested", testNestedEventHandler)
@@ -44,7 +44,7 @@ func RegisterOneofDiscriminatorServiceServer(server OneofDiscriminatorServiceSer
 	testPlainEventHandler := BindingMiddleware[PlainEvent](
 		genericHandler(server.TestPlainEvent, config.errorHandler, config.marshalOpts), serviceHeaders, methodHeaders,
 		testPlainEventPathParams, testPlainEventQueryParams,
-		"POST", "", config.errorHandler, config.marshalOpts,
+		"POST", "", config.maxRequestBytes, config.errorHandler, config.marshalOpts,
 	)
 
 	config.mux.Handle("POST /api/v1/events/plain", testPlainEventHandler)

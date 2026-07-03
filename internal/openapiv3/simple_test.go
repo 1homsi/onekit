@@ -7,7 +7,7 @@ import (
 	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
 	yaml "go.yaml.in/yaml/v4"
 
-	"github.com/1homsi/onekit/internal/openapiv3"
+	"github.com/stackxio/onekit/internal/openapiv3"
 )
 
 // Test NewGenerator constructor.

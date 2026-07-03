@@ -4,7 +4,7 @@ import (
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/types/pluginpb"
 
-	"github.com/1homsi/onekit/internal/tsservergen"
+	"github.com/stackxio/onekit/internal/tsservergen"
 )
 
 func main() {

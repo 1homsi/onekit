@@ -7,7 +7,7 @@ managed:
   override:
     # Set default Go package prefix for generated code
     - file_option: go_package_prefix
-      value: github.com/1homsi/onekit/examples/market-data-unwrap/api
+      value: github.com/stackxio/onekit/examples/market-data-unwrap/api
     # Disable package prefix for Google APIs (use their standard packages)
     - file_option: go_package_prefix
       module: buf.build/googleapis/googleapis
@@ -18,7 +18,7 @@ managed:
       value: ""
     # Disable package prefix for onekit (use standard import path)
     - file_option: go_package_prefix
-      module: buf.build/1homsi/onekit
+      module: buf.build/stackxio/onekit
       value: ""
 
 # Local protoc plugins (installed via make install)
@@ -26,7 +26,7 @@ plugins:
   # Standard Go protobuf code generation
   - local: protoc-gen-go
     out: ./api
-    opt: module=github.com/1homsi/onekit/examples/market-data-unwrap/api
+    opt: module=github.com/stackxio/onekit/examples/market-data-unwrap/api
 
   # OpenAPI v3 documentation generation in YAML format
   - local: ../../bin/protoc-gen-onekit-openapiv3
@@ -42,10 +42,10 @@ plugins:
   - local: ../../bin/protoc-gen-onekit-go-http
     out: api
     opt:
-      - module=github.com/1homsi/onekit/examples/market-data-unwrap/api
+      - module=github.com/stackxio/onekit/examples/market-data-unwrap/api
 
   # HTTP client generation
   - local: ../../bin/protoc-gen-onekit-go-client
     out: api
     opt:
-      - module=github.com/1homsi/onekit/examples/market-data-unwrap/api
+      - module=github.com/stackxio/onekit/examples/market-data-unwrap/api
