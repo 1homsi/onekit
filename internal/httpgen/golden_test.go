@@ -239,20 +239,15 @@ func TestHTTPGenGoldenFiles(t *testing.T) {
 		t.Fatalf("Failed to create golden directory: %v", mkdirErr)
 	}
 
-	// Build the plugin binary for testing
-	pluginPath := filepath.Join(projectRoot, "bin", "protoc-gen-onekit-go-http")
-
-	// Build the plugin if it doesn't exist
-	if _, buildStatErr := os.Stat(pluginPath); os.IsNotExist(buildStatErr) {
-		buildCmd := exec.Command("make", "build")
-		buildCmd.Dir = projectRoot
-		if buildErr := buildCmd.Run(); buildErr != nil {
-			t.Fatalf("Failed to build plugin: %v", buildErr)
-		}
-	}
-
 	// Create temp directory for generated files
 	tempDir := t.TempDir()
+	pluginPath := filepath.Join(tempDir, "protoc-gen-onekit-go-http")
+
+	buildCmd := exec.Command("go", "build", "-o", pluginPath, "./cmd/protoc-gen-onekit-go-http")
+	buildCmd.Dir = projectRoot
+	if output, buildErr := buildCmd.CombinedOutput(); buildErr != nil {
+		t.Fatalf("Failed to build plugin: %v\n%s", buildErr, output)
+	}
 
 	updateGolden := os.Getenv("UPDATE_GOLDEN") == "1"
 
@@ -433,19 +428,16 @@ func TestGeneratedCodeCompiles(t *testing.T) {
 
 	projectRoot := filepath.Join(baseDir, "..", "..")
 	protoDir := filepath.Join(baseDir, "testdata", "proto")
-	pluginPath := filepath.Join(projectRoot, "bin", "protoc-gen-onekit-go-http")
-
-	// Build the plugin if it doesn't exist
-	if _, buildStatErr := os.Stat(pluginPath); os.IsNotExist(buildStatErr) {
-		buildCmd := exec.Command("make", "build")
-		buildCmd.Dir = projectRoot
-		if buildErr := buildCmd.Run(); buildErr != nil {
-			t.Fatalf("Failed to build plugin: %v", buildErr)
-		}
-	}
 
 	// Create temp directory for generated files
 	tempDir := t.TempDir()
+	pluginPath := filepath.Join(tempDir, "protoc-gen-onekit-go-http")
+
+	buildCmd := exec.Command("go", "build", "-o", pluginPath, "./cmd/protoc-gen-onekit-go-http")
+	buildCmd.Dir = projectRoot
+	if output, buildErr := buildCmd.CombinedOutput(); buildErr != nil {
+		t.Fatalf("Failed to build plugin: %v\n%s", buildErr, output)
+	}
 
 	// Generate code for comprehensive test proto
 	cmd := exec.Command("protoc",
@@ -470,8 +462,8 @@ func TestGeneratedCodeCompiles(t *testing.T) {
 
 	// Try to compile the generated code (syntax check)
 	// We use 'go build' with -n flag for dry run
-	buildCmd := exec.Command("go", "build", "-n", "./...")
-	buildCmd.Dir = tempDir
+	compileCmd := exec.Command("go", "build", "-n", "./...")
+	compileCmd.Dir = tempDir
 
 	// Note: This won't fully work without proper go.mod setup,
 	// but protoc success indicates the generated code is syntactically valid

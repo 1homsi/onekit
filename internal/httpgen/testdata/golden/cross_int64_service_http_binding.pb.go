@@ -642,6 +642,10 @@ func defaultErrorStatusCode(err error) int {
 	if errors.As(err, &valErr) {
 		return http.StatusBadRequest
 	}
+	var handlerErr *onekithttp.Error
+	if errors.As(err, &handlerErr) {
+		return handlerErr.HTTPStatusCode()
+	}
 	return http.StatusInternalServerError
 }
 
