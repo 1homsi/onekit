@@ -16,6 +16,10 @@ message ValidationError {
 message Error {
   // Error message (e.g., "user not found", "database connection failed")
   string message = 1;
+
+  // HTTP status code for this error. When unset, generated servers default to
+  // 500 for handler errors and 400 for validation errors.
+  int32 status_code = 2;
 }
 
 // FieldViolation describes a single validation error for a specific field.

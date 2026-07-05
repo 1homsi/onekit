@@ -73,7 +73,10 @@ func (x *ValidationError) GetViolations() []*FieldViolation {
 type Error struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Error message (e.g., "user not found", "database connection failed")
-	Message       string `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	Message string `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	// HTTP status code for this error. When unset, generated servers default to
+	// 500 for handler errors and 400 for validation errors.
+	StatusCode    int32 `protobuf:"varint,2,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -113,6 +116,13 @@ func (x *Error) GetMessage() string {
 		return x.Message
 	}
 	return ""
+}
+
+func (x *Error) GetStatusCode() int32 {
+	if x != nil {
+		return x.StatusCode
+	}
+	return 0
 }
 
 // FieldViolation describes a single validation error for a specific field.
@@ -180,9 +190,11 @@ const file_proto_onekit_http_errors_proto_rawDesc = "" +
 	"\x0fValidationError\x12;\n" +
 	"\n" +
 	"violations\x18\x01 \x03(\v2\x1b.onekit.http.FieldViolationR\n" +
-	"violations\"!\n" +
+	"violations\"B\n" +
 	"\x05Error\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"H\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\x12\x1f\n" +
+	"\vstatus_code\x18\x02 \x01(\x05R\n" +
+	"statusCode\"H\n" +
 	"\x0eFieldViolation\x12\x14\n" +
 	"\x05field\x18\x01 \x01(\tR\x05field\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescriptionB&Z$github.com/stackxio/onekit/http;httpb\x06proto3"

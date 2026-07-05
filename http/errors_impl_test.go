@@ -2,6 +2,7 @@ package http_test
 
 import (
 	"errors"
+	nethttp "net/http"
 	"testing"
 
 	"github.com/stackxio/onekit/http"
@@ -82,6 +83,37 @@ func TestError_Error(t *testing.T) {
 			actual := tt.err.Error()
 			if actual != tt.expected {
 				t.Errorf("Error.Error() = %q, want %q", actual, tt.expected)
+			}
+		})
+	}
+}
+
+func TestNewError(t *testing.T) {
+	err := http.NewError(nethttp.StatusUnauthorized, "invalid credentials")
+	if err.GetMessage() != "invalid credentials" {
+		t.Fatalf("message = %q, want invalid credentials", err.GetMessage())
+	}
+	if got := err.HTTPStatusCode(); got != nethttp.StatusUnauthorized {
+		t.Fatalf("HTTPStatusCode = %d, want %d", got, nethttp.StatusUnauthorized)
+	}
+}
+
+func TestError_HTTPStatusCode(t *testing.T) {
+	tests := []struct {
+		name string
+		err  *http.Error
+		want int
+	}{
+		{name: "nil", err: nil, want: nethttp.StatusInternalServerError},
+		{name: "unset", err: &http.Error{Message: "failed"}, want: nethttp.StatusInternalServerError},
+		{name: "invalid", err: &http.Error{Message: "failed", StatusCode: 42}, want: nethttp.StatusInternalServerError},
+		{name: "valid", err: &http.Error{Message: "missing", StatusCode: nethttp.StatusNotFound}, want: nethttp.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.err.HTTPStatusCode(); got != tt.want {
+				t.Fatalf("HTTPStatusCode = %d, want %d", got, tt.want)
 			}
 		})
 	}
