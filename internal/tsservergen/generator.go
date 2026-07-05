@@ -8,9 +8,9 @@ import (
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	onekithttp "github.com/stackxio/onekit/http"
-	"github.com/stackxio/onekit/internal/annotations"
-	"github.com/stackxio/onekit/internal/tscommon"
+	onekithttp "github.com/corezio/onekit/http"
+	"github.com/corezio/onekit/internal/annotations"
+	"github.com/corezio/onekit/internal/tscommon"
 )
 
 // Generator handles TypeScript server code generation for protobuf services.

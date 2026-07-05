@@ -6,7 +6,7 @@ package unwrapint64encoding
 import (
 	"context"
 
-	onekithttp "github.com/stackxio/onekit/http"
+	onekithttp "github.com/corezio/onekit/http"
 )
 
 // TestServiceServer is the server API for TestService service.

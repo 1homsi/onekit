@@ -6,7 +6,7 @@ import "proto/models/user.proto";
 import "onekit/http/annotations.proto";
 import "onekit/http/headers.proto";
 
-option go_package = "github.com/stackxio/onekit/examples/multi-service-api/api/proto/services/userservice;userservice";
+option go_package = "github.com/corezio/onekit/examples/multi-service-api/api/proto/services/userservice;userservice";
 
 // UserService provides user-authenticated endpoints.
 // Requires standard user authentication headers.

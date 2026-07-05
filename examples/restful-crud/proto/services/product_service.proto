@@ -6,7 +6,7 @@ import "proto/models/product.proto";
 import "onekit/http/annotations.proto";
 import "onekit/http/headers.proto";
 
-option go_package = "github.com/stackxio/onekit/examples/restful-crud/api/proto/services;services";
+option go_package = "github.com/corezio/onekit/examples/restful-crud/api/proto/services;services";
 
 // ProductService provides a complete RESTful CRUD API for products.
 // This example demonstrates all HTTP verbs with path parameters and query parameters.

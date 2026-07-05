@@ -7,8 +7,8 @@
 package services
 
 import (
-	models "github.com/stackxio/onekit/examples/enum-params/api/proto/models"
-	_ "github.com/stackxio/onekit/http"
+	models "github.com/corezio/onekit/examples/enum-params/api/proto/models"
+	_ "github.com/corezio/onekit/http"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -203,7 +203,7 @@ const file_proto_services_portfolio_service_proto_rawDesc = "" +
 	"\x14SearchByAssetClasses\x129.examples.enumparams.services.SearchByAssetClassesRequest\x1a,.examples.enumparams.models.PortfolioSummary\"\x19\x9a\xb5\x18\x15\n" +
 	"\x11/portfolio/search\x10\x01\x1a\r\xa2\xb5\x18\t\n" +
 	"\a/api/v1B\x94\x02\n" +
-	" com.examples.enumparams.servicesB\x15PortfolioServiceProtoP\x01ZGgithub.com/stackxio/onekit/examples/enum-params/api/proto/services\xa2\x02\x03EES\xaa\x02\x1cExamples.Enumparams.Services\xca\x02\x1cExamples\\Enumparams\\Services\xe2\x02(Examples\\Enumparams\\Services\\GPBMetadata\xea\x02\x1eExamples::Enumparams::Servicesb\x06proto3"
+	" com.examples.enumparams.servicesB\x15PortfolioServiceProtoP\x01ZGgithub.com/corezio/onekit/examples/enum-params/api/proto/services\xa2\x02\x03EES\xaa\x02\x1cExamples.Enumparams.Services\xca\x02\x1cExamples\\Enumparams\\Services\xe2\x02(Examples\\Enumparams\\Services\\GPBMetadata\xea\x02\x1eExamples::Enumparams::Servicesb\x06proto3"
 
 var (
 	file_proto_services_portfolio_service_proto_rawDescOnce sync.Once

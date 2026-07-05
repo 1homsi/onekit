@@ -67,12 +67,12 @@ func TestEnumQueryAndPathParams(t *testing.T) {
 go 1.26.0
 
 require (
-	github.com/stackxio/onekit v0.0.0
+	github.com/corezio/onekit v0.0.0
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260209202127-80ab13bee0bf.1
 	google.golang.org/protobuf v1.36.11
 )
 
-replace github.com/stackxio/onekit => %s
+replace github.com/corezio/onekit => %s
 `, projectRoot)
 	if writeErr := os.WriteFile(filepath.Join(tempDir, "go.mod"), []byte(goMod), 0o644); writeErr != nil {
 		t.Fatalf("Failed to write go.mod: %v", writeErr)

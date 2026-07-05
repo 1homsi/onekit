@@ -6,18 +6,18 @@ managed:
   enabled: true
   override:
     - file_option: go_package_prefix
-      value: github.com/stackxio/onekit/examples/marshal-options/api
+      value: github.com/corezio/onekit/examples/marshal-options/api
     - file_option: go_package_prefix
-      module: buf.build/stackxio/onekit
+      module: buf.build/corezio/onekit
       value: ""
 
 plugins:
   - local: protoc-gen-go
     out: ./api
-    opt: module=github.com/stackxio/onekit/examples/marshal-options/api
+    opt: module=github.com/corezio/onekit/examples/marshal-options/api
 
   - local: ../../bin/protoc-gen-onekit-go-http
     out: api
     opt:
-      - module=github.com/stackxio/onekit/examples/marshal-options/api
+      - module=github.com/corezio/onekit/examples/marshal-options/api
       - generate_mock=false

@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"time"
 
-	pb "github.com/stackxio/onekit/examples/python-encoding-demo/api/proto"
+	pb "github.com/corezio/onekit/examples/python-encoding-demo/api/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

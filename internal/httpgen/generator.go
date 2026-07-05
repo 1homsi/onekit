@@ -7,8 +7,8 @@ import (
 
 	"google.golang.org/protobuf/compiler/protogen"
 
-	"github.com/stackxio/onekit/http"
-	"github.com/stackxio/onekit/internal/annotations"
+	"github.com/corezio/onekit/http"
+	"github.com/corezio/onekit/internal/annotations"
 )
 
 // Generator handles HTTP code generation for protobuf services.
@@ -185,7 +185,7 @@ func (g *Generator) generateHTTPFile(file *protogen.File) error {
 	gf.P("import (")
 	gf.P(`"context"`)
 	gf.P()
-	gf.P(`onekithttp "github.com/stackxio/onekit/http"`)
+	gf.P(`onekithttp "github.com/corezio/onekit/http"`)
 	gf.P(")")
 	gf.P()
 
@@ -334,7 +334,7 @@ func (g *Generator) generateBindingFile(file *protogen.File) error {
 	gf.P(`"google.golang.org/protobuf/proto"`)
 	gf.P(`"google.golang.org/protobuf/reflect/protoreflect"`)
 	gf.P()
-	gf.P(`onekithttp "github.com/stackxio/onekit/http"`)
+	gf.P(`onekithttp "github.com/corezio/onekit/http"`)
 	gf.P(")")
 	gf.P()
 

@@ -5,7 +5,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/stackxio/onekit/http"
+	"github.com/corezio/onekit/http"
 )
 
 // GetInt64Encoding returns the int64 encoding for a field.

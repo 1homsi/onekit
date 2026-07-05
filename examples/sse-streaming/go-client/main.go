@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/stackxio/onekit/examples/sse-streaming/api/proto/services"
+	"github.com/corezio/onekit/examples/sse-streaming/api/proto/services"
 )
 
 func main() {

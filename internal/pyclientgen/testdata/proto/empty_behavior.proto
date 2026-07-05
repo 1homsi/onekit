@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package testdata.empty_behavior;
 
-option go_package = "github.com/stackxio/onekit/internal/httpgen/testdata/emptybehavior;emptybehavior";
+option go_package = "github.com/corezio/onekit/internal/httpgen/testdata/emptybehavior;emptybehavior";
 
 import "onekit/http/annotations.proto";
 

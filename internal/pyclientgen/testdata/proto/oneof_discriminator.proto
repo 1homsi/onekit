@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package testdata.oneof_discriminator;
 
-option go_package = "github.com/stackxio/onekit/internal/httpgen/testdata/oneofdiscriminator;oneofdiscriminator";
+option go_package = "github.com/corezio/onekit/internal/httpgen/testdata/oneofdiscriminator;oneofdiscriminator";
 
 import "onekit/http/annotations.proto";
 

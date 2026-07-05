@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package testdata.timestamp_format;
 
-option go_package = "github.com/stackxio/onekit/internal/httpgen/testdata/timestampformat;timestampformat";
+option go_package = "github.com/corezio/onekit/internal/httpgen/testdata/timestampformat;timestampformat";
 
 import "google/protobuf/timestamp.proto";
 import "onekit/http/annotations.proto";

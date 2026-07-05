@@ -5,7 +5,7 @@ package multi_service.services.publicservice;
 import "proto/models/health.proto";
 import "onekit/http/annotations.proto";
 
-option go_package = "github.com/stackxio/onekit/examples/multi-service-api/api/proto/services/publicservice;publicservice";
+option go_package = "github.com/corezio/onekit/examples/multi-service-api/api/proto/services/publicservice;publicservice";
 
 // PublicService provides unauthenticated public endpoints.
 // No authorization headers required - these endpoints are accessible to everyone.

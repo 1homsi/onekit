@@ -355,7 +355,7 @@ const file_proto_onekit_http_headers_proto_rawDesc = "" +
 	"\x10AUTH_TYPE_BEARER\x10\x02\x12\x13\n" +
 	"\x0fAUTH_TYPE_BASIC\x10\x03:g\n" +
 	"\x0fservice_headers\x12\x1f.google.protobuf.ServiceOptions\x18Ն\x03 \x01(\v2\x1b.onekit.http.ServiceHeadersR\x0eserviceHeaders:c\n" +
-	"\x0emethod_headers\x12\x1e.google.protobuf.MethodOptions\x18ֆ\x03 \x01(\v2\x1a.onekit.http.MethodHeadersR\rmethodHeadersB&Z$github.com/stackxio/onekit/http;httpb\x06proto3"
+	"\x0emethod_headers\x12\x1e.google.protobuf.MethodOptions\x18ֆ\x03 \x01(\v2\x1a.onekit.http.MethodHeadersR\rmethodHeadersB&Z$github.com/corezio/onekit/http;httpb\x06proto3"
 
 var (
 	file_proto_onekit_http_headers_proto_rawDescOnce sync.Once

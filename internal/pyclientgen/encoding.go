@@ -6,8 +6,8 @@ import (
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	onekithttp "github.com/stackxio/onekit/http"
-	"github.com/stackxio/onekit/internal/annotations"
+	onekithttp "github.com/corezio/onekit/http"
+	"github.com/corezio/onekit/internal/annotations"
 )
 
 // encodeScalarExpr returns a Python expression that converts a scalar source

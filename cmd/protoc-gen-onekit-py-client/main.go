@@ -4,7 +4,7 @@ import (
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/types/pluginpb"
 
-	"github.com/stackxio/onekit/internal/pyclientgen"
+	"github.com/corezio/onekit/internal/pyclientgen"
 )
 
 func main() {

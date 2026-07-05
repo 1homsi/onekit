@@ -1,11 +1,11 @@
-module github.com/stackxio/onekit/examples/market-data-unwrap
+module github.com/corezio/onekit/examples/market-data-unwrap
 
 go 1.26.0
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260209202127-80ab13bee0bf.1
 	buf.build/go/protovalidate v1.1.0
-	github.com/stackxio/onekit v0.0.0
+	github.com/corezio/onekit v0.0.0
 	google.golang.org/protobuf v1.36.11
 )
 
@@ -20,4 +20,4 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250811230008-5f3141c8851a // indirect
 )
 
-replace github.com/stackxio/onekit => ../..
+replace github.com/corezio/onekit => ../..

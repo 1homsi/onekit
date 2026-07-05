@@ -1,6 +1,6 @@
 version: v2
 deps:
-  - buf.build/stackxio/onekit
+  - buf.build/corezio/onekit
 lint:
   use:
     - STANDARD

@@ -1,11 +1,11 @@
-module github.com/stackxio/onekit/examples/ts-client-demo
+module github.com/corezio/onekit/examples/ts-client-demo
 
 go 1.26.0
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260209202127-80ab13bee0bf.1
 	buf.build/go/protovalidate v0.14.0
-	github.com/stackxio/onekit v0.0.0-00010101000000-000000000000
+	github.com/corezio/onekit v0.0.0-00010101000000-000000000000
 	google.golang.org/protobuf v1.36.11
 )
 
@@ -20,4 +20,4 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240826202546-f6391c0de4c7 // indirect
 )
 
-replace github.com/stackxio/onekit => ../..
+replace github.com/corezio/onekit => ../..

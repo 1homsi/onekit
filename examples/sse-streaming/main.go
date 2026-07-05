@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/stackxio/onekit/examples/sse-streaming/api/proto/services"
+	"github.com/corezio/onekit/examples/sse-streaming/api/proto/services"
 )
 
 // MarketDataServer implements the generated MarketDataServiceServer interface.

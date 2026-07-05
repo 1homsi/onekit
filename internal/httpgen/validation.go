@@ -6,7 +6,7 @@ import (
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	"github.com/stackxio/onekit/internal/annotations"
+	"github.com/corezio/onekit/internal/annotations"
 )
 
 // ValidationError represents a generation-time validation error.

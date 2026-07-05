@@ -31,7 +31,7 @@ The goal is simple: keep transport code, validation, clients, and docs in sync w
 Clone the repo and build the plugins:
 
 ```bash
-git clone https://github.com/stackxio/onekit.git
+git clone https://github.com/corezio/onekit.git
 cd onekit
 make build
 ```
@@ -52,12 +52,12 @@ The example builds the local generators into `../../bin`, runs `buf generate`, a
 For use outside this repository:
 
 ```bash
-go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-go-http@latest
-go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-go-client@latest
-go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-ts-client@latest
-go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-ts-server@latest
-go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-py-client@latest
-go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-openapiv3@latest
+go install github.com/corezio/onekit/cmd/protoc-gen-onekit-go-http@latest
+go install github.com/corezio/onekit/cmd/protoc-gen-onekit-go-client@latest
+go install github.com/corezio/onekit/cmd/protoc-gen-onekit-ts-client@latest
+go install github.com/corezio/onekit/cmd/protoc-gen-onekit-ts-server@latest
+go install github.com/corezio/onekit/cmd/protoc-gen-onekit-py-client@latest
+go install github.com/corezio/onekit/cmd/protoc-gen-onekit-openapiv3@latest
 ```
 
 ## A small contract

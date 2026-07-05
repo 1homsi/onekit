@@ -6,7 +6,7 @@ package crossint64
 import (
 	"context"
 
-	onekithttp "github.com/stackxio/onekit/http"
+	onekithttp "github.com/corezio/onekit/http"
 )
 
 // BarsServiceServer is the server API for BarsService service.

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package complex;
 
-option go_package = "github.com/stackxio/onekit/internal/openapiv3/testdata/complex;complex";
+option go_package = "github.com/corezio/onekit/internal/openapiv3/testdata/complex;complex";
 
 // Status enum for testing enum conversion
 enum Status {

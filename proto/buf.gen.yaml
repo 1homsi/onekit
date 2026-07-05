@@ -3,8 +3,8 @@ plugins:
   - local: protoc-gen-go
     out: ..
     opt:
-      - module=github.com/stackxio/onekit
+      - module=github.com/corezio/onekit
   - local: ../protoc-gen-onekit-go-http
     out: ..
     opt:
-      - module=github.com/stackxio/onekit
+      - module=github.com/corezio/onekit

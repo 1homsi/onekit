@@ -6,7 +6,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/stackxio/onekit/http"
+	"github.com/corezio/onekit/http"
 )
 
 // NullableValidationError represents an error in nullable annotation validation.

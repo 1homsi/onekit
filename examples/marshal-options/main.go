@@ -13,7 +13,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 
-	api "github.com/stackxio/onekit/examples/marshal-options/api/proto/services"
+	api "github.com/corezio/onekit/examples/marshal-options/api/proto/services"
 )
 
 // statusHandler returns the same proto3-zero-value Status to every caller.

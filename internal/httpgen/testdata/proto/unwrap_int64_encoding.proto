@@ -3,7 +3,7 @@ syntax = "proto3";
 
 package testdata.unwrapint64encoding;
 
-option go_package = "github.com/stackxio/onekit/internal/httpgen/testdata/unwrapint64encoding;unwrapint64encoding";
+option go_package = "github.com/corezio/onekit/internal/httpgen/testdata/unwrapint64encoding;unwrapint64encoding";
 
 import "onekit/http/annotations.proto";
 

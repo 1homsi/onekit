@@ -4,7 +4,7 @@
 package services
 
 import (
-	models "github.com/stackxio/onekit/examples/enum-params/api/proto/models"
+	models "github.com/corezio/onekit/examples/enum-params/api/proto/models"
 )
 
 import (
@@ -19,7 +19,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	onekithttp "github.com/stackxio/onekit/http"
+	onekithttp "github.com/corezio/onekit/http"
 )
 
 const (

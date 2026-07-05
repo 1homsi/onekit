@@ -4,7 +4,7 @@ package multi_service.models;
 
 import "onekit/http/annotations.proto";
 
-option go_package = "github.com/stackxio/onekit/examples/multi-service-api/api/proto/models;models";
+option go_package = "github.com/corezio/onekit/examples/multi-service-api/api/proto/models;models";
 
 // GetHealthRequest for health check (no parameters needed).
 message GetHealthRequest {}

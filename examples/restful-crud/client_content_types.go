@@ -11,8 +11,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/stackxio/onekit/examples/restful-crud/api/proto/models"
-	"github.com/stackxio/onekit/examples/restful-crud/api/proto/services"
+	"github.com/corezio/onekit/examples/restful-crud/api/proto/models"
+	"github.com/corezio/onekit/examples/restful-crud/api/proto/services"
 )
 
 func main() {

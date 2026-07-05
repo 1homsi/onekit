@@ -5,7 +5,7 @@ import (
 	nethttp "net/http"
 	"testing"
 
-	"github.com/stackxio/onekit/http"
+	"github.com/corezio/onekit/http"
 )
 
 func TestValidationError_Error(t *testing.T) {

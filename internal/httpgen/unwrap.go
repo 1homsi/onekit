@@ -5,7 +5,7 @@ import (
 
 	"google.golang.org/protobuf/compiler/protogen"
 
-	"github.com/stackxio/onekit/internal/annotations"
+	"github.com/corezio/onekit/internal/annotations"
 )
 
 // Proto field kind constants for type checking.

@@ -5,7 +5,7 @@ package multi;
 import "onekit/http/annotations.proto";
 import "onekit/http/headers.proto";
 
-option go_package = "github.com/stackxio/onekit/internal/openapiv3/testdata/multi;multi";
+option go_package = "github.com/corezio/onekit/internal/openapiv3/testdata/multi;multi";
 
 // === Shared Messages ===
 

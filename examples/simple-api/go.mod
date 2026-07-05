@@ -1,15 +1,15 @@
-module github.com/stackxio/onekit/examples/simple-api
+module github.com/corezio/onekit/examples/simple-api
 
 go 1.26.0
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260209202127-80ab13bee0bf.1
 	buf.build/go/protovalidate v0.14.0
-	github.com/stackxio/onekit v0.0.0-20250818125809-ff61bcf670dd
+	github.com/corezio/onekit v0.0.0-20250818125809-ff61bcf670dd
 	google.golang.org/protobuf v1.36.11
 )
 
-replace github.com/stackxio/onekit => ../..
+replace github.com/corezio/onekit => ../..
 
 require (
 	cel.dev/expr v0.23.1 // indirect

@@ -4,7 +4,7 @@ managed:
   enabled: true
   override:
     - file_option: go_package_prefix
-      value: github.com/stackxio/onekit/examples/python-errors-demo/api
+      value: github.com/corezio/onekit/examples/python-errors-demo/api
     - file_option: go_package_prefix
       module: buf.build/googleapis/googleapis
       value: ""
@@ -12,18 +12,18 @@ managed:
       module: buf.build/bufbuild/protovalidate
       value: ""
     - file_option: go_package_prefix
-      module: buf.build/stackxio/onekit
+      module: buf.build/corezio/onekit
       value: ""
 
 plugins:
   - local: protoc-gen-go
     out: ./api
-    opt: module=github.com/stackxio/onekit/examples/python-errors-demo/api
+    opt: module=github.com/corezio/onekit/examples/python-errors-demo/api
 
   - local: ../../bin/protoc-gen-onekit-go-http
     out: api
     opt:
-      - module=github.com/stackxio/onekit/examples/python-errors-demo/api
+      - module=github.com/corezio/onekit/examples/python-errors-demo/api
       - generate_mock=false
 
   - local: ../../bin/protoc-gen-onekit-py-client

@@ -6,7 +6,7 @@ package emptybehavior
 import (
 	"context"
 
-	onekithttp "github.com/stackxio/onekit/http"
+	onekithttp "github.com/corezio/onekit/http"
 )
 
 // EmptyBehaviorServiceServer is the server API for EmptyBehaviorService service.

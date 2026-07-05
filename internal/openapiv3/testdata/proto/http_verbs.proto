@@ -4,7 +4,7 @@ package http_verbs_test;
 
 import "onekit/http/annotations.proto";
 
-option go_package = "github.com/stackxio/onekit/internal/openapiv3/testdata/httpverbs;httpverbs";
+option go_package = "github.com/corezio/onekit/internal/openapiv3/testdata/httpverbs;httpverbs";
 
 // User represents a user entity
 message User {

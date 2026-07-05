@@ -6,7 +6,7 @@ package bytesencoding
 import (
 	"context"
 
-	onekithttp "github.com/stackxio/onekit/http"
+	onekithttp "github.com/corezio/onekit/http"
 )
 
 // BytesEncodingServiceServer is the server API for BytesEncodingService service.

@@ -448,10 +448,10 @@ go 1.24
 
 require (
 	google.golang.org/protobuf ` + protobufVersion + `
-	github.com/stackxio/onekit v0.0.0
+	github.com/corezio/onekit v0.0.0
 )
 
-replace github.com/stackxio/onekit => ` + projectRoot + `
+replace github.com/corezio/onekit => ` + projectRoot + `
 `
 	if err := os.WriteFile(
 		filepath.Join(tempDir, "go.mod"), []byte(goMod), 0o644,

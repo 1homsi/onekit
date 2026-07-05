@@ -6,7 +6,7 @@ import (
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/types/pluginpb"
 
-	"github.com/stackxio/onekit/internal/httpgen"
+	"github.com/corezio/onekit/internal/httpgen"
 )
 
 func main() {

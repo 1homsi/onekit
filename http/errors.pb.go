@@ -197,7 +197,7 @@ const file_proto_onekit_http_errors_proto_rawDesc = "" +
 	"statusCode\"H\n" +
 	"\x0eFieldViolation\x12\x14\n" +
 	"\x05field\x18\x01 \x01(\tR\x05field\x12 \n" +
-	"\vdescription\x18\x02 \x01(\tR\vdescriptionB&Z$github.com/stackxio/onekit/http;httpb\x06proto3"
+	"\vdescription\x18\x02 \x01(\tR\vdescriptionB&Z$github.com/corezio/onekit/http;httpb\x06proto3"
 
 var (
 	file_proto_onekit_http_errors_proto_rawDescOnce sync.Once

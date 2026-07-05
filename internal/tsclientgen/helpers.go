@@ -1,6 +1,6 @@
 package tsclientgen
 
-import "github.com/stackxio/onekit/internal/tscommon"
+import "github.com/corezio/onekit/internal/tscommon"
 
 // snakeToLowerCamel converts "user_id" to "userId".
 func snakeToLowerCamel(s string) string {

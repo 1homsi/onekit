@@ -5,7 +5,7 @@ package restful_crud.models;
 import "buf/validate/validate.proto";
 import "onekit/http/annotations.proto";
 
-option go_package = "github.com/stackxio/onekit/examples/restful-crud/api/proto/models;models";
+option go_package = "github.com/corezio/onekit/examples/restful-crud/api/proto/models;models";
 
 // Product represents a product entity in the catalog.
 message Product {

@@ -5,7 +5,7 @@ import (
 
 	"google.golang.org/protobuf/compiler/protogen"
 
-	"github.com/stackxio/onekit/internal/annotations"
+	"github.com/corezio/onekit/internal/annotations"
 )
 
 // NullableContext holds information about messages that need custom JSON encoding

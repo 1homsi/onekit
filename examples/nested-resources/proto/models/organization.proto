@@ -5,7 +5,7 @@ package nested_resources.models;
 import "buf/validate/validate.proto";
 import "onekit/http/annotations.proto";
 
-option go_package = "github.com/stackxio/onekit/examples/nested-resources/api/proto/models;models";
+option go_package = "github.com/corezio/onekit/examples/nested-resources/api/proto/models;models";
 
 // MemberRole represents the role of a team member.
 enum MemberRole {

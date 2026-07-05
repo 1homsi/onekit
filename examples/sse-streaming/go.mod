@@ -1,10 +1,10 @@
-module github.com/stackxio/onekit/examples/sse-streaming
+module github.com/corezio/onekit/examples/sse-streaming
 
 go 1.26.0
 
 require (
 	buf.build/go/protovalidate v1.1.3
-	github.com/stackxio/onekit v0.0.0
+	github.com/corezio/onekit v0.0.0
 	google.golang.org/protobuf v1.36.11
 )
 
@@ -19,4 +19,4 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250811230008-5f3141c8851a // indirect
 )
 
-replace github.com/stackxio/onekit => ../..
+replace github.com/corezio/onekit => ../..

@@ -3,7 +3,7 @@ package pyclientgen
 import (
 	"google.golang.org/protobuf/compiler/protogen"
 
-	"github.com/stackxio/onekit/internal/annotations"
+	"github.com/corezio/onekit/internal/annotations"
 )
 
 // writeEnum emits a Python IntEnum for the given proto enum plus a sibling

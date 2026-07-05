@@ -85,10 +85,10 @@ install-binaries:
 .PHONY: proto
 proto:
 	@echo "Generating Go code from proto files..."
-	@protoc --go_out=. --go_opt=module=github.com/stackxio/onekit \
-		--go_opt=Monekit/http/annotations.proto=github.com/stackxio/onekit/http \
-		--go_opt=Monekit/http/headers.proto=github.com/stackxio/onekit/http \
-		--go_opt=Monekit/http/errors.proto=github.com/stackxio/onekit/http \
+	@protoc --go_out=. --go_opt=module=github.com/corezio/onekit \
+		--go_opt=Monekit/http/annotations.proto=github.com/corezio/onekit/http \
+		--go_opt=Monekit/http/headers.proto=github.com/corezio/onekit/http \
+		--go_opt=Monekit/http/errors.proto=github.com/corezio/onekit/http \
 		--proto_path=. \
 		proto/onekit/http/annotations.proto \
 		proto/onekit/http/headers.proto \
@@ -98,7 +98,7 @@ proto:
 publish:
 	@echo "Publishing annotations to Buf Schema Registry..."
 	@cd proto && buf push
-	@echo "OK: Published to buf.build/stackxio/onekit"
+	@echo "OK: Published to buf.build/corezio/onekit"
 
 .PHONY: fmt
 fmt:

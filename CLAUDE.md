@@ -624,7 +624,7 @@ go fmt ./...
 ### Manual Testing
 ```bash
 # Test plugins with sample proto file
-protoc --go_out=. --go_opt=module=github.com/stackxio/onekit \
+protoc --go_out=. --go_opt=module=github.com/corezio/onekit \
        --onekit-go-http_out=. \
        --onekit-openapiv3_out=./docs \
        --proto_path=examples/simple-api/proto \

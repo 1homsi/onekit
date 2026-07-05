@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package testdata.bytes_encoding;
 
-option go_package = "github.com/stackxio/onekit/internal/httpgen/testdata/bytesencoding;bytesencoding";
+option go_package = "github.com/corezio/onekit/internal/httpgen/testdata/bytesencoding;bytesencoding";
 
 import "onekit/http/annotations.proto";
 

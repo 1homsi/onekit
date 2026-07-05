@@ -6,7 +6,7 @@ import "proto/models/organization.proto";
 import "onekit/http/annotations.proto";
 import "onekit/http/headers.proto";
 
-option go_package = "github.com/stackxio/onekit/examples/nested-resources/api/proto/services;services";
+option go_package = "github.com/corezio/onekit/examples/nested-resources/api/proto/services;services";
 
 // OrganizationService demonstrates complex nested resource hierarchies with multiple path parameters.
 // This follows a GitHub-like pattern: Organization > Team > Members/Projects

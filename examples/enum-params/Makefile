@@ -15,9 +15,9 @@ install:
 	@echo "Installing onekit plugins..."
 	@go install github.com/bufbuild/buf/cmd/buf@latest
 	@go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-	@GOPROXY=direct go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-go-http@latest
-	@GOPROXY=direct go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-go-client@latest
-	@GOPROXY=direct go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-openapiv3@latest
+	@GOPROXY=direct go install github.com/corezio/onekit/cmd/protoc-gen-onekit-go-http@latest
+	@GOPROXY=direct go install github.com/corezio/onekit/cmd/protoc-gen-onekit-go-client@latest
+	@GOPROXY=direct go install github.com/corezio/onekit/cmd/protoc-gen-onekit-openapiv3@latest
 	@echo "Tools installed"
 
 # Generate code from proto files

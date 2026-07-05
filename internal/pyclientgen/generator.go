@@ -21,7 +21,7 @@ import (
 
 	"google.golang.org/protobuf/compiler/protogen"
 
-	"github.com/stackxio/onekit/internal/annotations"
+	"github.com/corezio/onekit/internal/annotations"
 )
 
 // Generator produces Python HTTP client code for protobuf services.

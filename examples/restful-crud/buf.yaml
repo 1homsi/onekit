@@ -1,7 +1,7 @@
 version: v2
 deps:
   - buf.build/bufbuild/protovalidate
-  - buf.build/stackxio/onekit
+  - buf.build/corezio/onekit
 lint:
   use:
     - STANDARD

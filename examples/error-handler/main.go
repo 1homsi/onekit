@@ -23,8 +23,8 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/stackxio/onekit/examples/error-handler/api/proto/models"
-	"github.com/stackxio/onekit/examples/error-handler/api/proto/services"
+	"github.com/corezio/onekit/examples/error-handler/api/proto/models"
+	"github.com/corezio/onekit/examples/error-handler/api/proto/services"
 )
 
 // ErrNotFound is a custom error for not found resources.

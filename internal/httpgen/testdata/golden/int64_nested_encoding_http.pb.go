@@ -6,7 +6,7 @@ package int64nestedencoding
 import (
 	"context"
 
-	onekithttp "github.com/stackxio/onekit/http"
+	onekithttp "github.com/corezio/onekit/http"
 )
 
 // SensorServiceServer is the server API for SensorService service.

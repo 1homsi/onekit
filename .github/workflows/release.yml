@@ -196,27 +196,27 @@ jobs:
 
             #### Using Go
             \`\`\`bash
-            go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-go-http@${tag}
-            go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-go-client@${tag}
-            go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-ts-client@${tag}
-            go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-ts-server@${tag}
-            go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-py-client@${tag}
-            go install github.com/stackxio/onekit/cmd/protoc-gen-onekit-openapiv3@${tag}
+            go install github.com/corezio/onekit/cmd/protoc-gen-onekit-go-http@${tag}
+            go install github.com/corezio/onekit/cmd/protoc-gen-onekit-go-client@${tag}
+            go install github.com/corezio/onekit/cmd/protoc-gen-onekit-ts-client@${tag}
+            go install github.com/corezio/onekit/cmd/protoc-gen-onekit-ts-server@${tag}
+            go install github.com/corezio/onekit/cmd/protoc-gen-onekit-py-client@${tag}
+            go install github.com/corezio/onekit/cmd/protoc-gen-onekit-openapiv3@${tag}
             \`\`\`
 
             #### Using Docker
             \`\`\`bash
-            docker pull ghcr.io/stackxio/protoc-gen-onekit-go-http:${version}
-            docker pull ghcr.io/stackxio/protoc-gen-onekit-openapiv3:${version}
+            docker pull ghcr.io/corezio/protoc-gen-onekit-go-http:${version}
+            docker pull ghcr.io/corezio/protoc-gen-onekit-openapiv3:${version}
             \`\`\`
 
             #### Download Binaries
             Download pre-built binaries from the [release page](${release.html_url}).
 
             ### Documentation
-            - [Getting Started](https://github.com/stackxio/onekit#quick-start)
-            - [API Documentation](https://pkg.go.dev/github.com/stackxio/onekit)
-            - [Examples](https://github.com/stackxio/onekit/tree/main/examples)
+            - [Getting Started](https://github.com/corezio/onekit#quick-start)
+            - [API Documentation](https://pkg.go.dev/github.com/corezio/onekit)
+            - [Examples](https://github.com/corezio/onekit/tree/main/examples)
 
             ---
             _This is an automated release announcement._`;

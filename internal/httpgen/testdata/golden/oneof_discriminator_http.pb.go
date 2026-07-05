@@ -6,7 +6,7 @@ package oneofdiscriminator
 import (
 	"context"
 
-	onekithttp "github.com/stackxio/onekit/http"
+	onekithttp "github.com/corezio/onekit/http"
 )
 
 // OneofDiscriminatorServiceServer is the server API for OneofDiscriminatorService service.

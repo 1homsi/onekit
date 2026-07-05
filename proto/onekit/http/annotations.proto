@@ -4,7 +4,7 @@ package onekit.http;
 
 import "google/protobuf/descriptor.proto";
 
-option go_package = "github.com/stackxio/onekit/http;http";
+option go_package = "github.com/corezio/onekit/http;http";
 
 // HttpMethod specifies the HTTP verb for an RPC method
 enum HttpMethod {

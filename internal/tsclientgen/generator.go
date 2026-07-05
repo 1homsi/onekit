@@ -6,8 +6,8 @@ import (
 
 	"google.golang.org/protobuf/compiler/protogen"
 
-	"github.com/stackxio/onekit/internal/annotations"
-	"github.com/stackxio/onekit/internal/tscommon"
+	"github.com/corezio/onekit/internal/annotations"
+	"github.com/corezio/onekit/internal/tscommon"
 )
 
 // Generator handles TypeScript HTTP client code generation for protobuf services.
