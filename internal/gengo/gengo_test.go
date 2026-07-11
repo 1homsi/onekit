@@ -89,13 +89,22 @@ func TestGenerateServerFormatsCleanly(t *testing.T) {
 	}
 }
 
+func TestGenerateClientFormatsCleanly(t *testing.T) {
+	file := compileFixture(t)
+	out, err := GenerateClient(file)
+	if err != nil {
+		t.Fatalf("GenerateClient error: %v\n%s", err, out)
+	}
+	if len(out) == 0 {
+		t.Fatalf("expected non-empty generated client code")
+	}
+}
+
 const harnessMain = `
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -131,59 +140,40 @@ func main() {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	body, _ := json.Marshal(map[string]string{"name": "Ada Lovelace", "email": "ada@example.com"})
-	resp, err := http.Post(srv.URL+"/api/v1/users", "application/json", bytes.NewReader(body))
+	ctx := context.Background()
+	client := NewUserServiceClient(srv.URL)
+
+	created, err := client.CreateUser(ctx, &CreateUserRequest{Name: "Ada Lovelace", Email: "ada@example.com"})
 	if err != nil {
 		fail("create request failed: %v", err)
-	}
-	if resp.StatusCode != 200 {
-		fail("expected 200 from create, got %d", resp.StatusCode)
-	}
-	var created User
-	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
-		fail("decode create response: %v", err)
 	}
 	if created.Name != "Ada Lovelace" || created.Email != "ada@example.com" || created.Id == "" {
 		fail("unexpected created user: %+v", created)
 	}
 
-	getResp, err := http.Get(srv.URL + "/api/v1/users/" + created.Id)
+	fetched, err := client.GetUser(ctx, &GetUserRequest{Id: created.Id})
 	if err != nil {
 		fail("get request failed: %v", err)
-	}
-	if getResp.StatusCode != 200 {
-		fail("expected 200 from get, got %d", getResp.StatusCode)
-	}
-	var fetched User
-	if err := json.NewDecoder(getResp.Body).Decode(&fetched); err != nil {
-		fail("decode get response: %v", err)
 	}
 	if fetched.Id != created.Id || fetched.Name != created.Name {
 		fail("unexpected fetched user: %+v", fetched)
 	}
 
-	missResp, err := http.Get(srv.URL + "/api/v1/users/does-not-exist")
-	if err != nil {
-		fail("missing-user request failed: %v", err)
+	_, err = client.GetUser(ctx, &GetUserRequest{Id: "does-not-exist"})
+	if err == nil {
+		fail("expected error for missing user, got nil")
 	}
-	if missResp.StatusCode != 404 {
-		fail("expected 404 for missing user, got %d", missResp.StatusCode)
-	}
-	var notFound NotFoundError
-	if err := json.NewDecoder(missResp.Body).Decode(&notFound); err != nil {
-		fail("decode not-found response: %v", err)
+	notFound, ok := err.(*NotFoundError)
+	if !ok {
+		fail("expected *NotFoundError, got %T: %v", err, err)
 	}
 	if notFound.ResourceType != "user" || notFound.ResourceId != "does-not-exist" {
 		fail("unexpected not-found body: %+v", notFound)
 	}
 
-	badBody, _ := json.Marshal(map[string]string{"name": "A", "email": "not-an-email"})
-	badResp, err := http.Post(srv.URL+"/api/v1/users", "application/json", bytes.NewReader(badBody))
-	if err != nil {
-		fail("bad create request failed: %v", err)
-	}
-	if badResp.StatusCode != 400 {
-		fail("expected 400 for invalid create, got %d", badResp.StatusCode)
+	_, err = client.CreateUser(ctx, &CreateUserRequest{Name: "A", Email: "not-an-email"})
+	if err == nil {
+		fail("expected error for invalid create, got nil")
 	}
 
 	fmt.Println("OK")
@@ -209,12 +199,17 @@ func TestGeneratedServerBuildsAndServes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateServer error: %v", err)
 	}
+	clientSrc, err := GenerateClient(file)
+	if err != nil {
+		t.Fatalf("GenerateClient error: %v", err)
+	}
 
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "go.mod"), "module onekit_gengo_fixture\n\ngo 1.26\n")
 	writeFile(t, filepath.Join(dir, "types.go"), string(typesSrc))
 	writeFile(t, filepath.Join(dir, "validate.go"), string(validateSrc))
 	writeFile(t, filepath.Join(dir, "server.go"), string(serverSrc))
+	writeFile(t, filepath.Join(dir, "client.go"), string(clientSrc))
 	writeFile(t, filepath.Join(dir, "main.go"), harnessMain)
 
 	cmd := exec.Command("go", "run", ".")
