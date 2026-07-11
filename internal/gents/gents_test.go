@@ -102,6 +102,14 @@ func TestGenerateClientProducesOutput(t *testing.T) {
 	}
 }
 
+func TestGenerateServerProducesOutput(t *testing.T) {
+	file := compileFixture(t)
+	out := GenerateServer(file)
+	if len(out) == 0 {
+		t.Fatalf("expected non-empty generated server")
+	}
+}
+
 func TestGeneratedTypeScriptTypeChecks(t *testing.T) {
 	if _, err := exec.LookPath("tsc"); err != nil {
 		t.Skip("tsc not available")
@@ -131,6 +139,98 @@ func TestGeneratedTypeScriptTypeChecks(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("tsc type check failed: %v\n%s", err, out)
+	}
+}
+
+const serverHarness = `
+import { createUserServiceRoutes, HttpError } from "./server.ts";
+import type { RouteDescriptor } from "./server.ts";
+import type { User, CreateUserRequest, GetUserRequest, NotFoundError } from "./types.ts";
+
+const users = new Map<string, User>();
+
+const handler = {
+  async createUser(req: CreateUserRequest): Promise<User> {
+    const id = "user-" + (users.size + 1);
+    const u: User = { id, name: req.name, email: req.email };
+    users.set(id, u);
+    return u;
+  },
+  async getUser(req: GetUserRequest): Promise<User> {
+    const u = users.get(req.id!);
+    if (!u) {
+      const body: NotFoundError = { resource_type: "user", resource_id: req.id };
+      throw new HttpError(404, body);
+    }
+    return u;
+  },
+};
+
+function findRoute(routes: RouteDescriptor[], method: string, path: string): RouteDescriptor {
+  const r = routes.find((r) => r.method === method && r.path === path);
+  if (!r) throw new Error("route not found: " + method + " " + path);
+  return r;
+}
+
+async function main() {
+  const routes = createUserServiceRoutes(handler);
+
+  const createRoute = findRoute(routes, "POST", "/api/v1/users");
+  const createReq = new Request("http://x/api/v1/users", {
+    method: "POST",
+    body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com" }),
+  });
+  const createRes = await createRoute.handler(createReq);
+  if (createRes.status !== 200) throw new Error("expected 200, got " + createRes.status);
+  const created = (await createRes.json()) as User;
+  if (created.name !== "Ada Lovelace" || !created.id) throw new Error("unexpected created user: " + JSON.stringify(created));
+
+  const getRoute = findRoute(routes, "GET", "/api/v1/users/{id}");
+  const getReq = new Request("http://x/api/v1/users/" + created.id);
+  const getRes = await getRoute.handler(getReq);
+  if (getRes.status !== 200) throw new Error("expected 200, got " + getRes.status);
+  const fetched = (await getRes.json()) as User;
+  if (fetched.id !== created.id) throw new Error("unexpected fetched user: " + JSON.stringify(fetched));
+
+  const missReq = new Request("http://x/api/v1/users/does-not-exist");
+  const missRes = await getRoute.handler(missReq);
+  if (missRes.status !== 404) throw new Error("expected 404, got " + missRes.status);
+  const notFound = (await missRes.json()) as NotFoundError;
+  if (notFound.resource_type !== "user" || notFound.resource_id !== "does-not-exist") {
+    throw new Error("unexpected not-found body: " + JSON.stringify(notFound));
+  }
+
+  console.log("OK");
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
+`
+
+func TestGeneratedServerRuntimeBehavior(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not available")
+	}
+
+	file := compileFixture(t)
+	typesSrc := GenerateTypes(file)
+	serverSrc := GenerateServer(file)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "types.ts"), string(typesSrc))
+	writeFile(t, filepath.Join(dir, "server.ts"), string(serverSrc))
+	writeFile(t, filepath.Join(dir, "main.ts"), serverHarness)
+
+	cmd := exec.Command("node", "main.ts")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node run failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != "OK\n" {
+		t.Fatalf("unexpected program output: %q", got)
 	}
 }
 
