@@ -31,6 +31,7 @@ const (
 	httpMethodPut    = "put"
 	httpMethodDelete = "delete"
 	httpMethodPatch  = "patch"
+	httpMethodQuery  = "query"
 )
 
 // Generator generates OpenAPI v3.1 documents from Protocol Buffer definitions.
@@ -858,6 +859,8 @@ func assignOperationToPathItem(pathItem *v3.PathItem, httpMethod string, operati
 		pathItem.Delete = operation
 	case httpMethodPatch:
 		pathItem.Patch = operation
+	case httpMethodQuery:
+		pathItem.Query = operation
 	default:
 		pathItem.Post = operation
 	}
@@ -900,8 +903,8 @@ func (g *Generator) processMethod(service *protogen.Service, method *protogen.Me
 		operation.Parameters = parameters
 	}
 
-	// Add request body for POST, PUT, PATCH
-	if info.httpMethod == httpMethodPost || info.httpMethod == httpMethodPut || info.httpMethod == httpMethodPatch {
+	// Add request body for POST, PUT, PATCH, QUERY
+	if info.httpMethod == httpMethodPost || info.httpMethod == httpMethodPut || info.httpMethod == httpMethodPatch || info.httpMethod == httpMethodQuery {
 		// With body field selection (body: "<field>"), the request body is the
 		// selected sub-message rather than the whole input message. An invalid
 		// annotation is reported by the go-http generator, so fall back silently.

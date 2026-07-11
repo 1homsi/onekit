@@ -301,7 +301,7 @@ func (g *Generator) buildRPCMethodConfig(service *protogen.Service, method *prot
 		fullPath:    fullPath,
 		pathParams:  pathParams,
 		queryParams: annotations.GetQueryParams(method.Input),
-		hasBody:     httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH",
+		hasBody:     httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH" || httpMethod == "QUERY",
 		isSSE:       isSSE,
 	}
 }

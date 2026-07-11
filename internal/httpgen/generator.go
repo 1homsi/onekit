@@ -422,7 +422,7 @@ func (g *Generator) generateBindingFile(file *protogen.File) error {
 	gf.P("// This must happen before path/query binding because protojson.Unmarshal")
 	gf.P("// calls proto.Reset(), which would wipe any previously-set fields.")
 	gf.P("// By binding body first, path and query params applied afterwards take precedence.")
-	gf.P(`if httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH" {`)
+	gf.P(`if httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH" || httpMethod == "QUERY" {`)
 	gf.P("if maxRequestBytes > 0 {")
 	gf.P("r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)")
 	gf.P("}")
@@ -2098,7 +2098,7 @@ func (g *Generator) generateSSETypes(gf *protogen.GeneratedFile) {
 
 	// Body binding for POST/PUT/PATCH — must happen before path/query binding
 	gf.P("// Bind body FIRST (protojson.Unmarshal calls proto.Reset, which would wipe path/query values)")
-	gf.P(`if httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH" {`)
+	gf.P(`if httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH" || httpMethod == "QUERY" {`)
 	gf.P("if maxRequestBytes > 0 {")
 	gf.P("r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)")
 	gf.P("}")

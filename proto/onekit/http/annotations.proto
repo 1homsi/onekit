@@ -15,6 +15,7 @@ enum HttpMethod {
   HTTP_METHOD_PUT = 3;
   HTTP_METHOD_DELETE = 4;
   HTTP_METHOD_PATCH = 5;
+  HTTP_METHOD_QUERY = 6;
 }
 
 // HttpConfig defines HTTP-specific configuration for an RPC method

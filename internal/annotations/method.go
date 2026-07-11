@@ -8,11 +8,12 @@ import (
 
 // HTTP method string constants (uppercase).
 const (
-	methodGET    = "GET"
-	methodPOST   = "POST"
-	methodPUT    = "PUT"
-	methodDELETE = "DELETE"
-	methodPATCH  = "PATCH"
+	HTTPMethodGet    = "GET"
+	HTTPMethodPost   = "POST"
+	HTTPMethodPut    = "PUT"
+	HTTPMethodDelete = "DELETE"
+	HTTPMethodPatch  = "PATCH"
+	HTTPMethodQuery  = "QUERY"
 )
 
 // HTTPMethodToString converts HttpMethod enum to an uppercase string.
@@ -20,21 +21,23 @@ const (
 func HTTPMethodToString(m http.HttpMethod) string {
 	switch m {
 	case http.HttpMethod_HTTP_METHOD_GET:
-		return methodGET
+		return HTTPMethodGet
 	case http.HttpMethod_HTTP_METHOD_POST:
-		return methodPOST
+		return HTTPMethodPost
 	case http.HttpMethod_HTTP_METHOD_PUT:
-		return methodPUT
+		return HTTPMethodPut
 	case http.HttpMethod_HTTP_METHOD_DELETE:
-		return methodDELETE
+		return HTTPMethodDelete
 	case http.HttpMethod_HTTP_METHOD_PATCH:
-		return methodPATCH
+		return HTTPMethodPatch
+	case http.HttpMethod_HTTP_METHOD_QUERY:
+		return HTTPMethodQuery
 	case http.HttpMethod_HTTP_METHOD_UNSPECIFIED:
 		// HTTP_METHOD_UNSPECIFIED defaults to POST for backward compatibility
-		return methodPOST
+		return HTTPMethodPost
 	}
 	// Any unknown value defaults to POST for backward compatibility
-	return methodPOST
+	return HTTPMethodPost
 }
 
 // HTTPMethodToLower converts HttpMethod enum to a lowercase string.

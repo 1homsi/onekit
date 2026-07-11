@@ -432,7 +432,7 @@ func buildMethodConfig(service *protogen.Service, method *protogen.Method) *meth
 	fullPath := annotations.BuildHTTPPath(basePath, httpPath)
 
 	isSSE := httpConfig != nil && httpConfig.Stream
-	hasBody := httpMethod == http.MethodPost || httpMethod == http.MethodPut || httpMethod == http.MethodPatch
+	hasBody := httpMethod == http.MethodPost || httpMethod == http.MethodPut || httpMethod == http.MethodPatch || httpMethod == "QUERY"
 
 	return &methodConfig{
 		methodName:  methodName,

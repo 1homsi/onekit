@@ -33,6 +33,7 @@ const (
 	HttpMethod_HTTP_METHOD_PUT         HttpMethod = 3
 	HttpMethod_HTTP_METHOD_DELETE      HttpMethod = 4
 	HttpMethod_HTTP_METHOD_PATCH       HttpMethod = 5
+	HttpMethod_HTTP_METHOD_QUERY       HttpMethod = 6
 )
 
 // Enum value maps for HttpMethod.
@@ -44,6 +45,7 @@ var (
 		3: "HTTP_METHOD_PUT",
 		4: "HTTP_METHOD_DELETE",
 		5: "HTTP_METHOD_PATCH",
+		6: "HTTP_METHOD_QUERY",
 	}
 	HttpMethod_value = map[string]int32{
 		"HTTP_METHOD_UNSPECIFIED": 0,
@@ -52,6 +54,7 @@ var (
 		"HTTP_METHOD_PUT":         3,
 		"HTTP_METHOD_DELETE":      4,
 		"HTTP_METHOD_PATCH":       5,
+		"HTTP_METHOD_QUERY":       6,
 	}
 )
 
@@ -914,7 +917,7 @@ const file_proto_onekit_http_annotations_proto_rawDesc = "" +
 	"\brequired\x18\x02 \x01(\bR\brequired\"M\n" +
 	"\vOneofConfig\x12$\n" +
 	"\rdiscriminator\x18\x01 \x01(\tR\rdiscriminator\x12\x18\n" +
-	"\aflatten\x18\x02 \x01(\bR\aflatten*\x98\x01\n" +
+	"\aflatten\x18\x02 \x01(\bR\aflatten*\xaf\x01\n" +
 	"\n" +
 	"HttpMethod\x12\x1b\n" +
 	"\x17HTTP_METHOD_UNSPECIFIED\x10\x00\x12\x13\n" +
@@ -922,7 +925,8 @@ const file_proto_onekit_http_annotations_proto_rawDesc = "" +
 	"\x10HTTP_METHOD_POST\x10\x02\x12\x13\n" +
 	"\x0fHTTP_METHOD_PUT\x10\x03\x12\x16\n" +
 	"\x12HTTP_METHOD_DELETE\x10\x04\x12\x15\n" +
-	"\x11HTTP_METHOD_PATCH\x10\x05*e\n" +
+	"\x11HTTP_METHOD_PATCH\x10\x05\x12\x15\n" +
+	"\x11HTTP_METHOD_QUERY\x10\x06*e\n" +
 	"\rInt64Encoding\x12\x1e\n" +
 	"\x1aINT64_ENCODING_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15INT64_ENCODING_STRING\x10\x01\x12\x19\n" +

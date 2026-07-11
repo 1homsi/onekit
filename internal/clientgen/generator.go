@@ -168,7 +168,7 @@ func (g *Generator) fileNeedsRequestBody(file *protogen.File) bool {
 			if httpConfig != nil && httpConfig.Method != "" {
 				httpMethod = httpConfig.Method
 			}
-			if httpMethod == http.MethodPost || httpMethod == http.MethodPut || httpMethod == http.MethodPatch {
+			if httpMethod == http.MethodPost || httpMethod == http.MethodPut || httpMethod == http.MethodPatch || httpMethod == "QUERY" {
 				return true
 			}
 		}
@@ -589,7 +589,7 @@ func (g *Generator) buildRPCMethodConfig(service *protogen.Service, method *prot
 		fullPath:    fullPath,
 		pathParams:  pathParams,
 		queryParams: annotations.GetQueryParams(method.Input),
-		hasBody:     httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH",
+		hasBody:     httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH" || httpMethod == "QUERY",
 		isSSE:       isSSE,
 	}
 }

@@ -343,7 +343,7 @@ func (g *Generator) buildRPCRouteConfig(service *protogen.Service, method *proto
 		pathParams:      pathParams,
 		pathParamFields: pathParamFields,
 		queryParams:     annotations.GetQueryParams(method.Input),
-		hasBody:         httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH",
+		hasBody:         httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH" || httpMethod == "QUERY",
 	}
 	if bodyField != nil {
 		cfg.bodyFieldJSONName = bodyField.Desc.JSONName()
