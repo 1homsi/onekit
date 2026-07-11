@@ -85,7 +85,7 @@ func BindingMiddleware[Req any](next http.Handler, serviceHeaders, methodHeaders
 		// This must happen before path/query binding because protojson.Unmarshal
 		// calls proto.Reset(), which would wipe any previously-set fields.
 		// By binding body first, path and query params applied afterwards take precedence.
-		if httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH" {
+		if httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH" || httpMethod == "QUERY" {
 			if maxRequestBytes > 0 {
 				r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
 			}

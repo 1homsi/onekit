@@ -45,6 +45,8 @@ func scalarParseExpr(kind onkir.ScalarKind, strExpr string) (string, bool) {
 		return fmt.Sprintf("parseFloat64(%s)", strExpr), true
 	case onkir.ScalarBool:
 		return fmt.Sprintf("parseBool(%s)", strExpr), true
+	case onkir.ScalarBytes, onkir.ScalarTimestamp:
+		return "", false
 	default:
 		return "", false
 	}
@@ -112,26 +114,22 @@ func writeRegisterFunc(p *Printer, s *onkir.Service) {
 	p.P()
 }
 
-func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
-	verb, _ := m.Verb()
-	path, _ := m.Path()
-	fullPath := s.BasePath + path
-	bodyBearing := verb == "post" || verb == "put" || verb == "patch" || verb == "query"
+func isBodyBearingVerb(verb string) bool {
+	return verb == "post" || verb == "put" || verb == "patch" || verb == "query"
+}
 
-	p.P(`mux.HandleFunc("`, strings.ToUpper(verb), " ", fullPath, `", func(w http.ResponseWriter, r *http.Request) {`)
-	p.P("req := new(", m.Request.Name, ")")
+func writeBodyBinding(p *Printer) {
+	p.P("if r.Body != nil {")
+	p.P("if err := json.NewDecoder(r.Body).Decode(req); err != nil && err.Error() != \"EOF\" {")
+	p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body: "+err.Error())`)
+	p.P("return")
+	p.P("}")
+	p.P("}")
+}
 
-	if bodyBearing {
-		p.P("if r.Body != nil {")
-		p.P("if err := json.NewDecoder(r.Body).Decode(req); err != nil && err.Error() != \"EOF\" {")
-		p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body: "+err.Error())`)
-		p.P("return")
-		p.P("}")
-		p.P("}")
-	}
-
+func writePathParamBinding(p *Printer, path string, req *onkir.Message) {
 	for _, paramName := range pathParamNames(path) {
-		field := findField(m.Request, paramName)
+		field := findField(req, paramName)
 		if field == nil || field.Type == nil || field.Type.Kind != onkir.KindScalar {
 			continue
 		}
@@ -141,26 +139,53 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		}
 		p.P("req.", PascalCase(paramName), " = ", expr)
 	}
+}
 
-	if !bodyBearing {
-		for _, field := range m.Request.Fields {
-			d, ok := field.Decorator("query")
-			if !ok || field.Type == nil || field.Type.Kind != onkir.KindScalar {
-				continue
-			}
-			queryName, _ := d.Value()
-			if queryName == "" {
-				queryName = field.Name
-			}
-			strExpr := fmt.Sprintf("r.URL.Query().Get(%q)", queryName)
-			expr, ok := scalarParseExpr(field.Type.Scalar, strExpr)
-			if !ok {
-				continue
-			}
-			p.P("if ", strExpr, " != \"\" {")
-			p.P("req.", PascalCase(field.Name), " = ", expr)
-			p.P("}")
+func writeQueryParamBinding(p *Printer, req *onkir.Message) {
+	for _, field := range req.Fields {
+		d, ok := field.Decorator("query")
+		if !ok || field.Type == nil || field.Type.Kind != onkir.KindScalar {
+			continue
 		}
+		queryName, _ := d.Value()
+		if queryName == "" {
+			queryName = field.Name
+		}
+		strExpr := fmt.Sprintf("r.URL.Query().Get(%q)", queryName)
+		expr, ok := scalarParseExpr(field.Type.Scalar, strExpr)
+		if !ok {
+			continue
+		}
+		p.P("if ", strExpr, " != \"\" {")
+		p.P("req.", PascalCase(field.Name), " = ", expr)
+		p.P("}")
+	}
+}
+
+func writeValidateCall(p *Printer) {
+	p.P("if v, ok := any(req).(interface{ Validate() error }); ok {")
+	p.P("if err := v.Validate(); err != nil {")
+	p.P(`writeJSONError(w, http.StatusBadRequest, err.Error())`)
+	p.P("return")
+	p.P("}")
+	p.P("}")
+}
+
+func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
+	verb, _ := m.Verb()
+	path, _ := m.Path()
+	fullPath := s.BasePath + path
+	bodyBearing := isBodyBearingVerb(verb)
+
+	p.P(`mux.HandleFunc("`, strings.ToUpper(verb), " ", fullPath, `", func(w http.ResponseWriter, r *http.Request) {`)
+	p.P("req := new(", m.Request.Name, ")")
+
+	if bodyBearing {
+		writeBodyBinding(p)
+	}
+	writePathParamBinding(p, path, m.Request)
+	if !bodyBearing {
+		writeQueryParamBinding(p, m.Request)
 	}
 
 	for _, h := range m.Service.Headers {
@@ -170,12 +195,7 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		writeHeaderCheck(p, h)
 	}
 
-	p.P("if v, ok := any(req).(interface{ Validate() error }); ok {")
-	p.P("if err := v.Validate(); err != nil {")
-	p.P(`writeJSONError(w, http.StatusBadRequest, err.Error())`)
-	p.P("return")
-	p.P("}")
-	p.P("}")
+	writeValidateCall(p)
 
 	p.P("resp, err := srv.", PascalCase(m.Name), "(r.Context(), req)")
 	p.P("if err != nil {")

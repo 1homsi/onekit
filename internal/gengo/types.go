@@ -44,6 +44,8 @@ func typeUsesTime(t *onkir.Type) bool {
 		return t.Scalar == onkir.ScalarTimestamp
 	case onkir.KindMap:
 		return typeUsesTime(t.MapValue)
+	case onkir.KindMessage, onkir.KindEnum:
+		return false
 	default:
 		return false
 	}

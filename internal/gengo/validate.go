@@ -31,13 +31,16 @@ func fieldValidationRules(f *onkir.Field) []string {
 	}
 
 	if f.HasDecorator("required") {
+		requiredMsg := f.Name + " is required"
 		switch {
-		case f.Optional:
-			rules = append(rules, fmt.Sprintf("if m.%s == nil { violations = append(violations, %q) }", goName, f.Name+" is required"))
-		case f.Type != nil && f.Type.Kind == onkir.KindMessage:
-			rules = append(rules, fmt.Sprintf("if m.%s == nil { violations = append(violations, %q) }", goName, f.Name+" is required"))
+		case f.Optional, f.Type != nil && f.Type.Kind == onkir.KindMessage:
+			rules = append(rules, fmt.Sprintf(
+				"if m.%s == nil { violations = append(violations, %q) }", goName, requiredMsg,
+			))
 		case f.Type != nil && f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarString:
-			rules = append(rules, fmt.Sprintf("if %s == \"\" { violations = append(violations, %q) }", accessor, f.Name+" is required"))
+			rules = append(rules, fmt.Sprintf(
+				`if %s == "" { violations = append(violations, %q) }`, accessor, requiredMsg,
+			))
 		}
 	}
 
@@ -58,11 +61,12 @@ func fieldValidationRules(f *onkir.Field) []string {
 		))
 	}
 	if d, ok := f.Decorator("len"); ok {
-		min, _ := d.Arg(0)
-		max, _ := d.Arg(1)
+		minArg, _ := d.Arg(0)
+		maxArg, _ := d.Arg(1)
 		rules = append(rules, fmt.Sprintf(
 			"if len(%s) < %s || len(%s) > %s { violations = append(violations, %q) }",
-			accessor, min, accessor, max, fmt.Sprintf("%s must be between %s and %s characters", f.Name, min, max),
+			accessor, minArg, accessor, maxArg,
+			fmt.Sprintf("%s must be between %s and %s characters", f.Name, minArg, maxArg),
 		))
 	}
 	if d, ok := f.Decorator("in"); ok {
@@ -76,11 +80,12 @@ func fieldValidationRules(f *onkir.Field) []string {
 		))
 	}
 	if d, ok := f.Decorator("range"); ok {
-		min, _ := d.Arg(0)
-		max, _ := d.Arg(1)
+		minArg, _ := d.Arg(0)
+		maxArg, _ := d.Arg(1)
 		rules = append(rules, fmt.Sprintf(
 			"if %s < %s || %s > %s { violations = append(violations, %q) }",
-			accessor, min, accessor, max, fmt.Sprintf("%s must be between %s and %s", f.Name, min, max),
+			accessor, minArg, accessor, maxArg,
+			fmt.Sprintf("%s must be between %s and %s", f.Name, minArg, maxArg),
 		))
 	}
 
@@ -117,7 +122,9 @@ func GenerateValidation(file *onkir.File) ([]byte, error) {
 	p.P(")")
 	p.P()
 	p.P(`var emailPattern = regexp.MustCompile(` + "`" + `^[^@\s]+@[^@\s]+\.[^@\s]+$` + "`" + `)`)
-	p.P(`var uuidPattern = regexp.MustCompile(` + "`" + `^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$` + "`" + `)`)
+	uuidRegex := `^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-` +
+		`[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`
+	p.P(`var uuidPattern = regexp.MustCompile(` + "`" + uuidRegex + "`" + `)`)
 	p.P()
 	p.P("func inSet(v string, allowed ...string) bool {")
 	p.P("for _, a := range allowed {")
