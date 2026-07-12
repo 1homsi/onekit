@@ -14,9 +14,14 @@ import (
 const commonSrc = `
 package common
 
+enum Currency {
+  UNSPECIFIED
+  USD
+}
+
 message Money {
   amount_cents: int64
-  currency: string
+  currency: Currency
 }
 `
 
@@ -30,6 +35,7 @@ message GetOrderRequest {
 message Order {
   id: string
   price: Money
+  preferred_currency: Currency
 }
 
 service OrderService {
@@ -45,6 +51,7 @@ service OrderService {
 type dirResolver struct {
 	currentDir   string
 	dirByMessage map[*onkir.Message]string
+	dirByEnum    map[*onkir.Enum]string
 	packages     map[string]PackageRef
 }
 
@@ -57,11 +64,18 @@ func (r *dirResolver) ResolveMessage(m *onkir.Message) (PackageRef, bool) {
 	return ref, ok
 }
 
-func (r *dirResolver) ResolveEnum(*onkir.Enum) (PackageRef, bool) {
-	return PackageRef{}, false
+func (r *dirResolver) ResolveEnum(e *onkir.Enum) (PackageRef, bool) {
+	dir, ok := r.dirByEnum[e]
+	if !ok || dir == r.currentDir {
+		return PackageRef{}, false
+	}
+	ref, ok := r.packages[dir]
+	return ref, ok
 }
 
-func compileCrossPackageFixture(t *testing.T) (*onkir.File, *onkir.File, map[*onkir.Message]string) {
+func compileCrossPackageFixture(
+	t *testing.T,
+) (*onkir.File, *onkir.File, map[*onkir.Message]string, map[*onkir.Enum]string) {
 	t.Helper()
 	commonAST, err := onklang.Parse(commonSrc)
 	if err != nil {
@@ -81,11 +95,15 @@ func compileCrossPackageFixture(t *testing.T) (*onkir.File, *onkir.File, map[*on
 	}
 
 	dirByMessage := map[*onkir.Message]string{}
+	dirByEnum := map[*onkir.Enum]string{}
 	var commonFile, ordersFile *onkir.File
 	for _, f := range pkg.Files {
 		dir := filepath.ToSlash(filepath.Dir(f.Path))
 		for _, m := range f.Messages {
 			dirByMessage[m] = dir
+		}
+		for _, e := range f.Enums {
+			dirByEnum[e] = dir
 		}
 		switch dir {
 		case "common":
@@ -100,7 +118,7 @@ func compileCrossPackageFixture(t *testing.T) (*onkir.File, *onkir.File, map[*on
 	commonFile.Package = "common"
 	ordersFile.Package = "v1"
 
-	return commonFile, ordersFile, dirByMessage
+	return commonFile, ordersFile, dirByMessage, dirByEnum
 }
 
 func TestCrossPackageGoGeneration(t *testing.T) {
@@ -108,15 +126,19 @@ func TestCrossPackageGoGeneration(t *testing.T) {
 		t.Skip("go toolchain not available")
 	}
 
-	commonFile, ordersFile, dirByMessage := compileCrossPackageFixture(t)
+	commonFile, ordersFile, dirByMessage, dirByEnum := compileCrossPackageFixture(t)
 
 	packages := map[string]PackageRef{
 		"common":    {Alias: "common", ImportPath: "onekit_crosspkg_fixture/common"},
 		"orders/v1": {Alias: "orders", ImportPath: "onekit_crosspkg_fixture/orders/v1"},
 	}
 
-	commonResolver := &dirResolver{currentDir: "common", dirByMessage: dirByMessage, packages: packages}
-	ordersResolver := &dirResolver{currentDir: "orders/v1", dirByMessage: dirByMessage, packages: packages}
+	commonResolver := &dirResolver{
+		currentDir: "common", dirByMessage: dirByMessage, dirByEnum: dirByEnum, packages: packages,
+	}
+	ordersResolver := &dirResolver{
+		currentDir: "orders/v1", dirByMessage: dirByMessage, dirByEnum: dirByEnum, packages: packages,
+	}
 
 	commonTypes, err := GenerateTypesWithResolver(commonFile, commonResolver)
 	if err != nil {
@@ -142,6 +164,14 @@ func TestCrossPackageGoGeneration(t *testing.T) {
 	}
 	if !containsString(string(ordersTypes), "common.Money") {
 		t.Fatalf("expected orders/types.go to reference common.Money, got:\n%s", ordersTypes)
+	}
+
+	if !containsString(string(commonTypes), "common.CurrencyUsd") &&
+		!containsString(string(commonTypes), "CurrencyUsd") {
+		t.Fatalf("expected common/types.go to declare CurrencyUsd, got:\n%s", commonTypes)
+	}
+	if !containsString(string(ordersTypes), "common.Currency") {
+		t.Fatalf("expected orders/types.go to reference common.Currency (cross-package enum), got:\n%s", ordersTypes)
 	}
 
 	dir := t.TempDir()
@@ -199,7 +229,7 @@ type impl struct{}
 func (impl) GetOrder(ctx context.Context, req *v1.GetOrderRequest) (*v1.Order, error) {
 	return &v1.Order{
 		Id:    req.Id,
-		Price: &common.Money{AmountCents: 1999, Currency: "USD"},
+		Price: &common.Money{AmountCents: 1999, Currency: common.CurrencyUsd},
 	}, nil
 }
 
@@ -219,7 +249,7 @@ func main() {
 	if err != nil {
 		fail("GetOrder failed: %v", err)
 	}
-	if order.Id != "o1" || order.Price == nil || order.Price.AmountCents != 1999 || order.Price.Currency != "USD" {
+	if order.Id != "o1" || order.Price == nil || order.Price.AmountCents != 1999 || order.Price.Currency != common.CurrencyUsd {
 		fail("unexpected order: %+v", order)
 	}
 
