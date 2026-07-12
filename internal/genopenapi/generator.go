@@ -220,11 +220,15 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 	}
 
 	responses := &v3.Responses{Codes: orderedmap.New[string, *v3.Response]()}
-	successContent := orderedmap.New[string, *v3.MediaType]()
-	successContent.Set("application/json", &v3.MediaType{
-		Schema: base.CreateSchemaProxyRef("#/components/schemas/" + m.Response.Name),
-	})
-	responses.Codes.Set("200", &v3.Response{Description: "OK", Content: successContent})
+	if m.IsStream() {
+		responses.Codes.Set("200", sseResponse(m))
+	} else {
+		successContent := orderedmap.New[string, *v3.MediaType]()
+		successContent.Set("application/json", &v3.MediaType{
+			Schema: base.CreateSchemaProxyRef("#/components/schemas/" + m.Response.Name),
+		})
+		responses.Codes.Set("200", &v3.Response{Description: "OK", Content: successContent})
+	}
 
 	for _, errType := range m.ErrorTypes {
 		status := 500
