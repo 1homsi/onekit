@@ -20,6 +20,12 @@ message CreateProductRequest {
   launch_date: string @pattern("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
   tags: string[] @min_items(1) @max_items(5)
 }
+
+message ScheduleEventRequest {
+  // Same field name as CreateProductRequest.launch_date but a DIFFERENT
+  // pattern - proves pattern vars are scoped per-message, not just per-field.
+  launch_date: string @pattern("^[0-9]{2}/[0-9]{2}/[0-9]{4}$")
+}
 `
 
 const validateExtendedHarness = `
@@ -90,6 +96,19 @@ func main() {
 	tooManyTags := *valid
 	tooManyTags.Tags = []string{"a", "b", "c", "d", "e", "f"}
 	expectInvalid("too many tags", &tooManyTags, "tags must have at most 5 items")
+
+	// Cross-message pattern var collision check: ScheduleEventRequest's
+	// launch_date uses a DIFFERENT pattern than CreateProductRequest's.
+	validEvent := &ScheduleEventRequest{LaunchDate: "01/15/2026"}
+	if err := validEvent.Validate(); err != nil {
+		fail("valid event: expected valid, got error: %v", err)
+	}
+	invalidEvent := &ScheduleEventRequest{LaunchDate: "2026-01-15"}
+	if err := invalidEvent.Validate(); err == nil {
+		fail("invalid event: expected validation error, got nil")
+	} else if !strings.Contains(err.Error(), "launch_date has an invalid format") {
+		fail("invalid event: unexpected error: %v", err)
+	}
 
 	fmt.Println("OK")
 }

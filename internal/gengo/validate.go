@@ -10,7 +10,7 @@ import (
 
 func messageHasValidation(m *onkir.Message) bool {
 	for _, f := range m.Fields {
-		if fieldValidationRules(f) != nil {
+		if fieldValidationRules(m, f) != nil {
 			return true
 		}
 	}
@@ -80,7 +80,7 @@ func repeatedItemsRules(f *onkir.Field) []string {
 	return rules
 }
 
-func stringValidationRules(f *onkir.Field) []string {
+func stringValidationRules(m *onkir.Message, f *onkir.Field) []string {
 	accessor := fieldAccessor(f)
 	var rules []string
 
@@ -105,7 +105,7 @@ func stringValidationRules(f *onkir.Field) []string {
 	if _, ok := f.Decorator("pattern"); ok {
 		rules = append(rules, fmt.Sprintf(
 			`if %s != "" && !%s.MatchString(%s) { violations = append(violations, %q) }`,
-			accessor, patternVarName(f), accessor, f.Name+" has an invalid format",
+			accessor, patternVarName(m, f), accessor, f.Name+" has an invalid format",
 		))
 	}
 	if d, ok := f.Decorator("len"); ok {
@@ -176,7 +176,7 @@ func numericValidationRules(f *onkir.Field) []string {
 	return rules
 }
 
-func fieldValidationRules(f *onkir.Field) []string {
+func fieldValidationRules(m *onkir.Message, f *onkir.Field) []string {
 	var rules []string
 	rules = append(rules, requiredRule(f)...)
 	rules = append(rules, repeatedItemsRules(f)...)
@@ -186,7 +186,7 @@ func fieldValidationRules(f *onkir.Field) []string {
 	}
 
 	if f.Type.Scalar == onkir.ScalarString {
-		rules = append(rules, stringValidationRules(f)...)
+		rules = append(rules, stringValidationRules(m, f)...)
 	} else if isNumericScalar(f.Type.Scalar) {
 		rules = append(rules, numericValidationRules(f)...)
 	}
@@ -203,8 +203,10 @@ func dedupeEmpty(rules []string) []string {
 
 // patternVarName is the package-level regexp variable generated for a field's
 // @pattern decorator, compiled once rather than on every Validate() call.
-func patternVarName(f *onkir.Field) string {
-	return PascalCase(f.Name) + "Pattern"
+// Scoped by message name too, not just field name, since two different
+// messages can have a same-named field with different patterns.
+func patternVarName(m *onkir.Message, f *onkir.Field) string {
+	return PascalCase(m.Name) + PascalCase(f.Name) + "Pattern"
 }
 
 type patternDecl struct {
@@ -223,7 +225,7 @@ func collectPatternDecls(file *onkir.File) []patternDecl {
 	walk = func(m *onkir.Message) {
 		for _, f := range m.Fields {
 			if d, ok := f.Decorator("pattern"); ok {
-				name := patternVarName(f)
+				name := patternVarName(m, f)
 				if !seen[name] {
 					seen[name] = true
 					pattern, _ := d.Value()
@@ -297,7 +299,7 @@ func writeValidate(p *Printer, m *onkir.Message) {
 		p.P("func (m *", m.Name, ") Validate() error {")
 		p.P("var violations []string")
 		for _, f := range m.Fields {
-			for _, rule := range fieldValidationRules(f) {
+			for _, rule := range fieldValidationRules(m, f) {
 				p.P(rule)
 			}
 		}
