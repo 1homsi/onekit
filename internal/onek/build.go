@@ -420,20 +420,18 @@ func writeGoClient(merged *onkir.File, outDir string, resolver gengo.PackageReso
 }
 
 // buildTSClient, buildTSServer, and buildPythonClient generate one package
-// per schema directory, mirroring the Go build's output layout and base_path
-// inference. Unlike Go, these don't yet resolve cross-directory type
-// references to an import - a shared type referenced from another directory
-// will emit an unqualified (and broken) reference, same as it would have
-// before this per-directory split existed.
+// per schema directory, mirroring the Go build's output layout, base_path
+// inference, and cross-directory import resolution.
 func buildTSClient(cfg *Config, idx *sourceIndex) error {
 	outRoot := cfg.resolve(cfg.Generate.TSClient.Out)
 	for _, g := range idx.groups {
 		outDir := groupOutDir(outRoot, g.relDir)
-		err := writeFile(filepath.Join(outDir, "types.ts"), gents.GenerateTypes(g.file))
+		resolver := &tsResolver{currentDir: g.relDir, idx: idx}
+		err := writeFile(filepath.Join(outDir, "types.ts"), gents.GenerateTypesWithResolver(g.file, resolver))
 		if err != nil {
 			return err
 		}
-		err = writeFile(filepath.Join(outDir, "client.ts"), gents.GenerateClient(g.file))
+		err = writeFile(filepath.Join(outDir, "client.ts"), gents.GenerateClientWithResolver(g.file, resolver))
 		if err != nil {
 			return err
 		}
@@ -445,11 +443,12 @@ func buildTSServer(cfg *Config, idx *sourceIndex) error {
 	outRoot := cfg.resolve(cfg.Generate.TSServer.Out)
 	for _, g := range idx.groups {
 		outDir := groupOutDir(outRoot, g.relDir)
-		err := writeFile(filepath.Join(outDir, "types.ts"), gents.GenerateTypes(g.file))
+		resolver := &tsResolver{currentDir: g.relDir, idx: idx}
+		err := writeFile(filepath.Join(outDir, "types.ts"), gents.GenerateTypesWithResolver(g.file, resolver))
 		if err != nil {
 			return err
 		}
-		err = writeFile(filepath.Join(outDir, "server.ts"), gents.GenerateServer(g.file))
+		err = writeFile(filepath.Join(outDir, "server.ts"), gents.GenerateServerWithResolver(g.file, resolver))
 		if err != nil {
 			return err
 		}
@@ -461,11 +460,17 @@ func buildPythonClient(cfg *Config, idx *sourceIndex) error {
 	outRoot := cfg.resolve(cfg.Generate.PythonClient.Out)
 	for _, g := range idx.groups {
 		outDir := groupOutDir(outRoot, g.relDir)
-		err := writeFile(filepath.Join(outDir, "models.py"), genpy.GenerateTypes(g.file))
+		if err := writePythonInitFiles(outRoot, g.relDir); err != nil {
+			return err
+		}
+		resolver := &pyResolver{currentDir: g.relDir, idx: idx}
+		err := writeFile(filepath.Join(outDir, "models.py"), genpy.GenerateTypesWithResolver(g.file, resolver))
 		if err != nil {
 			return err
 		}
-		err = writeFile(filepath.Join(outDir, "client.py"), genpy.GenerateClient(g.file, "models"))
+		typesModule := pyModulePath(g.relDir)
+		clientSrc := genpy.GenerateClientWithResolver(g.file, typesModule, resolver)
+		err = writeFile(filepath.Join(outDir, "client.py"), clientSrc)
 		if err != nil {
 			return err
 		}
