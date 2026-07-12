@@ -62,7 +62,8 @@ func writeSSEResponseHelper(p *Printer) {
 }
 
 func writeSSEHandlerMethod(p *Printer, m *onkir.Method) {
-	p.P(CamelCase(m.Name), "(req: ", m.Request.Name, "): ReadableStream<", m.Response.Name, ">;")
+	p.P(CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request),
+		"): ReadableStream<", p.MessageTypeName(m.Response), ">;")
 }
 
 func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
@@ -95,7 +96,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	}
 
 	p.P("try {")
-	p.P("const stream = handler.", CamelCase(m.Name), "(body as ", m.Request.Name, ");")
+	p.P("const stream = handler.", CamelCase(m.Name), "(body as ", p.MessageTypeName(m.Request), ");")
 	p.P("return await sseResponse(stream);")
 	p.P("} catch (err) {")
 	p.P("return errorResponse(err);")
@@ -149,7 +150,7 @@ func writeSSEClientReadLoop(p *Printer, m *onkir.Method) {
 	p.P(`if (eventType === "error") {`)
 	p.P(`throw new Error("stream error: " + data);`)
 	p.P("}")
-	p.P("yield JSON.parse(data) as ", m.Response.Name, ";")
+	p.P("yield JSON.parse(data) as ", p.MessageTypeName(m.Response), ";")
 	p.P("}")
 	p.P("}")
 }
@@ -162,8 +163,8 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	path, _ := m.Path()
 	fullPath := s.BasePath + path
 
-	p.P("async *", CamelCase(m.Name), "(req: ", m.Request.Name,
-		", opts?: { signal?: AbortSignal }): AsyncGenerator<", m.Response.Name, "> {")
+	p.P("async *", CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request),
+		", opts?: { signal?: AbortSignal }): AsyncGenerator<", p.MessageTypeName(m.Response), "> {")
 	p.P(fmt.Sprintf("let path = %q;", fullPath))
 	for _, paramName := range pathParamNames(path) {
 		field := findField(m.Request, paramName)

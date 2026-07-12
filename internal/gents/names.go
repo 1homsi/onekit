@@ -47,21 +47,6 @@ func TSScalarType(k onkir.ScalarKind) string {
 	}
 }
 
-func TSFieldType(t *onkir.Type) string {
-	switch t.Kind {
-	case onkir.KindScalar:
-		return TSScalarType(t.Scalar)
-	case onkir.KindMessage:
-		return t.Message.Name
-	case onkir.KindEnum:
-		return t.Enum.Name
-	case onkir.KindMap:
-		return "Record<string, " + TSFieldType(t.MapValue) + ">"
-	default:
-		return "unknown"
-	}
-}
-
 func OneofTypeName(msg *onkir.Message, field *onkir.Field) string {
 	return msg.Name + PascalCase(field.Name)
 }

@@ -39,16 +39,19 @@ func PyScalarType(k onkir.ScalarKind) string {
 	}
 }
 
-func PyFieldType(t *onkir.Type) string {
+// PyFieldType resolves Message/Enum kinds through this printer's
+// PackageResolver so a cross-module field type gets an import-qualified name
+// instead of a bare (and possibly wrong) local one.
+func (p *Printer) PyFieldType(t *onkir.Type) string {
 	switch t.Kind {
 	case onkir.KindScalar:
 		return PyScalarType(t.Scalar)
 	case onkir.KindMessage:
-		return t.Message.Name
+		return p.MessageTypeName(t.Message)
 	case onkir.KindEnum:
-		return t.Enum.Name
+		return p.EnumTypeName(t.Enum)
 	case onkir.KindMap:
-		return "dict[str, " + PyFieldType(t.MapValue) + "]"
+		return "dict[str, " + p.PyFieldType(t.MapValue) + "]"
 	default:
 		return "object"
 	}
