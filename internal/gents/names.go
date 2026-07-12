@@ -27,17 +27,23 @@ func CamelCase(s string) string {
 	return strings.ToLower(p[:1]) + p[1:]
 }
 
+const (
+	tsTypeString  = "string"
+	tsTypeNumber  = "number"
+	tsTypeUnknown = "unknown"
+)
+
 func TSScalarType(k onkir.ScalarKind) string {
 	switch k {
 	case onkir.ScalarString, onkir.ScalarBytes, onkir.ScalarTimestamp:
-		return "string"
+		return tsTypeString
 	case onkir.ScalarBool:
 		return "boolean"
 	case onkir.ScalarInt32, onkir.ScalarInt64, onkir.ScalarUint32, onkir.ScalarUint64,
 		onkir.ScalarFloat32, onkir.ScalarFloat64:
-		return "number"
+		return tsTypeNumber
 	default:
-		return "unknown"
+		return tsTypeUnknown
 	}
 }
 

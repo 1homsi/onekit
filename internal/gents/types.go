@@ -31,13 +31,78 @@ func writeEnum(p *Printer, e *onkir.Enum) {
 	p.P()
 }
 
+// fieldWireTSType is the TypeScript type of a field's wire representation:
+// this is what actually crosses the network, which for int64/enum/timestamp
+// fields can differ from their "natural" TS type based on the @encode
+// decorator (see jsonmapping.go).
+func fieldWireTSType(f *onkir.Field) string {
+	if f.Type == nil {
+		return tsTypeUnknown
+	}
+	switch f.Type.Kind {
+	case onkir.KindScalar:
+		return scalarWireTSType(f)
+	case onkir.KindEnum:
+		if needsEnumNumberEncoding(f) {
+			return tsTypeNumber
+		}
+		return f.Type.Enum.Name
+	case onkir.KindMessage, onkir.KindMap:
+		return TSFieldType(f.Type)
+	default:
+		return TSFieldType(f.Type)
+	}
+}
+
+func scalarWireTSType(f *onkir.Field) string {
+	switch f.Type.Scalar {
+	case onkir.ScalarInt64, onkir.ScalarUint64:
+		if needsInt64NumberEncoding(f) {
+			return tsTypeNumber
+		}
+		return tsTypeString
+	case onkir.ScalarTimestamp:
+		switch timestampEncodingValue(f) {
+		case timestampEncodeUnixSeconds, timestampEncodeUnixMillis:
+			return tsTypeNumber
+		default:
+			return tsTypeString
+		}
+	case onkir.ScalarString, onkir.ScalarBool, onkir.ScalarInt32, onkir.ScalarUint32,
+		onkir.ScalarFloat32, onkir.ScalarFloat64, onkir.ScalarBytes:
+		return TSScalarType(f.Type.Scalar)
+	default:
+		return TSScalarType(f.Type.Scalar)
+	}
+}
+
 func writeMessage(p *Printer, m *onkir.Message) {
+	if field := rootUnwrapField(m); field != nil {
+		tsType := fieldWireTSType(field)
+		if field.Repeated {
+			tsType = "(" + tsType + ")[]"
+		}
+		p.P("export type ", m.Name, " = ", tsType, ";")
+		p.P()
+		for _, nested := range m.Nested {
+			writeMessage(p, nested)
+		}
+		for _, nested := range m.NestedEnums {
+			writeEnum(p, nested)
+		}
+		return
+	}
+
 	p.P("export interface ", m.Name, " {")
 	for _, f := range m.Fields {
 		writeField(p, m, f)
 	}
 	p.P("}")
 	p.P()
+
+	if messageNeedsEncodeHelper(m) {
+		writeEncodeHelper(p, m)
+	}
 
 	for _, f := range m.Fields {
 		if f.Oneof != nil {
@@ -57,11 +122,72 @@ func writeField(p *Printer, m *onkir.Message, f *onkir.Field) {
 		p.P(f.Name, "?: ", OneofTypeName(m, f), ";")
 		return
 	}
-	tsType := TSFieldType(f.Type)
+	// @flatten fields are resolved entirely at the type level: the child
+	// message's own fields are promoted (prefixed) into this interface, so
+	// no runtime transform is needed for JSON.stringify/JSON.parse to match
+	// the wire shape.
+	if prefix, ok := flattenPrefix(f); ok {
+		writeFlattenedFields(p, f.Type.Message, prefix)
+		return
+	}
+
+	tsType := fieldWireTSType(f)
 	if f.Repeated {
 		tsType = "(" + tsType + ")[]"
 	}
+	if emptyBehaviorValue(f) == emptyBehaviorNull {
+		tsType += " | null"
+	}
 	p.P(f.Name, "?: ", tsType, ";")
+}
+
+func writeFlattenedFields(p *Printer, child *onkir.Message, prefix string) {
+	for _, f := range child.Fields {
+		if f.Oneof != nil {
+			p.P(prefix, f.Name, "?: ", OneofTypeName(child, f), ";")
+			continue
+		}
+		if childPrefix, ok := flattenPrefix(f); ok {
+			writeFlattenedFields(p, f.Type.Message, prefix+childPrefix)
+			continue
+		}
+		tsType := fieldWireTSType(f)
+		if f.Repeated {
+			tsType = "(" + tsType + ")[]"
+		}
+		if emptyBehaviorValue(f) == emptyBehaviorNull {
+			tsType += " | null"
+		}
+		p.P(prefix, f.Name, "?: ", tsType, ";")
+	}
+}
+
+// writeEncodeHelper emits a free function (TS interfaces have no methods) that
+// applies @empty(null|omit) substitution before a message crosses the wire.
+// @flatten and @unwrap need no runtime counterpart - see writeField/writeMessage.
+func writeEncodeHelper(p *Printer, m *onkir.Message) {
+	p.P("export function encode", m.Name, "(v: ", m.Name, "): Record<string, unknown> {")
+	p.P("const out: Record<string, unknown> = { ...v };")
+	for _, f := range messageEmptyFields(m) {
+		behavior := emptyBehaviorValue(f)
+		p.P("if (v.", f.Name, " !== undefined) {")
+		p.P("if (JSON.stringify(v.", f.Name, ") === \"{}\") {")
+		if behavior == emptyBehaviorNull {
+			p.P("out.", f.Name, " = null;")
+		} else {
+			p.P("delete out.", f.Name, ";")
+		}
+		p.P("}")
+		p.P("}")
+		if behavior == emptyBehaviorNull {
+			p.P("else {")
+			p.P("out.", f.Name, " = null;")
+			p.P("}")
+		}
+	}
+	p.P("return out;")
+	p.P("}")
+	p.P()
 }
 
 func writeOneof(p *Printer, m *onkir.Message, f *onkir.Field) {
