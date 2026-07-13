@@ -307,6 +307,8 @@ func writeMessage(p *Printer, m *onkir.Message) {
 		writeCustomJSONMethods(p, m)
 	}
 
+	writeFieldGetters(p, m)
+
 	for _, f := range m.Fields {
 		if f.Oneof != nil {
 			writeOneof(p, m, f)
@@ -413,6 +415,82 @@ func writeField(p *Printer, m *onkir.Message, f *onkir.Field) {
 	}
 
 	p.P(goName, " ", goType, " `json:\"", f.Name, ",omitempty\"`")
+}
+
+// writeFieldGetters emits protoc-gen-go-style Get<Field>() accessor methods
+// for every field on m. Consumers that were written against protoc-gen-go's
+// generated code (the overwhelmingly common case for existing Go backends)
+// call these instead of touching struct fields directly, and rely on them
+// being nil-receiver-safe so chains like req.GetBusiness().GetName() work
+// the same way they did with proto - GetX() on a nil *T returns the zero
+// value instead of panicking.
+func writeFieldGetters(p *Printer, m *onkir.Message) {
+	for _, f := range m.Fields {
+		if f.Oneof != nil {
+			writeOneofGetters(p, m, f)
+			continue
+		}
+		writeFieldGetter(p, m, f)
+	}
+}
+
+func writeFieldGetter(p *Printer, m *onkir.Message, f *onkir.Field) {
+	goName := PascalCase(f.Name)
+	getterType := p.GoFieldType(f.Type)
+	if f.Repeated {
+		getterType = "[]" + getterType
+	}
+	dereference := !f.Repeated && f.Optional && f.Type.Kind != onkir.KindMessage
+
+	p.P("func (x *", m.Name, ") Get", goName, "() ", getterType, " {")
+	p.P("if x == nil {")
+	p.P("var zero ", getterType)
+	p.P("return zero")
+	p.P("}")
+	if dereference {
+		p.P("if x.", goName, " == nil {")
+		p.P("var zero ", getterType)
+		p.P("return zero")
+		p.P("}")
+		p.P("return *x.", goName)
+	} else {
+		p.P("return x.", goName)
+	}
+	p.P("}")
+	p.P()
+}
+
+// writeOneofGetters emits a nil-safe Get<Field>() returning the oneof's
+// marker interface (mirroring protoc-gen-go's oneof wrapper getter), plus one
+// Get<Variant>() per variant that type-asserts into that specific variant and
+// returns its unwrapped value (the zero value if a different variant, or
+// none, is set) - matching protoc-gen-go's oneof-variant getter convention.
+func writeOneofGetters(p *Printer, m *onkir.Message, f *onkir.Field) {
+	goName := PascalCase(f.Name)
+	iface := OneofInterfaceName(m, f)
+
+	p.P("func (x *", m.Name, ") Get", goName, "() ", iface, " {")
+	p.P("if x == nil {")
+	p.P("return nil")
+	p.P("}")
+	p.P("return x.", goName)
+	p.P("}")
+	p.P()
+
+	for _, variant := range f.Oneof.Variants {
+		variantGoName := PascalCase(variant.Name)
+		typeName := OneofVariantTypeName(m, f, variant)
+		variantType := p.GoFieldType(variant.Type)
+
+		p.P("func (x *", m.Name, ") Get", variantGoName, "() ", variantType, " {")
+		p.P("if v, ok := x.Get", goName, "().(*", typeName, "); ok {")
+		p.P("return v.", variantGoName)
+		p.P("}")
+		p.P("var zero ", variantType)
+		p.P("return zero")
+		p.P("}")
+		p.P()
+	}
 }
 
 func writeOneof(p *Printer, m *onkir.Message, f *onkir.Field) {

@@ -293,6 +293,42 @@ func dirsOfEnum(matches []dirEnum) string {
 	return strings.Join(dirs, ", ")
 }
 
+// lookupQualifiedMessage resolves a package-qualified type reference (e.g.
+// "crm.customer.v1.Customer", written as such in a field type) against the
+// declared `package` line of every source file, not against the source
+// directory. This is the escape hatch for a genuine ambiguity: two
+// directories that both need a plain-named type also declared identically
+// elsewhere (e.g. two unrelated "Customer" messages) can each keep their
+// plain name, and only the reference that would otherwise be ambiguous needs
+// to spell out which package it means.
+func (c *compiler) lookupQualifiedMessage(name string) (*onkir.Message, bool) {
+	dot := strings.LastIndex(name, ".")
+	if dot < 0 {
+		return nil, false
+	}
+	pkg, simple := name[:dot], name[dot+1:]
+	for _, matches := range c.msgAllByName[simple] {
+		if matches.msg.File != nil && matches.msg.File.Package == pkg {
+			return matches.msg, true
+		}
+	}
+	return nil, false
+}
+
+func (c *compiler) lookupQualifiedEnum(name string) (*onkir.Enum, bool) {
+	dot := strings.LastIndex(name, ".")
+	if dot < 0 {
+		return nil, false
+	}
+	pkg, simple := name[:dot], name[dot+1:]
+	for _, matches := range c.enumAllByName[simple] {
+		if matches.enum.File != nil && matches.enum.File.Package == pkg {
+			return matches.enum, true
+		}
+	}
+	return nil, false
+}
+
 func (c *compiler) resolveType(t *onklang.TypeRef, path string, line int) (*onkir.Type, error) {
 	if t.IsMap {
 		keyKind, ok := onkir.ParseScalarKind(t.MapKey)
@@ -308,6 +344,16 @@ func (c *compiler) resolveType(t *onklang.TypeRef, path string, line int) (*onki
 
 	if scalar, ok := onkir.ParseScalarKind(t.Name); ok {
 		return &onkir.Type{Kind: onkir.KindScalar, Scalar: scalar}, nil
+	}
+
+	if strings.Contains(t.Name, ".") {
+		if m, found := c.lookupQualifiedMessage(t.Name); found {
+			return &onkir.Type{Kind: onkir.KindMessage, Message: m}, nil
+		}
+		if e, found := c.lookupQualifiedEnum(t.Name); found {
+			return &onkir.Type{Kind: onkir.KindEnum, Enum: e}, nil
+		}
+		return nil, &Error{Path: path, Line: line, Msg: fmt.Sprintf("unresolved qualified type %q", t.Name)}
 	}
 
 	dir := filepath.Dir(path)

@@ -74,9 +74,7 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	p.P("import (")
 	p.P(`"context"`)
 	p.P(`"encoding/json"`)
-	if hasStream {
-		p.P(`"fmt"`)
-	}
+	p.P(`"fmt"`)
 	p.P(`"net/http"`)
 	p.P(`"strconv"`)
 	for _, ref := range externalRefs {
@@ -86,6 +84,7 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	p.P()
 
 	writeRuntimeHelpers(p)
+	writeServerOptions(p)
 	if hasStream {
 		writeSSEServerRuntime(p)
 	}
@@ -96,6 +95,24 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	}
 
 	return p.Format()
+}
+
+// writeServerOptions emits a small functional-options type shared by every
+// Register<Service>Server function in the file, so that registering a
+// server reads the same way it did with the old protoc-gen-onekit-go-http
+// plugin: Register<Service>Server(impl, WithMux(mux)).
+func writeServerOptions(p *Printer) {
+	p.P(`type ServerOption func(*serverOptions)`)
+	p.P()
+	p.P(`type serverOptions struct {`)
+	p.P(`mux *http.ServeMux`)
+	p.P(`}`)
+	p.P()
+	p.P(`// WithMux supplies the http.ServeMux to register routes onto - required.`)
+	p.P(`func WithMux(mux *http.ServeMux) ServerOption {`)
+	p.P(`return func(o *serverOptions) { o.mux = mux }`)
+	p.P(`}`)
+	p.P()
 }
 
 func writeRuntimeHelpers(p *Printer) {
@@ -131,7 +148,15 @@ func writeServiceInterface(p *Printer, s *onkir.Service) {
 }
 
 func writeRegisterFunc(p *Printer, s *onkir.Service) {
-	p.P("func Register", s.Name, "Server(mux *http.ServeMux, srv ", s.Name, "Server) {")
+	p.P("func Register", s.Name, "Server(srv ", s.Name, "Server, opts ...ServerOption) error {")
+	p.P("var o serverOptions")
+	p.P("for _, opt := range opts {")
+	p.P("opt(&o)")
+	p.P("}")
+	p.P("if o.mux == nil {")
+	p.P(`return fmt.Errorf("Register`, s.Name, `Server: WithMux option is required")`)
+	p.P("}")
+	p.P("mux := o.mux")
 	for _, m := range s.Methods {
 		if m.IsStream() {
 			writeSSERoute(p, s, m)
@@ -139,6 +164,7 @@ func writeRegisterFunc(p *Printer, s *onkir.Service) {
 			writeRoute(p, s, m)
 		}
 	}
+	p.P("return nil")
 	p.P("}")
 	p.P()
 }

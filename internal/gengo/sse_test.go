@@ -71,7 +71,9 @@ func fail(msg string, args ...any) {
 
 func main() {
 	mux := http.NewServeMux()
-	RegisterSSEServiceServer(mux, &sseImpl{})
+	if err := RegisterSSEServiceServer(&sseImpl{}, WithMux(mux)); err != nil {
+		fail("register: %v", err)
+	}
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 

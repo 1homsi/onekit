@@ -62,7 +62,9 @@ func fail(msg string, args ...any) {
 
 func main() {
 	mux := http.NewServeMux()
-	RegisterWidgetServiceServer(mux, &impl{})
+	if err := RegisterWidgetServiceServer(&impl{}, WithMux(mux)); err != nil {
+		fail("register: %v", err)
+	}
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 

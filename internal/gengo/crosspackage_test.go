@@ -240,7 +240,9 @@ func fail(msg string, args ...any) {
 
 func main() {
 	mux := http.NewServeMux()
-	v1.RegisterOrderServiceServer(mux, impl{})
+	if err := v1.RegisterOrderServiceServer(impl{}, v1.WithMux(mux)); err != nil {
+		fail("register: %v", err)
+	}
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 

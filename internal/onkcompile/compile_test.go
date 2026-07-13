@@ -411,6 +411,42 @@ func TestCompileErrorsOnAmbiguousCrossDirectoryReference(t *testing.T) {
 	}
 }
 
+func TestCompileResolvesPackageQualifiedReferenceDespiteAmbiguity(t *testing.T) {
+	sources := []Source{
+		{
+			Path: "crm/settings/v1/models.onk",
+			AST:  parseOrFatal(t, "package crm.settings.v1\n\nmessage Settings {\n  a: string\n}\n"),
+		},
+		{
+			Path: "support/settings/v1/models.onk",
+			AST:  parseOrFatal(t, "package support.settings.v1\n\nmessage Settings {\n  b: string\n}\n"),
+		},
+		{
+			Path: "erp/warehouse/v1/models.onk",
+			AST:  parseOrFatal(t, "message Warehouse {\n  settings: support.settings.v1.Settings\n}\n"),
+		},
+	}
+	pkg, err := Compile(sources)
+	if err != nil {
+		t.Fatalf("expected a package-qualified reference to resolve despite the ambiguous plain name, got: %v", err)
+	}
+	warehouse := findMessage(pkg.Files[2], "Warehouse")
+	if warehouse == nil {
+		t.Fatalf("Warehouse message not found")
+	}
+	settingsField := warehouse.Fields[0]
+	if settingsField.Type.Kind != onkir.KindMessage || settingsField.Type.Message.Name != "Settings" {
+		t.Fatalf("unexpected settings field type: %+v", settingsField.Type)
+	}
+	if len(settingsField.Type.Message.Fields) != 1 || settingsField.Type.Message.Fields[0].Name != "b" {
+		t.Fatalf(
+			"expected the qualified reference to resolve to support.settings.v1's Settings (field %q), got: %+v",
+			"b",
+			settingsField.Type.Message.Fields,
+		)
+	}
+}
+
 func TestCompileNestedMessagesAndEnums(t *testing.T) {
 	src := `
 message Outer {
