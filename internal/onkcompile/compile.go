@@ -32,7 +32,7 @@ type dirMsg struct {
 }
 
 type dirEnum struct {
-	dir string
+	dir  string
 	enum *onkir.Enum
 }
 
@@ -45,12 +45,12 @@ type dirEnum struct {
 // references still resolve without import statements - it's only an error
 // when that name is ambiguous (declared in more than one other directory).
 type compiler struct {
-	msgByDir  map[string]map[string]*onkir.Message
-	enumByDir map[string]map[string]*onkir.Enum
+	msgByDir      map[string]map[string]*onkir.Message
+	enumByDir     map[string]map[string]*onkir.Enum
 	msgAllByName  map[string][]dirMsg
 	enumAllByName map[string][]dirEnum
-	msgNode    map[*onklang.MessageDecl]*onkir.Message
-	enumNode   map[*onklang.EnumDecl]*onkir.Enum
+	msgNode       map[*onklang.MessageDecl]*onkir.Message
+	enumNode      map[*onklang.EnumDecl]*onkir.Enum
 }
 
 func Compile(sources []Source) (*onkir.Package, error) {
@@ -103,7 +103,12 @@ func Compile(sources []Source) (*onkir.Package, error) {
 	return &onkir.Package{Files: files}, nil
 }
 
-func (c *compiler) declareMessage(md *onklang.MessageDecl, f *onkir.File, parent *onkir.Message, path string) (*onkir.Message, error) {
+func (c *compiler) declareMessage(
+	md *onklang.MessageDecl,
+	f *onkir.File,
+	parent *onkir.Message,
+	path string,
+) (*onkir.Message, error) {
 	dir := filepath.Dir(path)
 	if _, exists := c.msgByDir[dir][md.Name]; exists {
 		return nil, &Error{Path: path, Line: md.Line, Msg: fmt.Sprintf("duplicate message name %q", md.Name)}
@@ -139,7 +144,12 @@ func (c *compiler) declareMessage(md *onklang.MessageDecl, f *onkir.File, parent
 	return m, nil
 }
 
-func (c *compiler) declareEnum(ed *onklang.EnumDecl, f *onkir.File, parent *onkir.Message, path string) (*onkir.Enum, error) {
+func (c *compiler) declareEnum(
+	ed *onklang.EnumDecl,
+	f *onkir.File,
+	parent *onkir.Message,
+	path string,
+) (*onkir.Enum, error) {
 	dir := filepath.Dir(path)
 	if _, exists := c.enumByDir[dir][ed.Name]; exists {
 		return nil, &Error{Path: path, Line: ed.Line, Msg: fmt.Sprintf("duplicate enum name %q", ed.Name)}
@@ -235,35 +245,35 @@ func (c *compiler) buildOneof(od *onklang.OneofDecl, field *onkir.Field, path st
 // (this is what lets cross-directory references work without an import
 // statement). Returns a non-nil error only for a genuine ambiguity - the
 // same name declared in more than one *other* directory; "not found" is
-// signaled by a nil message and nil error so callers can phrase their own
-// "unresolved ..." message.
-func (c *compiler) lookupMessage(dir, name string) (*onkir.Message, error) {
+// signaled by found=false so callers can phrase their own "unresolved ..."
+// message.
+func (c *compiler) lookupMessage(dir, name string) (*onkir.Message, bool, error) {
 	if m, ok := c.msgByDir[dir][name]; ok {
-		return m, nil
+		return m, true, nil
 	}
 	matches := c.msgAllByName[name]
 	switch len(matches) {
 	case 0:
-		return nil, nil
+		return nil, false, nil
 	case 1:
-		return matches[0].msg, nil
+		return matches[0].msg, true, nil
 	default:
-		return nil, fmt.Errorf("ambiguous type %q found in multiple directories: %s", name, dirsOfMsg(matches))
+		return nil, false, fmt.Errorf("ambiguous type %q found in multiple directories: %s", name, dirsOfMsg(matches))
 	}
 }
 
-func (c *compiler) lookupEnum(dir, name string) (*onkir.Enum, error) {
+func (c *compiler) lookupEnum(dir, name string) (*onkir.Enum, bool, error) {
 	if e, ok := c.enumByDir[dir][name]; ok {
-		return e, nil
+		return e, true, nil
 	}
 	matches := c.enumAllByName[name]
 	switch len(matches) {
 	case 0:
-		return nil, nil
+		return nil, false, nil
 	case 1:
-		return matches[0].enum, nil
+		return matches[0].enum, true, nil
 	default:
-		return nil, fmt.Errorf("ambiguous type %q found in multiple directories: %s", name, dirsOfEnum(matches))
+		return nil, false, fmt.Errorf("ambiguous type %q found in multiple directories: %s", name, dirsOfEnum(matches))
 	}
 }
 
@@ -301,18 +311,18 @@ func (c *compiler) resolveType(t *onklang.TypeRef, path string, line int) (*onki
 	}
 
 	dir := filepath.Dir(path)
-	m, err := c.lookupMessage(dir, t.Name)
+	m, found, err := c.lookupMessage(dir, t.Name)
 	if err != nil {
 		return nil, &Error{Path: path, Line: line, Msg: err.Error()}
 	}
-	if m != nil {
+	if found {
 		return &onkir.Type{Kind: onkir.KindMessage, Message: m}, nil
 	}
-	e, err := c.lookupEnum(dir, t.Name)
+	e, found, err := c.lookupEnum(dir, t.Name)
 	if err != nil {
 		return nil, &Error{Path: path, Line: line, Msg: err.Error()}
 	}
-	if e != nil {
+	if found {
 		return &onkir.Type{Kind: onkir.KindEnum, Enum: e}, nil
 	}
 	return nil, &Error{Path: path, Line: line, Msg: fmt.Sprintf("unresolved type %q", t.Name)}
@@ -339,18 +349,18 @@ func (c *compiler) buildService(sd *onklang.ServiceDecl, f *onkir.File, path str
 func (c *compiler) buildMethod(rd *onklang.RPCDecl, s *onkir.Service, path string) (*onkir.Method, error) {
 	dir := filepath.Dir(path)
 
-	req, err := c.lookupMessage(dir, rd.RequestType)
+	req, found, err := c.lookupMessage(dir, rd.RequestType)
 	if err != nil {
 		return nil, &Error{Path: path, Line: rd.Line, Msg: err.Error()}
 	}
-	if req == nil {
+	if !found {
 		return nil, &Error{Path: path, Line: rd.Line, Msg: fmt.Sprintf("unresolved request type %q", rd.RequestType)}
 	}
-	resp, err := c.lookupMessage(dir, rd.ResponseType)
+	resp, found, err := c.lookupMessage(dir, rd.ResponseType)
 	if err != nil {
 		return nil, &Error{Path: path, Line: rd.Line, Msg: err.Error()}
 	}
-	if resp == nil {
+	if !found {
 		return nil, &Error{Path: path, Line: rd.Line, Msg: fmt.Sprintf("unresolved response type %q", rd.ResponseType)}
 	}
 	headers, err := c.buildHeaders(rd.Headers, path)
@@ -369,11 +379,11 @@ func (c *compiler) buildMethod(rd *onklang.RPCDecl, s *onkir.Service, path strin
 	}
 
 	for _, errName := range rd.ErrorTypes {
-		errMsg, err := c.lookupMessage(dir, errName)
-		if err != nil {
-			return nil, &Error{Path: path, Line: rd.Line, Msg: err.Error()}
+		errMsg, errFound, lookupErr := c.lookupMessage(dir, errName)
+		if lookupErr != nil {
+			return nil, &Error{Path: path, Line: rd.Line, Msg: lookupErr.Error()}
 		}
-		if errMsg == nil {
+		if !errFound {
 			return nil, &Error{Path: path, Line: rd.Line, Msg: fmt.Sprintf("unresolved error type %q", errName)}
 		}
 		method.ErrorTypes = append(method.ErrorTypes, errMsg)
@@ -387,7 +397,11 @@ func (c *compiler) buildHeaders(headers []onklang.HeaderDecl, path string) ([]*o
 	for _, h := range headers {
 		kind, ok := onkir.ParseScalarKind(h.Type)
 		if !ok {
-			return nil, &Error{Path: path, Line: h.Line, Msg: fmt.Sprintf("invalid header type %q for %q", h.Type, h.Name)}
+			return nil, &Error{
+				Path: path,
+				Line: h.Line,
+				Msg:  fmt.Sprintf("invalid header type %q for %q", h.Type, h.Name),
+			}
 		}
 		out = append(out, &onkir.Header{
 			Name:       h.Name,

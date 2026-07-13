@@ -232,7 +232,8 @@ func TestCompileServiceAndMethods(t *testing.T) {
 	}
 
 	get := svc.Methods[1]
-	if len(get.ErrorTypes) != 2 || get.ErrorTypes[0].Name != "NotFoundError" || get.ErrorTypes[1].Name != "ValidationError" {
+	if len(get.ErrorTypes) != 2 || get.ErrorTypes[0].Name != "NotFoundError" ||
+		get.ErrorTypes[1].Name != "ValidationError" {
 		t.Fatalf("unexpected getUser error types: %+v", get.ErrorTypes)
 	}
 	if len(get.Headers) != 1 || get.Headers[0].Name != "X-Request-Id" {
@@ -264,28 +265,52 @@ func TestCompileErrors(t *testing.T) {
 		{
 			name: "unresolved rpc request type",
 			sources: []Source{
-				{Path: "a.onk", AST: parseOrFatal(t, "message User {\n  id: string\n}\nservice S {\n  create(Missing) -> User @post(\"/x\")\n}\n")},
+				{
+					Path: "a.onk",
+					AST: parseOrFatal(
+						t,
+						"message User {\n  id: string\n}\nservice S {\n  create(Missing) -> User @post(\"/x\")\n}\n",
+					),
+				},
 			},
 			wantErr: "unresolved request type",
 		},
 		{
 			name: "unresolved rpc response type",
 			sources: []Source{
-				{Path: "a.onk", AST: parseOrFatal(t, "message User {\n  id: string\n}\nservice S {\n  create(User) -> Missing @post(\"/x\")\n}\n")},
+				{
+					Path: "a.onk",
+					AST: parseOrFatal(
+						t,
+						"message User {\n  id: string\n}\nservice S {\n  create(User) -> Missing @post(\"/x\")\n}\n",
+					),
+				},
 			},
 			wantErr: "unresolved response type",
 		},
 		{
 			name: "unresolved rpc error type",
 			sources: []Source{
-				{Path: "a.onk", AST: parseOrFatal(t, "message User {\n  id: string\n}\nservice S {\n  create(User) -> User | Missing @post(\"/x\")\n}\n")},
+				{
+					Path: "a.onk",
+					AST: parseOrFatal(
+						t,
+						"message User {\n  id: string\n}\nservice S {\n  create(User) -> User | Missing @post(\"/x\")\n}\n",
+					),
+				},
 			},
 			wantErr: "unresolved error type",
 		},
 		{
 			name: "invalid header type",
 			sources: []Source{
-				{Path: "a.onk", AST: parseOrFatal(t, "message User {\n  id: string\n}\nservice S {\n  headers: {\n    \"X-A\": weirdtype\n  }\n  create(User) -> User @post(\"/x\")\n}\n")},
+				{
+					Path: "a.onk",
+					AST: parseOrFatal(
+						t,
+						"message User {\n  id: string\n}\nservice S {\n  headers: {\n    \"X-A\": weirdtype\n  }\n  create(User) -> User @post(\"/x\")\n}\n",
+					),
+				},
 			},
 			wantErr: "invalid header type",
 		},
@@ -320,8 +345,14 @@ func TestCompileErrors(t *testing.T) {
 
 func TestCompileAllowsSameMessageNameInDifferentDirectories(t *testing.T) {
 	sources := []Source{
-		{Path: "booking/dashboard/v1/models.onk", AST: parseOrFatal(t, "message GetDashboardRequest {\n  id: string\n}\n")},
-		{Path: "crm/dashboard/v1/models.onk", AST: parseOrFatal(t, "message GetDashboardRequest {\n  name: string\n}\n")},
+		{
+			Path: "booking/dashboard/v1/models.onk",
+			AST:  parseOrFatal(t, "message GetDashboardRequest {\n  id: string\n}\n"),
+		},
+		{
+			Path: "crm/dashboard/v1/models.onk",
+			AST:  parseOrFatal(t, "message GetDashboardRequest {\n  name: string\n}\n"),
+		},
 	}
 	pkg, err := Compile(sources)
 	if err != nil {
@@ -343,7 +374,10 @@ func TestCompileAllowsSameMessageNameInDifferentDirectories(t *testing.T) {
 func TestCompileResolvesUniqueCrossDirectoryReferenceByName(t *testing.T) {
 	sources := []Source{
 		{Path: "common/pagination/v1/models.onk", AST: parseOrFatal(t, "message PageInfo {\n  next: string\n}\n")},
-		{Path: "hub/business/v1/models.onk", AST: parseOrFatal(t, "message ListBusinessesResponse {\n  page: PageInfo\n}\n")},
+		{
+			Path: "hub/business/v1/models.onk",
+			AST:  parseOrFatal(t, "message ListBusinessesResponse {\n  page: PageInfo\n}\n"),
+		},
 	}
 	pkg, err := Compile(sources)
 	if err != nil {
@@ -355,7 +389,10 @@ func TestCompileResolvesUniqueCrossDirectoryReferenceByName(t *testing.T) {
 	}
 	pageField := resp.Fields[0]
 	if pageField.Type.Kind != onkir.KindMessage || pageField.Type.Message.Name != "PageInfo" {
-		t.Fatalf("expected page field to resolve to the PageInfo message from a different directory, got: %+v", pageField.Type)
+		t.Fatalf(
+			"expected page field to resolve to the PageInfo message from a different directory, got: %+v",
+			pageField.Type,
+		)
 	}
 }
 
