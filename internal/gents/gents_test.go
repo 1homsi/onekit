@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
@@ -146,6 +147,7 @@ const serverHarness = `
 import { createUserServiceRoutes, HttpError } from "./server.ts";
 import type { RouteDescriptor } from "./server.ts";
 import type { User, CreateUserRequest, GetUserRequest, NotFoundError } from "./types.ts";
+import { encodeNotFoundError, decodeNotFoundError } from "./types.ts";
 
 const users = new Map<string, User>();
 
@@ -159,8 +161,8 @@ const handler = {
   async getUser(req: GetUserRequest): Promise<User> {
     const u = users.get(req.id!);
     if (!u) {
-      const body: NotFoundError = { resource_type: "user", resource_id: req.id };
-      throw new HttpError(404, body);
+      const body: NotFoundError = { resourceType: "user", resourceId: req.id };
+      throw new HttpError(404, encodeNotFoundError(body));
     }
     return u;
   },
@@ -195,9 +197,13 @@ async function main() {
   const missReq = new Request("http://x/api/v1/users/does-not-exist");
   const missRes = await getRoute.handler(missReq);
   if (missRes.status !== 404) throw new Error("expected 404, got " + missRes.status);
-  const notFound = (await missRes.json()) as NotFoundError;
-  if (notFound.resource_type !== "user" || notFound.resource_id !== "does-not-exist") {
-    throw new Error("unexpected not-found body: " + JSON.stringify(notFound));
+  const notFoundWire = await missRes.json();
+  if (notFoundWire.resource_type !== "user" || notFoundWire.resource_id !== "does-not-exist") {
+    throw new Error("unexpected not-found wire body: " + JSON.stringify(notFoundWire));
+  }
+  const notFound: NotFoundError = decodeNotFoundError(notFoundWire);
+  if (notFound.resourceType !== "user" || notFound.resourceId !== "does-not-exist") {
+    throw new Error("unexpected decoded not-found body: " + JSON.stringify(notFound));
   }
 
   console.log("OK");
@@ -220,7 +226,11 @@ func TestGeneratedServerRuntimeBehavior(t *testing.T) {
 
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "types.ts"), string(typesSrc))
-	writeFile(t, filepath.Join(dir, "server.ts"), string(serverSrc))
+	// See the matching comment in sse_test.go: Node's native TS execution
+	// (used only here, not by real bundler-based consumers) needs an
+	// explicit extension on this generated file's own "./types" import.
+	serverSrcForNode := strings.ReplaceAll(string(serverSrc), `from "./types"`, `from "./types.ts"`)
+	writeFile(t, filepath.Join(dir, "server.ts"), serverSrcForNode)
 	writeFile(t, filepath.Join(dir, "main.ts"), serverHarness)
 
 	cmd := exec.Command("node", "main.ts")

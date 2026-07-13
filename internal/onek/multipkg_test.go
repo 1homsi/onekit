@@ -31,7 +31,7 @@ func TestBuildResolvesCrossPackageTypesForTSAndPython(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read business types.ts: %v", err)
 	}
-	if !containsString(string(tsTypes), `import type * as common from "../../../common/types";`) {
+	if !containsString(string(tsTypes), `import * as common from "../../../common/types";`) {
 		t.Fatalf("expected business types.ts to import the common package, got:\n%s", tsTypes)
 	}
 	if !containsString(string(tsTypes), "common.Money") {

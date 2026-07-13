@@ -3,6 +3,7 @@ package gents
 import (
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
@@ -206,8 +207,17 @@ func TestSSEStreamingRuntimeBehavior(t *testing.T) {
 
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "types.ts"), string(typesSrc))
-	writeFile(t, filepath.Join(dir, "client.ts"), string(clientSrc))
-	writeFile(t, filepath.Join(dir, "server.ts"), string(serverSrc))
+	// Real consumers resolve the generated extensionless "./types" import
+	// through a bundler (webpack/vite/esbuild all handle this fine, and it's
+	// what tsc's own "bundler" moduleResolution mode - used by the sibling
+	// type-check test above - expects). Node's native TS execution used only
+	// by *this* runtime test needs an explicit extension, same as this
+	// harness's own imports below already use - so patch just the copy
+	// written to disk here, not the generator's real output.
+	clientSrcForNode := strings.ReplaceAll(string(clientSrc), `from "./types"`, `from "./types.ts"`)
+	writeFile(t, filepath.Join(dir, "client.ts"), clientSrcForNode)
+	serverSrcForNode := strings.ReplaceAll(string(serverSrc), `from "./types"`, `from "./types.ts"`)
+	writeFile(t, filepath.Join(dir, "server.ts"), serverSrcForNode)
 	writeFile(t, filepath.Join(dir, "main.ts"), sseHarness)
 
 	cmd := exec.Command("node", "main.ts")

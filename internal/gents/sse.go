@@ -25,8 +25,12 @@ func fileHasStreamMethods(file *onkir.File) bool {
 // aren't committed until the first successful read. An error thrown after at
 // least one event was read can no longer change the response, so it's
 // emitted as an "event: error" SSE frame instead.
+// sseResponse takes an encode callback (rather than trying to dispatch on T
+// generically) so each streamed value crosses the wire the same way a
+// non-streamed response does - camelCase TS shape in, snake_case JSON shape
+// out - matching the per-message encode<Response> function (see types.go).
 func writeSSEResponseHelper(p *Printer) {
-	p.P("async function sseResponse<T>(stream: ReadableStream<T>): Promise<Response> {")
+	p.P("async function sseResponse<T>(stream: ReadableStream<T>, encode: (v: T) => unknown): Promise<Response> {")
 	p.P("const reader = stream.getReader();")
 	p.P("let first: ReadableStreamReadResult<T>;")
 	p.P("try {")
@@ -41,7 +45,7 @@ func writeSSEResponseHelper(p *Printer) {
 	p.P("let current = first;")
 	p.P("try {")
 	p.P("while (!current.done) {")
-	p.P(`controller.enqueue(encoder.encode("data: " + JSON.stringify(current.value) + "\n\n"));`)
+	p.P(`controller.enqueue(encoder.encode("data: " + JSON.stringify(encode(current.value)) + "\n\n"));`)
 	p.P("current = await reader.read();")
 	p.P("}")
 	p.P("} catch (err) {")
@@ -55,7 +59,9 @@ func writeSSEResponseHelper(p *Printer) {
 	p.P()
 	p.P("return new Response(body, {")
 	p.P("status: 200,")
-	p.P(`headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" },`)
+	p.P(
+		`headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" },`,
+	)
 	p.P("});")
 	p.P("}")
 	p.P()
@@ -96,8 +102,8 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	}
 
 	p.P("try {")
-	p.P("const stream = handler.", CamelCase(m.Name), "(body as ", p.MessageTypeName(m.Request), ");")
-	p.P("return await sseResponse(stream);")
+	p.P("const stream = handler.", CamelCase(m.Name), "(decode", m.Request.Name, "(body));")
+	p.P("return await sseResponse(stream, encode", m.Response.Name, ");")
 	p.P("} catch (err) {")
 	p.P("return errorResponse(err);")
 	p.P("}")
@@ -107,9 +113,9 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 }
 
 func writeSSEClientFetch(p *Printer, m *onkir.Method) {
-	p.P("const res = await fetch(this.baseUrl + path, {")
+	p.P("const res = await this.request(this.baseUrl + path, {")
 	p.P(`method: "GET",`)
-	p.P(`headers: { Accept: "text/event-stream", ...this.options.headers },`)
+	p.P(`headers: { Accept: "text/event-stream", ...this.options.defaultHeaders },`)
 	p.P("signal: opts?.signal,")
 	p.P("});")
 	p.P()
@@ -150,7 +156,7 @@ func writeSSEClientReadLoop(p *Printer, m *onkir.Method) {
 	p.P(`if (eventType === "error") {`)
 	p.P(`throw new Error("stream error: " + data);`)
 	p.P("}")
-	p.P("yield JSON.parse(data) as ", p.MessageTypeName(m.Response), ";")
+	p.P("yield decode", m.Response.Name, "(JSON.parse(data));")
 	p.P("}")
 	p.P("}")
 }
@@ -173,7 +179,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		}
 		p.P(fmt.Sprintf(
 			"path = path.replace(%q, encodeURIComponent(String(req.%s)));",
-			"{"+paramName+"}", field.Name,
+			"{"+paramName+"}", CamelCase(field.Name),
 		))
 	}
 	writeClientQueryParams(p, m.Request)

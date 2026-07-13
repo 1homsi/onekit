@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
@@ -122,7 +123,7 @@ func TestCrossPackageTypeScript(t *testing.T) {
 	ordersClient := GenerateClientWithResolver(ordersFile, ordersResolver)
 	ordersServer := GenerateServerWithResolver(ordersFile, ordersResolver)
 
-	if !containsString(string(ordersTypes), `import type * as common from "../../common/types";`) {
+	if !containsString(string(ordersTypes), `import * as common from "../../common/types";`) {
 		t.Fatalf("expected orders/v1/types.ts to import the common package, got:\n%s", ordersTypes)
 	}
 	if !containsString(string(ordersTypes), "common.Money") {
@@ -137,9 +138,16 @@ func TestCrossPackageTypeScript(t *testing.T) {
 		t.Fatalf("mkdir orders/v1: %v", mkErr)
 	}
 	writeFile(t, filepath.Join(dir, "common", "types.ts"), string(commonTypes))
-	writeFile(t, filepath.Join(dir, "orders", "v1", "types.ts"), string(ordersTypes))
+	// See the matching comment in gents_test.go/sse_test.go: Node's native TS
+	// execution (used only here, not by real bundler-based consumers) needs
+	// explicit extensions on these generated files' own relative imports.
+	ordersTypesForNode := strings.ReplaceAll(
+		string(ordersTypes), `from "../../common/types"`, `from "../../common/types.ts"`,
+	)
+	writeFile(t, filepath.Join(dir, "orders", "v1", "types.ts"), ordersTypesForNode)
 	writeFile(t, filepath.Join(dir, "orders", "v1", "client.ts"), string(ordersClient))
-	writeFile(t, filepath.Join(dir, "orders", "v1", "server.ts"), string(ordersServer))
+	ordersServerForNode := strings.ReplaceAll(string(ordersServer), `from "./types"`, `from "./types.ts"`)
+	writeFile(t, filepath.Join(dir, "orders", "v1", "server.ts"), ordersServerForNode)
 	writeFile(t, filepath.Join(dir, "main.ts"), tsCrossPackageHarness)
 
 	cmd := exec.Command("node", "main.ts")
@@ -171,7 +179,7 @@ import type { GetOrderRequest, Order } from "./orders/v1/types.ts";
 
 const handler = {
   async getOrder(req: GetOrderRequest): Promise<Order> {
-    return { id: req.id, price: { amount_cents: "1999", currency: "USD" } };
+    return { id: req.id, price: { amountCents: "1999", currency: "USD" } };
   },
 };
 

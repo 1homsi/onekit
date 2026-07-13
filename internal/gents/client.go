@@ -35,14 +35,28 @@ func referencedTypeNames(file *onkir.File, resolver PackageResolver) []string {
 	return names
 }
 
-func clientEncodeHelperNames(file *onkir.File, resolver PackageResolver) []string {
+// referencedCodecNames returns the encode<Request>/decode<Response|Error>
+// function names this file's client methods need from "./types" - every
+// local request/response/error message has one of each (see types.go).
+func referencedCodecNames(file *onkir.File, resolver PackageResolver) []string {
 	seen := map[string]bool{}
 	var names []string
+	add := func(prefix string, m *onkir.Message) {
+		if !isLocalMessage(resolver, m) {
+			return
+		}
+		key := prefix + m.Name
+		if !seen[key] {
+			seen[key] = true
+			names = append(names, key)
+		}
+	}
 	for _, s := range file.Services {
 		for _, m := range s.Methods {
-			if messageNeedsEncodeHelper(m.Request) && isLocalMessage(resolver, m.Request) && !seen[m.Request.Name] {
-				seen[m.Request.Name] = true
-				names = append(names, m.Request.Name)
+			add("encode", m.Request)
+			add("decode", m.Response)
+			for _, errType := range m.ErrorTypes {
+				add("decode", errType)
 			}
 		}
 	}
@@ -66,17 +80,15 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) []by
 	if names := referencedTypeNames(file, resolver); len(names) > 0 {
 		p.P(`import type { `, strings.Join(names, ", "), ` } from "./types";`)
 	}
-	if helpers := clientEncodeHelperNames(file, resolver); len(helpers) > 0 {
-		var fns []string
-		for _, h := range helpers {
-			fns = append(fns, "encode"+h)
-		}
+	if fns := referencedCodecNames(file, resolver); len(fns) > 0 {
 		p.P(`import { `, strings.Join(fns, ", "), ` } from "./types";`)
 	}
 	for _, ref := range collectServiceExternalRefs(file, resolver) {
-		p.P(`import type * as `, ref.Alias, ` from "`, ref.ImportPath, `";`)
+		p.P(`import * as `, ref.Alias, ` from "`, ref.ImportPath, `";`)
 	}
 	p.P()
+
+	writeAPIError(p)
 
 	for _, s := range file.Services {
 		writeClientClass(p, s)
@@ -85,9 +97,30 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) []by
 	return p.Bytes()
 }
 
+// writeAPIError emits a shared error type thrown for any response status
+// that doesn't match one of a method's declared error types. Carries the raw
+// body text and status code as plain properties (not a parsed/decoded
+// shape, since the body isn't necessarily JSON) for callers that want to
+// inspect a failure beyond the generic message.
+func writeAPIError(p *Printer) {
+	p.P("export class ApiError extends Error {")
+	p.P("statusCode: number;")
+	p.P("body: string;")
+	p.P()
+	p.P("constructor(statusCode: number, body: string) {")
+	p.P(`super("unexpected status " + statusCode + ": " + body);`)
+	p.P(`this.name = "ApiError";`)
+	p.P("this.statusCode = statusCode;")
+	p.P("this.body = body;")
+	p.P("}")
+	p.P("}")
+	p.P()
+}
+
 func writeClientClass(p *Printer, s *onkir.Service) {
 	p.P("export interface ", s.Name, "ClientOptions {")
-	p.P("headers?: Record<string, string>;")
+	p.P("fetch?: typeof fetch;")
+	p.P("defaultHeaders?: Record<string, string>;")
 	p.P("}")
 	p.P()
 
@@ -98,6 +131,11 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 	p.P("constructor(baseUrl: string, options: ", s.Name, "ClientOptions = {}) {")
 	p.P("this.baseUrl = baseUrl;")
 	p.P("this.options = options;")
+	p.P("}")
+	p.P()
+	p.P("private request(input: string, init: RequestInit): Promise<Response> {")
+	p.P("const doFetch = this.options.fetch ?? fetch;")
+	p.P("return doFetch(input, init);")
 	p.P("}")
 	p.P()
 
@@ -129,7 +167,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		}
 		p.P(fmt.Sprintf(
 			"path = path.replace(%q, encodeURIComponent(String(req.%s)));",
-			"{"+paramName+"}", field.Name,
+			"{"+paramName+"}", CamelCase(field.Name),
 		))
 	}
 
@@ -137,17 +175,13 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		writeClientQueryParams(p, m.Request)
 	}
 
-	p.P("const res = await fetch(this.baseUrl + path, {")
+	p.P("const res = await this.request(this.baseUrl + path, {")
 	p.P(fmt.Sprintf("method: %q,", strings.ToUpper(verb)))
 	if bodyBearing {
-		p.P(`headers: { "Content-Type": "application/json", ...this.options.headers },`)
-		if messageNeedsEncodeHelper(m.Request) && isLocalMessage(p.resolver, m.Request) {
-			p.P("body: JSON.stringify(encode", m.Request.Name, "(req)),")
-		} else {
-			p.P("body: JSON.stringify(req),")
-		}
+		p.P(`headers: { "Content-Type": "application/json", ...this.options.defaultHeaders },`)
+		p.P("body: JSON.stringify(encode", m.Request.Name, "(req)),")
 	} else {
-		p.P("headers: { ...this.options.headers },")
+		p.P("headers: { ...this.options.defaultHeaders },")
 	}
 	p.P("});")
 	p.P()
@@ -156,7 +190,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeClientErrorHandling(p, m)
 	p.P("}")
 	p.P()
-	p.P("return (await res.json()) as ", p.MessageTypeName(m.Response), ";")
+	p.P("return decode", m.Response.Name, "(await res.json());")
 	p.P("}")
 	p.P()
 }
@@ -199,8 +233,9 @@ func writeClientQueryParams(p *Printer, req *onkir.Message) {
 		if queryName == "" {
 			queryName = field.Name
 		}
-		p.P("if (req.", field.Name, " !== undefined) {")
-		p.P(fmt.Sprintf("query.set(%q, String(req.%s));", queryName, field.Name))
+		tsName := CamelCase(field.Name)
+		p.P("if (req.", tsName, " !== undefined) {")
+		p.P(fmt.Sprintf("query.set(%q, String(req.%s));", queryName, tsName))
 		p.P("}")
 	}
 	p.P(`const queryStr = query.toString();`)
@@ -215,8 +250,8 @@ func writeClientErrorHandling(p *Printer, m *onkir.Method) {
 			status = code
 		}
 		p.P(fmt.Sprintf("if (res.status === %d) {", status))
-		p.P("throw JSON.parse(body) as ", p.MessageTypeName(errType), ";")
+		p.P("throw decode", errType.Name, "(JSON.parse(body));")
 		p.P("}")
 	}
-	p.P(`throw new Error("unexpected status " + res.status + ": " + body);`)
+	p.P(`throw new ApiError(res.status, body);`)
 }

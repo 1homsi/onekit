@@ -99,21 +99,3 @@ func rootUnwrapField(m *onkir.Message) *onkir.Field {
 	}
 	return nil
 }
-
-// messageEmptyFields returns the message-typed fields on m with a non-default
-// @empty behavior - the only annotation that needs runtime encode support in
-// TypeScript, since @flatten and @unwrap are resolved entirely at the type
-// level (the generated TS type already mirrors the wire shape).
-func messageEmptyFields(m *onkir.Message) []*onkir.Field {
-	var fields []*onkir.Field
-	for _, f := range m.Fields {
-		if v := emptyBehaviorValue(f); v != "" && v != emptyBehaviorPreserve {
-			fields = append(fields, f)
-		}
-	}
-	return fields
-}
-
-func messageNeedsEncodeHelper(m *onkir.Message) bool {
-	return len(messageEmptyFields(m)) > 0
-}

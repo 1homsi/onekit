@@ -50,6 +50,20 @@ func (p *Printer) EnumTypeName(e *onkir.Enum) string {
 	return e.Name
 }
 
+// MessageCodecName returns the encode<Message>/decode<Message> function name
+// to call for m, qualified with m's package alias if it belongs to a
+// different generated module - e.g. "common.encodeMoney", not
+// "encodecommon.Money" (which MessageTypeName's own qualified form would
+// produce if the "encode"/"decode" prefix were naively prepended to it).
+func (p *Printer) MessageCodecName(m *onkir.Message, prefix string) string {
+	if p.resolver != nil {
+		if ref, ok := p.resolver.ResolveMessage(m); ok {
+			return ref.Alias + "." + prefix + m.Name
+		}
+	}
+	return prefix + m.Name
+}
+
 // TSFieldType resolves Message/Enum kinds through this printer's
 // PackageResolver so a cross-module field type gets an import-qualified name
 // instead of a bare (and possibly wrong) local one.

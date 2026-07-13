@@ -7,15 +7,27 @@ import (
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
-func serverEncodeHelperNames(file *onkir.File, resolver PackageResolver) []string {
+// serverCodecNames returns the decode<Request>/encode<Response|Error>
+// function names this file's routes need from "./types" - the reverse
+// direction from referencedCodecNames (client.go), since a server decodes
+// incoming requests and encodes outgoing responses.
+func serverCodecNames(file *onkir.File, resolver PackageResolver) []string {
 	seen := map[string]bool{}
 	var names []string
+	add := func(prefix string, m *onkir.Message) {
+		if !isLocalMessage(resolver, m) {
+			return
+		}
+		key := prefix + m.Name
+		if !seen[key] {
+			seen[key] = true
+			names = append(names, key)
+		}
+	}
 	for _, s := range file.Services {
 		for _, m := range s.Methods {
-			if messageNeedsEncodeHelper(m.Response) && isLocalMessage(resolver, m.Response) && !seen[m.Response.Name] {
-				seen[m.Response.Name] = true
-				names = append(names, m.Response.Name)
-			}
+			add("decode", m.Request)
+			add("encode", m.Response)
 		}
 	}
 	return names
@@ -38,15 +50,11 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 	if names := referencedTypeNames(file, resolver); len(names) > 0 {
 		p.P(`import type { `, strings.Join(names, ", "), ` } from "./types";`)
 	}
-	if helpers := serverEncodeHelperNames(file, resolver); len(helpers) > 0 {
-		var fns []string
-		for _, h := range helpers {
-			fns = append(fns, "encode"+h)
-		}
+	if fns := serverCodecNames(file, resolver); len(fns) > 0 {
 		p.P(`import { `, strings.Join(fns, ", "), ` } from "./types";`)
 	}
 	for _, ref := range collectServiceExternalRefs(file, resolver) {
-		p.P(`import type * as `, ref.Alias, ` from "`, ref.ImportPath, `";`)
+		p.P(`import * as `, ref.Alias, ` from "`, ref.ImportPath, `";`)
 	}
 	p.P()
 
@@ -180,12 +188,8 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	}
 
 	p.P("try {")
-	p.P("const result = await handler.", CamelCase(m.Name), "(body as ", p.MessageTypeName(m.Request), ");")
-	if messageNeedsEncodeHelper(m.Response) && isLocalMessage(p.resolver, m.Response) {
-		p.P("return jsonResponse(encode", m.Response.Name, "(result));")
-	} else {
-		p.P("return jsonResponse(result);")
-	}
+	p.P("const result = await handler.", CamelCase(m.Name), "(decode", m.Request.Name, "(body));")
+	p.P("return jsonResponse(encode", m.Response.Name, "(result));")
 	p.P("} catch (err) {")
 	p.P("return errorResponse(err);")
 	p.P("}")
