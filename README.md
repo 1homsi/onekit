@@ -2,7 +2,7 @@
 
 onekit is a from-scratch schema language and toolchain for building HTTP APIs — no protobuf, no buf, no protoc.
 
-Define your API once in `.onk` files, and generate the boring pieces around it: Go HTTP servers, Go clients, TypeScript clients, TypeScript server routes, Python clients, and OpenAPI 3.1 documents. Every generator is built from scratch against a native intermediate representation (`internal/onkir`) — there is no `google.golang.org/protobuf` dependency anywhere in this repository.
+Define your API once in `.onk` files, and generate the boring pieces around it: Go HTTP servers and clients, TypeScript clients and server routes, Python clients, Rust clients and Axum servers, and OpenAPI 3.1 documents. Every generator is built from scratch against a native intermediate representation (`internal/onkir`) — there is no `google.golang.org/protobuf` dependency anywhere in this repository.
 
 ## The `.onk` language
 
@@ -44,9 +44,10 @@ Two things `.onk` does that protobuf couldn't:
 | `internal/gengo` | Go structs, validation, HTTP server (`net/http` `ServeMux`), and HTTP client |
 | `internal/gents` | TypeScript types, a `fetch`-based client, and framework-agnostic server routes (Web Fetch API) |
 | `internal/genpy` | Python `@dataclass` models, `IntEnum` enums, and a stdlib (`urllib`) client |
+| `internal/genrust` | Rust Serde models and validation, a `reqwest` client, and an Axum server/router |
 | `internal/genopenapi` | OpenAPI 3.1 documents (via `pb33f/libopenapi`) |
 
-All four target languages/formats are driven off the same compiled schema (`internal/onkir`), produced by parsing `.onk` (`internal/onklang`) and resolving cross-references (`internal/onkcompile`).
+All target languages and formats are driven off the same compiled schema (`internal/onkir`), produced by parsing `.onk` (`internal/onklang`) and resolving cross-references (`internal/onkcompile`).
 
 ## Quick start
 
@@ -80,6 +81,12 @@ out = "./api"
 
 [generate.ts-client]
 out = "./web/client"
+
+[generate.rust-client]
+out = "./src/generated"
+
+[generate.rust-server]
+out = "./src/generated"
 
 [generate.openapi]
 out = "./docs"
@@ -118,7 +125,7 @@ go install github.com/1homsi/onekit/cmd/onek@latest
 | `internal/onkcompile/` | Compiles parsed `.onk` files into the IR, resolving cross-file type references |
 | `internal/onkir/` | The native intermediate representation every generator consumes |
 | `internal/onek/` | `onekit.toml` parsing and the `build`/`check` orchestration |
-| `internal/gengo/`, `internal/gents/`, `internal/genpy/`, `internal/genopenapi/` | The four generator backends |
+| `internal/gengo/`, `internal/gents/`, `internal/genpy/`, `internal/genrust/`, `internal/genopenapi/` | Generator backends |
 | `examples/onk-simple-api/` | A complete, working example with committed generated output |
 
 ## Status

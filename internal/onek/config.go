@@ -28,6 +28,8 @@ type GenerateConfig struct {
 	TSClient     *TargetConfig        `toml:"ts-client"`
 	TSServer     *TargetConfig        `toml:"ts-server"`
 	PythonClient *TargetConfig        `toml:"python-client"`
+	RustClient   *TargetConfig        `toml:"rust-client"`
+	RustServer   *TargetConfig        `toml:"rust-server"`
 	OpenAPI      *OpenAPITargetConfig `toml:"openapi"`
 }
 

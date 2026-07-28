@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/1homsi/onekit/internal/genpy"
+	"github.com/1homsi/onekit/internal/genrust"
 	"github.com/1homsi/onekit/internal/gents"
 	"github.com/1homsi/onekit/internal/onkir"
 )
@@ -111,4 +112,49 @@ func writePythonInitFiles(outRoot, relDir string) error {
 		}
 	}
 	return nil
+}
+
+// rustRelativeTypesModule returns a module path from a generated types.rs,
+// client.rs, or server.rs file to another schema directory's types module.
+// Every generated source file is one module below its schema directory, so
+// the path first climbs out of that file module, then to the common schema
+// ancestor, before descending to the target.
+func rustRelativeTypesModule(fromRelDir, toRelDir string) string {
+	from := rustPathSegments(fromRelDir)
+	to := rustPathSegments(toRelDir)
+	common := 0
+	for common < len(from) && common < len(to) && from[common] == to[common] {
+		common++
+	}
+	parts := make([]string, 0, len(from)-common+len(to)-common+2)
+	for range len(from) - common + 1 {
+		parts = append(parts, "super")
+	}
+	for _, segment := range to[common:] {
+		parts = append(parts, genrust.RustIdent(segment))
+	}
+	parts = append(parts, "types")
+	return strings.Join(parts, "::")
+}
+
+type rustResolver struct {
+	currentDir string
+	idx        *sourceIndex
+}
+
+func (r *rustResolver) resolve(dir string, ok bool) (genrust.PackageRef, bool) {
+	if !ok || dir == r.currentDir {
+		return genrust.PackageRef{}, false
+	}
+	return genrust.PackageRef{ModulePath: rustRelativeTypesModule(r.currentDir, dir)}, true
+}
+
+func (r *rustResolver) ResolveMessage(message *onkir.Message) (genrust.PackageRef, bool) {
+	dir, ok := r.idx.dirByMessage[message]
+	return r.resolve(dir, ok)
+}
+
+func (r *rustResolver) ResolveEnum(enum *onkir.Enum) (genrust.PackageRef, bool) {
+	dir, ok := r.idx.dirByEnum[enum]
+	return r.resolve(dir, ok)
 }
