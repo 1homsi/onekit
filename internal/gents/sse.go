@@ -69,7 +69,7 @@ func writeSSEResponseHelper(p *Printer) {
 
 func writeSSEHandlerMethod(p *Printer, m *onkir.Method) {
 	p.P(CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request),
-		"): ReadableStream<", p.MessageTypeName(m.Response), ">;")
+		", context: RequestContext): ReadableStream<", p.MessageTypeName(m.Response), ">;")
 }
 
 func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
@@ -89,6 +89,19 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		p.P(`if (!match) return new Response("Not Found", { status: 404 });`)
 	}
 
+	p.P("try {")
+	for _, header := range append(append([]*onkir.Header{}, s.Headers...), m.Headers...) {
+		format, hasFormat := header.Format()
+		p.P("{")
+		p.P("const value = req.headers.get(", fmt.Sprintf("%q", header.Name), ");")
+		if header.Required() {
+			p.P("if (!value) throw new HttpError(400, { message: ", fmt.Sprintf("%q", "missing required header: "+header.Name), " });")
+		}
+		if hasFormat {
+			p.P("if (value && !validHeaderFormat(value, ", fmt.Sprintf("%q", format), ")) throw new HttpError(400, { message: ", fmt.Sprintf("%q", "invalid header "+header.Name+": expected "+format), " });")
+		}
+		p.P("}")
+	}
 	p.P("const body: Record<string, unknown> = {};")
 	writeServerQueryParams(p, m.Request)
 	if hasPathParams {
@@ -97,12 +110,18 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 			if field == nil {
 				continue
 			}
-			p.P("body.", field.Name, " = match.", paramName, ";")
+			if field.Type != nil && field.Type.Kind == onkir.KindScalar {
+				p.P("body.", field.Name, " = parseScalar(match.", paramName, ", ", fmt.Sprintf("%q", field.Type.Scalar.String()), ", ", fmt.Sprintf("%q", "path parameter "+paramName), ");")
+			} else {
+				p.P("body.", field.Name, " = match.", paramName, ";")
+			}
 		}
 	}
 
-	p.P("try {")
-	p.P("const stream = handler.", CamelCase(m.Name), "(decode", m.Request.Name, "(body));")
+	p.P("const decoded = decode", m.Request.Name, "(body);")
+	p.P("const violations = validate", m.Request.Name, "(decoded);")
+	p.P("if (violations.length > 0) throw new HttpError(400, { message: violations.join(\"; \") });")
+	p.P("const stream = handler.", CamelCase(m.Name), "(decoded, { request: req, headers: req.headers });")
 	p.P("return await sseResponse(stream, encode", m.Response.Name, ");")
 	p.P("} catch (err) {")
 	p.P("return errorResponse(err);")
@@ -171,6 +190,9 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 	p.P("async *", CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request),
 		", opts?: { signal?: AbortSignal }): AsyncGenerator<", p.MessageTypeName(m.Response), "> {")
+	validator := p.MessageCodecName(m.Request, "validate")
+	p.P("const violations = ", validator, "(req);")
+	p.P(`if (violations.length > 0) throw new TypeError("invalid request: " + violations.join("; "));`)
 	p.P(fmt.Sprintf("let path = %q;", fullPath))
 	for _, paramName := range pathParamNames(path) {
 		field := findField(m.Request, paramName)

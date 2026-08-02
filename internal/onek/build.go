@@ -13,6 +13,7 @@ import (
 	"github.com/1homsi/onekit/internal/genpy"
 	"github.com/1homsi/onekit/internal/genrust"
 	"github.com/1homsi/onekit/internal/gents"
+	"github.com/1homsi/onekit/internal/onkcompat"
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
 	"github.com/1homsi/onekit/internal/onklang"
@@ -207,8 +208,32 @@ func groupByDirectory(pkg *onkir.Package, schemaRoot string) (*sourceIndex, erro
 	return idx, nil
 }
 
-// Check parses and compiles every .onk file under dir without generating
-// any output, returning the first error encountered.
+// Compile parses and compiles every .onk file under dir without generating
+// output. It also applies the same default service base paths used by Build.
+func Compile(dir string) (*onkir.Package, error) {
+	files, err := discoverOnkFiles(dir)
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no .onk files found under %s", dir)
+	}
+	sources, err := parseSources(files)
+	if err != nil {
+		return nil, err
+	}
+	pkg, err := onkcompile.Compile(sources)
+	if err != nil {
+		return nil, err
+	}
+	if err := applyDefaultBasePaths(pkg, dir); err != nil {
+		return nil, err
+	}
+	return pkg, nil
+}
+
+// Check validates the project configuration and every schema under dir
+// without generating output.
 func Check(dir string) error {
 	configPath := filepath.Join(dir, configFileName)
 	if _, statErr := os.Stat(configPath); statErr == nil {
@@ -219,37 +244,76 @@ func Check(dir string) error {
 		return fmt.Errorf("stat %s: %w", configPath, statErr)
 	}
 
-	files, err := discoverOnkFiles(dir)
-	if err != nil {
-		return err
-	}
-	if len(files) == 0 {
-		return fmt.Errorf("no .onk files found under %s", dir)
-	}
-	sources, err := parseSources(files)
-	if err != nil {
-		return err
-	}
-	_, err = onkcompile.Compile(sources)
+	_, err := Compile(dir)
 	return err
 }
 
+// Compatibility compares two schema directories and returns breaking changes.
+func Compatibility(previousDir, currentDir string) ([]onkcompat.Finding, error) {
+	previous, err := compileCompatibilityProject(previousDir)
+	if err != nil {
+		return nil, fmt.Errorf("compile previous schema: %w", err)
+	}
+	current, err := compileCompatibilityProject(currentDir)
+	if err != nil {
+		return nil, fmt.Errorf("compile current schema: %w", err)
+	}
+	return onkcompat.Compare(previous, current), nil
+}
+
+func compileCompatibilityProject(dir string) (*onkir.Package, error) {
+	pkg, err := Compile(dir)
+	if err != nil {
+		return nil, err
+	}
+	configPath := filepath.Join(dir, configFileName)
+	if _, statErr := os.Stat(configPath); statErr == nil {
+		cfg, loadErr := LoadConfig(dir)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		applyRoutePrefix(pkg, cfg.RoutePrefix)
+	} else if !os.IsNotExist(statErr) {
+		return nil, fmt.Errorf("stat %s: %w", configPath, statErr)
+	}
+	return pkg, nil
+}
+
 const (
-	genDirPerm  = 0o750
-	genFilePerm = 0o600
+	genDirPerm  = 0o755
+	genFilePerm = 0o644
 )
 
 func writeFile(path string, data []byte) error {
 	if len(data) == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove stale generated output %s: %w", path, err)
+		}
 		return nil
 	}
 	err := os.MkdirAll(filepath.Dir(path), genDirPerm)
 	if err != nil {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
 	}
-	err = os.WriteFile(path, data, genFilePerm)
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".onek-*")
 	if err != nil {
+		return fmt.Errorf("create temporary output for %s: %w", path, err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := tmp.Chmod(genFilePerm); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("set permissions on temporary output for %s: %w", path, err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
 		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temporary output for %s: %w", path, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replace %s: %w", path, err)
 	}
 	return nil
 }
@@ -272,22 +336,7 @@ func Build(dir string) error {
 		return err
 	}
 
-	files, err := discoverOnkFiles(dir)
-	if err != nil {
-		return err
-	}
-	if len(files) == 0 {
-		return fmt.Errorf("no .onk files found under %s", dir)
-	}
-	sources, err := parseSources(files)
-	if err != nil {
-		return err
-	}
-	pkg, err := onkcompile.Compile(sources)
-	if err != nil {
-		return err
-	}
-	err = applyDefaultBasePaths(pkg, dir)
+	pkg, err := Compile(dir)
 	if err != nil {
 		return err
 	}
@@ -317,7 +366,147 @@ func Build(dir string) error {
 			return err
 		}
 	}
+	return cleanupStaleGeneratedOutputs(cfg, idx)
+}
+
+func cleanupStaleGeneratedOutputs(cfg *Config, idx *sourceIndex) error {
+	expectedByRoot := expectedGeneratedOutputs(cfg, idx)
+	for root, expected := range expectedByRoot {
+		if err := cleanupGeneratedRoot(root, expected); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+//nolint:gocognit // Target combinations intentionally share one explicit output manifest.
+func expectedGeneratedOutputs(cfg *Config, idx *sourceIndex) map[string]map[string]bool {
+	roots := map[string]map[string]bool{}
+	add := func(root, rel string) {
+		root = filepath.Clean(root)
+		if roots[root] == nil {
+			roots[root] = map[string]bool{}
+		}
+		roots[root][filepath.Clean(rel)] = true
+	}
+	for _, group := range idx.groups {
+		rel := filepath.FromSlash(group.relDir)
+		if rel == "." {
+			rel = ""
+		}
+		if cfg.Generate.GoServer != nil || cfg.Generate.GoClient != nil {
+			target := cfg.Generate.GoServer
+			if target == nil {
+				target = cfg.Generate.GoClient
+			}
+			root := cfg.resolve(target.Out)
+			add(root, filepath.Join(rel, "types.gen.go"))
+			add(root, filepath.Join(rel, "validate.gen.go"))
+			if cfg.Generate.GoServer != nil {
+				add(root, filepath.Join(rel, "server.gen.go"))
+			}
+			if cfg.Generate.GoClient != nil {
+				add(root, filepath.Join(rel, "client.gen.go"))
+			}
+		}
+		if cfg.Generate.TSClient != nil {
+			root := cfg.resolve(cfg.Generate.TSClient.Out)
+			add(root, filepath.Join(rel, "types.ts"))
+			add(root, filepath.Join(rel, "client.ts"))
+		}
+		if cfg.Generate.TSServer != nil {
+			root := cfg.resolve(cfg.Generate.TSServer.Out)
+			add(root, filepath.Join(rel, "types.ts"))
+			add(root, filepath.Join(rel, "server.ts"))
+		}
+		if cfg.Generate.PythonClient != nil {
+			root := cfg.resolve(cfg.Generate.PythonClient.Out)
+			add(root, "__init__.py")
+			add(root, filepath.Join(rel, "models.py"))
+			add(root, filepath.Join(rel, "client.py"))
+			for parent := rel; parent != "." && parent != ""; parent = filepath.Dir(parent) {
+				add(root, filepath.Join(parent, "__init__.py"))
+			}
+		}
+	}
+	addRustExpected := func(target *TargetConfig, client, server bool) {
+		if target == nil {
+			return
+		}
+		root := cfg.resolve(target.Out)
+		add(root, "mod.rs")
+		for _, group := range idx.groups {
+			rel := filepath.FromSlash(group.relDir)
+			if rel == "." {
+				rel = ""
+			}
+			add(root, filepath.Join(rel, "types.rs"))
+			if client {
+				add(root, filepath.Join(rel, "client.rs"))
+			}
+			if server {
+				add(root, filepath.Join(rel, "server.rs"))
+			}
+			for parent := filepath.Dir(rel); parent != "." && parent != ""; parent = filepath.Dir(parent) {
+				add(root, filepath.Join(parent, "mod.rs"))
+			}
+			if rel != "" {
+				add(root, filepath.Join(rel, "mod.rs"))
+			}
+		}
+	}
+	if cfg.Generate.RustClient != nil && cfg.Generate.RustServer != nil &&
+		filepath.Clean(cfg.resolve(cfg.Generate.RustClient.Out)) == filepath.Clean(cfg.resolve(cfg.Generate.RustServer.Out)) {
+		addRustExpected(cfg.Generate.RustClient, true, true)
+	} else {
+		addRustExpected(cfg.Generate.RustClient, true, false)
+		addRustExpected(cfg.Generate.RustServer, false, true)
+	}
+	if cfg.Generate.OpenAPI != nil {
+		add(cfg.resolve(cfg.Generate.OpenAPI.Out), "openapi.yaml")
+	}
+	return roots
+}
+
+func cleanupGeneratedRoot(root string, expected map[string]bool) error {
+	info, err := os.Stat(root)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat generated output root %s: %w", root, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("generated output root %s is not a directory", root)
+	}
+	return filepath.WalkDir(root, func(filePath string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, filePath)
+		if relErr != nil || expected[filepath.Clean(rel)] || !isOnekitGeneratedFile(filePath) {
+			return relErr
+		}
+		// #nosec G122 -- WalkDir does not follow directory symlinks, and only files with OneKit's generated banner are removed.
+		if removeErr := os.Remove(filePath); removeErr != nil {
+			return fmt.Errorf("remove stale generated output %s: %w", filePath, removeErr)
+		}
+		return nil
+	})
+}
+
+func isOnekitGeneratedFile(filePath string) bool {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = file.Close() }()
+	buffer := make([]byte, 128)
+	count, _ := file.Read(buffer)
+	return strings.Contains(string(buffer[:count]), "Code generated by onek. DO NOT EDIT.")
 }
 
 // goPackageAlias derives a valid, collision-resistant Go import alias from a

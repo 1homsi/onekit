@@ -2,10 +2,14 @@ BIN_DIR := ./bin
 CMD_DIR := ./cmd
 SCRIPTS_DIR := ./scripts
 GO_BUILD_FLAGS ?=
+GOLANGCI_LINT_VERSION := v2.11.3
+GO_TEST_COVERAGE_VERSION := v2.8.3
+ACTIONLINT_VERSION := v1.7.9
 
 CMD_DIRS := $(wildcard $(CMD_DIR)/*)
 BINARIES := $(notdir $(CMD_DIRS))
 BINARY_PATHS := $(addprefix $(BIN_DIR)/, $(BINARIES))
+GO_SOURCES := $(shell find $(CMD_DIR) internal -name '*.go')
 
 .PHONY: all
 all: help
@@ -23,13 +27,14 @@ help:
 	@echo "  list-binaries    Show generator binary targets"
 	@echo "  test             Run full test script"
 	@echo "  test-fast        Run fast test script"
+	@echo "  check-generated Verify committed example output is reproducible"
 	@echo ""
 	@echo "Generators: $(BINARIES)"
 
 .PHONY: build
 build: $(BINARY_PATHS)
 
-$(BIN_DIR)/%: $(CMD_DIR)/%/*.go | $(BIN_DIR)
+$(BIN_DIR)/%: $(GO_SOURCES) go.mod go.sum | $(BIN_DIR)
 	@echo "Building $*..."
 	@go build $(GO_BUILD_FLAGS) -o $@ ./$(CMD_DIR)/$*
 
@@ -55,19 +60,19 @@ test-fast: check-scripts
 install:
 	@echo "Installing required dependencies..."
 	@if ! command -v golangci-lint >/dev/null 2>&1; then \
-		go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest; \
+		go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
 		echo "OK: golangci-lint installed"; \
 	else \
 		echo "OK: golangci-lint already installed"; \
 	fi
 	@if ! command -v go-test-coverage >/dev/null 2>&1; then \
-		go install github.com/vladopajic/go-test-coverage/v2@latest; \
+		go install github.com/vladopajic/go-test-coverage/v2@$(GO_TEST_COVERAGE_VERSION); \
 		echo "OK: go-test-coverage installed"; \
 	else \
 		echo "OK: go-test-coverage already installed"; \
 	fi
 	@if ! command -v actionlint >/dev/null 2>&1; then \
-		go install github.com/rhysd/actionlint/cmd/actionlint@latest; \
+		go install github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION); \
 		echo "OK: actionlint installed"; \
 	else \
 		echo "OK: actionlint already installed"; \
@@ -129,3 +134,8 @@ ci-validate:
 		exit 1; \
 	fi
 	@actionlint .github/workflows/*.yml
+
+.PHONY: check-generated
+check-generated: build
+	@./bin/onek build examples/onk-simple-api
+	@git diff --exit-code -- examples/onk-simple-api/api examples/onk-simple-api/docs

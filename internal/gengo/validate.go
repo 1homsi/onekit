@@ -8,15 +8,6 @@ import (
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
-func messageHasValidation(m *onkir.Message) bool {
-	for _, f := range m.Fields {
-		if fieldValidationRules(m, f) != nil {
-			return true
-		}
-	}
-	return false
-}
-
 func isNumericScalar(k onkir.ScalarKind) bool {
 	switch k {
 	case onkir.ScalarInt32, onkir.ScalarInt64, onkir.ScalarUint32, onkir.ScalarUint64,
@@ -51,6 +42,10 @@ func requiredRule(f *onkir.Field) []string {
 	case f.Type != nil && f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarString && !f.Repeated:
 		return []string{fmt.Sprintf(
 			`if %s == "" { violations = append(violations, %q) }`, fieldAccessor(f), requiredMsg,
+		)}
+	case f.Repeated, f.Type != nil && f.Type.Kind == onkir.KindMap:
+		return []string{fmt.Sprintf(
+			"if len(m.%s) == 0 { violations = append(violations, %q) }", goName, requiredMsg,
 		)}
 	default:
 		return nil
@@ -177,21 +172,27 @@ func numericValidationRules(f *onkir.Field) []string {
 }
 
 func fieldValidationRules(m *onkir.Message, f *onkir.Field) []string {
-	var rules []string
-	rules = append(rules, requiredRule(f)...)
-	rules = append(rules, repeatedItemsRules(f)...)
+	required := requiredRule(f)
+	var valueRules []string
+	valueRules = append(valueRules, repeatedItemsRules(f)...)
 
 	if f.Type == nil || f.Type.Kind != onkir.KindScalar || f.Repeated {
-		return dedupeEmpty(rules)
+		return dedupeEmpty(append(required, valueRules...))
 	}
 
 	if f.Type.Scalar == onkir.ScalarString {
-		rules = append(rules, stringValidationRules(m, f)...)
+		valueRules = append(valueRules, stringValidationRules(m, f)...)
 	} else if isNumericScalar(f.Type.Scalar) {
-		rules = append(rules, numericValidationRules(f)...)
+		valueRules = append(valueRules, numericValidationRules(f)...)
+	}
+	if f.Optional && len(valueRules) > 0 {
+		guard := "m." + PascalCase(f.Name) + " != nil"
+		for index, rule := range valueRules {
+			valueRules[index] = "if " + guard + " { " + rule + " }"
+		}
 	}
 
-	return dedupeEmpty(rules)
+	return dedupeEmpty(append(required, valueRules...))
 }
 
 func dedupeEmpty(rules []string) []string {
@@ -246,14 +247,7 @@ func collectPatternDecls(file *onkir.File) []patternDecl {
 }
 
 func GenerateValidation(file *onkir.File) ([]byte, error) {
-	var needed bool
-	for _, m := range file.Messages {
-		if messageHasValidation(m) {
-			needed = true
-			break
-		}
-	}
-	if !needed {
+	if len(file.Messages) == 0 {
 		return nil, nil
 	}
 
@@ -295,22 +289,46 @@ func GenerateValidation(file *onkir.File) ([]byte, error) {
 }
 
 func writeValidate(p *Printer, m *onkir.Message) {
-	if messageHasValidation(m) {
-		p.P("func (m *", m.Name, ") Validate() error {")
-		p.P("var violations []string")
-		for _, f := range m.Fields {
-			for _, rule := range fieldValidationRules(m, f) {
-				p.P(rule)
-			}
+	p.P("func (m *", m.Name, ") Validate() error {")
+	p.P("if m == nil { return nil }")
+	p.P("var violations []string")
+	for _, f := range m.Fields {
+		for _, rule := range fieldValidationRules(m, f) {
+			p.P(rule)
 		}
-		p.P("if len(violations) > 0 {")
-		p.P(`return errors.New(strings.Join(violations, "; "))`)
-		p.P("}")
-		p.P("return nil")
-		p.P("}")
-		p.P()
+		writeNestedValidation(p, f)
 	}
+	p.P("if len(violations) > 0 {")
+	p.P(`return errors.New(strings.Join(violations, "; "))`)
+	p.P("}")
+	p.P("return nil")
+	p.P("}")
+	p.P()
 	for _, nested := range m.Nested {
 		writeValidate(p, nested)
+	}
+}
+
+func writeNestedValidation(p *Printer, field *onkir.Field) {
+	if field.Type == nil {
+		return
+	}
+	goName := PascalCase(field.Name)
+	appendError := func(expression string) {
+		p.P("if err := ", expression, ".Validate(); err != nil { violations = append(violations, ", fmt.Sprintf("%q", field.Name+": "), "+err.Error()) }")
+	}
+	switch {
+	case field.Repeated && field.Type.Kind == onkir.KindMessage:
+		p.P("for _, value := range m.", goName, " {")
+		appendError("value")
+		p.P("}")
+	case field.Type.Kind == onkir.KindMap && field.Type.MapValue != nil && field.Type.MapValue.Kind == onkir.KindMessage:
+		p.P("for _, value := range m.", goName, " {")
+		appendError("value")
+		p.P("}")
+	case field.Type.Kind == onkir.KindMessage:
+		p.P("if m.", goName, " != nil {")
+		appendError("m." + goName)
+		p.P("}")
 	}
 }

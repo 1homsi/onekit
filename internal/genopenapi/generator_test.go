@@ -2,6 +2,7 @@ package genopenapi
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/pb33f/libopenapi"
@@ -23,7 +24,7 @@ message User {
   id: string
   name: string @len(2, 100)
   email: string @email
-  bio: string? @nullable
+  bio: string?
   tags: string[]
   labels: map[string, string]
   home_address: Address
@@ -137,13 +138,13 @@ func TestGenerateProducesValidOpenAPIDocument(t *testing.T) {
 		t.Fatalf("expected header parameter X-API-Key on getUser, got %+v", getPath.Get.Parameters)
 	}
 
-	if _, hasUser := model.Model.Components.Schemas.Get("User"); !hasUser {
+	if _, hasUser := model.Model.Components.Schemas.Get("app.User"); !hasUser {
 		t.Fatalf("expected User schema in components")
 	}
-	if _, hasNotFound := model.Model.Components.Schemas.Get("NotFoundError"); !hasNotFound {
+	if _, hasNotFound := model.Model.Components.Schemas.Get("app.NotFoundError"); !hasNotFound {
 		t.Fatalf("expected NotFoundError schema in components")
 	}
-	if _, hasStatus := model.Model.Components.Schemas.Get("Status"); !hasStatus {
+	if _, hasStatus := model.Model.Components.Schemas.Get("app.Status"); !hasStatus {
 		t.Fatalf("expected Status schema in components")
 	}
 }
@@ -160,5 +161,42 @@ func TestGenerateJSONProducesValidJSON(t *testing.T) {
 	}
 	if parsed["openapi"] != "3.1.0" {
 		t.Fatalf("unexpected openapi version field: %v", parsed["openapi"])
+	}
+}
+
+func TestGenerateCarriesContractSemantics(t *testing.T) {
+	src := `
+package app
+message Payload { name: string @required @len(2, 20) @pattern("^[a-z]+$") }
+message Request { payload: Payload }
+message Response { ok: bool }
+service API {
+  headers: { "Authorization": string @required @auth("bearer") @auth_scheme_name("UserAuth") }
+  create(Request) -> Response @post("/items") @body("payload")
+}
+`
+	ast, err := onklang.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.onk", AST: ast}})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	out, err := Generate(pkg.Files[0], Options{})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	spec := string(out)
+	for _, want := range []string{
+		"UserAuth:", "scheme: bearer", "security:", "- UserAuth: []", "required:", "- name",
+		"minLength: 2", "maxLength: 20", "pattern: ^[a-z]+$", "$ref: '#/components/schemas/app.Payload'",
+	} {
+		if !strings.Contains(spec, want) {
+			t.Fatalf("generated OpenAPI missing %q:\n%s", want, spec)
+		}
+	}
+	if strings.Contains(spec, "name: Authorization\n") {
+		t.Fatalf("auth header should be represented by a security scheme, not a duplicate parameter:\n%s", spec)
 	}
 }

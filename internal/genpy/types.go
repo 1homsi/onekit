@@ -147,6 +147,9 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) []byt
 	if fileNeedsBase64Import(file) {
 		p.P("import base64")
 	}
+	p.P("import re")
+	p.P("import urllib.parse")
+	p.P("import uuid")
 	p.P("from dataclasses import dataclass, field")
 	p.P("from enum import IntEnum")
 	for _, ref := range collectExternalRefs(file, resolver) {
@@ -496,6 +499,8 @@ func writeMessage(p *Printer, m *onkir.Message) {
 	p.Dedent()
 	p.P(")")
 	p.Dedent()
+	p.Blank()
+	writePyValidateFunc(p, m)
 	p.Dedent()
 	p.Blank()
 
@@ -509,6 +514,107 @@ func writeMessage(p *Printer, m *onkir.Message) {
 	for _, nested := range m.NestedEnums {
 		writeEnum(p, nested)
 	}
+}
+
+//nolint:gocognit // Each schema rule is an independent generated-code branch.
+func writePyValidateFunc(p *Printer, m *onkir.Message) {
+	p.P("def validate(self) -> None:")
+	p.Indent()
+	p.P("violations: list[str] = []")
+	for _, f := range m.Fields {
+		accessor := "self." + f.Name
+		if f.HasDecorator("required") {
+			p.P("if ", accessor, " is None or ", accessor, " == \"\": violations.append(", fmt.Sprintf("%q", f.Name+" is required"), ")")
+		}
+		if f.Repeated {
+			if d, ok := f.Decorator("min_items"); ok {
+				value, _ := d.Value()
+				p.P("if len(", accessor, ") < ", value, ": violations.append(", fmt.Sprintf("%q", f.Name+" must contain at least "+value+" items"), ")")
+			}
+			if d, ok := f.Decorator("max_items"); ok {
+				value, _ := d.Value()
+				p.P("if len(", accessor, ") > ", value, ": violations.append(", fmt.Sprintf("%q", f.Name+" must contain at most "+value+" items"), ")")
+			}
+			if f.Type != nil && f.Type.Kind == onkir.KindMessage {
+				p.P("for item in ", accessor, ":")
+				p.Indent()
+				p.P("try: item.validate()")
+				p.P("except ValueError as error: violations.append(", fmt.Sprintf("%q", f.Name+": "), " + str(error))")
+				p.Dedent()
+			}
+			continue
+		}
+		if f.Type != nil && f.Type.Kind == onkir.KindMessage {
+			p.P("if ", accessor, " is not None:")
+			p.Indent()
+			p.P("try: ", accessor, ".validate()")
+			p.P("except ValueError as error: violations.append(", fmt.Sprintf("%q", f.Name+": "), " + str(error))")
+			p.Dedent()
+			continue
+		}
+		if f.Type != nil && f.Type.Kind == onkir.KindMap && f.Type.MapValue != nil && f.Type.MapValue.Kind == onkir.KindMessage {
+			p.P("for item in ", accessor, ".values():")
+			p.Indent()
+			p.P("try: item.validate()")
+			p.P("except ValueError as error: violations.append(", fmt.Sprintf("%q", f.Name+": "), " + str(error))")
+			p.Dedent()
+			continue
+		}
+		if f.Type == nil || f.Type.Kind != onkir.KindScalar {
+			continue
+		}
+		present := accessor + " is not None"
+		if f.Type.Scalar == onkir.ScalarString {
+			if f.HasDecorator("email") {
+				p.P("if ", present, " and ('@' not in ", accessor, " or '.' not in ", accessor, ".split('@')[-1]): violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid email"), ")")
+			}
+			if f.HasDecorator("uuid") {
+				p.P("if ", present, ":")
+				p.Indent()
+				p.P("try: uuid.UUID(", accessor, ")")
+				p.P("except (ValueError, AttributeError): violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid UUID"), ")")
+				p.Dedent()
+			}
+			if f.HasDecorator("uri") {
+				p.P("if ", present, " and not urllib.parse.urlparse(", accessor, ").scheme: violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid URI"), ")")
+			}
+			if d, ok := f.Decorator("pattern"); ok {
+				value, _ := d.Value()
+				p.P("if ", present, " and re.search(", fmt.Sprintf("%q", value), ", ", accessor, ") is None: violations.append(", fmt.Sprintf("%q", f.Name+" has invalid format"), ")")
+			}
+			if d, ok := f.Decorator("len"); ok && len(d.Args) == 2 {
+				p.P("if ", present, " and not (", d.Args[0].Value, " <= len(", accessor, ") <= ", d.Args[1].Value, "): violations.append(", fmt.Sprintf("%q", f.Name+" has invalid length"), ")")
+			}
+			if d, ok := f.Decorator("in"); ok {
+				values := make([]string, 0, len(d.Args))
+				for _, arg := range d.Args {
+					values = append(values, fmt.Sprintf("%q", arg.Value))
+				}
+				p.P("if ", present, " and ", accessor, " not in (", strings.Join(values, ", "), ",): violations.append(", fmt.Sprintf("%q", f.Name+" must be one of the allowed values"), ")")
+			}
+		}
+		if isPyNumeric(f.Type.Scalar) {
+			if d, ok := f.Decorator("range"); ok {
+				p.P("if ", present, " and not (", d.Args[0].Value, " <= ", accessor, " <= ", d.Args[1].Value, "): violations.append(", fmt.Sprintf("%q", f.Name+" violates @range"), ")")
+			}
+			for _, rule := range []struct{ name, op string }{{"gt", ">"}, {"gte", ">="}, {"lt", "<"}, {"lte", "<="}} {
+				if d, ok := f.Decorator(rule.name); ok {
+					value, _ := d.Value()
+					p.P("if ", present, " and not (", accessor, " ", rule.op, " ", value, "): violations.append(", fmt.Sprintf("%q", f.Name+" violates @"+rule.name), ")")
+				}
+			}
+		}
+	}
+	p.P("if violations: raise ValueError(\"; \".join(violations))")
+	p.Dedent()
+}
+
+func isPyNumeric(kind onkir.ScalarKind) bool {
+	switch kind {
+	case onkir.ScalarInt32, onkir.ScalarInt64, onkir.ScalarUint32, onkir.ScalarUint64, onkir.ScalarFloat32, onkir.ScalarFloat64:
+		return true
+	}
+	return false
 }
 
 func writeErrorClass(p *Printer, m *onkir.Message) {

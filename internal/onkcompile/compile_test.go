@@ -28,7 +28,7 @@ message Address {
 message User {
   id: string
   name: string @len(2, 100)
-  bio: string? @nullable
+  bio: string?
   tags: string[]
   labels: map[string, string]
   home_address: Address @flatten(prefix: "home_")
@@ -447,6 +447,68 @@ func TestCompileResolvesPackageQualifiedReferenceDespiteAmbiguity(t *testing.T) 
 	}
 }
 
+func TestCompileRejectsInvalidSchemaSemantics(t *testing.T) {
+	tests := []struct {
+		name    string
+		sources []Source
+		wantErr string
+	}{
+		{
+			name: "unknown field decorator",
+			sources: []Source{{Path: "api.onk", AST: parseOrFatal(t, `
+message Request { id: string @requred }
+`)}},
+			wantErr: "unknown decorator @requred",
+		},
+		{
+			name: "invalid decorator argument count",
+			sources: []Source{{Path: "api.onk", AST: parseOrFatal(t, `
+message Request { name: string @len(1) }
+`)}},
+			wantErr: "@len expects 2 argument(s)",
+		},
+		{
+			name: "missing HTTP verb",
+			sources: []Source{{Path: "api.onk", AST: parseOrFatal(t, `
+message Request {}
+message Response {}
+service API { get(Request) -> Response }
+`)}},
+			wantErr: "RPC must declare one HTTP verb",
+		},
+		{
+			name: "duplicate HTTP route",
+			sources: []Source{{Path: "api.onk", AST: parseOrFatal(t, `
+message Request {}
+message Response {}
+service API {
+  first(Request) -> Response @get("/items")
+  second(Request) -> Response @get("/items")
+}
+`)}},
+			wantErr: "duplicate HTTP route GET /items",
+		},
+		{
+			name: "multiple HTTP verbs",
+			sources: []Source{{Path: "api.onk", AST: parseOrFatal(t, `
+message Request {}
+message Response {}
+service API { get(Request) -> Response @get("/items") @post("/items") }
+`)}},
+			wantErr: "RPC must declare exactly one HTTP verb",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Compile(tt.sources)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
 func TestCompileNestedMessagesAndEnums(t *testing.T) {
 	src := `
 message Outer {
@@ -461,6 +523,7 @@ message Outer {
   inner: Inner
   kind: Kind
 }
+
 `
 	f := parseOrFatal(t, src)
 	pkg, err := Compile([]Source{{Path: "a.onk", AST: f}})
@@ -493,5 +556,77 @@ message Outer {
 	fullName := outer.Nested[0].FullName()
 	if fullName != "Outer.Inner" {
 		t.Fatalf("unexpected full name: %q", fullName)
+	}
+}
+
+func TestCompileResolvesPackageQualifiedRPCReferencesAndMarksErrors(t *testing.T) {
+	sources := []Source{
+		{Path: "models.onk", AST: parseOrFatal(t, `
+package app.models
+message Request { id: string }
+message Response { id: string }
+message Failure @status(422) { message: string }
+`)},
+		{Path: "service.onk", AST: parseOrFatal(t, `
+package app.service
+service API {
+  fetch(app.models.Request) -> app.models.Response | app.models.Failure @get("/items/{id}")
+}
+`)},
+	}
+	pkg, err := Compile(sources)
+	if err != nil {
+		t.Fatalf("Compile error: %v", err)
+	}
+	method := pkg.Files[1].Services[0].Methods[0]
+	if got := method.Request.FullName(); got != "app.models.Request" {
+		t.Fatalf("request full name = %q", got)
+	}
+	if got := method.Response.FullName(); got != "app.models.Response" {
+		t.Fatalf("response full name = %q", got)
+	}
+	if len(method.ErrorTypes) != 1 || method.ErrorTypes[0].FullName() != "app.models.Failure" || !method.ErrorTypes[0].IsError() {
+		t.Fatalf("qualified error was not resolved and marked: %+v", method.ErrorTypes)
+	}
+}
+
+func TestCompileRejectsCrossTargetContractHazards(t *testing.T) {
+	tests := []struct {
+		name, schema, want string
+	}{
+		{"non-string map key", `message M { values: map[int32, string] }`, "map keys must be string"},
+		{"missing path field", `
+message Req {}
+message Resp {}
+service API { get(Req) -> Resp @get("/items/{id}") }
+`, `path parameter "id" on RPC get requires one non-repeated scalar request field`},
+		{"body on get", `
+message Req { value: string }
+message Resp {}
+service API { get(Req) -> Resp @get("/items") @body("value") }
+`, "@body requires a body-bearing HTTP verb"},
+		{"duplicate error status", `
+message Req {}
+message Resp {}
+message A @status(409) {}
+message B @status(409) {}
+service API { get(Req) -> Resp | A | B @get("/items") }
+`, "use the same HTTP status 409"},
+		{"invalid auth kind", `
+message Req {}
+message Resp {}
+service API {
+  headers: { "Authorization": string @required @auth("oauth") }
+  get(Req) -> Resp @get("/items")
+}
+`, "@auth must be api_key, bearer, or basic"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Compile([]Source{{Path: "api.onk", AST: parseOrFatal(t, tt.schema)}})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected %q, got %v", tt.want, err)
+			}
+		})
 	}
 }

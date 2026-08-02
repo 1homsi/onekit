@@ -479,32 +479,32 @@ func (p *Parser) parseRPC() (*RPCDecl, error) {
 	if _, err := p.expect(LPAREN); err != nil {
 		return nil, err
 	}
-	req, err := p.expect(IDENT)
+	req, err := p.parseDottedName()
 	if err != nil {
 		return nil, err
 	}
-	r.RequestType = req.Text
+	r.RequestType = req
 	if _, err := p.expect(RPAREN); err != nil {
 		return nil, err
 	}
 	if _, err := p.expect(ARROW); err != nil {
 		return nil, err
 	}
-	resp, err := p.expect(IDENT)
+	resp, err := p.parseDottedName()
 	if err != nil {
 		return nil, err
 	}
-	r.ResponseType = resp.Text
+	r.ResponseType = resp
 
 	for p.tok.Kind == PIPE {
 		if err := p.next(); err != nil {
 			return nil, err
 		}
-		errType, err := p.expect(IDENT)
+		errType, err := p.parseDottedName()
 		if err != nil {
 			return nil, err
 		}
-		r.ErrorTypes = append(r.ErrorTypes, errType.Text)
+		r.ErrorTypes = append(r.ErrorTypes, errType)
 	}
 
 	decorators, err := p.parseDecorators()

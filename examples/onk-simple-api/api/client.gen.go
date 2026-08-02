@@ -21,6 +21,11 @@ func NewUserServiceClient(baseURL string) *UserServiceClient {
 }
 
 func (c *UserServiceClient) CreateUser(ctx context.Context, req *CreateUserRequest) (*User, error) {
+	if validator, ok := any(req).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return nil, fmt.Errorf("validate request: %w", err)
+		}
+	}
 	path := "/api/v1/users"
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -52,6 +57,11 @@ func (c *UserServiceClient) CreateUser(ctx context.Context, req *CreateUserReque
 }
 
 func (c *UserServiceClient) GetUser(ctx context.Context, req *GetUserRequest) (*User, error) {
+	if validator, ok := any(req).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return nil, fmt.Errorf("validate request: %w", err)
+		}
+	}
 	path := "/api/v1/users/get"
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -83,6 +93,11 @@ func (c *UserServiceClient) GetUser(ctx context.Context, req *GetUserRequest) (*
 }
 
 func (c *UserServiceClient) Login(ctx context.Context, req *LoginRequest) (*LoginResponse, error) {
+	if validator, ok := any(req).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return nil, fmt.Errorf("validate request: %w", err)
+		}
+	}
 	path := "/api/v1/auth/login"
 	body, err := json.Marshal(req)
 	if err != nil {

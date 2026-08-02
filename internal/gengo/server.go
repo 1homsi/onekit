@@ -27,10 +27,8 @@ func findField(msg *onkir.Message, name string) *onkir.Field {
 	return nil
 }
 
-func scalarParseExpr(kind onkir.ScalarKind, strExpr string) (string, bool) {
+func scalarParseCall(kind onkir.ScalarKind, strExpr string) (string, bool) {
 	switch kind {
-	case onkir.ScalarString:
-		return strExpr, true
 	case onkir.ScalarInt32:
 		return fmt.Sprintf("parseInt32(%s)", strExpr), true
 	case onkir.ScalarInt64:
@@ -72,11 +70,15 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	p.P("package ", GoPackageName(file))
 	p.P()
 	p.P("import (")
+	p.P(`"crypto/rand"`)
 	p.P(`"context"`)
+	p.P(`"encoding/hex"`)
 	p.P(`"encoding/json"`)
 	p.P(`"fmt"`)
 	p.P(`"net/http"`)
+	p.P(`"regexp"`)
 	p.P(`"strconv"`)
+	p.P(`"time"`)
 	for _, ref := range externalRefs {
 		p.P(ref.Alias, " ", fmt.Sprintf("%q", ref.ImportPath))
 	}
@@ -97,21 +99,98 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	return p.Format()
 }
 
-// writeServerOptions emits a small functional-options type shared by every
-// Register<Service>Server function in the file, so that registering a
-// server reads the same way it did with the old protoc-gen-onekit-go-http
-// plugin: Register<Service>Server(impl, WithMux(mux)).
+// writeServerOptions emits runtime hooks shared by every generated server.
 func writeServerOptions(p *Printer) {
+	p.P(`// RequestMetadata identifies the generated route handling a request.`)
+	p.P(`type RequestMetadata struct {`)
+	p.P(`Service string`)
+	p.P(`Method string`)
+	p.P(`HTTPMethod string`)
+	p.P(`Route string`)
+	p.P(`AuthSchemes []string`)
+	p.P(`}`)
+	p.P()
+	p.P(`type requestMetadataContextKey struct{}`)
+	p.P(`type requestIDContextKey struct{}`)
+	p.P()
+	p.P(`func RequestMetadataFromContext(ctx context.Context) (RequestMetadata, bool) {`)
+	p.P(`metadata, ok := ctx.Value(requestMetadataContextKey{}).(RequestMetadata)`)
+	p.P(`return metadata, ok`)
+	p.P(`}`)
+	p.P()
+	p.P(`func RequestIDFromContext(ctx context.Context) (string, bool) {`)
+	p.P(`requestID, ok := ctx.Value(requestIDContextKey{}).(string)`)
+	p.P(`return requestID, ok && requestID != ""`)
+	p.P(`}`)
+	p.P()
+	p.P(`type Middleware func(http.Handler) http.Handler`)
+	p.P(`type RequestIDGenerator func() string`)
+	p.P(`type Authorizer func(context.Context, RequestMetadata, *http.Request) error`)
+	p.P(`type RequestResult struct { StatusCode int; Duration time.Duration }`)
+	p.P(`type RequestObserver interface {`)
+	p.P(`RequestStarted(context.Context, RequestMetadata) context.Context`)
+	p.P(`RequestFinished(context.Context, RequestMetadata, RequestResult)`)
+	p.P(`}`)
+	p.P()
 	p.P(`type ServerOption func(*serverOptions)`)
 	p.P()
 	p.P(`type serverOptions struct {`)
 	p.P(`mux *http.ServeMux`)
+	p.P(`middlewares []Middleware`)
+	p.P(`requestIDHeader string`)
+	p.P(`requestIDGenerator RequestIDGenerator`)
+	p.P(`authorizer Authorizer`)
+	p.P(`observer RequestObserver`)
 	p.P(`}`)
 	p.P()
-	p.P(`// WithMux supplies the http.ServeMux to register routes onto - required.`)
-	p.P(`func WithMux(mux *http.ServeMux) ServerOption {`)
-	p.P(`return func(o *serverOptions) { o.mux = mux }`)
+	p.P(`// WithMux supports the options-first registration form.`)
+	p.P(`func WithMux(mux *http.ServeMux) ServerOption { return func(o *serverOptions) { o.mux = mux } }`)
+	p.P()
+	p.P(`func WithMiddleware(middleware ...Middleware) ServerOption {`)
+	p.P(`return func(o *serverOptions) { o.middlewares = append(o.middlewares, middleware...) }`)
 	p.P(`}`)
+	p.P()
+	p.P(`func WithRequestID(headerName string) ServerOption { return WithRequestIDGenerator(headerName, defaultRequestIDGenerator) }`)
+	p.P(`func WithRequestIDGenerator(headerName string, generate RequestIDGenerator) ServerOption {`)
+	p.P(`return func(o *serverOptions) {`)
+	p.P(`if headerName == "" { headerName = "X-Request-ID" }`)
+	p.P(`o.requestIDHeader, o.requestIDGenerator = headerName, generate`)
+	p.P(`}`)
+	p.P(`}`)
+	p.P()
+	p.P(`func WithAuthorizer(authorizer Authorizer) ServerOption { return func(o *serverOptions) { o.authorizer = authorizer } }`)
+	p.P(`func WithRequestObserver(observer RequestObserver) ServerOption { return func(o *serverOptions) { o.observer = observer } }`)
+	p.P()
+	p.P(`func defaultRequestIDGenerator() string {`)
+	p.P(`var value [16]byte`)
+	p.P(`if _, err := rand.Read(value[:]); err != nil { return "" }`)
+	p.P(`return hex.EncodeToString(value[:])`)
+	p.P(`}`)
+	p.P()
+	p.P(`func (o serverOptions) wrapHandler(handler http.Handler, metadata RequestMetadata) http.Handler {`)
+	p.P(`for i := len(o.middlewares)-1; i >= 0; i-- { if o.middlewares[i] != nil { handler = o.middlewares[i](handler) } }`)
+	p.P(`return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {`)
+	p.P(`ctx := context.WithValue(r.Context(), requestMetadataContextKey{}, metadata)`)
+	p.P(`if o.requestIDHeader != "" {`)
+	p.P(`requestID := r.Header.Get(o.requestIDHeader)`)
+	p.P(`if requestID == "" && o.requestIDGenerator != nil { requestID = o.requestIDGenerator() }`)
+	p.P(`if requestID != "" { w.Header().Set(o.requestIDHeader, requestID); ctx = context.WithValue(ctx, requestIDContextKey{}, requestID) }`)
+	p.P(`}`)
+	p.P(`if o.authorizer != nil {`)
+	p.P(`if err := o.authorizer(ctx, metadata, r); err != nil { writeJSONError(w, http.StatusUnauthorized, err.Error()); return }`)
+	p.P(`}`)
+	p.P(`if o.observer == nil { handler.ServeHTTP(w, r.WithContext(ctx)); return }`)
+	p.P(`started := time.Now()`)
+	p.P(`ctx = o.observer.RequestStarted(ctx, metadata)`)
+	p.P(`rw := &statusResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}`)
+	p.P(`defer func() { o.observer.RequestFinished(ctx, metadata, RequestResult{StatusCode: rw.statusCode, Duration: time.Since(started)}) }()`)
+	p.P(`handler.ServeHTTP(rw, r.WithContext(ctx))`)
+	p.P(`})`)
+	p.P(`}`)
+	p.P()
+	p.P(`type statusResponseWriter struct { http.ResponseWriter; statusCode int }`)
+	p.P(`func (w *statusResponseWriter) WriteHeader(statusCode int) { w.statusCode = statusCode; w.ResponseWriter.WriteHeader(statusCode) }`)
+	p.P(`func (w *statusResponseWriter) Flush() { if flusher, ok := w.ResponseWriter.(http.Flusher); ok { flusher.Flush() } }`)
 	p.P()
 }
 
@@ -122,13 +201,26 @@ func writeRuntimeHelpers(p *Printer) {
 	p.P(`_ = json.NewEncoder(w).Encode(map[string]string{"message": message})`)
 	p.P(`}`)
 	p.P()
-	p.P(`func parseInt32(s string) int32 { v, _ := strconv.ParseInt(s, 10, 32); return int32(v) }`)
-	p.P(`func parseInt64(s string) int64 { v, _ := strconv.ParseInt(s, 10, 64); return v }`)
-	p.P(`func parseUint32(s string) uint32 { v, _ := strconv.ParseUint(s, 10, 32); return uint32(v) }`)
-	p.P(`func parseUint64(s string) uint64 { v, _ := strconv.ParseUint(s, 10, 64); return v }`)
-	p.P(`func parseFloat32(s string) float32 { v, _ := strconv.ParseFloat(s, 32); return float32(v) }`)
-	p.P(`func parseFloat64(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v }`)
-	p.P(`func parseBool(s string) bool { v, _ := strconv.ParseBool(s); return v }`)
+	p.P(`func parseInt32(s string) (int32, error) { v, err := strconv.ParseInt(s, 10, 32); return int32(v), err }`)
+	p.P(`func parseInt64(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) }`)
+	p.P(`func parseUint32(s string) (uint32, error) { v, err := strconv.ParseUint(s, 10, 32); return uint32(v), err }`)
+	p.P(`func parseUint64(s string) (uint64, error) { return strconv.ParseUint(s, 10, 64) }`)
+	p.P(`func parseFloat32(s string) (float32, error) { v, err := strconv.ParseFloat(s, 32); return float32(v), err }`)
+	p.P(`func parseFloat64(s string) (float64, error) { return strconv.ParseFloat(s, 64) }`)
+	p.P(`func parseBool(s string) (bool, error) {`)
+	p.P(`if s == "true" { return true, nil }`)
+	p.P(`if s == "false" { return false, nil }`)
+	p.P(`return false, fmt.Errorf("must be true or false")`)
+	p.P(`}`)
+	p.P()
+	p.P(`func validHeaderFormat(value, format string) bool {`)
+	p.P(`switch format {`)
+	p.P(`case "uuid": return regexp.MustCompile(` + "`" + `^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$` + "`" + `).MatchString(value)`)
+	p.P(`case "email": return regexp.MustCompile(` + "`" + `^[^@\s]+@[^@\s]+\.[^@\s]+$` + "`" + `).MatchString(value)`)
+	p.P(`case "uri": return regexp.MustCompile(` + "`" + `^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$` + "`" + `).MatchString(value)`)
+	p.P(`default: return true`)
+	p.P(`}`)
+	p.P(`}`)
 	p.P()
 }
 
@@ -148,14 +240,27 @@ func writeServiceInterface(p *Printer, s *onkir.Service) {
 }
 
 func writeRegisterFunc(p *Printer, s *onkir.Service) {
-	p.P("func Register", s.Name, "Server(srv ", s.Name, "Server, opts ...ServerOption) error {")
+	p.P("func Register", s.Name, "Server(first any, rest ...any) error {")
 	p.P("var o serverOptions")
-	p.P("for _, opt := range opts {")
+	p.P("var srv ", s.Name, "Server")
+	p.P("if mux, ok := first.(*http.ServeMux); ok {")
+	p.P("o.mux = mux")
+	p.P("if len(rest) == 0 { return fmt.Errorf(\"Register", s.Name, "Server: implementation is required\") }")
+	p.P("var ok bool")
+	p.P("srv, ok = rest[0].(", s.Name, "Server)")
+	p.P("if !ok { return fmt.Errorf(\"Register", s.Name, "Server: invalid implementation\") }")
+	p.P("rest = rest[1:]")
+	p.P("} else {")
+	p.P("var ok bool")
+	p.P("srv, ok = first.(", s.Name, "Server)")
+	p.P("if !ok { return fmt.Errorf(\"Register", s.Name, "Server: invalid implementation\") }")
+	p.P("}")
+	p.P("for _, value := range rest {")
+	p.P("opt, ok := value.(ServerOption)")
+	p.P("if !ok { return fmt.Errorf(\"Register", s.Name, "Server: options must be ServerOption values\") }")
 	p.P("opt(&o)")
 	p.P("}")
-	p.P("if o.mux == nil {")
-	p.P(`return fmt.Errorf("Register`, s.Name, `Server: WithMux option is required")`)
-	p.P("}")
+	p.P("if o.mux == nil { return fmt.Errorf(\"Register", s.Name, "Server: mux is required\") }")
 	p.P("mux := o.mux")
 	for _, m := range s.Methods {
 		if m.IsStream() {
@@ -173,9 +278,15 @@ func isBodyBearingVerb(verb string) bool {
 	return verb == "post" || verb == "put" || verb == "patch" || verb == "query"
 }
 
-func writeBodyBinding(p *Printer) {
+func writeBodyBinding(p *Printer, method *onkir.Method) {
+	target := "req"
+	if bodyField, ok := method.BodyField(); ok {
+		if field := findField(method.Request, bodyField); field != nil {
+			target = "&req." + PascalCase(field.Name)
+		}
+	}
 	p.P("if r.Body != nil {")
-	p.P("if err := json.NewDecoder(r.Body).Decode(req); err != nil && err.Error() != \"EOF\" {")
+	p.P("if err := json.NewDecoder(r.Body).Decode(", target, "); err != nil && err.Error() != \"EOF\" {")
 	p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body: "+err.Error())`)
 	p.P("return")
 	p.P("}")
@@ -188,17 +299,16 @@ func writePathParamBinding(p *Printer, path string, req *onkir.Message) {
 		if field == nil || field.Type == nil || field.Type.Kind != onkir.KindScalar {
 			continue
 		}
-		expr, ok := scalarParseExpr(field.Type.Scalar, fmt.Sprintf("r.PathValue(%q)", paramName))
+		raw := fmt.Sprintf("r.PathValue(%q)", paramName)
+		if field.Type.Scalar == onkir.ScalarString {
+			writeBoundFieldAssignment(p, field, raw)
+			continue
+		}
+		call, ok := scalarParseCall(field.Type.Scalar, raw)
 		if !ok {
 			continue
 		}
-		if field.Optional {
-			varName := CamelCase(field.Name) + "Val"
-			p.P(varName, " := ", expr)
-			p.P("req.", PascalCase(paramName), " = &", varName)
-			continue
-		}
-		p.P("req.", PascalCase(paramName), " = ", expr)
+		writeParsedFieldAssignment(p, field, call, "path parameter "+paramName)
 	}
 }
 
@@ -213,20 +323,41 @@ func writeQueryParamBinding(p *Printer, req *onkir.Message) {
 			queryName = field.Name
 		}
 		strExpr := fmt.Sprintf("r.URL.Query().Get(%q)", queryName)
-		expr, ok := scalarParseExpr(field.Type.Scalar, strExpr)
-		if !ok {
-			continue
-		}
 		p.P("if ", strExpr, " != \"\" {")
-		if field.Optional {
-			varName := CamelCase(field.Name) + "Val"
-			p.P(varName, " := ", expr)
-			p.P("req.", PascalCase(field.Name), " = &", varName)
+		if field.Type.Scalar == onkir.ScalarString {
+			writeBoundFieldAssignment(p, field, strExpr)
 		} else {
-			p.P("req.", PascalCase(field.Name), " = ", expr)
+			call, ok := scalarParseCall(field.Type.Scalar, strExpr)
+			if ok {
+				writeParsedFieldAssignment(p, field, call, "query parameter "+queryName)
+			}
 		}
 		p.P("}")
 	}
+}
+
+func writeBoundFieldAssignment(p *Printer, field *onkir.Field, expr string) {
+	if field.Optional {
+		varName := CamelCase(field.Name) + "Val"
+		p.P(varName, " := ", expr)
+		p.P("req.", PascalCase(field.Name), " = &", varName)
+		return
+	}
+	p.P("req.", PascalCase(field.Name), " = ", expr)
+}
+
+func writeParsedFieldAssignment(p *Printer, field *onkir.Field, call, location string) {
+	varName := "parsed" + PascalCase(field.Name)
+	p.P(varName, ", err := ", call)
+	p.P("if err != nil {")
+	p.P(`writeJSONError(w, http.StatusBadRequest, "invalid `, location, `: "+err.Error())`)
+	p.P("return")
+	p.P("}")
+	if field.Optional {
+		p.P("req.", PascalCase(field.Name), " = &", varName)
+		return
+	}
+	p.P("req.", PascalCase(field.Name), " = ", varName)
 }
 
 func writeValidateCall(p *Printer) {
@@ -244,11 +375,11 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	fullPath := s.BasePath + path
 	bodyBearing := isBodyBearingVerb(verb)
 
-	p.P(`mux.HandleFunc("`, strings.ToUpper(verb), " ", fullPath, `", func(w http.ResponseWriter, r *http.Request) {`)
+	p.P(`mux.Handle("`, strings.ToUpper(verb), " ", fullPath, `", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {`)
 	p.P("req := new(", p.MessageTypeName(m.Request), ")")
 
 	if bodyBearing {
-		writeBodyBinding(p)
+		writeBodyBinding(p, m)
 	}
 	writePathParamBinding(p, path, m.Request)
 	if !bodyBearing {
@@ -271,16 +402,54 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("}")
 	p.P(`w.Header().Set("Content-Type", "application/json")`)
 	p.P("_ = json.NewEncoder(w).Encode(resp)")
-	p.P("})")
+	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", strings.ToUpper(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), "}))")
+}
+
+func authSchemesLiteral(s *onkir.Service, m *onkir.Method) string {
+	var names []string
+	for _, h := range append(append([]*onkir.Header{}, s.Headers...), m.Headers...) {
+		if _, ok := h.AuthType(); !ok {
+			continue
+		}
+		if name, ok := h.AuthSchemeName(); ok && name != "" {
+			names = append(names, name)
+			continue
+		}
+		name := regexp.MustCompile(`[^A-Za-z0-9_.-]+`).ReplaceAllString(h.Name, "")
+		if name == "" {
+			name = "Header"
+		}
+		names = append(names, name+"Auth")
+	}
+	if len(names) == 0 {
+		return "nil"
+	}
+	quoted := make([]string, 0, len(names))
+	for _, name := range names {
+		quoted = append(quoted, fmt.Sprintf("%q", name))
+	}
+	return "[]string{" + strings.Join(quoted, ", ") + "}"
 }
 
 func writeHeaderCheck(p *Printer, h *onkir.Header) {
-	if !h.Required() {
+	format, hasFormat := h.Format()
+	if !h.Required() && !hasFormat {
 		return
 	}
-	p.P(`if r.Header.Get("`, h.Name, `") == "" {`)
-	p.P(`writeJSONError(w, http.StatusBadRequest, "missing required header: `, h.Name, `")`)
-	p.P("return")
+	p.P("{")
+	p.P(`value := r.Header.Get("`, h.Name, `")`)
+	if h.Required() {
+		p.P(`if value == "" {`)
+		p.P(`writeJSONError(w, http.StatusBadRequest, "missing required header: `, h.Name, `")`)
+		p.P("return")
+		p.P("}")
+	}
+	if hasFormat {
+		p.P(`if value != "" && !validHeaderFormat(value, `, fmt.Sprintf("%q", format), `) {`)
+		p.P(`writeJSONError(w, http.StatusBadRequest, "invalid header `, h.Name, `: expected `, format, `")`)
+		p.P("return")
+		p.P("}")
+	}
 	p.P("}")
 }
 

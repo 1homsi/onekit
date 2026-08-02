@@ -112,6 +112,7 @@ func writeMessage(p *Printer, m *onkir.Message) {
 
 	writeDecodeFunc(p, m)
 	writeEncodeFunc(p, m)
+	writeValidateFunc(p, m)
 
 	for _, f := range m.Fields {
 		if f.Oneof != nil {
@@ -126,6 +127,100 @@ func writeMessage(p *Printer, m *onkir.Message) {
 	}
 }
 
+// writeValidateFunc keeps generated TypeScript servers honest with the same
+// schema-level checks emitted for Go. It returns messages instead of throwing
+// so callers can decide whether to surface a 400, show form feedback, or both.
+//
+//nolint:gocognit // Each schema rule is an independent generated-code branch.
+func writeValidateFunc(p *Printer, m *onkir.Message) {
+	p.P("export function validate", m.Name, "(v: ", m.Name, "): string[] {")
+	p.P("const violations: string[] = [];")
+	for _, f := range collectCodecFields(m, "") {
+		field := f.field
+		accessor := "v." + f.ts
+		present := accessor + " !== undefined && " + accessor + " !== null"
+		if field.HasDecorator("required") {
+			p.P("if (!(", present, ") || ", accessor, " === \"\") violations.push(", fmt.Sprintf("%q", field.Name+" is required"), ");")
+		}
+		if field.Repeated {
+			if d, ok := field.Decorator("min_items"); ok {
+				value, _ := d.Value()
+				p.P("if (", present, " && ", accessor, ".length < ", value, ") violations.push(", fmt.Sprintf("%q", field.Name+" must contain at least "+value+" items"), ");")
+			}
+			if d, ok := field.Decorator("max_items"); ok {
+				value, _ := d.Value()
+				p.P("if (", present, " && ", accessor, ".length > ", value, ") violations.push(", fmt.Sprintf("%q", field.Name+" must contain at most "+value+" items"), ");")
+			}
+			if field.Type != nil && field.Type.Kind == onkir.KindMessage {
+				fn := p.MessageCodecName(field.Type.Message, "validate")
+				p.P("if (", present, ") for (const item of ", accessor, ") violations.push(...", fn, "(item).map((message) => ", fmt.Sprintf("%q", field.Name+": "), " + message));")
+			}
+			continue
+		}
+		if field.Type != nil && field.Type.Kind == onkir.KindMessage {
+			fn := p.MessageCodecName(field.Type.Message, "validate")
+			p.P("if (", present, ") violations.push(...", fn, "(", accessor, ").map((message) => ", fmt.Sprintf("%q", field.Name+": "), " + message));")
+			continue
+		}
+		if field.Type != nil && field.Type.Kind == onkir.KindMap && field.Type.MapValue != nil && field.Type.MapValue.Kind == onkir.KindMessage {
+			fn := p.MessageCodecName(field.Type.MapValue.Message, "validate")
+			p.P("if (", present, ") for (const item of Object.values(", accessor, ")) violations.push(...", fn, "(item).map((message) => ", fmt.Sprintf("%q", field.Name+": "), " + message));")
+			continue
+		}
+		if field.Type == nil || field.Type.Kind != onkir.KindScalar {
+			continue
+		}
+		if field.Type.Scalar == onkir.ScalarString {
+			if field.HasDecorator("email") {
+				p.P("if (", present, " && !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(", accessor, ")) violations.push(\"", field.Name, " must be a valid email\");")
+			}
+			if field.HasDecorator("uuid") {
+				p.P("if (", present, " && !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(", accessor, ")) violations.push(\"", field.Name, " must be a valid UUID\");")
+			}
+			if field.HasDecorator("uri") {
+				p.P("if (", present, ") { try { new URL(", accessor, "); } catch { violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid URI"), "); } }")
+			}
+			if d, ok := field.Decorator("len"); ok && len(d.Args) == 2 {
+				p.P("if (", present, " && (", accessor, ".length < ", d.Args[0].Value, " || ", accessor, ".length > ", d.Args[1].Value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid length"), ");")
+			}
+			if d, ok := field.Decorator("pattern"); ok {
+				value, _ := d.Value()
+				p.P("if (", present, " && !(new RegExp(", fmt.Sprintf("%q", value), ")).test(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid format"), ");")
+			}
+			if d, ok := field.Decorator("in"); ok {
+				values := make([]string, 0, len(d.Args))
+				for _, arg := range d.Args {
+					values = append(values, fmt.Sprintf("%q", arg.Value))
+				}
+				p.P("if (", present, " && ![", strings.Join(values, ", "), "].includes(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be one of the allowed values"), ");")
+			}
+		}
+		if isTSNumeric(field.Type.Scalar) {
+			if d, ok := field.Decorator("range"); ok {
+				p.P("if (", present, " && (", accessor, " < ", d.Args[0].Value, " || ", accessor, " > ", d.Args[1].Value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" violates @range"), ");")
+			}
+			for _, rule := range []struct{ name, op string }{{"gt", ">"}, {"gte", ">="}, {"lt", "<"}, {"lte", "<="}} {
+				if d, ok := field.Decorator(rule.name); ok {
+					value, _ := d.Value()
+					p.P("if (", present, " && !(", accessor, " ", rule.op, " ", value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" violates @"+rule.name), ");")
+				}
+			}
+		}
+	}
+	p.P("return violations;")
+	p.P("}")
+	p.P()
+}
+
+func isTSNumeric(kind onkir.ScalarKind) bool {
+	switch kind {
+	case onkir.ScalarInt32, onkir.ScalarInt64, onkir.ScalarUint32, onkir.ScalarUint64, onkir.ScalarFloat32, onkir.ScalarFloat64:
+		return true
+	default:
+		return false
+	}
+}
+
 // writeField emits one TS interface property. wirePrefix is threaded through
 // as raw snake_case (not yet camelCased) by writeFlattenedFields, since a
 // flattened field's property name is
@@ -135,8 +230,12 @@ func writeMessage(p *Printer, m *onkir.Message) {
 // "billingStreet"). Its wire key is the same prefix+field, just left in
 // snake_case.
 func writeField(p *Printer, m *onkir.Message, f *onkir.Field, wirePrefix string) {
+	separator := "?: "
+	if f.HasDecorator("required") {
+		separator = ": "
+	}
 	if f.Oneof != nil {
-		p.P(CamelCase(wirePrefix+f.Name), "?: ", OneofTypeName(m, f), ";")
+		p.P(CamelCase(wirePrefix+f.Name), separator, OneofTypeName(m, f), ";")
 		return
 	}
 	if prefix, ok := flattenPrefix(f); ok {
@@ -151,7 +250,7 @@ func writeField(p *Printer, m *onkir.Message, f *onkir.Field, wirePrefix string)
 	if emptyBehaviorValue(f) == emptyBehaviorNull {
 		tsType += " | null"
 	}
-	p.P(CamelCase(wirePrefix+f.Name), "?: ", tsType, ";")
+	p.P(CamelCase(wirePrefix+f.Name), separator, tsType, ";")
 }
 
 func writeFlattenedFields(p *Printer, child *onkir.Message, wirePrefix string) {

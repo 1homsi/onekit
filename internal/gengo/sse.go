@@ -107,7 +107,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	path, _ := m.Path()
 	fullPath := s.BasePath + path
 
-	p.P(`mux.HandleFunc("`, upperVerb(verb), " ", fullPath, `", func(w http.ResponseWriter, r *http.Request) {`)
+	p.P(`mux.Handle("`, upperVerb(verb), " ", fullPath, `", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {`)
 	p.P("req := new(", p.MessageTypeName(m.Request), ")")
 
 	writePathParamBinding(p, path, m.Request)
@@ -137,7 +137,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P(`_ = sender.SendWithEvent("error", map[string]string{"message": err.Error()})`)
 	p.P("}")
 	p.P("}")
-	p.P("})")
+	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", upperVerb(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), "}))")
 }
 
 func upperVerb(verb string) string {
@@ -225,6 +225,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("func (c *", s.Name, "Client) ", PascalCase(m.Name),
 		"(ctx context.Context, req *", p.MessageTypeName(m.Request), ") (*EventStream[",
 		p.MessageTypeName(m.Response), "], error) {")
+	p.P(`if validator, ok := any(req).(interface{ Validate() error }); ok { if err := validator.Validate(); err != nil { return nil, fmt.Errorf("validate request: %w", err) } }`)
 
 	p.P("path := ", fmt.Sprintf("%q", fullPath))
 	for _, paramName := range pathParamNames(path) {

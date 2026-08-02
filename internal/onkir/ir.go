@@ -123,7 +123,9 @@ type Oneof struct {
 
 type Message struct {
 	Name        string
+	SchemaName  string
 	Doc         string
+	ErrorType   bool
 	Fields      []*Field
 	Nested      []*Message
 	NestedEnums []*Enum
@@ -141,11 +143,12 @@ type EnumValue struct {
 }
 
 type Enum struct {
-	Name   string
-	Doc    string
-	Values []*EnumValue
-	File   *File
-	Parent *Message
+	Name       string
+	SchemaName string
+	Doc        string
+	Values     []*EnumValue
+	File       *File
+	Parent     *Message
 }
 
 type Header struct {

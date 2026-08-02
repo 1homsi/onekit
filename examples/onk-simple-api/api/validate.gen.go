@@ -9,6 +9,7 @@ import (
 
 var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+var uriPattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$`)
 
 func inSet(v string, allowed ...string) bool {
 	for _, a := range allowed {
@@ -20,6 +21,9 @@ func inSet(v string, allowed ...string) bool {
 }
 
 func (m *User) Validate() error {
+	if m == nil {
+		return nil
+	}
 	var violations []string
 	if m.Id != "" && !uuidPattern.MatchString(m.Id) {
 		violations = append(violations, "id must be a valid uuid")
@@ -37,6 +41,9 @@ func (m *User) Validate() error {
 }
 
 func (m *CreateUserRequest) Validate() error {
+	if m == nil {
+		return nil
+	}
 	var violations []string
 	if len(m.Name) < 2 || len(m.Name) > 100 {
 		violations = append(violations, "name must be between 2 and 100 characters")
@@ -51,6 +58,9 @@ func (m *CreateUserRequest) Validate() error {
 }
 
 func (m *GetUserRequest) Validate() error {
+	if m == nil {
+		return nil
+	}
 	var violations []string
 	if m.Id != "" && !uuidPattern.MatchString(m.Id) {
 		violations = append(violations, "id must be a valid uuid")
@@ -62,6 +72,9 @@ func (m *GetUserRequest) Validate() error {
 }
 
 func (m *EmailAuth) Validate() error {
+	if m == nil {
+		return nil
+	}
 	var violations []string
 	if m.Email != "" && !emailPattern.MatchString(m.Email) {
 		violations = append(violations, "email must be a valid email")
@@ -76,6 +89,9 @@ func (m *EmailAuth) Validate() error {
 }
 
 func (m *TokenAuth) Validate() error {
+	if m == nil {
+		return nil
+	}
 	var violations []string
 	if len(m.Token) < 10 || len(m.Token) > 256 {
 		violations = append(violations, "token must be between 10 and 256 characters")
@@ -87,12 +103,42 @@ func (m *TokenAuth) Validate() error {
 }
 
 func (m *SocialAuth) Validate() error {
+	if m == nil {
+		return nil
+	}
 	var violations []string
 	if !inSet(m.Provider, "google", "github", "facebook", "apple") {
 		violations = append(violations, "provider must be one of the allowed values")
 	}
 	if len(m.AccessToken) < 20 || len(m.AccessToken) > 512 {
 		violations = append(violations, "access_token must be between 20 and 512 characters")
+	}
+	if len(violations) > 0 {
+		return errors.New(strings.Join(violations, "; "))
+	}
+	return nil
+}
+
+func (m *LoginRequest) Validate() error {
+	if m == nil {
+		return nil
+	}
+	var violations []string
+	if len(violations) > 0 {
+		return errors.New(strings.Join(violations, "; "))
+	}
+	return nil
+}
+
+func (m *LoginResponse) Validate() error {
+	if m == nil {
+		return nil
+	}
+	var violations []string
+	if m.User != nil {
+		if err := m.User.Validate(); err != nil {
+			violations = append(violations, "user: "+err.Error())
+		}
 	}
 	if len(violations) > 0 {
 		return errors.New(strings.Join(violations, "; "))

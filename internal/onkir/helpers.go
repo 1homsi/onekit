@@ -163,7 +163,7 @@ func (m *Method) BodyField() (string, bool) {
 }
 
 func (m *Message) IsError() bool {
-	return strings.HasSuffix(m.Name, "Error")
+	return m.ErrorType || strings.HasSuffix(m.Name, "Error")
 }
 
 func (m *Message) StatusCode() (int, bool) {
@@ -183,6 +183,9 @@ func (m *Message) StatusCode() (int, bool) {
 }
 
 func (m *Message) FullName() string {
+	if m.SchemaName != "" {
+		return m.SchemaName
+	}
 	var parts []string
 	for cur := m; cur != nil; cur = cur.Parent {
 		parts = append([]string{cur.Name}, parts...)
@@ -194,6 +197,9 @@ func (m *Message) FullName() string {
 }
 
 func (e *Enum) FullName() string {
+	if e.SchemaName != "" {
+		return e.SchemaName
+	}
 	var parts []string
 	parts = append(parts, e.Name)
 	for cur := e.Parent; cur != nil; cur = cur.Parent {

@@ -54,6 +54,7 @@ func referencedCodecNames(file *onkir.File, resolver PackageResolver) []string {
 	for _, s := range file.Services {
 		for _, m := range s.Methods {
 			add("encode", m.Request)
+			add("validate", m.Request)
 			add("decode", m.Response)
 			for _, errType := range m.ErrorTypes {
 				add("decode", errType)
@@ -159,6 +160,9 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 	p.P("async ", CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request),
 		"): Promise<", p.MessageTypeName(m.Response), "> {")
+	validator := p.MessageCodecName(m.Request, "validate")
+	p.P("const violations = ", validator, "(req);")
+	p.P(`if (violations.length > 0) throw new TypeError("invalid request: " + violations.join("; "));`)
 	p.P(fmt.Sprintf("let path = %q;", fullPath))
 	for _, paramName := range pathParamNames(path) {
 		field := findField(m.Request, paramName)
@@ -179,7 +183,11 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P(fmt.Sprintf("method: %q,", strings.ToUpper(verb)))
 	if bodyBearing {
 		p.P(`headers: { "Content-Type": "application/json", ...this.options.defaultHeaders },`)
-		p.P("body: JSON.stringify(encode", m.Request.Name, "(req)),")
+		if bodyField, ok := m.BodyField(); ok {
+			p.P("body: JSON.stringify(encode", m.Request.Name, "(req)[", fmt.Sprintf("%q", bodyField), "]),")
+		} else {
+			p.P("body: JSON.stringify(encode", m.Request.Name, "(req)),")
+		}
 	} else {
 		p.P("headers: { ...this.options.defaultHeaders },")
 	}

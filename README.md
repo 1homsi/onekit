@@ -30,7 +30,7 @@ service UserService {
 }
 ```
 
-No explicit field numbers, no wire-format baggage, no separate options-extension mechanism — attributes are just `@decorator(args)` on the field or method they apply to. The language is still v0.2 and evolving; read [`examples/onk-simple-api`](examples/onk-simple-api) for a complete, working example, or `internal/onklang` for the grammar itself.
+No explicit field numbers, no wire-format baggage, no separate options-extension mechanism — attributes are just `@decorator(args)` on the field or method they apply to. The language is pre-1.0 and evolving; read [`examples/onk-simple-api`](examples/onk-simple-api) for a complete, working example, or `internal/onklang` for the grammar itself.
 
 Two things `.onk` does that protobuf couldn't:
 
@@ -62,6 +62,7 @@ Try the example:
 ```bash
 cd examples/onk-simple-api
 go test ./...        # exercises the already-generated code end to end
+./bin/onek compat ./previous-schema .  # reports breaking contract changes
 ../../bin/onek build .   # regenerates api/*.gen.go and docs/openapi.yaml from models.onk + service.onk
 ```
 
@@ -108,7 +109,49 @@ onek check   # parse + compile every .onk file, no codegen - fast validation
 onek build   # parse + compile + generate everything configured in onekit.toml
 ```
 
-`onek fmt` is not implemented yet.
+Go client and server targets must use the same output directory because they
+share one generated types package. Successful builds remove obsolete OneKit-
+generated files from configured output roots while preserving handwritten
+files. Maps use string keys on the JSON wire, and optional scalar presence is
+declared with `?` (for example, `count: int32?`).
+
+Use `@body("field_name")` to bind one request field as the body of a POST, PUT,
+PATCH, or QUERY RPC. Header contracts support required values, UUID/email/URI
+formats, examples, deprecation, and `api_key`, `bearer`, or `basic` auth. These
+contracts feed server checks and OpenAPI security schemes; generated TypeScript
+handlers, Go authorization hooks, and Rust request contexts expose the incoming
+headers for application-level authentication.
+
+Rust client and server targets may share the same output directory. Onekit
+then writes a complete Rust module tree (`mod.rs`, `types.rs`, `client.rs`,
+and `server.rs`) that can be mounted from the containing crate:
+
+```rust
+pub mod generated;
+```
+
+Generated Rust uses `serde`/`serde_json` for wire types, `reqwest` for the
+async client, and `axum` for the server. Depending on the schema features in
+use, add these crates to the consuming `Cargo.toml`:
+
+```toml
+[dependencies]
+async-stream = "0.3" # SSE clients
+axum = "0.8"         # rust-server
+base64 = "0.22"      # bytes fields
+futures-util = "0.3" # SSE
+regex = "1"          # @pattern
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_with = "3"     # prefixed @flatten fields
+url = "2"            # @uri
+urlencoding = "2"    # client path parameters
+uuid = "1"           # @uuid
+validator = "0.20"   # @email
+```
+
+`onek fmt` is not implemented yet. `onek check` performs semantic validation as well as parsing: unsupported or misplaced decorators, invalid validator values, generated-name collisions, malformed bindings, duplicate routes or headers, invalid error statuses, and incompatible header/auth contracts are rejected before generation. `onek compat` compares nested types, fields, enums, oneofs, validators, routes, bindings, headers, streams, and typed errors, including configured route prefixes.
 
 Install the CLI:
 
@@ -130,6 +173,6 @@ go install github.com/1homsi/onekit/cmd/onek@latest
 
 ## Status
 
-This is a young project mid-migration from an earlier protobuf-based design. Ported and tested: messages (scalars, repeated, optional, maps, nested types), enums, oneofs (discriminated unions, fully typed in Go/TS), field validation (`@email`, `@uuid`, `@len`, `@range`, `@in`, `@required`), HTTP path/query param binding, required-header checks, RPC error unions with per-error-type HTTP status codes, and all four generator backends.
+This is a young project that has completed its migration from the earlier protobuf-based design. It supports messages (scalars, repeated, optional, maps, nested types), enums, discriminated oneofs, field validation (`@email`, `@uuid`, `@uri`, `@pattern`, `@len`, `@range`, `@in`, `@required`, item counts), HTTP path/query/body binding, typed headers and error unions, SSE clients in Go, TypeScript, Python, and Rust, and Go/TypeScript/Python/Rust/OpenAPI generators.
 
-Not yet ported from the old protobuf-based generators: SSE streaming, and the `flatten`/`unwrap`/`int64_encoding`/`enum_encoding`/`timestamp_format`/`bytes_encoding` JSON-mapping annotations. Contributions welcome.
+JSON mapping is supported through `@flatten`, `@unwrap`, and `@encode(...)` for safe integer, enum, timestamp, and byte representations. Generated clients validate requests before sending, generated servers validate decoded requests, and nested validation is emitted consistently across targets. Generated Go servers also provide functional registration options for mux selection, middleware, request IDs, authorization, route metadata, and lifecycle observation.

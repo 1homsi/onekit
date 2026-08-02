@@ -10,7 +10,7 @@ paths:
                 - UserService
             summary: createUser
             description: Create a new user.
-            operationId: createUser
+            operationId: UserService_createUser
             parameters:
                 - name: X-API-Key
                   in: header
@@ -22,7 +22,7 @@ paths:
                 content:
                     application/json:
                         schema:
-                            $ref: '#/components/schemas/CreateUserRequest'
+                            $ref: '#/components/schemas/examples.onksimpleapi.models.CreateUserRequest'
                 required: true
             responses:
                 "200":
@@ -30,14 +30,14 @@ paths:
                     content:
                         application/json:
                             schema:
-                                $ref: '#/components/schemas/User'
+                                $ref: '#/components/schemas/examples.onksimpleapi.models.User'
     /api/v1/users/get:
         post:
             tags:
                 - UserService
             summary: getUser
             description: Get a user by ID.
-            operationId: getUser
+            operationId: UserService_getUser
             parameters:
                 - name: X-API-Key
                   in: header
@@ -49,7 +49,7 @@ paths:
                 content:
                     application/json:
                         schema:
-                            $ref: '#/components/schemas/GetUserRequest'
+                            $ref: '#/components/schemas/examples.onksimpleapi.models.GetUserRequest'
                 required: true
             responses:
                 "200":
@@ -57,14 +57,14 @@ paths:
                     content:
                         application/json:
                             schema:
-                                $ref: '#/components/schemas/User'
+                                $ref: '#/components/schemas/examples.onksimpleapi.models.User'
     /api/v1/auth/login:
         post:
             tags:
                 - UserService
             summary: login
             description: Login with different authentication methods.
-            operationId: login
+            operationId: UserService_login
             parameters:
                 - name: X-API-Key
                   in: header
@@ -82,7 +82,7 @@ paths:
                 content:
                     application/json:
                         schema:
-                            $ref: '#/components/schemas/LoginRequest'
+                            $ref: '#/components/schemas/examples.onksimpleapi.models.LoginRequest'
                 required: true
             responses:
                 "200":
@@ -90,61 +90,82 @@ paths:
                     content:
                         application/json:
                             schema:
-                                $ref: '#/components/schemas/LoginResponse'
+                                $ref: '#/components/schemas/examples.onksimpleapi.models.LoginResponse'
 components:
     schemas:
-        User:
+        examples.onksimpleapi.models.User:
             type: object
             properties:
                 id:
                     type: string
+                    format: uuid
                 name:
                     type: string
+                    maxLength: 100
+                    minLength: 1
                 email:
                     type: string
+                    format: email
                 created_at:
                     type: string
                     format: int64
-        CreateUserRequest:
+            description: A system user.
+        examples.onksimpleapi.models.CreateUserRequest:
             type: object
             properties:
                 name:
                     type: string
+                    maxLength: 100
+                    minLength: 2
                 email:
                     type: string
-        GetUserRequest:
+                    format: email
+        examples.onksimpleapi.models.GetUserRequest:
             type: object
             properties:
                 id:
                     type: string
-        EmailAuth:
+                    format: uuid
+        examples.onksimpleapi.models.EmailAuth:
             type: object
             properties:
                 email:
                     type: string
+                    format: email
                 password:
                     type: string
+                    maxLength: 72
+                    minLength: 8
                 use_two_factor:
                     type: boolean
                 two_factor_code:
                     type: string
-        TokenAuth:
+        examples.onksimpleapi.models.TokenAuth:
             type: object
             properties:
                 token:
                     type: string
+                    maxLength: 256
+                    minLength: 10
                 token_type:
                     type: string
                 issued_at:
                     type: string
                     format: int64
-        SocialAuth:
+        examples.onksimpleapi.models.SocialAuth:
             type: object
             properties:
                 provider:
                     type: string
+                    enum:
+                        - google
+                        - github
+                        - facebook
+                        - apple
                 access_token:
                     type: string
+                    maxLength: 512
+                    minLength: 20
                 redirect_uri:
                     type: string
                 state:
@@ -153,7 +174,7 @@ components:
                     type: array
                     items:
                         type: string
-        LoginRequest:
+        examples.onksimpleapi.models.LoginRequest:
             type: object
             properties:
                 device_id:
@@ -167,9 +188,15 @@ components:
                     type: string
                 auth_method:
                     oneOf:
-                        - $ref: '#/components/schemas/EmailAuth'
-                        - $ref: '#/components/schemas/TokenAuth'
-                        - $ref: '#/components/schemas/SocialAuth'
+                        - $ref: '#/components/schemas/examples.onksimpleapi.models.EmailAuth'
+                        - $ref: '#/components/schemas/examples.onksimpleapi.models.TokenAuth'
+                        - $ref: '#/components/schemas/examples.onksimpleapi.models.SocialAuth'
+                    discriminator:
+                        propertyName: auth_type
+                        mapping:
+                            email: '#/components/schemas/examples.onksimpleapi.models.EmailAuth'
+                            token: '#/components/schemas/examples.onksimpleapi.models.TokenAuth'
+                            social: '#/components/schemas/examples.onksimpleapi.models.SocialAuth'
                 remember_me:
                     type: boolean
                 session_id:
@@ -181,7 +208,7 @@ components:
                     type: array
                     items:
                         type: string
-        LoginResponse:
+        examples.onksimpleapi.models.LoginResponse:
             type: object
             properties:
                 access_token:
@@ -192,4 +219,5 @@ components:
                     type: string
                     format: int64
                 user:
-                    $ref: '#/components/schemas/User'
+                    allOf:
+                        - $ref: '#/components/schemas/examples.onksimpleapi.models.User'

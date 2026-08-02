@@ -49,16 +49,22 @@ type compiler struct {
 	enumByDir     map[string]map[string]*onkir.Enum
 	msgAllByName  map[string][]dirMsg
 	enumAllByName map[string][]dirEnum
+	declByDir     map[string]map[string]string
 	msgNode       map[*onklang.MessageDecl]*onkir.Message
 	enumNode      map[*onklang.EnumDecl]*onkir.Enum
 }
 
 func Compile(sources []Source) (*onkir.Package, error) {
+	if err := validateSyntax(sources); err != nil {
+		return nil, err
+	}
+
 	c := &compiler{
 		msgByDir:      map[string]map[string]*onkir.Message{},
 		enumByDir:     map[string]map[string]*onkir.Enum{},
 		msgAllByName:  map[string][]dirMsg{},
 		enumAllByName: map[string][]dirEnum{},
+		declByDir:     map[string]map[string]string{},
 		msgNode:       map[*onklang.MessageDecl]*onkir.Message{},
 		enumNode:      map[*onklang.EnumDecl]*onkir.Enum{},
 	}
@@ -100,7 +106,11 @@ func Compile(sources []Source) (*onkir.Package, error) {
 		}
 	}
 
-	return &onkir.Package{Files: files}, nil
+	pkg := &onkir.Package{Files: files}
+	if err := validateContract(pkg); err != nil {
+		return nil, err
+	}
+	return pkg, nil
 }
 
 func (c *compiler) declareMessage(
@@ -116,13 +126,24 @@ func (c *compiler) declareMessage(
 	if _, exists := c.enumByDir[dir][md.Name]; exists {
 		return nil, &Error{Path: path, Line: md.Line, Msg: fmt.Sprintf("name %q already used by an enum", md.Name)}
 	}
+	generated := generatedIdentifier(md.Name)
+	if previous := c.declByDir[dir][generated]; previous != "" {
+		return nil, &Error{Path: path, Line: md.Line, Msg: fmt.Sprintf(
+			"message name %q collides with %q after target-language name conversion", md.Name, previous,
+		)}
+	}
 
 	m := &onkir.Message{Name: md.Name, Doc: md.Doc, File: f, Parent: parent}
+	m.SchemaName = declarationFullName(f.Package, parent, md.Name)
 	m.Decorators = convertDecorators(md.Decorators)
 	if c.msgByDir[dir] == nil {
 		c.msgByDir[dir] = map[string]*onkir.Message{}
 	}
 	c.msgByDir[dir][md.Name] = m
+	if c.declByDir[dir] == nil {
+		c.declByDir[dir] = map[string]string{}
+	}
+	c.declByDir[dir][generated] = md.Name
 	c.msgAllByName[md.Name] = append(c.msgAllByName[md.Name], dirMsg{dir: dir, msg: m})
 	c.msgNode[md] = m
 
@@ -157,12 +178,23 @@ func (c *compiler) declareEnum(
 	if _, exists := c.msgByDir[dir][ed.Name]; exists {
 		return nil, &Error{Path: path, Line: ed.Line, Msg: fmt.Sprintf("name %q already used by a message", ed.Name)}
 	}
+	generated := generatedIdentifier(ed.Name)
+	if previous := c.declByDir[dir][generated]; previous != "" {
+		return nil, &Error{Path: path, Line: ed.Line, Msg: fmt.Sprintf(
+			"enum name %q collides with %q after target-language name conversion", ed.Name, previous,
+		)}
+	}
 
 	e := &onkir.Enum{Name: ed.Name, Doc: ed.Doc, File: f, Parent: parent}
+	e.SchemaName = declarationFullName(f.Package, parent, ed.Name)
 	if c.enumByDir[dir] == nil {
 		c.enumByDir[dir] = map[string]*onkir.Enum{}
 	}
 	c.enumByDir[dir][ed.Name] = e
+	if c.declByDir[dir] == nil {
+		c.declByDir[dir] = map[string]string{}
+	}
+	c.declByDir[dir][generated] = ed.Name
 	c.enumAllByName[ed.Name] = append(c.enumAllByName[ed.Name], dirEnum{dir: dir, enum: e})
 	c.enumNode[ed] = e
 
@@ -177,6 +209,16 @@ func (c *compiler) declareEnum(
 	}
 
 	return e, nil
+}
+
+func declarationFullName(packageName string, parent *onkir.Message, name string) string {
+	if parent != nil {
+		return parent.FullName() + "." + name
+	}
+	if packageName != "" {
+		return packageName + "." + name
+	}
+	return name
 }
 
 func (c *compiler) fillMessage(md *onklang.MessageDecl, path string) error {
@@ -335,6 +377,9 @@ func (c *compiler) resolveType(t *onklang.TypeRef, path string, line int) (*onki
 		if !ok {
 			return nil, &Error{Path: path, Line: line, Msg: fmt.Sprintf("invalid map key type %q", t.MapKey)}
 		}
+		if keyKind != onkir.ScalarString {
+			return nil, &Error{Path: path, Line: line, Msg: "map keys must be string for JSON and target-language parity"}
+		}
 		val, err := c.resolveType(t.MapVal, path, line)
 		if err != nil {
 			return nil, err
@@ -374,6 +419,14 @@ func (c *compiler) resolveType(t *onklang.TypeRef, path string, line int) (*onki
 	return nil, &Error{Path: path, Line: line, Msg: fmt.Sprintf("unresolved type %q", t.Name)}
 }
 
+func (c *compiler) resolveMessageReference(dir, name string) (*onkir.Message, bool, error) {
+	if strings.Contains(name, ".") {
+		message, found := c.lookupQualifiedMessage(name)
+		return message, found, nil
+	}
+	return c.lookupMessage(dir, name)
+}
+
 func (c *compiler) buildService(sd *onklang.ServiceDecl, f *onkir.File, path string) (*onkir.Service, error) {
 	s := &onkir.Service{Name: sd.Name, Doc: sd.Doc, BasePath: sd.BasePath, File: f}
 	headers, err := c.buildHeaders(sd.Headers, path)
@@ -395,14 +448,14 @@ func (c *compiler) buildService(sd *onklang.ServiceDecl, f *onkir.File, path str
 func (c *compiler) buildMethod(rd *onklang.RPCDecl, s *onkir.Service, path string) (*onkir.Method, error) {
 	dir := filepath.Dir(path)
 
-	req, found, err := c.lookupMessage(dir, rd.RequestType)
+	req, found, err := c.resolveMessageReference(dir, rd.RequestType)
 	if err != nil {
 		return nil, &Error{Path: path, Line: rd.Line, Msg: err.Error()}
 	}
 	if !found {
 		return nil, &Error{Path: path, Line: rd.Line, Msg: fmt.Sprintf("unresolved request type %q", rd.RequestType)}
 	}
-	resp, found, err := c.lookupMessage(dir, rd.ResponseType)
+	resp, found, err := c.resolveMessageReference(dir, rd.ResponseType)
 	if err != nil {
 		return nil, &Error{Path: path, Line: rd.Line, Msg: err.Error()}
 	}
@@ -424,14 +477,26 @@ func (c *compiler) buildMethod(rd *onklang.RPCDecl, s *onkir.Service, path strin
 		Service:    s,
 	}
 
+	seenStatuses := map[int]string{}
 	for _, errName := range rd.ErrorTypes {
-		errMsg, errFound, lookupErr := c.lookupMessage(dir, errName)
+		errMsg, errFound, lookupErr := c.resolveMessageReference(dir, errName)
 		if lookupErr != nil {
 			return nil, &Error{Path: path, Line: rd.Line, Msg: lookupErr.Error()}
 		}
 		if !errFound {
 			return nil, &Error{Path: path, Line: rd.Line, Msg: fmt.Sprintf("unresolved error type %q", errName)}
 		}
+		errMsg.ErrorType = true
+		status := 500
+		if code, ok := errMsg.StatusCode(); ok {
+			status = code
+		}
+		if previous, duplicate := seenStatuses[status]; duplicate {
+			return nil, &Error{Path: path, Line: rd.Line, Msg: fmt.Sprintf(
+				"error types %q and %q use the same HTTP status %d", previous, errName, status,
+			)}
+		}
+		seenStatuses[status] = errName
 		method.ErrorTypes = append(method.ErrorTypes, errMsg)
 	}
 

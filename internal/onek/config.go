@@ -50,12 +50,25 @@ func LoadConfig(dir string) (*Config, error) {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	var cfg Config
-	err = toml.Unmarshal(data, &cfg)
+	metadata, err := toml.Decode(string(data), &cfg)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	if routeErr := validateRoutePrefix(cfg.RoutePrefix); routeErr != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, routeErr)
+	if undecoded := metadata.Undecoded(); len(undecoded) > 0 {
+		keys := make([]string, len(undecoded))
+		for i, key := range undecoded {
+			keys[i] = key.String()
+		}
+		return nil, fmt.Errorf("parse %s: unknown configuration key(s): %s", path, strings.Join(keys, ", "))
+	}
+	if cfg.Module == "" {
+		return nil, fmt.Errorf("parse %s: module is required", path)
+	}
+	if err := validateRoutePrefix(cfg.RoutePrefix); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if err := validateTargetPaths(&cfg); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	cfg.dir = dir
 	return &cfg, nil
@@ -71,8 +84,31 @@ func validateRoutePrefix(prefix string) error {
 	if prefix == "/" {
 		return errors.New("route_prefix must not be /; omit it instead")
 	}
+	if strings.HasSuffix(prefix, "/") {
+		return errors.New("route_prefix must not end with /")
+	}
 	if path.Clean(prefix) != prefix || strings.ContainsAny(prefix, "?#%{}") {
 		return errors.New("route_prefix must be a canonical literal URL path")
+	}
+	return nil
+}
+
+func validateTargetPaths(cfg *Config) error {
+	targets := []*TargetConfig{
+		cfg.Generate.GoServer, cfg.Generate.GoClient, cfg.Generate.TSClient, cfg.Generate.TSServer, cfg.Generate.PythonClient,
+		cfg.Generate.RustClient, cfg.Generate.RustServer,
+	}
+	for _, target := range targets {
+		if target != nil && strings.TrimSpace(target.Out) == "" {
+			return errors.New("generator output path must not be empty")
+		}
+	}
+	if cfg.Generate.OpenAPI != nil && strings.TrimSpace(cfg.Generate.OpenAPI.Out) == "" {
+		return errors.New("generator output path must not be empty")
+	}
+	if cfg.Generate.GoServer != nil && cfg.Generate.GoClient != nil &&
+		filepath.Clean(cfg.Generate.GoServer.Out) != filepath.Clean(cfg.Generate.GoClient.Out) {
+		return errors.New("go-server and go-client must use the same output path so they share generated types")
 	}
 	return nil
 }

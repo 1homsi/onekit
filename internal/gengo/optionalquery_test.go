@@ -24,8 +24,8 @@ message SearchWidgetsRequest {
 
 message SearchWidgetsResponse {
   count: int32
-  status_echo: int32? @nullable
-  owner_id_echo: int64? @nullable
+  status_echo: int32?
+  owner_id_echo: int64?
 }
 
 service WidgetService {

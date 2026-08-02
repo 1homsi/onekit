@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
@@ -111,6 +112,25 @@ func TestGenerateServerFormatsCleanly(t *testing.T) {
 	}
 }
 
+func TestGenerateServerIncludesRuntimeHooks(t *testing.T) {
+	file := compileFixture(t)
+	out, err := GenerateServer(file)
+	if err != nil {
+		t.Fatalf("GenerateServer error: %v", err)
+	}
+	for _, want := range []string{
+		"type Middleware func(http.Handler) http.Handler",
+		"func WithRequestID(headerName string) ServerOption",
+		"func WithAuthorizer(authorizer Authorizer) ServerOption",
+		"func RequestMetadataFromContext(ctx context.Context)",
+		"func WithRequestObserver(observer RequestObserver) ServerOption",
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("generated server missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestGenerateClientFormatsCleanly(t *testing.T) {
 	file := compileFixture(t)
 	out, err := GenerateClient(file)
@@ -169,9 +189,7 @@ func fail(msg string, args ...any) {
 
 func main() {
 	mux := http.NewServeMux()
-	if err := RegisterUserServiceServer(&impl{users: map[string]*User{}}, WithMux(mux)); err != nil {
-		fail("register: %v", err)
-	}
+	RegisterUserServiceServer(mux, &impl{users: map[string]*User{}})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -268,6 +286,71 @@ func TestGeneratedServerBuildsAndServes(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "server.go"), string(serverSrc))
 	writeFile(t, filepath.Join(dir, "client.go"), string(clientSrc))
 	writeFile(t, filepath.Join(dir, "main.go"), harnessMain)
+
+	cmd := exec.Command("go", "run", ".")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated program failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != "OK\n" {
+		t.Fatalf("unexpected program output: %q", got)
+	}
+}
+
+func TestGeneratedServerRejectsInvalidScalarBindings(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+
+	ast, err := onklang.Parse(`
+package main
+message Request { id: int64 page: int32 @query }
+message Response { ok: bool }
+service API { get(Request) -> Response @get("/items/{id}") }
+`)
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.onk", AST: ast}})
+	if err != nil {
+		t.Fatalf("compile fixture: %v", err)
+	}
+	types, err := GenerateTypes(pkg.Files[0])
+	if err != nil {
+		t.Fatalf("generate types: %v", err)
+	}
+	server, err := GenerateServer(pkg.Files[0])
+	if err != nil {
+		t.Fatalf("generate server: %v", err)
+	}
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "go.mod"), "module onekit_scalar_binding_fixture\n\ngo 1.26\n")
+	writeFile(t, filepath.Join(dir, "types.go"), string(types))
+	writeFile(t, filepath.Join(dir, "server.go"), string(server))
+	writeFile(t, filepath.Join(dir, "main.go"), `
+package main
+import (
+  "context"
+  "fmt"
+  "net/http"
+  "net/http/httptest"
+  "os"
+)
+type impl struct{}
+func (impl) Get(context.Context, *Request) (*Response, error) { return &Response{Ok: true}, nil }
+func main() {
+  mux := http.NewServeMux()
+  RegisterAPIServer(mux, impl{})
+  s := httptest.NewServer(mux); defer s.Close()
+  for _, path := range []string{"/items/not-a-number", "/items/1?page=also-bad"} {
+    r, err := http.Get(s.URL + path); if err != nil { panic(err) }
+    if r.StatusCode != http.StatusBadRequest { fmt.Printf("%s: %d\n", path, r.StatusCode); os.Exit(1) }
+    _ = r.Body.Close()
+  }
+  fmt.Println("OK")
+}`)
 
 	cmd := exec.Command("go", "run", ".")
 	cmd.Dir = dir

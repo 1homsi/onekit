@@ -27,7 +27,7 @@ func sseResponse(m *onkir.Method) *v3.Response {
 	})
 
 	ext := orderedmap.New[string, *yaml.Node]()
-	ext.Set("x-sse-event-schema", schemaRefNode(m.Response.Name))
+	ext.Set("x-sse-event-schema", schemaRefNode(componentName(m.Response.FullName())))
 
 	return &v3.Response{
 		Description: "Server-Sent Events stream",

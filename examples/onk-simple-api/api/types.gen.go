@@ -3,6 +3,7 @@ package api
 
 import (
 	"encoding/json"
+	"strconv"
 )
 
 type User struct {
@@ -12,13 +13,98 @@ type User struct {
 	CreatedAt int64  `json:"created_at,omitempty"`
 }
 
+func (m *User) MarshalJSON() ([]byte, error) {
+	type alias User
+	aux := struct {
+		*alias
+		CreatedAt string `json:"created_at,omitempty"`
+	}{alias: (*alias)(m)}
+	aux.CreatedAt = strconv.FormatInt(m.CreatedAt, 10)
+	return json.Marshal(aux)
+}
+
+func (m *User) UnmarshalJSON(data []byte) error {
+	type alias User
+	aux := struct {
+		*alias
+		CreatedAt string `json:"created_at,omitempty"`
+	}{alias: (*alias)(m)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.CreatedAt != "" {
+		v, err := strconv.ParseInt(aux.CreatedAt, 10, 64)
+		if err != nil {
+			return err
+		}
+		m.CreatedAt = v
+	}
+	return nil
+}
+
+func (x *User) GetId() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.Id
+}
+
+func (x *User) GetName() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.Name
+}
+
+func (x *User) GetEmail() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.Email
+}
+
+func (x *User) GetCreatedAt() int64 {
+	if x == nil {
+		var zero int64
+		return zero
+	}
+	return x.CreatedAt
+}
+
 type CreateUserRequest struct {
 	Name  string `json:"name,omitempty"`
 	Email string `json:"email,omitempty"`
 }
 
+func (x *CreateUserRequest) GetName() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.Name
+}
+
+func (x *CreateUserRequest) GetEmail() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.Email
+}
+
 type GetUserRequest struct {
 	Id string `json:"id,omitempty"`
+}
+
+func (x *GetUserRequest) GetId() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.Id
 }
 
 type EmailAuth struct {
@@ -28,10 +114,95 @@ type EmailAuth struct {
 	TwoFactorCode string `json:"two_factor_code,omitempty"`
 }
 
+func (x *EmailAuth) GetEmail() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.Email
+}
+
+func (x *EmailAuth) GetPassword() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.Password
+}
+
+func (x *EmailAuth) GetUseTwoFactor() bool {
+	if x == nil {
+		var zero bool
+		return zero
+	}
+	return x.UseTwoFactor
+}
+
+func (x *EmailAuth) GetTwoFactorCode() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.TwoFactorCode
+}
+
 type TokenAuth struct {
 	Token     string `json:"token,omitempty"`
 	TokenType string `json:"token_type,omitempty"`
 	IssuedAt  int64  `json:"issued_at,omitempty"`
+}
+
+func (m *TokenAuth) MarshalJSON() ([]byte, error) {
+	type alias TokenAuth
+	aux := struct {
+		*alias
+		IssuedAt string `json:"issued_at,omitempty"`
+	}{alias: (*alias)(m)}
+	aux.IssuedAt = strconv.FormatInt(m.IssuedAt, 10)
+	return json.Marshal(aux)
+}
+
+func (m *TokenAuth) UnmarshalJSON(data []byte) error {
+	type alias TokenAuth
+	aux := struct {
+		*alias
+		IssuedAt string `json:"issued_at,omitempty"`
+	}{alias: (*alias)(m)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.IssuedAt != "" {
+		v, err := strconv.ParseInt(aux.IssuedAt, 10, 64)
+		if err != nil {
+			return err
+		}
+		m.IssuedAt = v
+	}
+	return nil
+}
+
+func (x *TokenAuth) GetToken() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.Token
+}
+
+func (x *TokenAuth) GetTokenType() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.TokenType
+}
+
+func (x *TokenAuth) GetIssuedAt() int64 {
+	if x == nil {
+		var zero int64
+		return zero
+	}
+	return x.IssuedAt
 }
 
 type SocialAuth struct {
@@ -40,6 +211,46 @@ type SocialAuth struct {
 	RedirectUri string   `json:"redirect_uri,omitempty"`
 	State       string   `json:"state,omitempty"`
 	Permissions []string `json:"permissions,omitempty"`
+}
+
+func (x *SocialAuth) GetProvider() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.Provider
+}
+
+func (x *SocialAuth) GetAccessToken() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.AccessToken
+}
+
+func (x *SocialAuth) GetRedirectUri() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.RedirectUri
+}
+
+func (x *SocialAuth) GetState() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.State
+}
+
+func (x *SocialAuth) GetPermissions() []string {
+	if x == nil {
+		var zero []string
+		return zero
+	}
+	return x.Permissions
 }
 
 type LoginRequest struct {
@@ -59,6 +270,7 @@ func (m *LoginRequest) MarshalJSON() ([]byte, error) {
 	aux := struct {
 		*alias
 		AuthMethod json.RawMessage `json:"auth_method,omitempty"`
+		Timestamp  string          `json:"timestamp,omitempty"`
 	}{alias: (*alias)(m)}
 	if m.AuthMethod != nil {
 		var obj map[string]any
@@ -76,6 +288,7 @@ func (m *LoginRequest) MarshalJSON() ([]byte, error) {
 		}
 		aux.AuthMethod = objBytes
 	}
+	aux.Timestamp = strconv.FormatInt(m.Timestamp, 10)
 	return json.Marshal(aux)
 }
 
@@ -84,6 +297,7 @@ func (m *LoginRequest) UnmarshalJSON(data []byte) error {
 	aux := struct {
 		*alias
 		AuthMethod json.RawMessage `json:"auth_method,omitempty"`
+		Timestamp  string          `json:"timestamp,omitempty"`
 	}{alias: (*alias)(m)}
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
@@ -122,7 +336,109 @@ func (m *LoginRequest) UnmarshalJSON(data []byte) error {
 			m.AuthMethod = &LoginRequestAuthMethodSocial{Social: v.Val}
 		}
 	}
+	if aux.Timestamp != "" {
+		v, err := strconv.ParseInt(aux.Timestamp, 10, 64)
+		if err != nil {
+			return err
+		}
+		m.Timestamp = v
+	}
 	return nil
+}
+
+func (x *LoginRequest) GetDeviceId() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.DeviceId
+}
+
+func (x *LoginRequest) GetIpAddress() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.IpAddress
+}
+
+func (x *LoginRequest) GetRetryCount() int32 {
+	if x == nil {
+		var zero int32
+		return zero
+	}
+	return x.RetryCount
+}
+
+func (x *LoginRequest) GetUserAgent() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.UserAgent
+}
+
+func (x *LoginRequest) GetAuthMethod() LoginRequestAuthMethod {
+	if x == nil {
+		return nil
+	}
+	return x.AuthMethod
+}
+
+func (x *LoginRequest) GetEmail() *EmailAuth {
+	if v, ok := x.GetAuthMethod().(*LoginRequestAuthMethodEmail); ok {
+		return v.Email
+	}
+	var zero *EmailAuth
+	return zero
+}
+
+func (x *LoginRequest) GetToken() *TokenAuth {
+	if v, ok := x.GetAuthMethod().(*LoginRequestAuthMethodToken); ok {
+		return v.Token
+	}
+	var zero *TokenAuth
+	return zero
+}
+
+func (x *LoginRequest) GetSocial() *SocialAuth {
+	if v, ok := x.GetAuthMethod().(*LoginRequestAuthMethodSocial); ok {
+		return v.Social
+	}
+	var zero *SocialAuth
+	return zero
+}
+
+func (x *LoginRequest) GetRememberMe() bool {
+	if x == nil {
+		var zero bool
+		return zero
+	}
+	return x.RememberMe
+}
+
+func (x *LoginRequest) GetSessionId() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.SessionId
+}
+
+func (x *LoginRequest) GetTimestamp() int64 {
+	if x == nil {
+		var zero int64
+		return zero
+	}
+	return x.Timestamp
+}
+
+func (x *LoginRequest) GetScopes() []string {
+	if x == nil {
+		var zero []string
+		return zero
+	}
+	return x.Scopes
 }
 
 type LoginRequestAuthMethod interface {
@@ -152,4 +468,65 @@ type LoginResponse struct {
 	RefreshToken string `json:"refresh_token,omitempty"`
 	ExpiresIn    int64  `json:"expires_in,omitempty"`
 	User         *User  `json:"user,omitempty"`
+}
+
+func (m *LoginResponse) MarshalJSON() ([]byte, error) {
+	type alias LoginResponse
+	aux := struct {
+		*alias
+		ExpiresIn string `json:"expires_in,omitempty"`
+	}{alias: (*alias)(m)}
+	aux.ExpiresIn = strconv.FormatInt(m.ExpiresIn, 10)
+	return json.Marshal(aux)
+}
+
+func (m *LoginResponse) UnmarshalJSON(data []byte) error {
+	type alias LoginResponse
+	aux := struct {
+		*alias
+		ExpiresIn string `json:"expires_in,omitempty"`
+	}{alias: (*alias)(m)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.ExpiresIn != "" {
+		v, err := strconv.ParseInt(aux.ExpiresIn, 10, 64)
+		if err != nil {
+			return err
+		}
+		m.ExpiresIn = v
+	}
+	return nil
+}
+
+func (x *LoginResponse) GetAccessToken() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.AccessToken
+}
+
+func (x *LoginResponse) GetRefreshToken() string {
+	if x == nil {
+		var zero string
+		return zero
+	}
+	return x.RefreshToken
+}
+
+func (x *LoginResponse) GetExpiresIn() int64 {
+	if x == nil {
+		var zero int64
+		return zero
+	}
+	return x.ExpiresIn
+}
+
+func (x *LoginResponse) GetUser() *User {
+	if x == nil {
+		var zero *User
+		return zero
+	}
+	return x.User
 }

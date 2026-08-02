@@ -13,7 +13,7 @@ const (
 )
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: onek <build|check|generate> [dir]")
+	fmt.Fprintln(os.Stderr, "usage: onek <build|check|generate> [dir]\n       onek compat <previous-dir> <current-dir>")
 }
 
 func main() {
@@ -22,17 +22,30 @@ func main() {
 		os.Exit(1)
 	}
 
-	dir := "."
-	if len(os.Args) >= dirArgAt {
-		dir = os.Args[2]
-	}
-
 	var err error
 	switch os.Args[1] {
 	case "build", "generate":
+		dir := argumentOrDot()
 		err = onek.Build(dir)
 	case "check":
+		dir := argumentOrDot()
 		err = onek.Check(dir)
+	case "compat":
+		if len(os.Args) != 4 {
+			usage()
+			os.Exit(1)
+		}
+		findings, compatErr := onek.Compatibility(os.Args[2], os.Args[3])
+		if compatErr != nil {
+			err = compatErr
+			break
+		}
+		for _, finding := range findings {
+			_, _ = fmt.Fprintln(os.Stdout, finding.Path+": "+finding.Message)
+		}
+		if len(findings) > 0 {
+			os.Exit(2)
+		}
 	case "fmt":
 		fmt.Fprintln(os.Stderr, "onek fmt: not yet implemented")
 		os.Exit(1)
@@ -45,4 +58,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "onek:", err)
 		os.Exit(1)
 	}
+}
+
+func argumentOrDot() string {
+	if len(os.Args) >= dirArgAt {
+		return os.Args[2]
+	}
+	return "."
 }

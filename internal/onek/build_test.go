@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -113,11 +114,33 @@ func TestLoadConfigValidatesRoutePrefix(t *testing.T) {
 
 func TestCheckValidatesRoutePrefixWhenConfigExists(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "route_prefix = \"api\"\n")
+	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/api\"\nroute_prefix = \"api\"\n")
 	writeTestFile(t, filepath.Join(dir, "models.onk"), modelsOnk)
 
 	if err := Check(dir); err == nil {
 		t.Fatal("Check unexpectedly accepted invalid route_prefix")
+	}
+}
+
+func TestLoadConfigRejectsUnknownAndInvalidConfiguration(t *testing.T) {
+	tests := []struct {
+		name, config, want string
+	}{
+		{"unknown key", "module = \"example.com/api\"\nunknown = true\n", "unknown configuration key"},
+		{"missing module", "[generate.go-server]\nout = \"./api\"\n", "module is required"},
+		{"empty output", "module = \"example.com/api\"\n[generate.go-server]\nout = \"\"\n", "output path must not be empty"},
+		{"route prefix without slash", "module = \"example.com/api\"\nroute_prefix = \"api\"\n", "route_prefix must start with /"},
+		{"route prefix with trailing slash", "module = \"example.com/api\"\nroute_prefix = \"/api/\"\n", "route_prefix must not end with /"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeTestFile(t, filepath.Join(dir, "onekit.toml"), tt.config)
+			_, err := LoadConfig(dir)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected %q, got %v", tt.want, err)
+			}
+		})
 	}
 }
 
@@ -151,5 +174,56 @@ func TestBuildGeneratesWorkingGoCode(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("generated Go package failed to build: %v\n%s", err, out)
+	}
+}
+
+func TestLoadConfigRejectsSplitGoOutputs(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `
+module = "example.com/api"
+[generate.go-server]
+out = "./server"
+[generate.go-client]
+out = "./client"
+`)
+	_, err := LoadConfig(dir)
+	if err == nil || !strings.Contains(err.Error(), "must use the same output path") {
+		t.Fatalf("expected split Go output error, got %v", err)
+	}
+}
+
+func TestBuildRemovesStaleGeneratedGroupsButPreservesUserFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `
+module = "example.com/api"
+[generate.go-server]
+out = "./api"
+`)
+	writeTestFile(t, filepath.Join(dir, "old", "service.onk"), `
+message Request {}
+message Response {}
+service API { get(Request) -> Response @get("/items") }
+`)
+	if err := Build(dir); err != nil {
+		t.Fatalf("first Build error: %v", err)
+	}
+	stale := filepath.Join(dir, "api", "old", "server.gen.go")
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("expected initial generated file: %v", err)
+	}
+	userFile := filepath.Join(dir, "api", "old", "custom.go")
+	writeTestFile(t, userFile, "package old\n")
+	if err := os.Remove(filepath.Join(dir, "old", "service.onk")); err != nil {
+		t.Fatalf("remove schema: %v", err)
+	}
+	writeTestFile(t, filepath.Join(dir, "current.onk"), "message Current { id: string }\n")
+	if err := Build(dir); err != nil {
+		t.Fatalf("second Build error: %v", err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale generated file still exists: %v", err)
+	}
+	if _, err := os.Stat(userFile); err != nil {
+		t.Fatalf("user file was removed: %v", err)
 	}
 }

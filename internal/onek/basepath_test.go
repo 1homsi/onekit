@@ -31,7 +31,6 @@ func TestApplyRoutePrefix(t *testing.T) {
 		{BasePath: "/hub/business/v1"},
 		{BasePath: "/"},
 	}}}}
-
 	applyRoutePrefix(pkg, "/api")
 
 	if got := pkg.Files[0].Services[0].BasePath; got != "/api/hub/business/v1" {

@@ -2,7 +2,9 @@ package genopenapi
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/pb33f/libopenapi/datamodel/high/base"
 	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
@@ -49,9 +51,9 @@ func typeSchemaProxy(t *onkir.Type) *base.SchemaProxy {
 	case onkir.KindScalar:
 		return base.CreateSchemaProxy(scalarSchema(t.Scalar))
 	case onkir.KindMessage:
-		return base.CreateSchemaProxyRef("#/components/schemas/" + t.Message.Name)
+		return base.CreateSchemaProxyRef("#/components/schemas/" + componentName(t.Message.FullName()))
 	case onkir.KindEnum:
-		return base.CreateSchemaProxyRef("#/components/schemas/" + t.Enum.Name)
+		return base.CreateSchemaProxyRef("#/components/schemas/" + componentName(t.Enum.FullName()))
 	case onkir.KindMap:
 		s := &base.Schema{Type: []string{"object"}}
 		s.AdditionalProperties = &base.DynamicValue[*base.SchemaProxy, bool]{A: typeSchemaProxy(t.MapValue)}
@@ -67,27 +69,192 @@ func fieldSchemaProxy(f *onkir.Field) *base.SchemaProxy {
 		for _, v := range f.Oneof.Variants {
 			variants = append(variants, typeSchemaProxy(v.Type))
 		}
-		return base.CreateSchemaProxy(&base.Schema{OneOf: variants})
+		schema := &base.Schema{OneOf: variants}
+		if discriminator, ok := f.Oneof.Discriminator(); ok && discriminator != "" {
+			mapping := orderedmap.New[string, string]()
+			for _, variant := range f.Oneof.Variants {
+				if variant.Type.Kind == onkir.KindMessage {
+					mapping.Set(variant.Tag(), "#/components/schemas/"+componentName(variant.Type.Message.FullName()))
+				}
+			}
+			schema.Discriminator = &base.Discriminator{PropertyName: discriminator, Mapping: mapping}
+		}
+		return base.CreateSchemaProxy(schema)
 	}
 	if f.Repeated {
 		item := typeSchemaProxy(f.Type)
-		return base.CreateSchemaProxy(&base.Schema{
+		schema := &base.Schema{
 			Type:  []string{"array"},
 			Items: &base.DynamicValue[*base.SchemaProxy, bool]{A: item},
-		})
+		}
+		applyFieldValidation(schema, f)
+		return base.CreateSchemaProxy(schema)
 	}
-	return typeSchemaProxy(f.Type)
+	schema := concreteTypeSchema(f)
+	applyFieldValidation(schema, f)
+	return base.CreateSchemaProxy(schema)
 }
 
 func messageSchema(m *onkir.Message) *base.Schema {
+	if len(m.Fields) == 1 && m.Fields[0].HasDecorator("unwrap") {
+		proxy := fieldSchemaProxy(m.Fields[0])
+		if schema := proxy.Schema(); schema != nil {
+			return schema
+		}
+	}
 	props := orderedmap.New[string, *base.SchemaProxy]()
+	var required []string
 	for _, f := range m.Fields {
+		if prefix, ok := flattenPrefix(f); ok && f.Type != nil && f.Type.Kind == onkir.KindMessage {
+			child := messageSchema(f.Type.Message)
+			if child.Properties != nil {
+				for name, schema := range child.Properties.FromOldest() {
+					props.Set(prefix+name, schema)
+				}
+			}
+			for _, name := range child.Required {
+				required = append(required, prefix+name)
+			}
+			continue
+		}
 		props.Set(f.Name, fieldSchemaProxy(f))
+		if f.HasDecorator("required") {
+			required = append(required, f.Name)
+		}
 	}
 	return &base.Schema{
-		Type:       []string{"object"},
-		Properties: props,
+		Type:        []string{"object"},
+		Properties:  props,
+		Required:    required,
+		Description: m.Doc,
 	}
+}
+
+func concreteTypeSchema(field *onkir.Field) *base.Schema {
+	if field.Type == nil {
+		return &base.Schema{}
+	}
+	encode, hasEncode := field.Decorator("encode")
+	encodeValue, _ := encode.Value()
+	switch field.Type.Kind {
+	case onkir.KindScalar:
+		if hasEncode {
+			switch field.Type.Scalar {
+			case onkir.ScalarInt64, onkir.ScalarUint64:
+				if encodeValue == "number" {
+					return &base.Schema{Type: []string{"integer"}, Format: "int64"}
+				}
+			case onkir.ScalarTimestamp:
+				if encodeValue == "unix_seconds" || encodeValue == "unix_millis" {
+					return &base.Schema{Type: []string{"integer"}, Format: "int64"}
+				}
+				if encodeValue == "date" {
+					return &base.Schema{Type: []string{"string"}, Format: "date"}
+				}
+			case onkir.ScalarBytes:
+				schema := &base.Schema{Type: []string{"string"}}
+				if encodeValue == "hex" {
+					schema.Pattern = "^[0-9a-fA-F]*$"
+				} else {
+					schema.ContentEncoding = encodeValue
+				}
+				return schema
+			}
+		}
+		return scalarSchema(field.Type.Scalar)
+	case onkir.KindEnum:
+		if hasEncode && encodeValue == "number" {
+			values := make([]*yaml.Node, len(field.Type.Enum.Values))
+			for index := range field.Type.Enum.Values {
+				values[index] = &yaml.Node{Kind: yaml.ScalarNode, Value: strconv.Itoa(index), Tag: "!!int"}
+			}
+			return &base.Schema{Type: []string{"integer"}, Enum: values}
+		}
+		return &base.Schema{AllOf: []*base.SchemaProxy{typeSchemaProxy(field.Type)}}
+	case onkir.KindMessage:
+		if empty, ok := field.Decorator("empty"); ok {
+			value, _ := empty.Value()
+			if value == "null" {
+				return &base.Schema{AnyOf: []*base.SchemaProxy{
+					typeSchemaProxy(field.Type),
+					base.CreateSchemaProxy(&base.Schema{Type: []string{"null"}}),
+				}}
+			}
+		}
+		return &base.Schema{AllOf: []*base.SchemaProxy{typeSchemaProxy(field.Type)}}
+	case onkir.KindMap:
+		return &base.Schema{Type: []string{"object"}, AdditionalProperties: &base.DynamicValue[*base.SchemaProxy, bool]{A: typeSchemaProxy(field.Type.MapValue)}}
+	default:
+		return &base.Schema{}
+	}
+}
+
+func applyFieldValidation(schema *base.Schema, field *onkir.Field) {
+	if field.Doc != "" {
+		schema.Description = field.Doc
+	}
+	for _, decorator := range field.Decorators {
+		value, _ := decorator.Value()
+		switch decorator.Name {
+		case "email", "uuid", "uri":
+			schema.Format = decorator.Name
+		case "pattern":
+			schema.Pattern = value
+		case "len":
+			minimum, _ := strconv.ParseInt(decorator.Args[0].Value, 10, 64)
+			maximum, _ := strconv.ParseInt(decorator.Args[1].Value, 10, 64)
+			schema.MinLength, schema.MaxLength = &minimum, &maximum
+		case "min_items":
+			minimum, _ := strconv.ParseInt(value, 10, 64)
+			schema.MinItems = &minimum
+		case "max_items":
+			maximum, _ := strconv.ParseInt(value, 10, 64)
+			schema.MaxItems = &maximum
+		case "gt", "gte", "lt", "lte", "range":
+			applyNumericValidation(schema, decorator)
+		case "in":
+			for _, arg := range decorator.Args {
+				schema.Enum = append(schema.Enum, &yaml.Node{Kind: yaml.ScalarNode, Value: arg.Value})
+			}
+		}
+	}
+}
+
+func applyNumericValidation(schema *base.Schema, decorator onkir.Decorator) {
+	parse := func(index int) float64 {
+		value, _ := strconv.ParseFloat(decorator.Args[index].Value, 64)
+		return value
+	}
+	switch decorator.Name {
+	case "gt":
+		value := parse(0)
+		schema.ExclusiveMinimum = &base.DynamicValue[bool, float64]{B: value, N: 1}
+	case "gte":
+		value := parse(0)
+		schema.Minimum = &value
+	case "lt":
+		value := parse(0)
+		schema.ExclusiveMaximum = &base.DynamicValue[bool, float64]{B: value, N: 1}
+	case "lte":
+		value := parse(0)
+		schema.Maximum = &value
+	case "range":
+		minimum, maximum := parse(0), parse(1)
+		schema.Minimum, schema.Maximum = &minimum, &maximum
+	}
+}
+
+func flattenPrefix(field *onkir.Field) (string, bool) {
+	decorator, ok := field.Decorator("flatten")
+	if !ok {
+		return "", false
+	}
+	prefix, _ := decorator.NamedArg("prefix")
+	return prefix, true
+}
+
+func componentName(fullName string) string {
+	return strings.Trim(fullName, ".")
 }
 
 func enumSchema(e *onkir.Enum) *base.Schema {
@@ -101,14 +268,25 @@ func enumSchema(e *onkir.Enum) *base.Schema {
 	}
 }
 
-func collectSchemas(schemas *orderedmap.Map[string, *base.SchemaProxy], m *onkir.Message) {
-	schemas.Set(m.Name, base.CreateSchemaProxy(messageSchema(m)))
+func collectSchemas(schemas *orderedmap.Map[string, *base.SchemaProxy], m *onkir.Message) error {
+	name := componentName(m.FullName())
+	if _, exists := schemas.Get(name); exists {
+		return fmt.Errorf("duplicate OpenAPI component name %q; declare unique packages", name)
+	}
+	schemas.Set(name, base.CreateSchemaProxy(messageSchema(m)))
 	for _, nested := range m.Nested {
-		collectSchemas(schemas, nested)
+		if err := collectSchemas(schemas, nested); err != nil {
+			return err
+		}
 	}
 	for _, nested := range m.NestedEnums {
-		schemas.Set(nested.Name, base.CreateSchemaProxy(enumSchema(nested)))
+		name := componentName(nested.FullName())
+		if _, exists := schemas.Get(name); exists {
+			return fmt.Errorf("duplicate OpenAPI component name %q; declare unique packages", name)
+		}
+		schemas.Set(name, base.CreateSchemaProxy(enumSchema(nested)))
 	}
+	return nil
 }
 
 func headerParameter(h *onkir.Header) *v3.Parameter {
@@ -122,6 +300,12 @@ func headerParameter(h *onkir.Header) *v3.Parameter {
 		s := scalarSchema(h.Type)
 		s.Format = format
 		p.Schema = base.CreateSchemaProxy(s)
+	}
+	if example, ok := h.Example(); ok {
+		p.Example = &yaml.Node{Kind: yaml.ScalarNode, Value: example}
+	}
+	if _, deprecated := h.Deprecated(); deprecated {
+		p.Deprecated = true
 	}
 	return p
 }
@@ -186,7 +370,7 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 	bodyBearing := isBodyBearingVerb(verb)
 
 	op := &v3.Operation{
-		OperationId: m.Name,
+		OperationId: s.Name + "_" + m.Name,
 		Summary:     m.Name,
 		Tags:        []string{s.Name},
 	}
@@ -199,10 +383,14 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 		params = append(params, pathParameter(name, m.Request))
 	}
 	for _, h := range s.Headers {
-		params = append(params, headerParameter(h))
+		if _, auth := h.AuthType(); !auth {
+			params = append(params, headerParameter(h))
+		}
 	}
 	for _, h := range m.Headers {
-		params = append(params, headerParameter(h))
+		if _, auth := h.AuthType(); !auth {
+			params = append(params, headerParameter(h))
+		}
 	}
 	if !bodyBearing {
 		params = append(params, queryParameters(m.Request)...)
@@ -213,8 +401,14 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 
 	if bodyBearing {
 		content := orderedmap.New[string, *v3.MediaType]()
+		requestSchema := base.CreateSchemaProxyRef("#/components/schemas/" + componentName(m.Request.FullName()))
+		if bodyField, ok := m.BodyField(); ok {
+			if field := findField(m.Request, bodyField); field != nil {
+				requestSchema = fieldSchemaProxy(field)
+			}
+		}
 		content.Set("application/json", &v3.MediaType{
-			Schema: base.CreateSchemaProxyRef("#/components/schemas/" + m.Request.Name),
+			Schema: requestSchema,
 		})
 		op.RequestBody = &v3.RequestBody{Required: new(true), Content: content}
 	}
@@ -225,7 +419,7 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 	} else {
 		successContent := orderedmap.New[string, *v3.MediaType]()
 		successContent.Set("application/json", &v3.MediaType{
-			Schema: base.CreateSchemaProxyRef("#/components/schemas/" + m.Response.Name),
+			Schema: base.CreateSchemaProxyRef("#/components/schemas/" + componentName(m.Response.FullName())),
 		})
 		responses.Codes.Set("200", &v3.Response{Description: "OK", Content: successContent})
 	}
@@ -237,13 +431,85 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 		}
 		errContent := orderedmap.New[string, *v3.MediaType]()
 		errContent.Set("application/json", &v3.MediaType{
-			Schema: base.CreateSchemaProxyRef("#/components/schemas/" + errType.Name),
+			Schema: base.CreateSchemaProxyRef("#/components/schemas/" + componentName(errType.FullName())),
 		})
 		responses.Codes.Set(strconv.Itoa(status), &v3.Response{Description: errType.Name, Content: errContent})
 	}
 	op.Responses = responses
+	security := orderedmap.New[string, []string]()
+	for _, header := range append(append([]*onkir.Header{}, s.Headers...), m.Headers...) {
+		if _, ok := header.AuthType(); ok {
+			security.Set(authSchemeName(header), []string{})
+		}
+	}
+	if orderedmap.Len(security) > 0 {
+		op.Security = []*base.SecurityRequirement{{Requirements: security}}
+	}
 
 	return op
+}
+
+func findField(message *onkir.Message, name string) *onkir.Field {
+	for _, field := range message.Fields {
+		if field.Name == name {
+			return field
+		}
+	}
+	return nil
+}
+
+func authSchemeName(header *onkir.Header) string {
+	if name, ok := header.AuthSchemeName(); ok && name != "" {
+		return name
+	}
+	name := regexp.MustCompile(`[^A-Za-z0-9_.-]+`).ReplaceAllString(header.Name, "")
+	if name == "" {
+		name = "Header"
+	}
+	return name + "Auth"
+}
+
+func collectSecuritySchemes(file *onkir.File) (*orderedmap.Map[string, *v3.SecurityScheme], error) {
+	schemes := orderedmap.New[string, *v3.SecurityScheme]()
+	add := func(header *onkir.Header) error {
+		authType, ok := header.AuthType()
+		if !ok {
+			return nil
+		}
+		name := authSchemeName(header)
+		scheme := &v3.SecurityScheme{}
+		switch authType {
+		case "api_key":
+			scheme.Type, scheme.Name, scheme.In = "apiKey", header.Name, "header"
+		case "bearer", "basic":
+			scheme.Type, scheme.Scheme = "http", authType
+		default:
+			return fmt.Errorf("unsupported auth type %q", authType)
+		}
+		if existing, exists := schemes.Get(name); exists {
+			if existing.Type != scheme.Type || existing.Name != scheme.Name || existing.Scheme != scheme.Scheme {
+				return fmt.Errorf("auth scheme name %q has conflicting definitions", name)
+			}
+			return nil
+		}
+		schemes.Set(name, scheme)
+		return nil
+	}
+	for _, service := range file.Services {
+		for _, header := range service.Headers {
+			if err := add(header); err != nil {
+				return nil, err
+			}
+		}
+		for _, method := range service.Methods {
+			for _, header := range method.Headers {
+				if err := add(header); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	return schemes, nil
 }
 
 func assignOperation(item *v3.PathItem, verb string, op *v3.Operation) {
@@ -273,10 +539,20 @@ func Generate(file *onkir.File, opts Options) ([]byte, error) {
 
 	schemas := orderedmap.New[string, *base.SchemaProxy]()
 	for _, m := range file.Messages {
-		collectSchemas(schemas, m)
+		if err := collectSchemas(schemas, m); err != nil {
+			return nil, err
+		}
 	}
 	for _, e := range file.Enums {
-		schemas.Set(e.Name, base.CreateSchemaProxy(enumSchema(e)))
+		name := componentName(e.FullName())
+		if _, exists := schemas.Get(name); exists {
+			return nil, fmt.Errorf("duplicate OpenAPI component name %q; declare unique packages", name)
+		}
+		schemas.Set(name, base.CreateSchemaProxy(enumSchema(e)))
+	}
+	securitySchemes, err := collectSecuritySchemes(file)
+	if err != nil {
+		return nil, err
 	}
 
 	paths := orderedmap.New[string, *v3.PathItem]()
@@ -302,7 +578,7 @@ func Generate(file *onkir.File, opts Options) ([]byte, error) {
 			Description: opts.Description,
 		},
 		Paths:      &v3.Paths{PathItems: paths},
-		Components: &v3.Components{Schemas: schemas},
+		Components: &v3.Components{Schemas: schemas, SecuritySchemes: securitySchemes},
 	}
 
 	yamlData, err := yaml.Marshal(doc)

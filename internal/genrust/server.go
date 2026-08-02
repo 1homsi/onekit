@@ -62,6 +62,19 @@ func writePathParser(p *Printer) {
 	p.Dedent()
 	p.P("}")
 	p.Blank()
+	p.P("fn valid_header_format(value: &str, format: &str) -> bool {")
+	p.Indent()
+	p.P("match format {")
+	p.Indent()
+	p.P(strconv.Quote("uuid"), " => value.len() == 36 && value.char_indices().all(|(index, character)| matches!(index, 8 | 13 | 18 | 23) && character == '-' || !matches!(index, 8 | 13 | 18 | 23) && character.is_ascii_hexdigit()),")
+	p.P(strconv.Quote("email"), " => value.split_once('@').is_some_and(|(_, domain)| domain.contains('.')), ")
+	p.P(strconv.Quote("uri"), " => value.split_once(\"://\").is_some_and(|(scheme, rest)| !scheme.is_empty() && !rest.is_empty()),")
+	p.P("_ => true,")
+	p.Dedent()
+	p.P("}")
+	p.Dedent()
+	p.P("}")
+	p.Blank()
 }
 
 func writeServerService(p *Printer, service *onkir.Service) {
@@ -192,18 +205,26 @@ func writeHandler(
 		}
 	}
 	for _, header := range combinedHeaders(service, method) {
-		if !header.Required() {
-			continue
+		format, hasFormat := header.Format()
+		p.P("let header_value = headers.get(", strconv.Quote(header.Name), ").and_then(|value| value.to_str().ok());")
+		if header.Required() {
+			p.P("if header_value.is_none_or(|value| value.is_empty()) {")
+			p.Indent()
+			p.P(
+				"return ", errorName, "::InvalidRequest(",
+				strconv.Quote("missing required header "+header.Name),
+				".into()).into_response();",
+			)
+			p.Dedent()
+			p.P("}")
 		}
-		p.P("if !headers.contains_key(", strconv.Quote(header.Name), ") {")
-		p.Indent()
-		p.P(
-			"return ", errorName, "::InvalidRequest(",
-			strconv.Quote("missing required header "+header.Name),
-			".into()).into_response();",
-		)
-		p.Dedent()
-		p.P("}")
+		if hasFormat {
+			p.P("if header_value.is_some_and(|value| !valid_header_format(value, ", strconv.Quote(format), ")) {")
+			p.Indent()
+			p.P("return ", errorName, "::InvalidRequest(", strconv.Quote("invalid header "+header.Name+": expected "+format), ".into()).into_response();")
+			p.Dedent()
+			p.P("}")
+		}
 	}
 	p.P("if let Err(error) = req.validate() { return ", errorName, "::Validation(error).into_response(); }")
 	p.P("let context = RequestContext { headers };")

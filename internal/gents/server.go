@@ -27,6 +27,7 @@ func serverCodecNames(file *onkir.File, resolver PackageResolver) []string {
 	for _, s := range file.Services {
 		for _, m := range s.Methods {
 			add("decode", m.Request)
+			add("validate", m.Request)
 			add("encode", m.Response)
 		}
 	}
@@ -82,6 +83,11 @@ func writeServerRuntime(p *Printer) {
 	p.P("}")
 	p.P("}")
 	p.P()
+	p.P("export interface RequestContext {")
+	p.P("request: Request;")
+	p.P("headers: Headers;")
+	p.P("}")
+	p.P()
 
 	p.P("export interface RouteDescriptor {")
 	p.P("method: string;")
@@ -119,6 +125,28 @@ func writeServerRuntime(p *Printer) {
 	p.P(`return jsonResponse({ message: err instanceof Error ? err.message : String(err) }, 500);`)
 	p.P("}")
 	p.P()
+	p.P("function parseScalar(value: string, kind: string, name: string): string | number | boolean {")
+	p.P("if (kind === \"string\" || kind === \"bytes\" || kind === \"timestamp\") return value;")
+	p.P("if (kind === \"bool\") {")
+	p.P(`if (value === "true") return true;`)
+	p.P(`if (value === "false") return false;`)
+	p.P(`throw new HttpError(400, { message: "invalid " + name + ": must be true or false" });`)
+	p.P("}")
+	p.P("const parsed = Number(value);")
+	p.P("if (!Number.isFinite(parsed) || ((kind.startsWith(\"int\") || kind.startsWith(\"uint\")) && !Number.isInteger(parsed))) {")
+	p.P(`throw new HttpError(400, { message: "invalid " + name });`)
+	p.P("}")
+	p.P(`if (kind.startsWith("uint") && parsed < 0) throw new HttpError(400, { message: "invalid " + name });`)
+	p.P("return parsed;")
+	p.P("}")
+	p.P()
+	p.P("function validHeaderFormat(value: string, format: string): boolean {")
+	p.P(`if (format === "uuid") return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value);`)
+	p.P(`if (format === "email") return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);`)
+	p.P(`if (format === "uri") { try { new URL(value); return true; } catch { return false; } }`)
+	p.P("return true;")
+	p.P("}")
+	p.P()
 }
 
 func writeHandlerInterface(p *Printer, s *onkir.Service) {
@@ -128,7 +156,7 @@ func writeHandlerInterface(p *Printer, s *onkir.Service) {
 			writeSSEHandlerMethod(p, m)
 		} else {
 			p.P(CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request),
-				"): Promise<", p.MessageTypeName(m.Response), ">;")
+				", context: RequestContext): Promise<", p.MessageTypeName(m.Response), ">;")
 		}
 	}
 	p.P("}")
@@ -171,9 +199,30 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		p.P(`if (!match) return new Response("Not Found", { status: 404 });`)
 	}
 
+	p.P("try {")
+	for _, header := range append(append([]*onkir.Header{}, s.Headers...), m.Headers...) {
+		format, hasFormat := header.Format()
+		p.P("{")
+		p.P("const value = req.headers.get(", fmt.Sprintf("%q", header.Name), ");")
+		if header.Required() {
+			p.P("if (!value) throw new HttpError(400, { message: ", fmt.Sprintf("%q", "missing required header: "+header.Name), " });")
+		}
+		if hasFormat {
+			p.P("if (value && !validHeaderFormat(value, ", fmt.Sprintf("%q", format), ")) throw new HttpError(400, { message: ", fmt.Sprintf("%q", "invalid header "+header.Name+": expected "+format), " });")
+		}
+		p.P("}")
+	}
 	p.P("const body: Record<string, unknown> = {};")
 	if bodyBearing {
-		p.P("Object.assign(body, await req.json());")
+		p.P("try {")
+		if bodyField, ok := m.BodyField(); ok {
+			p.P("body[", fmt.Sprintf("%q", bodyField), "] = await req.json();")
+		} else {
+			p.P("Object.assign(body, await req.json());")
+		}
+		p.P("} catch {")
+		p.P(`throw new HttpError(400, { message: "invalid request body" });`)
+		p.P("}")
 	} else {
 		writeServerQueryParams(p, m.Request)
 	}
@@ -183,12 +232,18 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 			if field == nil {
 				continue
 			}
-			p.P("body.", field.Name, " = match.", paramName, ";")
+			if field.Type != nil && field.Type.Kind == onkir.KindScalar {
+				p.P("body.", field.Name, " = parseScalar(match.", paramName, ", ", fmt.Sprintf("%q", field.Type.Scalar.String()), ", ", fmt.Sprintf("%q", "path parameter "+paramName), ");")
+			} else {
+				p.P("body.", field.Name, " = match.", paramName, ";")
+			}
 		}
 	}
 
-	p.P("try {")
-	p.P("const result = await handler.", CamelCase(m.Name), "(decode", m.Request.Name, "(body));")
+	p.P("const decoded = decode", m.Request.Name, "(body);")
+	p.P("const violations = validate", m.Request.Name, "(decoded);")
+	p.P("if (violations.length > 0) throw new HttpError(400, { message: violations.join(\"; \") });")
+	p.P("const result = await handler.", CamelCase(m.Name), "(decoded, { request: req, headers: req.headers });")
 	p.P("return jsonResponse(encode", m.Response.Name, "(result));")
 	p.P("} catch (err) {")
 	p.P("return errorResponse(err);")
@@ -210,22 +265,11 @@ func writeServerQueryParams(p *Printer, req *onkir.Message) {
 		}
 		p.P(fmt.Sprintf("const %s = url.searchParams.get(%q);", CamelCase(field.Name), queryName))
 		p.P("if (", CamelCase(field.Name), " !== null) {")
-		p.P("body.", field.Name, " = ", queryScalarConvert(field.Type.Scalar, CamelCase(field.Name)), ";")
+		p.P("body.", field.Name, " = ", queryScalarConvert(field.Type.Scalar, CamelCase(field.Name), "query parameter "+queryName), ";")
 		p.P("}")
 	}
 }
 
-func queryScalarConvert(kind onkir.ScalarKind, expr string) string {
-	switch kind {
-	case onkir.ScalarString, onkir.ScalarBytes, onkir.ScalarTimestamp:
-		return expr
-	case onkir.ScalarBool:
-		return expr + " === \"true\""
-	case onkir.ScalarInt32, onkir.ScalarInt64, onkir.ScalarUint32, onkir.ScalarUint64:
-		return "parseInt(" + expr + ", 10)"
-	case onkir.ScalarFloat32, onkir.ScalarFloat64:
-		return "parseFloat(" + expr + ")"
-	default:
-		return expr
-	}
+func queryScalarConvert(kind onkir.ScalarKind, expr, name string) string {
+	return fmt.Sprintf("parseScalar(%s, %q, %q)", expr, kind.String(), name)
 }

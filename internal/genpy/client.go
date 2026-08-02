@@ -7,6 +7,17 @@ import (
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
+func fileHasStreamMethods(file *onkir.File) bool {
+	for _, service := range file.Services {
+		for _, method := range service.Methods {
+			if method.IsStream() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // GenerateClient generates client.py treating every message/enum type as
 // local. Use GenerateClientWithResolver for a multi-package project where
 // some referenced types live in a different generated module.
@@ -27,6 +38,9 @@ func GenerateClientWithResolver(file *onkir.File, typesModule string, resolver P
 	p.P("import urllib.error")
 	p.P("import urllib.parse")
 	p.P("import urllib.request")
+	if fileHasStreamMethods(file) {
+		p.P("from typing import Iterator")
+	}
 	p.P()
 	if names := localReferencedTypeNames(file, resolver); len(names) > 0 {
 		p.P("from ", typesModule, " import ", strings.Join(names, ", "))
@@ -84,8 +98,79 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 	p.Blank()
 
 	for _, m := range s.Methods {
-		writeClientMethod(p, s, m)
+		if m.IsStream() {
+			writeSSEClientMethod(p, s, m)
+		} else {
+			writeClientMethod(p, s, m)
+		}
 	}
+	p.Dedent()
+	p.Blank()
+}
+
+func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
+	verb, _ := m.Verb()
+	path, _ := m.Path()
+	fullPath := s.BasePath + path
+	p.P("def ", SnakeCase(m.Name), "(self, req: ", p.MessageTypeName(m.Request), ") -> Iterator[", p.MessageTypeName(m.Response), "]:")
+	p.Indent()
+	p.P("if hasattr(req, \"validate\"): req.validate()")
+	p.P(fmt.Sprintf("path = %q", fullPath))
+	for _, paramName := range pathParamNames(path) {
+		field := findField(m.Request, paramName)
+		if field != nil {
+			p.P(fmt.Sprintf("path = path.replace(%q, urllib.parse.quote(str(req.%s), safe=\"\"))", "{"+paramName+"}", field.Name))
+		}
+	}
+	writeClientQueryParams(p, m.Request)
+	p.P(fmt.Sprintf("request = urllib.request.Request(self.base_url + path, method=%q)", strings.ToUpper(verb)))
+	p.P(`request.add_header("Accept", "text/event-stream")`)
+	p.P("for k, v in self.headers.items():")
+	p.Indent()
+	p.P("request.add_header(k, v)")
+	p.Dedent()
+	p.P("try:")
+	p.Indent()
+	p.P("with urllib.request.urlopen(request) as resp:")
+	p.Indent()
+	p.P("event = \"\"")
+	p.P("for raw_line in resp:")
+	p.Indent()
+	p.P("line = raw_line.decode(\"utf-8\").rstrip(\"\\r\\n\")")
+	p.P("if line.startswith(\"event: \"):")
+	p.Indent()
+	p.P("event = line[7:]")
+	p.P("continue")
+	p.Dedent()
+	p.P("if not line.startswith(\"data: \"):")
+	p.Indent()
+	p.P("continue")
+	p.Dedent()
+	p.P("payload = json.loads(line[6:])")
+	p.P("if event == \"error\":")
+	p.Indent()
+	p.P("raise Exception(str(payload))")
+	p.Dedent()
+	p.P("yield ", p.MessageTypeName(m.Response), ".from_dict(payload)")
+	p.P("event = \"\"")
+	p.Dedent()
+	p.Dedent()
+	p.Dedent()
+	p.P("except urllib.error.HTTPError as e:")
+	p.Indent()
+	p.P("error_body = e.read()")
+	for _, errType := range m.ErrorTypes {
+		status := 500
+		if code, ok := errType.StatusCode(); ok {
+			status = code
+		}
+		p.P(fmt.Sprintf("if e.code == %d:", status))
+		p.Indent()
+		p.P("raise ", p.MessageTypeName(errType), ".from_dict(json.loads(error_body)) from None")
+		p.Dedent()
+	}
+	p.P(`raise Exception(f"unexpected status {e.code}: {error_body.decode()}") from None`)
+	p.Dedent()
 	p.Dedent()
 	p.Blank()
 }
@@ -99,6 +184,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("def ", SnakeCase(m.Name), "(self, req: ", p.MessageTypeName(m.Request),
 		") -> ", p.MessageTypeName(m.Response), ":")
 	p.Indent()
+	p.P("if hasattr(req, \"validate\"): req.validate()")
 
 	p.P(fmt.Sprintf("path = %q", fullPath))
 	for _, paramName := range pathParamNames(path) {
@@ -117,7 +203,11 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	}
 
 	if bodyBearing {
-		p.P("body = json.dumps(req.to_dict()).encode(\"utf-8\")")
+		if bodyField, ok := m.BodyField(); ok {
+			p.P("body = json.dumps(req.to_dict()[", fmt.Sprintf("%q", bodyField), "]).encode(\"utf-8\")")
+		} else {
+			p.P("body = json.dumps(req.to_dict()).encode(\"utf-8\")")
+		}
 		p.P(fmt.Sprintf(
 			"request = urllib.request.Request(self.base_url + path, data=body, method=%q)",
 			strings.ToUpper(verb),

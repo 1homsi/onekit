@@ -91,7 +91,7 @@ func TestGenerateSSEEndpointHasEventStreamResponse(t *testing.T) {
 	if decodeErr := extNode.Decode(&extBody); decodeErr != nil {
 		t.Fatalf("decode x-sse-event-schema: %v", decodeErr)
 	}
-	if extBody.Ref != "#/components/schemas/Event" {
+	if extBody.Ref != "#/components/schemas/app.Event" {
 		t.Fatalf("expected x-sse-event-schema to ref Event schema, got %q", extBody.Ref)
 	}
 

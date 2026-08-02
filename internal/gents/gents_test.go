@@ -24,7 +24,7 @@ message User {
   id: string
   name: string @len(2, 100)
   email: string @email
-  bio: string? @nullable
+  bio: string?
   tags: string[]
   labels: map[string, string]
   home_address: Address

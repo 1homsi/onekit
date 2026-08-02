@@ -134,6 +134,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("func (c *", s.Name, "Client) ", PascalCase(m.Name),
 		"(ctx context.Context, req *", p.MessageTypeName(m.Request), ") (*",
 		p.MessageTypeName(m.Response), ", error) {")
+	p.P(`if validator, ok := any(req).(interface{ Validate() error }); ok { if err := validator.Validate(); err != nil { return nil, fmt.Errorf("validate request: %w", err) } }`)
 
 	p.P("path := ", fmt.Sprintf("%q", fullPath))
 	for _, paramName := range pathParamNames(path) {
@@ -146,7 +147,13 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	}
 
 	if bodyBearing {
-		p.P("body, err := json.Marshal(req)")
+		bodyExpr := "req"
+		if bodyField, ok := m.BodyField(); ok {
+			if field := findField(m.Request, bodyField); field != nil {
+				bodyExpr = "req." + PascalCase(field.Name)
+			}
+		}
+		p.P("body, err := json.Marshal(", bodyExpr, ")")
 		p.P("if err != nil {")
 		p.P(`return nil, fmt.Errorf("marshal request: %w", err)`)
 		p.P("}")

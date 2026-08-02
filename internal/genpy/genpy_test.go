@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
@@ -23,7 +24,7 @@ message User {
   id: string
   name: string @len(2, 100)
   email: string @email
-  bio: string? @nullable
+  bio: string?
   tags: string[]
   labels: map[string, string]
   home_address: Address
@@ -83,6 +84,28 @@ func TestGenerateClientProducesOutput(t *testing.T) {
 	out := GenerateClient(file, "models")
 	if len(out) == 0 {
 		t.Fatalf("expected non-empty generated client")
+	}
+}
+
+func TestGenerateStreamingClientProducesIterator(t *testing.T) {
+	ast, err := onklang.Parse(`
+package app
+message StreamRequest { channel: string @query }
+message Event { value: string }
+service Events { streamEvents(StreamRequest) -> Event @get("/events") @stream }
+`)
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "stream.onk", AST: ast}})
+	if err != nil {
+		t.Fatalf("compile fixture: %v", err)
+	}
+	out := string(GenerateClient(pkg.Files[0], "models"))
+	for _, want := range []string{"from typing import Iterator", "-> Iterator[Event]:", "text/event-stream", "yield Event.from_dict(payload)"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("generated streaming client missing %q:\n%s", want, out)
+		}
 	}
 }
 
