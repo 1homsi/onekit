@@ -17,6 +17,22 @@ func parseOrFatal(t *testing.T, src string) *onklang.File {
 	return f
 }
 
+func TestCompileAllowsLegacyContractFieldsWhenEnabled(t *testing.T) {
+	source := Source{Path: "api.onk", AST: parseOrFatal(t, `
+message LegacyRequest {
+  id: int64 @required
+  from: string
+}
+`)}
+
+	if _, err := Compile([]Source{source}); err == nil || !strings.Contains(err.Error(), "@required on non-string scalars") {
+		t.Fatalf("expected strict compile to reject legacy scalar presence, got %v", err)
+	}
+	if _, err := CompileWithOptions([]Source{source}, CompileOptions{AllowLegacyContracts: true}); err != nil {
+		t.Fatalf("legacy compile rejected existing contract: %v", err)
+	}
+}
+
 const modelsSrc = `
 package examples.simpleapi.models
 

@@ -211,6 +211,13 @@ func groupByDirectory(pkg *onkir.Package, schemaRoot string) (*sourceIndex, erro
 // Compile parses and compiles every .onk file under dir without generating
 // output. It also applies the same default service base paths used by Build.
 func Compile(dir string) (*onkir.Package, error) {
+	return CompileWithOptions(dir, onkcompile.CompileOptions{})
+}
+
+// CompileWithOptions parses and compiles every .onk file under dir with the
+// requested compatibility behavior. It also applies the same default
+// service base paths used by Build.
+func CompileWithOptions(dir string, options onkcompile.CompileOptions) (*onkir.Package, error) {
 	files, err := discoverOnkFiles(dir)
 	if err != nil {
 		return nil, err
@@ -222,7 +229,7 @@ func Compile(dir string) (*onkir.Package, error) {
 	if err != nil {
 		return nil, err
 	}
-	pkg, err := onkcompile.Compile(sources)
+	pkg, err := onkcompile.CompileWithOptions(sources, options)
 	if err != nil {
 		return nil, err
 	}
@@ -236,15 +243,18 @@ func Compile(dir string) (*onkir.Package, error) {
 // without generating output.
 func Check(dir string) error {
 	configPath := filepath.Join(dir, configFileName)
+	options := onkcompile.CompileOptions{}
 	if _, statErr := os.Stat(configPath); statErr == nil {
-		if _, configErr := LoadConfig(dir); configErr != nil {
+		cfg, configErr := LoadConfig(dir)
+		if configErr != nil {
 			return configErr
 		}
+		options.AllowLegacyContracts = cfg.AllowLegacyContracts
 	} else if !os.IsNotExist(statErr) {
 		return fmt.Errorf("stat %s: %w", configPath, statErr)
 	}
 
-	_, err := Compile(dir)
+	_, err := CompileWithOptions(dir, options)
 	return err
 }
 
@@ -336,7 +346,9 @@ func Build(dir string) error {
 		return err
 	}
 
-	pkg, err := Compile(dir)
+	pkg, err := CompileWithOptions(dir, onkcompile.CompileOptions{
+		AllowLegacyContracts: cfg.AllowLegacyContracts,
+	})
 	if err != nil {
 		return err
 	}

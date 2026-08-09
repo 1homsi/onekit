@@ -21,17 +21,17 @@ const (
 // cannot faithfully implement. Keeping this in the compiler makes every
 // generator share one contract instead of each backend silently ignoring a
 // spelling mistake or unsupported combination.
-func validateSyntax(sources []Source) error {
+func validateSyntax(sources []Source, options CompileOptions) error {
 	seenServices := map[string]string{}
 	seenRoutes := map[string]string{}
 	for _, src := range sources {
 		for _, message := range src.AST.Messages {
-			if err := validateMessageDecl(src.Path, message); err != nil {
+			if err := validateMessageDecl(src.Path, message, options); err != nil {
 				return err
 			}
 		}
 		for _, enum := range src.AST.Enums {
-			if err := validateEnumDecl(src.Path, enum); err != nil {
+			if err := validateEnumDecl(src.Path, enum, options); err != nil {
 				return err
 			}
 		}
@@ -43,7 +43,7 @@ func validateSyntax(sources []Source) error {
 				)}
 			}
 			seenServices[serviceKey] = src.Path
-			if err := validateServiceDecl(src.Path, service, seenRoutes); err != nil {
+			if err := validateServiceDecl(src.Path, service, seenRoutes, options); err != nil {
 				return err
 			}
 		}
@@ -78,7 +78,7 @@ var (
 	variantDecorators   = map[string]decoratorRule{"tag": {minArgs: 1, maxArgs: 1}, "json": {minArgs: 1, maxArgs: 1}}
 )
 
-func validateMessageDecl(path string, message *onklang.MessageDecl) error {
+func validateMessageDecl(path string, message *onklang.MessageDecl, options CompileOptions) error {
 	if err := validateDeclarationName(path, message.Line, message.Name); err != nil {
 		return err
 	}
@@ -88,8 +88,10 @@ func validateMessageDecl(path string, message *onklang.MessageDecl) error {
 	seenFields := map[string]string{}
 	unwrapCount := 0
 	for _, field := range message.Fields {
-		if err := validateMemberName(path, field.Line, field.Name); err != nil {
-			return err
+		if !options.AllowLegacyContracts {
+			if err := validateMemberName(path, field.Line, field.Name); err != nil {
+				return err
+			}
 		}
 		generated := generatedIdentifier(field.Name)
 		if previous, exists := seenFields[generated]; exists {
@@ -98,7 +100,7 @@ func validateMessageDecl(path string, message *onklang.MessageDecl) error {
 			)}
 		}
 		seenFields[generated] = field.Name
-		if err := validateFieldDecl(path, field); err != nil {
+		if err := validateFieldDecl(path, field, options); err != nil {
 			return err
 		}
 		if hasDecorator(field.Decorators, "unwrap") {
@@ -109,24 +111,24 @@ func validateMessageDecl(path string, message *onklang.MessageDecl) error {
 		return &Error{Path: path, Line: message.Line, Msg: "@unwrap requires a message with exactly one field"}
 	}
 	for _, nested := range message.Nested {
-		if err := validateMessageDecl(path, nested); err != nil {
+		if err := validateMessageDecl(path, nested, options); err != nil {
 			return err
 		}
 	}
 	for _, enum := range message.NestedEn {
-		if err := validateEnumDecl(path, enum); err != nil {
+		if err := validateEnumDecl(path, enum, options); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateFieldDecl(path string, field *onklang.FieldDecl) error {
+func validateFieldDecl(path string, field *onklang.FieldDecl, options CompileOptions) error {
 	if err := validateDecorators(path, field.Line, field.Decorators, fieldDecorators); err != nil {
 		return err
 	}
 	if field.Oneof == nil {
-		return validateFieldDecoratorSemantics(path, field)
+		return validateFieldDecoratorSemantics(path, field, options)
 	}
 	if err := validateOneofArgs(path, field.Line, field.Oneof.Args); err != nil {
 		return err
@@ -158,15 +160,17 @@ func validateFieldDecl(path string, field *onklang.FieldDecl) error {
 	return nil
 }
 
-func validateEnumDecl(path string, enum *onklang.EnumDecl) error {
+func validateEnumDecl(path string, enum *onklang.EnumDecl, options CompileOptions) error {
 	if err := validateDeclarationName(path, enum.Line, enum.Name); err != nil {
 		return err
 	}
 	seenNames := map[string]string{}
 	seenJSON := map[string]string{}
 	for _, value := range enum.Values {
-		if err := validateMemberName(path, value.Line, value.Name); err != nil {
-			return err
+		if !options.AllowLegacyContracts {
+			if err := validateMemberName(path, value.Line, value.Name); err != nil {
+				return err
+			}
 		}
 		if err := validateDecorators(path, value.Line, value.Decorators, enumValueDecorators); err != nil {
 			return err
@@ -212,7 +216,7 @@ func validateOneofArgs(path string, line int, args []onklang.Arg) error {
 	return nil
 }
 
-func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl) error {
+func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl, options CompileOptions) error {
 	if field.Type == nil {
 		return nil
 	}
@@ -256,7 +260,7 @@ func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl) 
 			return err
 		}
 	}
-	if hasDecorator(field.Decorators, "required") && !field.Optional && isScalarTypeRef(field.Type) &&
+	if !options.AllowLegacyContracts && hasDecorator(field.Decorators, "required") && !field.Optional && isScalarTypeRef(field.Type) &&
 		!isScalarNamed(field.Type, "string") {
 		return &Error{Path: filePath, Line: field.Line, Msg: "@required on non-string scalars needs the ? marker so generators can track presence"}
 	}
@@ -333,7 +337,7 @@ func isNumericTypeRef(typ *onklang.TypeRef) bool {
 	}[typ.Name]
 }
 
-func validateServiceDecl(filePath string, service *onklang.ServiceDecl, seenRoutes map[string]string) error {
+func validateServiceDecl(filePath string, service *onklang.ServiceDecl, seenRoutes map[string]string, options CompileOptions) error {
 	if err := validateDeclarationName(filePath, service.Line, service.Name); err != nil {
 		return err
 	}
@@ -345,8 +349,10 @@ func validateServiceDecl(filePath string, service *onklang.ServiceDecl, seenRout
 	}
 	seenMethods := map[string]string{}
 	for _, rpc := range service.RPCs {
-		if err := validateMemberName(filePath, rpc.Line, rpc.Name); err != nil {
-			return err
+		if !options.AllowLegacyContracts {
+			if err := validateMemberName(filePath, rpc.Line, rpc.Name); err != nil {
+				return err
+			}
 		}
 		generated := generatedIdentifier(rpc.Name)
 		if previous, exists := seenMethods[generated]; exists {

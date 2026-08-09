@@ -122,6 +122,21 @@ func TestCheckValidatesRoutePrefixWhenConfigExists(t *testing.T) {
 	}
 }
 
+func TestCheckAllowsLegacyContractsWhenConfigured(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/api\"\nallow_legacy_contracts = true\n")
+	writeTestFile(t, filepath.Join(dir, "models.onk"), `
+message LegacyRequest {
+  id: int64 @required
+  from: string
+}
+`)
+
+	if err := Check(dir); err != nil {
+		t.Fatalf("Check rejected configured legacy contract: %v", err)
+	}
+}
+
 func TestLoadConfigRejectsUnknownAndInvalidConfiguration(t *testing.T) {
 	tests := []struct {
 		name, config, want string
