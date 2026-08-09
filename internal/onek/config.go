@@ -34,9 +34,10 @@ type GenerateConfig struct {
 }
 
 type Config struct {
-	Module      string         `toml:"module"`
-	RoutePrefix string         `toml:"route_prefix"`
-	Generate    GenerateConfig `toml:"generate"`
+	Module               string         `toml:"module"`
+	RoutePrefix          string         `toml:"route_prefix"`
+	AllowLegacyContracts bool           `toml:"allow_legacy_contracts"`
+	Generate             GenerateConfig `toml:"generate"`
 
 	dir string
 }

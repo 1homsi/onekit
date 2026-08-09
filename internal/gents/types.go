@@ -140,7 +140,11 @@ func writeValidateFunc(p *Printer, m *onkir.Message) {
 		accessor := "v." + f.ts
 		present := accessor + " !== undefined && " + accessor + " !== null"
 		if field.HasDecorator("required") {
-			p.P("if (!(", present, ") || ", accessor, " === \"\") violations.push(", fmt.Sprintf("%q", field.Name+" is required"), ");")
+			required := "!(" + present + ")"
+			if field.Type != nil && field.Type.Kind == onkir.KindScalar && field.Type.Scalar == onkir.ScalarString {
+				required += " || " + accessor + " === \"\""
+			}
+			p.P("if (", required, ") violations.push(", fmt.Sprintf("%q", field.Name+" is required"), ");")
 		}
 		if field.Repeated {
 			if d, ok := field.Decorator("min_items"); ok {
@@ -196,13 +200,14 @@ func writeValidateFunc(p *Printer, m *onkir.Message) {
 			}
 		}
 		if isTSNumeric(field.Type.Scalar) {
+			numericAccessor := "Number(" + accessor + ")"
 			if d, ok := field.Decorator("range"); ok {
-				p.P("if (", present, " && (", accessor, " < ", d.Args[0].Value, " || ", accessor, " > ", d.Args[1].Value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" violates @range"), ");")
+				p.P("if (", present, " && (", numericAccessor, " < ", d.Args[0].Value, " || ", numericAccessor, " > ", d.Args[1].Value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" violates @range"), ");")
 			}
 			for _, rule := range []struct{ name, op string }{{"gt", ">"}, {"gte", ">="}, {"lt", "<"}, {"lte", "<="}} {
 				if d, ok := field.Decorator(rule.name); ok {
 					value, _ := d.Value()
-					p.P("if (", present, " && !(", accessor, " ", rule.op, " ", value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" violates @"+rule.name), ");")
+					p.P("if (", present, " && !(", numericAccessor, " ", rule.op, " ", value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" violates @"+rule.name), ");")
 				}
 			}
 		}

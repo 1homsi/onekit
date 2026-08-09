@@ -17,6 +17,56 @@ func parseOrFatal(t *testing.T, src string) *onklang.File {
 	return f
 }
 
+func TestCompileAllowsLegacyContractFieldsWhenEnabled(t *testing.T) {
+	source := Source{Path: "api.onk", AST: parseOrFatal(t, `
+message LegacyRequest {
+  id: int64 @required
+  from: string
+  nickname: string? @nullable
+}
+`)}
+
+	if _, err := Compile([]Source{source}); err == nil || !strings.Contains(err.Error(), "@required on non-string scalars") {
+		t.Fatalf("expected strict compile to reject legacy scalar presence, got %v", err)
+	}
+	if _, err := CompileWithOptions([]Source{source}, CompileOptions{AllowLegacyContracts: true}); err != nil {
+		t.Fatalf("legacy compile rejected existing contract: %v", err)
+	}
+}
+
+func TestCompileAllowsEmptyStringInSet(t *testing.T) {
+	source := Source{Path: "api.onk", AST: parseOrFatal(t, `
+message Request {
+  provider: string @in("", "google")
+}
+`)}
+
+	if _, err := Compile([]Source{source}); err != nil {
+		t.Fatalf("compile rejected an empty string @in value: %v", err)
+	}
+}
+
+func TestCompileScopesDefaultRoutesByPackage(t *testing.T) {
+	sources := []Source{
+		{Path: "booking/dashboard/service.onk", AST: parseOrFatal(t, `
+package booking.dashboard.v1
+message Request {}
+message Response {}
+service Dashboard { get(Request) -> Response @get("/dashboard") }
+`)},
+		{Path: "crm/dashboard/service.onk", AST: parseOrFatal(t, `
+package crm.dashboard.v1
+message Request {}
+message Response {}
+service Dashboard { get(Request) -> Response @get("/dashboard") }
+`)},
+	}
+
+	if _, err := Compile(sources); err != nil {
+		t.Fatalf("compile rejected package-scoped default routes: %v", err)
+	}
+}
+
 const modelsSrc = `
 package examples.simpleapi.models
 

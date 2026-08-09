@@ -24,6 +24,14 @@ type Source struct {
 	AST  *onklang.File
 }
 
+// CompileOptions controls compatibility behavior for existing contracts.
+// Legacy contracts may contain scalar @required annotations and member names
+// that are valid for their configured generators but fail newer cross-target
+// validation rules.
+type CompileOptions struct {
+	AllowLegacyContracts bool
+}
+
 // dirMsg/dirEnum pair a declaration with the source directory it came from,
 // used to resolve cross-directory references and report ambiguous ones.
 type dirMsg struct {
@@ -55,7 +63,15 @@ type compiler struct {
 }
 
 func Compile(sources []Source) (*onkir.Package, error) {
-	if err := validateSyntax(sources); err != nil {
+	return CompileWithOptions(sources, CompileOptions{})
+}
+
+// CompileWithOptions compiles a contract while keeping structural validation
+// enabled. AllowLegacyContracts only relaxes the newer scalar-presence and
+// Python-member-name checks so existing Go/TypeScript contract trees can move
+// to newer generators without changing their wire model in one step.
+func CompileWithOptions(sources []Source, options CompileOptions) (*onkir.Package, error) {
+	if err := validateSyntax(sources, options); err != nil {
 		return nil, err
 	}
 
