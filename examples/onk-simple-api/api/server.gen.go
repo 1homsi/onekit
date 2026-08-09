@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -17,6 +18,17 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"message": message})
+}
+
+func writeHandlerError(w http.ResponseWriter, err error) {
+	status := http.StatusInternalServerError
+	var statusErr interface{ HTTPStatusCode() int }
+	if errors.As(err, &statusErr) {
+		if candidate := statusErr.HTTPStatusCode(); candidate >= 100 && candidate <= 599 {
+			status = candidate
+		}
+	}
+	writeJSONError(w, status, err.Error())
 }
 
 func parseInt32(s string) (int32, error) { v, err := strconv.ParseInt(s, 10, 32); return int32(v), err }
@@ -251,7 +263,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 		}
 		resp, err := srv.CreateUser(r.Context(), req)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			writeHandlerError(w, err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -284,7 +296,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 		}
 		resp, err := srv.GetUser(r.Context(), req)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			writeHandlerError(w, err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -328,7 +340,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 		}
 		resp, err := srv.Login(r.Context(), req)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			writeHandlerError(w, err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

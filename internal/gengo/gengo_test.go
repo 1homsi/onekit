@@ -124,6 +124,8 @@ func TestGenerateServerIncludesRuntimeHooks(t *testing.T) {
 		"func WithAuthorizer(authorizer Authorizer) ServerOption",
 		"func RequestMetadataFromContext(ctx context.Context)",
 		"func WithRequestObserver(observer RequestObserver) ServerOption",
+		"func writeHandlerError(w http.ResponseWriter, err error)",
+		"errors.As(err, &statusErr)",
 	} {
 		if !strings.Contains(string(out), want) {
 			t.Fatalf("generated server missing %q:\n%s", want, out)

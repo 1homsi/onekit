@@ -74,6 +74,7 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	p.P(`"context"`)
 	p.P(`"encoding/hex"`)
 	p.P(`"encoding/json"`)
+	p.P(`"errors"`)
 	p.P(`"fmt"`)
 	p.P(`"net/http"`)
 	p.P(`"regexp"`)
@@ -199,6 +200,17 @@ func writeRuntimeHelpers(p *Printer) {
 	p.P(`w.Header().Set("Content-Type", "application/json")`)
 	p.P(`w.WriteHeader(status)`)
 	p.P(`_ = json.NewEncoder(w).Encode(map[string]string{"message": message})`)
+	p.P(`}`)
+	p.P()
+	p.P(`func writeHandlerError(w http.ResponseWriter, err error) {`)
+	p.P(`status := http.StatusInternalServerError`)
+	p.P(`var statusErr interface { HTTPStatusCode() int }`)
+	p.P(`if errors.As(err, &statusErr) {`)
+	p.P(`if candidate := statusErr.HTTPStatusCode(); candidate >= 100 && candidate <= 599 {`)
+	p.P(`status = candidate`)
+	p.P(`}`)
+	p.P(`}`)
+	p.P(`writeJSONError(w, status, err.Error())`)
 	p.P(`}`)
 	p.P()
 	p.P(`func parseInt32(s string) (int32, error) { v, err := strconv.ParseInt(s, 10, 32); return int32(v), err }`)
@@ -455,7 +467,7 @@ func writeHeaderCheck(p *Printer, h *onkir.Header) {
 
 func writeErrorHandling(p *Printer, m *onkir.Method) {
 	if len(m.ErrorTypes) == 0 {
-		p.P(`writeJSONError(w, http.StatusInternalServerError, err.Error())`)
+		p.P(`writeHandlerError(w, err)`)
 		return
 	}
 	p.P("switch e := err.(type) {")
@@ -470,6 +482,6 @@ func writeErrorHandling(p *Printer, m *onkir.Method) {
 		p.P("_ = json.NewEncoder(w).Encode(e)")
 	}
 	p.P("default:")
-	p.P(`writeJSONError(w, http.StatusInternalServerError, err.Error())`)
+	p.P(`writeHandlerError(w, err)`)
 	p.P("}")
 }
