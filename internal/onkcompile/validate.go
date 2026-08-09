@@ -43,7 +43,11 @@ func validateSyntax(sources []Source, options CompileOptions) error {
 				)}
 			}
 			seenServices[serviceKey] = src.Path
-			if err := validateServiceDecl(src.Path, service, seenRoutes, options); err != nil {
+			routeScope := service.BasePath
+			if routeScope == "" {
+				routeScope = src.AST.Package
+			}
+			if err := validateServiceDecl(src.Path, service, routeScope, seenRoutes, options); err != nil {
 				return err
 			}
 		}
@@ -61,7 +65,7 @@ var (
 		"status": {minArgs: 1, maxArgs: 1},
 	}
 	fieldDecorators = map[string]decoratorRule{
-		"email": {}, "uuid": {}, "uri": {}, "required": {}, "unwrap": {},
+		"email": {}, "uuid": {}, "uri": {}, "required": {}, "nullable": {}, "unwrap": {},
 		"len": {minArgs: 2, maxArgs: 2}, "range": {minArgs: 2, maxArgs: 2},
 		"in": {minArgs: 1, maxArgs: -1}, "pattern": {minArgs: 1, maxArgs: 1},
 		"gt": {minArgs: 1, maxArgs: 1}, "gte": {minArgs: 1, maxArgs: 1},
@@ -220,7 +224,7 @@ func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl, 
 	if field.Type == nil {
 		return nil
 	}
-	if hasDecorator(field.Decorators, "nullable") {
+	if !options.AllowLegacyContracts && hasDecorator(field.Decorators, "nullable") {
 		return &Error{Path: filePath, Line: field.Line, Msg: "@nullable is unsupported; use the ? optional marker"}
 	}
 	if field.Repeated && hasDecorator(field.Decorators, "query") {
@@ -337,7 +341,7 @@ func isNumericTypeRef(typ *onklang.TypeRef) bool {
 	}[typ.Name]
 }
 
-func validateServiceDecl(filePath string, service *onklang.ServiceDecl, seenRoutes map[string]string, options CompileOptions) error {
+func validateServiceDecl(filePath string, service *onklang.ServiceDecl, routeScope string, seenRoutes map[string]string, options CompileOptions) error {
 	if err := validateDeclarationName(filePath, service.Line, service.Name); err != nil {
 		return err
 	}
@@ -365,7 +369,7 @@ func validateServiceDecl(filePath string, service *onklang.ServiceDecl, seenRout
 		if err != nil {
 			return err
 		}
-		key := strings.ToUpper(verb) + " " + service.BasePath + route
+		key := strings.ToUpper(verb) + " " + routeScope + route
 		if previous, exists := seenRoutes[key]; exists {
 			return &Error{Path: filePath, Line: rpc.Line, Msg: fmt.Sprintf(
 				"duplicate HTTP route %s (already declared by %s)", key, previous,
@@ -520,7 +524,7 @@ func validateDecorators(path string, line int, decorators []onklang.Decorator, r
 			if arg.Name != "" && (decorator.Name != flattenDecorator || arg.Name != "prefix") {
 				return &Error{Path: path, Line: line, Msg: fmt.Sprintf("@%s does not accept named argument %q", decorator.Name, arg.Name)}
 			}
-			if arg.Value == "" && decorator.Name != flattenDecorator {
+			if arg.Value == "" && decorator.Name != flattenDecorator && decorator.Name != "in" {
 				return &Error{Path: path, Line: line, Msg: fmt.Sprintf("@%s arguments must not be empty", decorator.Name)}
 			}
 		}
