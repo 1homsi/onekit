@@ -33,10 +33,9 @@ func fieldEncodeValue(f *onkir.Field) (string, bool) {
 
 // needsInt64StringEncoding mirrors gengo/gents: the wire representation of an
 // int64/uint64 field is a JSON string by default (cross-language JS safety),
-// unless overridden with @encode(number). Optional fields are excluded, same
-// documented gap as the other generators.
+// unless overridden with @encode(number).
 func needsInt64StringEncoding(f *onkir.Field) bool {
-	if f.Type == nil || f.Type.Kind != onkir.KindScalar || !isInt64Kind(f.Type.Scalar) || f.Optional {
+	if f.Type == nil || f.Type.Kind != onkir.KindScalar || !isInt64Kind(f.Type.Scalar) {
 		return false
 	}
 	v, _ := fieldEncodeValue(f)
@@ -109,10 +108,20 @@ func rootUnwrapField(m *onkir.Message) *onkir.Field {
 }
 
 func fileNeedsBase64Import(file *onkir.File) bool {
+	var containsBytes func(*onkir.Type) bool
+	containsBytes = func(typ *onkir.Type) bool {
+		if typ == nil {
+			return false
+		}
+		if typ.Kind == onkir.KindScalar {
+			return typ.Scalar == onkir.ScalarBytes
+		}
+		return typ.Kind == onkir.KindMap && containsBytes(typ.MapValue)
+	}
 	var walk func(m *onkir.Message) bool
 	walk = func(m *onkir.Message) bool {
 		for _, f := range m.Fields {
-			if f.Type != nil && f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarBytes && !f.Repeated {
+			if containsBytes(f.Type) {
 				return true
 			}
 		}

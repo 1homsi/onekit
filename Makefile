@@ -20,6 +20,7 @@ help:
 	@echo "  build            Build all generator binaries into ./bin"
 	@echo "  clean            Remove built binaries"
 	@echo "  fmt              Format Go code"
+	@echo "  fmt-schema       Format .onk schema files"
 	@echo "  install          Install local development tools"
 	@echo "  install-binaries Install generators to GOPATH/bin"
 	@echo "  lint             Run golangci-lint"
@@ -28,6 +29,7 @@ help:
 	@echo "  test             Run full test script"
 	@echo "  test-fast        Run fast test script"
 	@echo "  check-generated Verify committed example output is reproducible"
+	@echo "  check-schema     Verify .onk schema formatting and semantics"
 	@echo ""
 	@echo "Generators: $(BINARIES)"
 
@@ -90,6 +92,15 @@ install-binaries:
 fmt:
 	@echo "Formatting Go code..."
 	@go fmt ./...
+
+.PHONY: fmt-schema
+fmt-schema: build
+	@./bin/onek fmt
+
+.PHONY: check-schema
+check-schema: build
+	@./bin/onek fmt --check
+	@./bin/onek check
 
 .PHONY: lint
 lint:

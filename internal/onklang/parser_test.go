@@ -1,6 +1,9 @@
 package onklang
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 const sampleModels = `
 package examples.simpleapi.models
@@ -504,6 +507,12 @@ message M {
 	}
 }
 
+func TestParseRejectsUnterminatedBlockComment(t *testing.T) {
+	if _, err := Parse("/* comment"); err == nil || !strings.Contains(err.Error(), "unterminated block comment") {
+		t.Fatalf("expected unterminated block comment error, got %v", err)
+	}
+}
+
 func TestParseErrorUnionReturnTypes(t *testing.T) {
 	src := `
 package examples.simpleapi.services
@@ -557,5 +566,21 @@ message PlainMessage {
 	plain := f.Messages[1]
 	if len(plain.Decorators) != 0 {
 		t.Fatalf("expected no decorators on PlainMessage, got %+v", plain.Decorators)
+	}
+}
+
+func TestParseExtendedLiterals(t *testing.T) {
+	f, err := Parse(`message Values {
+  amount: float64 @range(-1.5e2, 2.5E+3)
+  label: string @pattern("\u0041+")
+}`)
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	if got := f.Messages[0].Fields[0].Decorators[0].Args[0].Value; got != "-1.5e2" {
+		t.Fatalf("lower bound = %q", got)
+	}
+	if got := f.Messages[0].Fields[1].Decorators[0].Args[0].Value; got != "A+" {
+		t.Fatalf("decoded pattern = %q", got)
 	}
 }

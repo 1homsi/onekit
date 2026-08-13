@@ -15,6 +15,9 @@ import (
 const (
 	flattenDecorator = "flatten"
 	postVerb         = "post"
+	putVerb          = "put"
+	patchVerb        = "patch"
+	queryVerb        = "query"
 )
 
 // validateSyntax rejects decorators and RPC declarations that the generators
@@ -140,16 +143,9 @@ func validateFieldDecl(path string, field *onklang.FieldDecl, options CompileOpt
 	seenNames := map[string]string{}
 	seenTags := map[string]string{}
 	for _, variant := range field.Oneof.Variants {
-		if err := validateDecorators(path, variant.Line, variant.Decorators, variantDecorators); err != nil {
+		if err := validateNamedMember(path, variant.Line, variant.Name, variant.Decorators, variantDecorators, seenNames, "oneof variant"); err != nil {
 			return err
 		}
-		generated := generatedIdentifier(variant.Name)
-		if previous, exists := seenNames[generated]; exists {
-			return &Error{Path: path, Line: variant.Line, Msg: fmt.Sprintf(
-				"oneof variant %q collides with %q after target-language name conversion", variant.Name, previous,
-			)}
-		}
-		seenNames[generated] = variant.Name
 		tag := variant.Name
 		if decorator, ok := findDecorator(variant.Decorators, "tag"); ok {
 			tag = decorator.Args[0].Value
@@ -200,6 +196,23 @@ func validateEnumDecl(path string, enum *onklang.EnumDecl, options CompileOption
 	return nil
 }
 
+func validateNamedMember(path string, line int, name string, decorators []onklang.Decorator, rules map[string]decoratorRule, seen map[string]string, kind string) error {
+	if err := validateMemberName(path, line, name); err != nil {
+		return err
+	}
+	if err := validateDecorators(path, line, decorators, rules); err != nil {
+		return err
+	}
+	generated := generatedIdentifier(name)
+	if previous, exists := seen[generated]; exists {
+		return &Error{Path: path, Line: line, Msg: fmt.Sprintf(
+			"%s %q collides with %q after target-language name conversion", kind, name, previous,
+		)}
+	}
+	seen[generated] = name
+	return nil
+}
+
 func validateOneofArgs(path string, line int, args []onklang.Arg) error {
 	seen := map[string]bool{}
 	for _, arg := range args {
@@ -227,11 +240,11 @@ func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl, 
 	if !options.AllowLegacyContracts && hasDecorator(field.Decorators, "nullable") {
 		return &Error{Path: filePath, Line: field.Line, Msg: "@nullable is unsupported; use the ? optional marker"}
 	}
-	if field.Repeated && hasDecorator(field.Decorators, "query") {
-		return &Error{Path: filePath, Line: field.Line, Msg: "@query currently supports only non-repeated scalar fields"}
-	}
-	if hasDecorator(field.Decorators, "query") && !isScalarTypeRef(field.Type) {
+	if hasDecorator(field.Decorators, "query") && (!isScalarTypeRef(field.Type) || field.Type.IsMap) {
 		return &Error{Path: filePath, Line: field.Line, Msg: "@query requires a scalar field"}
+	}
+	if hasDecorator(field.Decorators, "query") && !isHTTPParameterTypeRef(field.Type) {
+		return &Error{Path: filePath, Line: field.Line, Msg: "@query supports string, bool, integer, and float scalar fields"}
 	}
 	for _, decorator := range field.Decorators {
 		switch decorator.Name {
@@ -328,8 +341,31 @@ func isScalarTypeRef(typ *onklang.TypeRef) bool {
 	ok := map[string]bool{
 		"string": true, "bool": true, "int32": true, "int64": true, "uint32": true,
 		"uint64": true, "float32": true, "float64": true, "bytes": true, "timestamp": true,
+		"json": true,
 	}[typ.Name]
 	return ok
+}
+
+func isHTTPParameterTypeRef(typ *onklang.TypeRef) bool {
+	if typ == nil || typ.IsMap {
+		return false
+	}
+	switch typ.Name {
+	case "string", "bool", "int32", "int64", "uint32", "uint64", "float32", "float64":
+		return true
+	default:
+		return false
+	}
+}
+
+func isHTTPParameterScalar(kind onkir.ScalarKind) bool {
+	switch kind {
+	case onkir.ScalarString, onkir.ScalarBool, onkir.ScalarInt32, onkir.ScalarInt64,
+		onkir.ScalarUint32, onkir.ScalarUint64, onkir.ScalarFloat32, onkir.ScalarFloat64:
+		return true
+	default:
+		return false
+	}
 }
 
 func isNumericTypeRef(typ *onklang.TypeRef) bool {
@@ -462,7 +498,7 @@ func validateRPC(path string, rpc *onklang.RPCDecl) (string, string, error) {
 		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "invalid RPC route: " + err.Error()}
 	}
 	if body, ok := findDecorator(rpc.Decorators, "body"); ok {
-		if verb != postVerb && verb != "put" && verb != "patch" && verb != "query" {
+		if verb != postVerb && verb != putVerb && verb != patchVerb && verb != queryVerb {
 			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@body requires a body-bearing HTTP verb"}
 		}
 		if len(body.Args) != 1 || body.Args[0].Value == "" {
@@ -499,7 +535,7 @@ func validateHTTPPath(value string, allowEmpty bool) error {
 
 func isHTTPVerb(name string) bool {
 	switch name {
-	case "get", postVerb, "put", "delete", "patch", "query":
+	case "get", postVerb, putVerb, "delete", patchVerb, queryVerb:
 		return true
 	default:
 		return false
@@ -579,6 +615,9 @@ var pythonMemberKeywords = map[string]bool{
 }
 
 func validateDeclarationName(path string, line int, name string) error {
+	if generatedIdentifier(name) == "" {
+		return &Error{Path: path, Line: line, Msg: fmt.Sprintf("declaration name %q does not produce a valid generated identifier", name)}
+	}
 	if reservedDeclarationNames[strings.ToLower(name)] {
 		return &Error{Path: path, Line: line, Msg: fmt.Sprintf("declaration name %q is reserved in a generated target language", name)}
 	}
@@ -586,6 +625,9 @@ func validateDeclarationName(path string, line int, name string) error {
 }
 
 func validateMemberName(path string, line int, name string) error {
+	if generatedIdentifier(name) == "" {
+		return &Error{Path: path, Line: line, Msg: fmt.Sprintf("member name %q does not produce a valid generated identifier", name)}
+	}
 	if pythonMemberKeywords[strings.ToLower(name)] {
 		return &Error{Path: path, Line: line, Msg: fmt.Sprintf("member name %q is reserved in Python", name)}
 	}
@@ -716,7 +758,14 @@ func validateMethodBindings(filePath string, method *onkir.Method) error {
 		if field == nil || field.Type == nil || field.Type.Kind != onkir.KindScalar || field.Repeated {
 			return &Error{Path: filePath, Msg: fmt.Sprintf("path parameter %q on RPC %s requires one non-repeated scalar request field", name, method.Name)}
 		}
+		if field.Optional {
+			return &Error{Path: filePath, Msg: fmt.Sprintf("path parameter %q on RPC %s cannot be optional", name, method.Name)}
+		}
+		if !isHTTPParameterScalar(field.Type.Scalar) {
+			return &Error{Path: filePath, Msg: fmt.Sprintf("path parameter %q on RPC %s supports string, bool, integer, and float scalar fields", name, method.Name)}
+		}
 	}
+	verb, _ := method.Verb()
 	seenQuery := map[string]string{}
 	for _, field := range method.Request.Fields {
 		decorator, ok := field.Decorator("query")
@@ -726,6 +775,9 @@ func validateMethodBindings(filePath string, method *onkir.Method) error {
 		name, _ := decorator.Value()
 		if name == "" {
 			name = field.Name
+		}
+		if isBodyBearingVerb(verb) {
+			return &Error{Path: filePath, Msg: fmt.Sprintf("@query field %q is not allowed on body-bearing RPC %s", field.Name, method.Name)}
 		}
 		if previous, exists := seenQuery[name]; exists {
 			return &Error{Path: filePath, Msg: fmt.Sprintf("query parameter %q is bound by both %s and %s", name, previous, field.Name)}
@@ -745,6 +797,10 @@ func validateMethodBindings(filePath string, method *onkir.Method) error {
 		}
 	}
 	return nil
+}
+
+func isBodyBearingVerb(verb string) bool {
+	return verb == postVerb || verb == putVerb || verb == patchVerb || verb == queryVerb
 }
 
 func methodField(message *onkir.Message, name string) *onkir.Field {

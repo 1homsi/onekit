@@ -107,13 +107,18 @@ contain query strings, fragments, percent escapes, or path parameters.
 ```bash
 onek check   # parse + compile every .onk file, no codegen - fast validation
 onek build   # parse + compile + generate everything configured in onekit.toml
+onek fmt     # canonicalize .onk files (use --check in CI)
+onek init ./my-api
+onek watch   # rebuild on schema/config changes until interrupted
 ```
 
 Go client and server targets must use the same output directory because they
 share one generated types package. Successful builds remove obsolete OneKit-
 generated files from configured output roots while preserving handwritten
-files. Maps use string keys on the JSON wire, and optional scalar presence is
-declared with `?` (for example, `count: int32?`).
+files. Maps use string keys on the JSON wire, `json` fields preserve arbitrary
+JSON values, and optional scalar presence is declared with `?` (for example,
+`count: int32?`). Repeated scalar query parameters are emitted as repeated
+`name=value` pairs across the supported HTTP clients and OpenAPI document.
 
 Use `@body("field_name")` to bind one request field as the body of a POST, PUT,
 PATCH, or QUERY RPC. Header contracts support required values, UUID/email/URI
@@ -151,7 +156,16 @@ uuid = "1"           # @uuid
 validator = "0.20"   # @email
 ```
 
-`onek fmt` is not implemented yet. `onek check` performs semantic validation as well as parsing: unsupported or misplaced decorators, invalid validator values, generated-name collisions, malformed bindings, duplicate routes or headers, invalid error statuses, and incompatible header/auth contracts are rejected before generation. `onek compat` compares nested types, fields, enums, oneofs, validators, routes, bindings, headers, streams, and typed errors, including configured route prefixes.
+`onek check` performs semantic validation as well as parsing: unsupported or
+misplaced decorators, invalid validator values, generated-name collisions,
+malformed bindings, duplicate routes or headers, invalid error statuses, and
+incompatible header/auth contracts are rejected before generation. Add
+`--json` for editor/CI diagnostics with path, line, column, code, and message
+fields. `onek compat` compares nested types, fields, enums, oneofs, validators,
+routes, bindings, headers, streams, and typed errors, including configured
+route prefixes; `onek compat --json` emits stable machine-readable findings.
+Successful builds write an ignored `.onekit/manifest.json` containing the
+schema fingerprint and expected generated outputs.
 
 Install the CLI:
 
@@ -173,6 +187,6 @@ go install github.com/1homsi/onekit/cmd/onek@latest
 
 ## Status
 
-This is a young project that has completed its migration from the earlier protobuf-based design. It supports messages (scalars, repeated, optional, maps, nested types), enums, discriminated oneofs, field validation (`@email`, `@uuid`, `@uri`, `@pattern`, `@len`, `@range`, `@in`, `@required`, item counts), HTTP path/query/body binding, typed headers and error unions, SSE clients in Go, TypeScript, Python, and Rust, and Go/TypeScript/Python/Rust/OpenAPI generators.
+This is a young project that has completed its migration from the earlier protobuf-based design. It supports messages (scalars including arbitrary `json`, repeated, optional, maps, nested types), enums, discriminated oneofs, field validation (`@email`, `@uuid`, `@uri`, `@pattern`, `@len`, `@range`, `@in`, `@required`, item counts), HTTP path/query/body binding, typed headers and error unions, SSE clients in Go, TypeScript, Python, and Rust, and Go/TypeScript/Python/Rust/OpenAPI generators.
 
 JSON mapping is supported through `@flatten`, `@unwrap`, and `@encode(...)` for safe integer, enum, timestamp, and byte representations. Generated clients validate requests before sending, generated servers validate decoded requests, and nested validation is emitted consistently across targets. Generated Go servers also provide functional registration options for mux selection, middleware, request IDs, authorization, route metadata, and lifecycle observation.

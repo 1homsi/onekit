@@ -94,6 +94,7 @@ func writeMessage(p *Printer, m *onkir.Message) {
 		}
 		p.P("export type ", m.Name, " = ", tsType, ";")
 		p.P()
+		writeRootCodecFuncs(p, m)
 		for _, nested := range m.Nested {
 			writeMessage(p, nested)
 		}
@@ -125,6 +126,21 @@ func writeMessage(p *Printer, m *onkir.Message) {
 	for _, nested := range m.NestedEnums {
 		writeEnum(p, nested)
 	}
+}
+
+func writeRootCodecFuncs(p *Printer, m *onkir.Message) {
+	p.P("export function decode", m.Name, "(v: any): ", m.Name, " {")
+	p.P("return v as ", m.Name, ";")
+	p.P("}")
+	p.P()
+	p.P("export function encode", m.Name, "(v: ", m.Name, "): unknown {")
+	p.P("return v;")
+	p.P("}")
+	p.P()
+	p.P("export function validate", m.Name, "(_v: ", m.Name, "): string[] {")
+	p.P("return [];")
+	p.P("}")
+	p.P()
 }
 
 // writeValidateFunc keeps generated TypeScript servers honest with the same

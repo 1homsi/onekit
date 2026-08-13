@@ -109,6 +109,34 @@ service Events { streamEvents(StreamRequest) -> Event @get("/events") @stream }
 	}
 }
 
+func TestGenerateClientUsesJSONBooleanQueryValues(t *testing.T) {
+	ast, err := onklang.Parse(`
+package app
+message SearchRequest {
+  enabled: bool @query
+  tags: string[] @query("tag")
+}
+message SearchResponse { ok: bool }
+service SearchService {
+  search(SearchRequest) -> SearchResponse @get("/search")
+}
+`)
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "search.onk", AST: ast}})
+	if err != nil {
+		t.Fatalf("compile fixture: %v", err)
+	}
+	text := string(GenerateClient(pkg.Files[0], "models"))
+	if !strings.Contains(text, `("true" if req.enabled else "false")`) {
+		t.Fatalf("expected lowercase JSON boolean query encoding:\n%s", text)
+	}
+	if !strings.Contains(text, `query.append(("tag", str(value)))`) {
+		t.Fatalf("expected repeated query encoding:\n%s", text)
+	}
+}
+
 const serverHarness = `
 import http.server
 import json

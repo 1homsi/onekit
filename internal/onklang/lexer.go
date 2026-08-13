@@ -2,6 +2,7 @@ package onklang
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -31,7 +32,7 @@ func (l *Lexer) peekByteAt(off int) byte {
 	return l.src[l.pos+off]
 }
 
-func (l *Lexer) advance() byte {
+func (l *Lexer) advance() {
 	b := l.src[l.pos]
 	l.pos++
 	if b == '\n' {
@@ -40,11 +41,11 @@ func (l *Lexer) advance() byte {
 	} else {
 		l.col++
 	}
-	return b
 }
 
-func (l *Lexer) skipWhitespaceAndComments() string {
+func (l *Lexer) skipWhitespaceAndComments() (string, []string, error) {
 	var doc []string
+	var comments []string
 	for l.pos < len(l.src) {
 		b := l.peekByte()
 		switch {
@@ -60,26 +61,31 @@ func (l *Lexer) skipWhitespaceAndComments() string {
 			}
 			doc = append(doc, strings.TrimSpace(l.src[start:l.pos]))
 		case b == '/' && l.peekByteAt(1) == '/':
+			start := l.pos
 			for l.pos < len(l.src) && l.peekByte() != '\n' {
 				l.advance()
 			}
+			comments = append(comments, strings.TrimSpace(l.src[start:l.pos]))
 			doc = nil
 		case b == '/' && l.peekByteAt(1) == '*':
+			start := l.pos
 			l.advance()
 			l.advance()
 			for l.pos < len(l.src) && !(l.peekByte() == '*' && l.peekByteAt(1) == '/') {
 				l.advance()
 			}
-			if l.pos < len(l.src) {
-				l.advance()
-				l.advance()
+			if l.pos >= len(l.src) {
+				return "", nil, &Error{Line: l.line, Column: l.col, Message: "unterminated block comment"}
 			}
+			l.advance()
+			l.advance()
+			comments = append(comments, strings.TrimSpace(l.src[start:l.pos]))
 			doc = nil
 		default:
-			return strings.Join(doc, "\n")
+			return strings.Join(doc, "\n"), comments, nil
 		}
 	}
-	return strings.Join(doc, "\n")
+	return strings.Join(doc, "\n"), comments, nil
 }
 
 func isIdentStart(b byte) bool {
@@ -95,7 +101,10 @@ func isDigit(b byte) bool {
 }
 
 func (l *Lexer) Next() (Token, error) {
-	doc := l.skipWhitespaceAndComments()
+	doc, comments, err := l.skipWhitespaceAndComments()
+	if err != nil {
+		return Token{}, err
+	}
 	if l.pos >= len(l.src) {
 		return Token{Kind: EOF, Line: l.line, Col: l.col, Doc: doc}, nil
 	}
@@ -103,7 +112,7 @@ func (l *Lexer) Next() (Token, error) {
 	line, col := l.line, l.col
 	b := l.peekByte()
 	mk := func(k Kind, text string) Token {
-		return Token{Kind: k, Text: text, Line: line, Col: col, Doc: doc}
+		return Token{Kind: k, Text: text, Line: line, Col: col, Doc: doc, LeadingComments: comments}
 	}
 
 	switch {
@@ -114,27 +123,11 @@ func (l *Lexer) Next() (Token, error) {
 		}
 		return mk(IDENT, l.src[start:l.pos]), nil
 
-	case isDigit(b):
-		start := l.pos
-		isFloat := false
-		for l.pos < len(l.src) && isDigit(l.peekByte()) {
-			l.advance()
-		}
-		if l.peekByte() == '.' && isDigit(l.peekByteAt(1)) {
-			isFloat = true
-			l.advance()
-			for l.pos < len(l.src) && isDigit(l.peekByte()) {
-				l.advance()
-			}
-		}
-		kind := INT
-		if isFloat {
-			kind = FLOAT
-		}
-		return mk(kind, l.src[start:l.pos]), nil
+	case isDigit(b) || ((b == '-' || b == '+') && isDigit(l.peekByteAt(1))):
+		return l.lexNumber(line, col, doc, comments)
 
 	case b == '"':
-		return l.lexString(line, col, doc)
+		return l.lexString(line, col, doc, comments)
 
 	case b == '{':
 		l.advance()
@@ -181,16 +174,58 @@ func (l *Lexer) Next() (Token, error) {
 		r, size := utf8.DecodeRuneInString(l.src[l.pos:])
 		l.pos += size
 		return mk(ILLEGAL, string(r)),
-			fmt.Errorf("onklang: unexpected character %q at %d:%d", r, line, col)
+			&Error{Line: line, Column: col, Message: fmt.Sprintf("unexpected character %q", r)}
 	}
 }
 
-func (l *Lexer) lexString(line, col int, doc string) (Token, error) {
+func (l *Lexer) lexNumber(line, col int, doc string, comments []string) (Token, error) {
+	start := l.pos
+	if l.peekByte() == '-' || l.peekByte() == '+' {
+		l.advance()
+	}
+	for l.pos < len(l.src) && isDigit(l.peekByte()) {
+		l.advance()
+	}
+	isFloat := false
+	if l.peekByte() == '.' && isDigit(l.peekByteAt(1)) {
+		isFloat = true
+		l.advance()
+		for l.pos < len(l.src) && isDigit(l.peekByte()) {
+			l.advance()
+		}
+	}
+	if l.peekByte() == 'e' || l.peekByte() == 'E' {
+		isFloat = true
+		l.advance()
+		if l.peekByte() == '-' || l.peekByte() == '+' {
+			l.advance()
+		}
+		if !isDigit(l.peekByte()) {
+			return Token{}, &Error{Line: line, Column: col, Message: "invalid exponent"}
+		}
+		for l.pos < len(l.src) && isDigit(l.peekByte()) {
+			l.advance()
+		}
+	}
+	text := l.src[start:l.pos]
+	if isFloat {
+		if _, err := strconv.ParseFloat(text, 64); err != nil {
+			return Token{}, &Error{Line: line, Column: col, Message: fmt.Sprintf("invalid number %q", text)}
+		}
+		return Token{Kind: FLOAT, Text: text, Line: line, Col: col, Doc: doc, LeadingComments: comments}, nil
+	}
+	if _, err := strconv.ParseInt(text, 10, 64); err != nil {
+		return Token{}, &Error{Line: line, Column: col, Message: fmt.Sprintf("invalid integer %q", text)}
+	}
+	return Token{Kind: INT, Text: text, Line: line, Col: col, Doc: doc, LeadingComments: comments}, nil
+}
+
+func (l *Lexer) lexString(line, col int, doc string, comments []string) (Token, error) {
+	start := l.pos
 	l.advance()
-	var sb strings.Builder
 	for {
 		if l.pos >= len(l.src) {
-			return Token{}, fmt.Errorf("onklang: unterminated string literal starting at %d:%d", line, col)
+			return Token{}, &Error{Line: line, Column: col, Message: "unterminated string literal"}
 		}
 		b := l.peekByte()
 		if b == '"' {
@@ -199,22 +234,21 @@ func (l *Lexer) lexString(line, col int, doc string) (Token, error) {
 		}
 		if b == '\\' {
 			l.advance()
-			esc := l.advance()
-			switch esc {
-			case 'n':
-				sb.WriteByte('\n')
-			case 't':
-				sb.WriteByte('\t')
-			case '"':
-				sb.WriteByte('"')
-			case '\\':
-				sb.WriteByte('\\')
-			default:
-				sb.WriteByte(esc)
+			if l.pos >= len(l.src) {
+				return Token{}, &Error{Line: line, Column: col, Message: "unterminated string literal"}
 			}
+			l.advance()
 			continue
 		}
-		sb.WriteByte(l.advance())
+		if b == '\n' || b == '\r' {
+			return Token{}, &Error{Line: line, Column: col, Message: "newline in string literal"}
+		}
+		l.advance()
 	}
-	return Token{Kind: STRING, Text: sb.String(), Line: line, Col: col, Doc: doc}, nil
+	raw := l.src[start:l.pos]
+	value, err := strconv.Unquote(raw)
+	if err != nil {
+		return Token{}, &Error{Line: line, Column: col, Message: fmt.Sprintf("invalid string literal: %v", err)}
+	}
+	return Token{Kind: STRING, Text: value, Line: line, Col: col, Doc: doc, LeadingComments: comments}, nil
 }

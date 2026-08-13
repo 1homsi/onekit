@@ -3,13 +3,17 @@ package examples.onksimpleapi.models
 /// A system user.
 message User {
   id: string @uuid
+
   name: string @len(1, 100)
+
   email: string @email
+
   created_at: int64
 }
 
 message CreateUserRequest {
   name: string @len(2, 100)
+
   email: string @email
 }
 
@@ -19,44 +23,66 @@ message GetUserRequest {
 
 message EmailAuth {
   email: string @email
+
   password: string @len(8, 72)
+
   use_two_factor: bool
+
   two_factor_code: string
 }
 
 message TokenAuth {
   token: string @len(10, 256)
+
   token_type: string
+
   issued_at: int64
 }
 
 message SocialAuth {
   provider: string @in("google", "github", "facebook", "apple")
+
   access_token: string @len(20, 512)
+
   redirect_uri: string
+
   state: string
+
   permissions: string[]
 }
 
 message LoginRequest {
   device_id: string
+
   ip_address: string
+
   retry_count: int32
+
   user_agent: string
+
   auth_method: oneof(discriminator: "auth_type") {
     email: EmailAuth
+
     token: TokenAuth
+
     social: SocialAuth
   }
+
   remember_me: bool
+
   session_id: string
+
   timestamp: int64
+
   scopes: string[]
 }
 
 message LoginResponse {
   access_token: string
+
   refresh_token: string
+
   expires_in: int64
+
   user: User
 }

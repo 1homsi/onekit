@@ -1,5 +1,20 @@
 package onklang
 
+import "fmt"
+
+// Error is a location-aware lexer/parser diagnostic. Keeping the location as
+// structured data lets the CLI expose editor-friendly JSON without parsing
+// the human-readable error string.
+type Error struct {
+	Line    int    `json:"line"`
+	Column  int    `json:"column"`
+	Message string `json:"message"`
+}
+
+func (e *Error) Error() string {
+	return fmt.Sprintf("onklang:%d:%d: %s", e.Line, e.Column, e.Message)
+}
+
 type Kind int
 
 const (
@@ -27,11 +42,12 @@ const (
 )
 
 type Token struct {
-	Kind Kind
-	Text string
-	Line int
-	Col  int
-	Doc  string
+	Kind            Kind
+	Text            string
+	Line            int
+	Col             int
+	Doc             string
+	LeadingComments []string
 }
 
 func (k Kind) String() string {

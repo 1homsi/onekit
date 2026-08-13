@@ -9,7 +9,10 @@ import (
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
-type Finding struct{ Path, Message string }
+type Finding struct {
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
 
 func Compare(previous, current *onkir.Package) []Finding {
 	var findings []Finding
@@ -153,9 +156,17 @@ func fieldTypeSignature(field *onkir.Field) string {
 	parts := []string{typeName(field.Type), fmt.Sprintf("optional=%t", field.Optional), fmt.Sprintf("repeated=%t", field.Repeated)}
 	if field.Oneof != nil {
 		parts = append(parts, "oneof")
+		variants := make([]string, 0, len(field.Oneof.Variants))
 		for _, variant := range field.Oneof.Variants {
-			parts = append(parts, variant.Name+":"+typeName(variant.Type)+":"+variant.Tag())
+			decorators := make([]string, 0, len(variant.Decorators))
+			for _, decorator := range variant.Decorators {
+				decorators = append(decorators, decoratorSignature(decorator))
+			}
+			sort.Strings(decorators)
+			variants = append(variants, variant.Name+":"+typeName(variant.Type)+":"+variant.Tag()+":"+strings.Join(decorators, ","))
 		}
+		sort.Strings(variants)
+		parts = append(parts, "variants="+strings.Join(variants, "|"))
 		if discriminator, ok := field.Oneof.Discriminator(); ok {
 			parts = append(parts, "discriminator="+discriminator)
 		}
@@ -239,6 +250,9 @@ func methodSignature(service *onkir.Service, method *onkir.Method) string {
 	for _, field := range method.Request.Fields {
 		if query, ok := field.Decorator("query"); ok {
 			name, _ := query.Value()
+			if name == "" {
+				name = field.Name
+			}
 			parts = append(parts, "query="+field.Name+":"+name)
 		}
 	}

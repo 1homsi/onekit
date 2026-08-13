@@ -178,7 +178,11 @@ func writeServerOptions(p *Printer) {
 	p.P(`if requestID != "" { w.Header().Set(o.requestIDHeader, requestID); ctx = context.WithValue(ctx, requestIDContextKey{}, requestID) }`)
 	p.P(`}`)
 	p.P(`if o.authorizer != nil {`)
-	p.P(`if err := o.authorizer(ctx, metadata, r); err != nil { writeJSONError(w, http.StatusUnauthorized, err.Error()); return }`)
+	p.P(`if err := o.authorizer(ctx, metadata, r); err != nil {`)
+	p.P(`var statusErr interface{ HTTPStatusCode() int }`)
+	p.P(`if errors.As(err, &statusErr) { writeHandlerError(w, err) } else { writeJSONError(w, http.StatusUnauthorized, err.Error()) }`)
+	p.P(`return`)
+	p.P(`}`)
 	p.P(`}`)
 	p.P(`if o.observer == nil { handler.ServeHTTP(w, r.WithContext(ctx)); return }`)
 	p.P(`started := time.Now()`)
@@ -189,8 +193,10 @@ func writeServerOptions(p *Printer) {
 	p.P(`})`)
 	p.P(`}`)
 	p.P()
-	p.P(`type statusResponseWriter struct { http.ResponseWriter; statusCode int }`)
-	p.P(`func (w *statusResponseWriter) WriteHeader(statusCode int) { w.statusCode = statusCode; w.ResponseWriter.WriteHeader(statusCode) }`)
+	p.P(`type statusResponseWriter struct { http.ResponseWriter; statusCode int; wroteHeader bool }`)
+	p.P(`func (w *statusResponseWriter) WriteHeader(statusCode int) { if w.wroteHeader { return }; w.wroteHeader = true; w.statusCode = statusCode; w.ResponseWriter.WriteHeader(statusCode) }`)
+	p.P(`func (w *statusResponseWriter) Write(data []byte) (int, error) { if !w.wroteHeader { w.WriteHeader(http.StatusOK) }; return w.ResponseWriter.Write(data) }`)
+	p.P(`func (w *statusResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }`)
 	p.P(`func (w *statusResponseWriter) Flush() { if flusher, ok := w.ResponseWriter.(http.Flusher); ok { flusher.Flush() } }`)
 	p.P()
 }
@@ -292,13 +298,31 @@ func isBodyBearingVerb(verb string) bool {
 
 func writeBodyBinding(p *Printer, method *onkir.Method) {
 	target := "req"
-	if bodyField, ok := method.BodyField(); ok {
-		if field := findField(method.Request, bodyField); field != nil {
+	var bodyField *onkir.Field
+	if bodyName, ok := method.BodyField(); ok {
+		if field := findField(method.Request, bodyName); field != nil {
 			target = "&req." + PascalCase(field.Name)
+			bodyField = field
 		}
 	}
 	p.P("if r.Body != nil {")
-	p.P("if err := json.NewDecoder(r.Body).Decode(", target, "); err != nil && err.Error() != \"EOF\" {")
+	if bodyField != nil && bodyFieldNeedsCustomJSON(bodyField) {
+		p.P("var bodyValue json.RawMessage")
+		p.P("if err := json.NewDecoder(r.Body).Decode(&bodyValue); err != nil && err.Error() != \"EOF\" {")
+		p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body: "+err.Error())`)
+		p.P("return")
+		p.P("}")
+		p.P("var bodyObject struct { Value json.RawMessage `json:\"", bodyField.Name, "\"` }")
+		p.P("bodyObject.Value = bodyValue")
+		p.P("bodyData, err := json.Marshal(bodyObject)")
+		p.P("if err != nil {")
+		p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body: "+err.Error())`)
+		p.P("return")
+		p.P("}")
+		p.P("if err := json.Unmarshal(bodyData, req); err != nil {")
+	} else {
+		p.P("if err := json.NewDecoder(r.Body).Decode(", target, "); err != nil && err.Error() != \"EOF\" {")
+	}
 	p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body: "+err.Error())`)
 	p.P("return")
 	p.P("}")
@@ -334,12 +358,32 @@ func writeQueryParamBinding(p *Printer, req *onkir.Message) {
 		if queryName == "" {
 			queryName = field.Name
 		}
-		strExpr := fmt.Sprintf("r.URL.Query().Get(%q)", queryName)
-		p.P("if ", strExpr, " != \"\" {")
+		if field.Repeated {
+			valuesExpr := fmt.Sprintf("r.URL.Query()[%q]", queryName)
+			p.P("if values := ", valuesExpr, "; len(values) > 0 {")
+			p.P("req.", PascalCase(field.Name), " = make([]", p.GoFieldType(field.Type), ", 0, len(values))")
+			p.P("for _, value := range values {")
+			if field.Type.Scalar == onkir.ScalarString {
+				p.P("req.", PascalCase(field.Name), " = append(req.", PascalCase(field.Name), ", value)")
+			} else if call, ok := scalarParseCall(field.Type.Scalar, "value"); ok {
+				parsed := "parsed" + PascalCase(field.Name)
+				p.P(parsed, ", err := ", call)
+				p.P("if err != nil {")
+				p.P(`writeJSONError(w, http.StatusBadRequest, "invalid query parameter `, queryName, `: "+err.Error())`)
+				p.P("return")
+				p.P("}")
+				p.P("req.", PascalCase(field.Name), " = append(req.", PascalCase(field.Name), ", ", parsed, ")")
+			}
+			p.P("}")
+			p.P("}")
+			continue
+		}
+		p.P("if values := r.URL.Query()[", fmt.Sprintf("%q", queryName), "]; len(values) > 0 {")
+		p.P("value := values[0]")
 		if field.Type.Scalar == onkir.ScalarString {
-			writeBoundFieldAssignment(p, field, strExpr)
+			writeBoundFieldAssignment(p, field, "value")
 		} else {
-			call, ok := scalarParseCall(field.Type.Scalar, strExpr)
+			call, ok := scalarParseCall(field.Type.Scalar, "value")
 			if ok {
 				writeParsedFieldAssignment(p, field, call, "query parameter "+queryName)
 			}

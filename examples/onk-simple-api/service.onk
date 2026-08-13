@@ -3,7 +3,6 @@ package examples.onksimpleapi.services
 /// UserService manages users in the system.
 service UserService {
   base_path: "/api/v1"
-
   headers: {
     "X-API-Key": string @required @format("uuid")
   }

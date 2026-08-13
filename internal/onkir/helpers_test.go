@@ -7,6 +7,7 @@ func TestParseScalarKindRoundTrip(t *testing.T) {
 		ScalarString, ScalarBool, ScalarInt32, ScalarInt64,
 		ScalarUint32, ScalarUint64, ScalarFloat32, ScalarFloat64,
 		ScalarBytes, ScalarTimestamp,
+		ScalarJSON,
 	}
 	for _, k := range kinds {
 		got, ok := ParseScalarKind(k.String())

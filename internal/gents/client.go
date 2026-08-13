@@ -243,7 +243,13 @@ func writeClientQueryParams(p *Printer, req *onkir.Message) {
 		}
 		tsName := CamelCase(field.Name)
 		p.P("if (req.", tsName, " !== undefined) {")
-		p.P(fmt.Sprintf("query.set(%q, String(req.%s));", queryName, tsName))
+		if field.Repeated {
+			p.P("for (const value of req.", tsName, ") {")
+			p.P(fmt.Sprintf("query.append(%q, String(value));", queryName))
+			p.P("}")
+		} else {
+			p.P(fmt.Sprintf("query.set(%q, String(req.%s));", queryName, tsName))
+		}
 		p.P("}")
 	}
 	p.P(`const queryStr = query.toString();`)

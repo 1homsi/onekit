@@ -3,6 +3,7 @@ package onkcompile
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/1homsi/onekit/internal/onkir"
@@ -10,12 +11,17 @@ import (
 )
 
 type Error struct {
-	Path string
-	Line int
-	Msg  string
+	Path   string `json:"path"`
+	Line   int    `json:"line,omitempty"`
+	Column int    `json:"column,omitempty"`
+	Code   string `json:"code,omitempty"`
+	Msg    string `json:"message"`
 }
 
 func (e *Error) Error() string {
+	if e.Column > 0 {
+		return fmt.Sprintf("%s:%d:%d: %s", e.Path, e.Line, e.Column, e.Msg)
+	}
 	return fmt.Sprintf("%s:%d: %s", e.Path, e.Line, e.Msg)
 }
 
@@ -30,6 +36,100 @@ type Source struct {
 // validation rules.
 type CompileOptions struct {
 	AllowLegacyContracts bool
+}
+
+// validateAndBuildImportScopes makes the import syntax meaningful without
+// breaking legacy schemas that omit imports. A file with imports may resolve
+// declarations from its own directory and the imported files (transitively);
+// files without imports retain the historical project-wide lookup behavior.
+func validateAndBuildImportScopes(sources []Source) (map[string]map[string]bool, error) {
+	byPath := make(map[string]Source, len(sources))
+	for _, source := range sources {
+		path := filepath.Clean(source.Path)
+		if _, exists := byPath[path]; exists {
+			return nil, &Error{Path: source.Path, Msg: "duplicate source path"}
+		}
+		byPath[path] = source
+	}
+
+	graph := make(map[string][]string)
+	for _, source := range sources {
+		path := filepath.Clean(source.Path)
+		seen := map[string]bool{}
+		for _, importPath := range source.AST.Imports {
+			if importPath == "" {
+				return nil, &Error{Path: source.Path, Msg: "import path must not be empty"}
+			}
+			if filepath.IsAbs(importPath) {
+				return nil, &Error{Path: source.Path, Msg: fmt.Sprintf("import %q must be relative", importPath)}
+			}
+			target := filepath.Clean(filepath.Join(filepath.Dir(path), filepath.FromSlash(importPath)))
+			if _, exists := byPath[target]; !exists {
+				return nil, &Error{Path: source.Path, Msg: fmt.Sprintf("import %q does not match a discovered .onk file", importPath)}
+			}
+			if seen[target] {
+				return nil, &Error{Path: source.Path, Msg: fmt.Sprintf("duplicate import %q", importPath)}
+			}
+			seen[target] = true
+			graph[path] = append(graph[path], target)
+		}
+	}
+
+	state := map[string]int{}
+	var visit func(string) error
+	visit = func(path string) error {
+		switch state[path] {
+		case 1:
+			return &Error{Path: path, Msg: "cyclic schema import"}
+		case 2:
+			return nil
+		}
+		state[path] = 1
+		for _, target := range graph[path] {
+			if err := visit(target); err != nil {
+				return err
+			}
+		}
+		state[path] = 2
+		return nil
+	}
+	paths := make([]string, 0, len(byPath))
+	for path := range byPath {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		if err := visit(path); err != nil {
+			return nil, err
+		}
+	}
+
+	var scopes map[string]map[string]bool
+	computed := map[string]bool{}
+	var scope func(string) map[string]bool
+	scope = func(path string) map[string]bool {
+		if computed[path] {
+			return scopes[path]
+		}
+		computed[path] = true
+		result := map[string]bool{filepath.Dir(path): true}
+		for _, target := range graph[path] {
+			for dir := range scope(target) {
+				result[dir] = true
+			}
+		}
+		if len(graph[path]) > 0 {
+			scopes[path] = result
+		}
+		return result
+	}
+	scopes = make(map[string]map[string]bool)
+	for _, path := range paths {
+		if len(graph[path]) > 0 {
+			scope(path)
+		}
+	}
+	return scopes, nil
 }
 
 // dirMsg/dirEnum pair a declaration with the source directory it came from,
@@ -60,6 +160,7 @@ type compiler struct {
 	declByDir     map[string]map[string]string
 	msgNode       map[*onklang.MessageDecl]*onkir.Message
 	enumNode      map[*onklang.EnumDecl]*onkir.Enum
+	importScopes  map[string]map[string]bool
 }
 
 func Compile(sources []Source) (*onkir.Package, error) {
@@ -74,6 +175,10 @@ func CompileWithOptions(sources []Source, options CompileOptions) (*onkir.Packag
 	if err := validateSyntax(sources, options); err != nil {
 		return nil, err
 	}
+	importScopes, err := validateAndBuildImportScopes(sources)
+	if err != nil {
+		return nil, err
+	}
 
 	c := &compiler{
 		msgByDir:      map[string]map[string]*onkir.Message{},
@@ -83,6 +188,7 @@ func CompileWithOptions(sources []Source, options CompileOptions) (*onkir.Packag
 		declByDir:     map[string]map[string]string{},
 		msgNode:       map[*onklang.MessageDecl]*onkir.Message{},
 		enumNode:      map[*onklang.EnumDecl]*onkir.Enum{},
+		importScopes:  importScopes,
 	}
 
 	var files []*onkir.File
@@ -137,14 +243,14 @@ func (c *compiler) declareMessage(
 ) (*onkir.Message, error) {
 	dir := filepath.Dir(path)
 	if _, exists := c.msgByDir[dir][md.Name]; exists {
-		return nil, &Error{Path: path, Line: md.Line, Msg: fmt.Sprintf("duplicate message name %q", md.Name)}
+		return nil, &Error{Path: path, Line: md.Line, Column: md.Col, Msg: fmt.Sprintf("duplicate message name %q", md.Name)}
 	}
 	if _, exists := c.enumByDir[dir][md.Name]; exists {
-		return nil, &Error{Path: path, Line: md.Line, Msg: fmt.Sprintf("name %q already used by an enum", md.Name)}
+		return nil, &Error{Path: path, Line: md.Line, Column: md.Col, Msg: fmt.Sprintf("name %q already used by an enum", md.Name)}
 	}
 	generated := generatedIdentifier(md.Name)
 	if previous := c.declByDir[dir][generated]; previous != "" {
-		return nil, &Error{Path: path, Line: md.Line, Msg: fmt.Sprintf(
+		return nil, &Error{Path: path, Line: md.Line, Column: md.Col, Msg: fmt.Sprintf(
 			"message name %q collides with %q after target-language name conversion", md.Name, previous,
 		)}
 	}
@@ -189,14 +295,14 @@ func (c *compiler) declareEnum(
 ) (*onkir.Enum, error) {
 	dir := filepath.Dir(path)
 	if _, exists := c.enumByDir[dir][ed.Name]; exists {
-		return nil, &Error{Path: path, Line: ed.Line, Msg: fmt.Sprintf("duplicate enum name %q", ed.Name)}
+		return nil, &Error{Path: path, Line: ed.Line, Column: ed.Col, Msg: fmt.Sprintf("duplicate enum name %q", ed.Name)}
 	}
 	if _, exists := c.msgByDir[dir][ed.Name]; exists {
-		return nil, &Error{Path: path, Line: ed.Line, Msg: fmt.Sprintf("name %q already used by a message", ed.Name)}
+		return nil, &Error{Path: path, Line: ed.Line, Column: ed.Col, Msg: fmt.Sprintf("name %q already used by a message", ed.Name)}
 	}
 	generated := generatedIdentifier(ed.Name)
 	if previous := c.declByDir[dir][generated]; previous != "" {
-		return nil, &Error{Path: path, Line: ed.Line, Msg: fmt.Sprintf(
+		return nil, &Error{Path: path, Line: ed.Line, Column: ed.Col, Msg: fmt.Sprintf(
 			"enum name %q collides with %q after target-language name conversion", ed.Name, previous,
 		)}
 	}
@@ -273,7 +379,7 @@ func (c *compiler) buildField(fd *onklang.FieldDecl, owner *onkir.Message, path 
 		return field, nil
 	}
 
-	typ, err := c.resolveType(fd.Type, path, fd.Line)
+	typ, err := c.resolveType(fd.Type, path, fd.Line, fd.Col)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +390,7 @@ func (c *compiler) buildField(fd *onklang.FieldDecl, owner *onkir.Message, path 
 func (c *compiler) buildOneof(od *onklang.OneofDecl, field *onkir.Field, path string) (*onkir.Oneof, error) {
 	oneof := &onkir.Oneof{Field: field, Args: convertArgs(od.Args)}
 	for _, vd := range od.Variants {
-		typ, err := c.resolveType(vd.Type, path, vd.Line)
+		typ, err := c.resolveType(vd.Type, path, vd.Line, vd.Col)
 		if err != nil {
 			return nil, err
 		}
@@ -333,6 +439,46 @@ func (c *compiler) lookupEnum(dir, name string) (*onkir.Enum, bool, error) {
 	default:
 		return nil, false, fmt.Errorf("ambiguous type %q found in multiple directories: %s", name, dirsOfEnum(matches))
 	}
+}
+
+func (c *compiler) lookupMessageForSource(path, name string) (*onkir.Message, bool, error) {
+	if scope, restricted := c.importScopes[filepath.Clean(path)]; restricted {
+		matches := make([]dirMsg, 0)
+		for _, match := range c.msgAllByName[name] {
+			if scope[match.dir] {
+				matches = append(matches, match)
+			}
+		}
+		switch len(matches) {
+		case 0:
+			return nil, false, nil
+		case 1:
+			return matches[0].msg, true, nil
+		default:
+			return nil, false, fmt.Errorf("ambiguous imported type %q found in multiple directories: %s", name, dirsOfMsg(matches))
+		}
+	}
+	return c.lookupMessage(filepath.Dir(path), name)
+}
+
+func (c *compiler) lookupEnumForSource(path, name string) (*onkir.Enum, bool, error) {
+	if scope, restricted := c.importScopes[filepath.Clean(path)]; restricted {
+		matches := make([]dirEnum, 0)
+		for _, match := range c.enumAllByName[name] {
+			if scope[match.dir] {
+				matches = append(matches, match)
+			}
+		}
+		switch len(matches) {
+		case 0:
+			return nil, false, nil
+		case 1:
+			return matches[0].enum, true, nil
+		default:
+			return nil, false, fmt.Errorf("ambiguous imported type %q found in multiple directories: %s", name, dirsOfEnum(matches))
+		}
+	}
+	return c.lookupEnum(filepath.Dir(path), name)
 }
 
 func dirsOfMsg(matches []dirMsg) string {
@@ -387,16 +533,42 @@ func (c *compiler) lookupQualifiedEnum(name string) (*onkir.Enum, bool) {
 	return nil, false
 }
 
-func (c *compiler) resolveType(t *onklang.TypeRef, path string, line int) (*onkir.Type, error) {
+func (c *compiler) lookupQualifiedMessageForSource(path, name string) (*onkir.Message, bool) {
+	message, found := c.lookupQualifiedMessage(name)
+	if !found {
+		return nil, false
+	}
+	if scope, restricted := c.importScopes[filepath.Clean(path)]; restricted {
+		if message.File == nil || !scope[filepath.Dir(message.File.Path)] {
+			return nil, false
+		}
+	}
+	return message, true
+}
+
+func (c *compiler) lookupQualifiedEnumForSource(path, name string) (*onkir.Enum, bool) {
+	enum, found := c.lookupQualifiedEnum(name)
+	if !found {
+		return nil, false
+	}
+	if scope, restricted := c.importScopes[filepath.Clean(path)]; restricted {
+		if enum.File == nil || !scope[filepath.Dir(enum.File.Path)] {
+			return nil, false
+		}
+	}
+	return enum, true
+}
+
+func (c *compiler) resolveType(t *onklang.TypeRef, path string, line, column int) (*onkir.Type, error) {
 	if t.IsMap {
 		keyKind, ok := onkir.ParseScalarKind(t.MapKey)
 		if !ok {
-			return nil, &Error{Path: path, Line: line, Msg: fmt.Sprintf("invalid map key type %q", t.MapKey)}
+			return nil, &Error{Path: path, Line: line, Column: column, Msg: fmt.Sprintf("invalid map key type %q", t.MapKey)}
 		}
 		if keyKind != onkir.ScalarString {
-			return nil, &Error{Path: path, Line: line, Msg: "map keys must be string for JSON and target-language parity"}
+			return nil, &Error{Path: path, Line: line, Column: column, Msg: "map keys must be string for JSON and target-language parity"}
 		}
-		val, err := c.resolveType(t.MapVal, path, line)
+		val, err := c.resolveType(t.MapVal, path, line, column)
 		if err != nil {
 			return nil, err
 		}
@@ -408,39 +580,38 @@ func (c *compiler) resolveType(t *onklang.TypeRef, path string, line int) (*onki
 	}
 
 	if strings.Contains(t.Name, ".") {
-		if m, found := c.lookupQualifiedMessage(t.Name); found {
+		if m, found := c.lookupQualifiedMessageForSource(path, t.Name); found {
 			return &onkir.Type{Kind: onkir.KindMessage, Message: m}, nil
 		}
-		if e, found := c.lookupQualifiedEnum(t.Name); found {
+		if e, found := c.lookupQualifiedEnumForSource(path, t.Name); found {
 			return &onkir.Type{Kind: onkir.KindEnum, Enum: e}, nil
 		}
-		return nil, &Error{Path: path, Line: line, Msg: fmt.Sprintf("unresolved qualified type %q", t.Name)}
+		return nil, &Error{Path: path, Line: line, Column: column, Msg: fmt.Sprintf("unresolved qualified type %q", t.Name)}
 	}
 
-	dir := filepath.Dir(path)
-	m, found, err := c.lookupMessage(dir, t.Name)
+	m, found, err := c.lookupMessageForSource(path, t.Name)
 	if err != nil {
-		return nil, &Error{Path: path, Line: line, Msg: err.Error()}
+		return nil, &Error{Path: path, Line: line, Column: column, Msg: err.Error()}
 	}
 	if found {
 		return &onkir.Type{Kind: onkir.KindMessage, Message: m}, nil
 	}
-	e, found, err := c.lookupEnum(dir, t.Name)
+	e, found, err := c.lookupEnumForSource(path, t.Name)
 	if err != nil {
-		return nil, &Error{Path: path, Line: line, Msg: err.Error()}
+		return nil, &Error{Path: path, Line: line, Column: column, Msg: err.Error()}
 	}
 	if found {
 		return &onkir.Type{Kind: onkir.KindEnum, Enum: e}, nil
 	}
-	return nil, &Error{Path: path, Line: line, Msg: fmt.Sprintf("unresolved type %q", t.Name)}
+	return nil, &Error{Path: path, Line: line, Column: column, Msg: fmt.Sprintf("unresolved type %q", t.Name)}
 }
 
-func (c *compiler) resolveMessageReference(dir, name string) (*onkir.Message, bool, error) {
+func (c *compiler) resolveMessageReference(path, name string) (*onkir.Message, bool, error) {
 	if strings.Contains(name, ".") {
-		message, found := c.lookupQualifiedMessage(name)
+		message, found := c.lookupQualifiedMessageForSource(path, name)
 		return message, found, nil
 	}
-	return c.lookupMessage(dir, name)
+	return c.lookupMessageForSource(path, name)
 }
 
 func (c *compiler) buildService(sd *onklang.ServiceDecl, f *onkir.File, path string) (*onkir.Service, error) {
@@ -462,21 +633,19 @@ func (c *compiler) buildService(sd *onklang.ServiceDecl, f *onkir.File, path str
 }
 
 func (c *compiler) buildMethod(rd *onklang.RPCDecl, s *onkir.Service, path string) (*onkir.Method, error) {
-	dir := filepath.Dir(path)
-
-	req, found, err := c.resolveMessageReference(dir, rd.RequestType)
+	req, found, err := c.resolveMessageReference(path, rd.RequestType)
 	if err != nil {
-		return nil, &Error{Path: path, Line: rd.Line, Msg: err.Error()}
+		return nil, &Error{Path: path, Line: rd.Line, Column: rd.Col, Msg: err.Error()}
 	}
 	if !found {
-		return nil, &Error{Path: path, Line: rd.Line, Msg: fmt.Sprintf("unresolved request type %q", rd.RequestType)}
+		return nil, &Error{Path: path, Line: rd.Line, Column: rd.Col, Msg: fmt.Sprintf("unresolved request type %q", rd.RequestType)}
 	}
-	resp, found, err := c.resolveMessageReference(dir, rd.ResponseType)
+	resp, found, err := c.resolveMessageReference(path, rd.ResponseType)
 	if err != nil {
-		return nil, &Error{Path: path, Line: rd.Line, Msg: err.Error()}
+		return nil, &Error{Path: path, Line: rd.Line, Column: rd.Col, Msg: err.Error()}
 	}
 	if !found {
-		return nil, &Error{Path: path, Line: rd.Line, Msg: fmt.Sprintf("unresolved response type %q", rd.ResponseType)}
+		return nil, &Error{Path: path, Line: rd.Line, Column: rd.Col, Msg: fmt.Sprintf("unresolved response type %q", rd.ResponseType)}
 	}
 	headers, err := c.buildHeaders(rd.Headers, path)
 	if err != nil {
@@ -495,12 +664,12 @@ func (c *compiler) buildMethod(rd *onklang.RPCDecl, s *onkir.Service, path strin
 
 	seenStatuses := map[int]string{}
 	for _, errName := range rd.ErrorTypes {
-		errMsg, errFound, lookupErr := c.resolveMessageReference(dir, errName)
+		errMsg, errFound, lookupErr := c.resolveMessageReference(path, errName)
 		if lookupErr != nil {
-			return nil, &Error{Path: path, Line: rd.Line, Msg: lookupErr.Error()}
+			return nil, &Error{Path: path, Line: rd.Line, Column: rd.Col, Msg: lookupErr.Error()}
 		}
 		if !errFound {
-			return nil, &Error{Path: path, Line: rd.Line, Msg: fmt.Sprintf("unresolved error type %q", errName)}
+			return nil, &Error{Path: path, Line: rd.Line, Column: rd.Col, Msg: fmt.Sprintf("unresolved error type %q", errName)}
 		}
 		errMsg.ErrorType = true
 		status := 500
@@ -508,7 +677,7 @@ func (c *compiler) buildMethod(rd *onklang.RPCDecl, s *onkir.Service, path strin
 			status = code
 		}
 		if previous, duplicate := seenStatuses[status]; duplicate {
-			return nil, &Error{Path: path, Line: rd.Line, Msg: fmt.Sprintf(
+			return nil, &Error{Path: path, Line: rd.Line, Column: rd.Col, Msg: fmt.Sprintf(
 				"error types %q and %q use the same HTTP status %d", previous, errName, status,
 			)}
 		}
@@ -526,8 +695,8 @@ func (c *compiler) buildHeaders(headers []onklang.HeaderDecl, path string) ([]*o
 		if !ok {
 			return nil, &Error{
 				Path: path,
-				Line: h.Line,
-				Msg:  fmt.Sprintf("invalid header type %q for %q", h.Type, h.Name),
+				Line: h.Line, Column: h.Col,
+				Msg: fmt.Sprintf("invalid header type %q for %q", h.Type, h.Name),
 			}
 		}
 		out = append(out, &onkir.Header{
@@ -550,7 +719,7 @@ func convertDecorators(decorators []onklang.Decorator) []onkir.Decorator {
 func convertArgs(args []onklang.Arg) []onkir.Arg {
 	var out []onkir.Arg
 	for _, a := range args {
-		out = append(out, onkir.Arg{Name: a.Name, Value: a.Value})
+		out = append(out, onkir.Arg{Name: a.Name, Value: a.Value, Quoted: a.Quoted})
 	}
 	return out
 }

@@ -151,12 +151,49 @@ func computeTypesImports(file *onkir.File) typesImports {
 	return typesImports{
 		time:    needsTimeImport(file),
 		fmt:     hasErrors || hasEnums,
-		json:    fileNeedsJSONHelpers(file) || hasEnums,
+		json:    fileNeedsJSONHelpers(file) || hasEnums || fileUsesScalar(file, onkir.ScalarJSON),
 		hex:     enc.hex,
 		base64:  enc.base64,
 		strconv: enc.strconv,
 		strings: hasErrors || fileHasFlattenFields(file),
 	}
+}
+
+func fileUsesScalar(file *onkir.File, scalar onkir.ScalarKind) bool {
+	var typeUsesScalar func(*onkir.Type) bool
+	typeUsesScalar = func(typ *onkir.Type) bool {
+		if typ == nil {
+			return false
+		}
+		switch typ.Kind {
+		case onkir.KindScalar:
+			return typ.Scalar == scalar
+		case onkir.KindMap:
+			return typeUsesScalar(typ.MapValue)
+		default:
+			return false
+		}
+	}
+	var walk func(*onkir.Message) bool
+	walk = func(message *onkir.Message) bool {
+		for _, field := range message.Fields {
+			if typeUsesScalar(field.Type) {
+				return true
+			}
+		}
+		for _, nested := range message.Nested {
+			if walk(nested) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, message := range file.Messages {
+		if walk(message) {
+			return true
+		}
+	}
+	return false
 }
 
 func writeTypesImports(p *Printer, imp typesImports, externalRefs []PackageRef) {

@@ -156,6 +156,8 @@ func RustScalarType(kind onkir.ScalarKind) string {
 		return "f64"
 	case onkir.ScalarBytes:
 		return "Vec<u8>"
+	case onkir.ScalarJSON:
+		return "serde_json::Value"
 	default:
 		return "()"
 	}

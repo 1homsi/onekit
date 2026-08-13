@@ -44,3 +44,30 @@ service API { get(Request) -> Response @get("/things") }`)
 		}
 	}
 }
+
+func TestCompareDetectsOneofVariantMappingChanges(t *testing.T) {
+	old := compile(t, `package app
+message Envelope {
+  payload: oneof {
+    text: string @tag("text") @json("old_text")
+  }
+}`)
+	newer := compile(t, `package app
+message Envelope {
+  payload: oneof {
+    text: string @tag("text") @json("new_text")
+  }
+}`)
+	oldPkg, err := onkcompile.Compile([]onkcompile.Source{*old})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPkg, err := onkcompile.Compile([]onkcompile.Source{*newer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings := Compare(oldPkg, newPkg)
+	if len(findings) != 1 || findings[0].Path != "app.Envelope.payload" {
+		t.Fatalf("expected oneof mapping change finding, got %+v", findings)
+	}
+}

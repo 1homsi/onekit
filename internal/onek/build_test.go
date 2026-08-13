@@ -242,3 +242,31 @@ service API { get(Request) -> Response @get("/items") }
 		t.Fatalf("user file was removed: %v", err)
 	}
 }
+
+func TestBuildPreservesGeneratedFilesUnderNestedTargetRoots(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `
+module = "example.com/api"
+[generate.go-server]
+out = "./gen"
+[generate.rust-client]
+out = "./gen/rust"
+`)
+	writeTestFile(t, filepath.Join(dir, "service.onk"), `
+message Request {}
+message Response {}
+service API { get(Request) -> Response @get("/items") }
+`)
+
+	if err := Build(dir); err != nil {
+		t.Fatalf("Build error: %v", err)
+	}
+	for _, name := range []string{
+		filepath.Join("gen", "types.gen.go"),
+		filepath.Join("gen", "rust", "types.rs"),
+	} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("nested generated output %s was removed: %v", name, err)
+		}
+	}
+}

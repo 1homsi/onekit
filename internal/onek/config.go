@@ -44,32 +44,43 @@ type Config struct {
 
 const configFileName = "onekit.toml"
 
+// ConfigError gives editor integrations a concrete file location for TOML
+// and project configuration failures while preserving the wrapped cause.
+type ConfigError struct {
+	Path string
+	Err  error
+}
+
+func (e *ConfigError) Error() string { return fmt.Sprintf("parse %s: %v", e.Path, e.Err) }
+
+func (e *ConfigError) Unwrap() error { return e.Err }
+
 func LoadConfig(dir string) (*Config, error) {
 	path := filepath.Join(dir, configFileName)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
+		return nil, &ConfigError{Path: path, Err: fmt.Errorf("read: %w", err)}
 	}
 	var cfg Config
 	metadata, err := toml.Decode(string(data), &cfg)
 	if err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		return nil, &ConfigError{Path: path, Err: err}
 	}
 	if undecoded := metadata.Undecoded(); len(undecoded) > 0 {
 		keys := make([]string, len(undecoded))
 		for i, key := range undecoded {
 			keys[i] = key.String()
 		}
-		return nil, fmt.Errorf("parse %s: unknown configuration key(s): %s", path, strings.Join(keys, ", "))
+		return nil, &ConfigError{Path: path, Err: fmt.Errorf("unknown configuration key(s): %s", strings.Join(keys, ", "))}
 	}
 	if cfg.Module == "" {
-		return nil, fmt.Errorf("parse %s: module is required", path)
+		return nil, &ConfigError{Path: path, Err: errors.New("module is required")}
 	}
 	if err := validateRoutePrefix(cfg.RoutePrefix); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		return nil, &ConfigError{Path: path, Err: err}
 	}
 	if err := validateTargetPaths(&cfg); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		return nil, &ConfigError{Path: path, Err: err}
 	}
 	cfg.dir = dir
 	return &cfg, nil

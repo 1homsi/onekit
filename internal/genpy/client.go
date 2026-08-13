@@ -192,9 +192,10 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		if field == nil {
 			continue
 		}
+		valueExpr := pyQueryValueExpr(field.Type.Scalar, "req."+field.Name)
 		p.P(fmt.Sprintf(
-			"path = path.replace(%q, urllib.parse.quote(str(req.%s), safe=\"\"))",
-			"{"+paramName+"}", field.Name,
+			"path = path.replace(%q, urllib.parse.quote(%s, safe=\"\"))",
+			"{"+paramName+"}", valueExpr,
 		))
 	}
 
@@ -204,7 +205,11 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 	if bodyBearing {
 		if bodyField, ok := m.BodyField(); ok {
-			p.P("body = json.dumps(req.to_dict()[", fmt.Sprintf("%q", bodyField), "]).encode(\"utf-8\")")
+			if field := findField(m.Request, bodyField); field != nil {
+				p.P("body = json.dumps(", p.bodyValueExpr(field, "req."+field.Name), ").encode(\"utf-8\")")
+			} else {
+				p.P("body = json.dumps(req.to_dict()[", fmt.Sprintf("%q", bodyField), "]).encode(\"utf-8\")")
+			}
 		} else {
 			p.P("body = json.dumps(req.to_dict()).encode(\"utf-8\")")
 		}
@@ -276,7 +281,7 @@ func isBodyBearingVerb(verb string) bool {
 }
 
 func writeClientQueryParams(p *Printer, req *onkir.Message) {
-	p.P("query = {}")
+	p.P("query = []")
 	for _, field := range req.Fields {
 		d, ok := field.Decorator("query")
 		if !ok || field.Type == nil || field.Type.Kind != onkir.KindScalar {
@@ -288,11 +293,25 @@ func writeClientQueryParams(p *Printer, req *onkir.Message) {
 		}
 		p.P("if req.", field.Name, " is not None:")
 		p.Indent()
-		p.P(fmt.Sprintf("query[%q] = str(req.%s)", queryName, field.Name))
+		if field.Repeated {
+			p.P("for value in req.", field.Name, ":")
+			p.Indent()
+			p.P(fmt.Sprintf("query.append((%q, %s))", queryName, pyQueryValueExpr(field.Type.Scalar, "value")))
+			p.Dedent()
+		} else {
+			p.P(fmt.Sprintf("query.append((%q, %s))", queryName, pyQueryValueExpr(field.Type.Scalar, "req."+field.Name)))
+		}
 		p.Dedent()
 	}
 	p.P("if query:")
 	p.Indent()
-	p.P(`path += "?" + urllib.parse.urlencode(query)`)
+	p.P(`path += "?" + urllib.parse.urlencode(query, doseq=True)`)
 	p.Dedent()
+}
+
+func pyQueryValueExpr(kind onkir.ScalarKind, expr string) string {
+	if kind == onkir.ScalarBool {
+		return fmt.Sprintf(`("true" if %s else "false")`, expr)
+	}
+	return "str(" + expr + ")"
 }

@@ -20,7 +20,7 @@ func methodNeedsStrconv(m *onkir.Method) bool {
 }
 
 type clientImports struct {
-	bytes, url, strconv, strings, bufio bool
+	base64, bytes, hex, url, strconv, strings, bufio bool
 }
 
 func clientImportsNeeded(file *onkir.File) clientImports {
@@ -29,6 +29,7 @@ func clientImportsNeeded(file *onkir.File) clientImports {
 		for _, m := range s.Methods {
 			verb, _ := m.Verb()
 			path, _ := m.Path()
+			imp.url = imp.url || len(pathParamNames(path)) > 0
 			switch {
 			case m.IsStream():
 				imp.url = true
@@ -37,6 +38,17 @@ func clientImportsNeeded(file *onkir.File) clientImports {
 				imp.strings = true
 			case isBodyBearingVerb(verb):
 				imp.bytes = true
+				if bodyField, ok := m.BodyField(); ok {
+					if field := findField(m.Request, bodyField); field != nil {
+						imp.strconv = imp.strconv || needsInt64StringEncoding(field)
+						switch bytesEncodingValue(field) {
+						case bytesEncodeHex:
+							imp.hex = true
+						case bytesEncodeBase64Raw, bytesEncodeBase64URL, bytesEncodeBase64URLRaw:
+							imp.base64 = true
+						}
+					}
+				}
 			default:
 				imp.url = true
 				imp.strconv = imp.strconv || methodNeedsStrconv(m)
@@ -71,12 +83,18 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	if imp.bufio {
 		p.P(`"bufio"`)
 	}
+	if imp.base64 {
+		p.P(`"encoding/base64"`)
+	}
 	if imp.bytes {
 		p.P(`"bytes"`)
 	}
 	p.P(`"context"`)
 	p.P(`"encoding/json"`)
 	p.P(`"fmt"`)
+	if imp.hex {
+		p.P(`"encoding/hex"`)
+	}
 	p.P(`"io"`)
 	p.P(`"net/http"`)
 	if imp.url {
@@ -143,17 +161,26 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 			continue
 		}
 		p.P("path = strings.ReplaceAll(path, ", fmt.Sprintf("%q", "{"+paramName+"}"), ", ",
-			fmt.Sprintf("fmt.Sprintf(%q, req.%s)", "%v", PascalCase(paramName)), ")")
+			fmt.Sprintf("url.PathEscape(fmt.Sprintf(%q, req.%s))", "%v", PascalCase(paramName)), ")")
 	}
 
 	if bodyBearing {
 		bodyExpr := "req"
 		if bodyField, ok := m.BodyField(); ok {
 			if field := findField(m.Request, bodyField); field != nil {
-				bodyExpr = "req." + PascalCase(field.Name)
+				if bodyFieldNeedsCustomJSON(field) {
+					writeBodyValue(p, field)
+					p.P("body, err := json.Marshal(bodyValue)")
+				} else {
+					bodyExpr = "req." + PascalCase(field.Name)
+					p.P("body, err := json.Marshal(", bodyExpr, ")")
+				}
+			} else {
+				p.P("body, err := json.Marshal(", bodyExpr, ")")
 			}
+		} else {
+			p.P("body, err := json.Marshal(", bodyExpr, ")")
 		}
-		p.P("body, err := json.Marshal(", bodyExpr, ")")
 		p.P("if err != nil {")
 		p.P(`return nil, fmt.Errorf("marshal request: %w", err)`)
 		p.P("}")
@@ -194,6 +221,40 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P()
 }
 
+func bodyFieldNeedsCustomJSON(field *onkir.Field) bool {
+	return needsInt64StringEncoding(field) || needsEnumNumberEncoding(field) ||
+		bytesEncodingValue(field) != "" || timestampEncodingValue(field) != ""
+}
+
+func writeBodyValue(p *Printer, field *onkir.Field) {
+	fieldExpr := "req." + PascalCase(field.Name)
+	p.P("var bodyValue any")
+	if field.Optional {
+		p.P("if ", fieldExpr, " == nil {")
+		p.P("bodyValue = nil")
+		p.P("} else {")
+		p.P("bodyValue = ", bodyWireValueExpr(field, "*"+fieldExpr))
+		p.P("}")
+		return
+	}
+	p.P("bodyValue = ", bodyWireValueExpr(field, fieldExpr))
+}
+
+func bodyWireValueExpr(field *onkir.Field, expr string) string {
+	switch {
+	case needsInt64StringEncoding(field):
+		return int64FormatCall(field.Type.Scalar, expr)
+	case needsEnumNumberEncoding(field):
+		return "int32(" + expr + ")"
+	case bytesEncodingValue(field) != "":
+		return bytesEncodeCall(bytesEncodingValue(field), expr)
+	case timestampEncodingValue(field) != "":
+		return timestampEncodeExpr(timestampEncodingValue(field), expr)
+	default:
+		return expr
+	}
+}
+
 func bodyReaderExpr(bodyBearing bool) string {
 	if bodyBearing {
 		return "bytes.NewReader(body)"
@@ -213,6 +274,12 @@ func writeClientQueryParams(p *Printer, req *onkir.Message) {
 			queryName = field.Name
 		}
 		fieldExpr := "req." + PascalCase(field.Name)
+		if field.Repeated {
+			p.P("for _, value := range ", fieldExpr, " {")
+			p.P("query.Add(", fmt.Sprintf("%q", queryName), ", ", clientStringifyExpr(field.Type.Scalar, "value"), ")")
+			p.P("}")
+			continue
+		}
 		if field.Optional {
 			p.P("if ", fieldExpr, " != nil {")
 			p.P(

@@ -10,6 +10,7 @@ type fieldCategories struct {
 	oneofs     []*onkir.Field
 	int64s     []*onkir.Field
 	int64Reps  []*onkir.Field
+	int64Opts  []*onkir.Field
 	enums      []*onkir.Field
 	bytesF     []*onkir.Field
 	timestamps []*onkir.Field
@@ -17,12 +18,16 @@ type fieldCategories struct {
 	emptys     []*onkir.Field
 }
 
+const goStringType = "string"
+
 func categorizeFields(m *onkir.Message) fieldCategories {
 	var c fieldCategories
 	for _, f := range m.Fields {
 		switch {
 		case f.Oneof != nil:
 			c.oneofs = append(c.oneofs, f)
+		case needsInt64StringEncoding(f) && f.Optional:
+			c.int64Opts = append(c.int64Opts, f)
 		case needsInt64StringEncoding(f) && f.Repeated:
 			c.int64Reps = append(c.int64Reps, f)
 		case needsInt64StringEncoding(f):
@@ -50,24 +55,38 @@ func writeCustomJSONMethods(p *Printer, m *onkir.Message) {
 	writeCustomUnmarshalJSON(p, m, c)
 }
 
-func timestampEncodeExpr(encoding, goName string) string {
+func timestampEncodeExpr(encoding, expr string) string {
 	switch encoding {
 	case timestampEncodeUnixSeconds:
-		return fmt.Sprintf("m.%s.Unix()", goName)
+		return expr + ".Unix()"
 	case timestampEncodeUnixMillis:
-		return fmt.Sprintf("m.%s.UnixMilli()", goName)
+		return expr + ".UnixMilli()"
 	case timestampEncodeDate:
-		return fmt.Sprintf("m.%s.Format(\"2006-01-02\")", goName)
+		return expr + `.Format("2006-01-02")`
 	default:
-		return fmt.Sprintf("m.%s", goName)
+		return expr
 	}
 }
 
 func timestampAuxType(encoding string) string {
 	if encoding == timestampEncodeDate {
-		return "string"
+		return goStringType
 	}
 	return "int64"
+}
+
+func int64FormatCall(kind onkir.ScalarKind, expr string) string {
+	if kind == onkir.ScalarUint64 {
+		return fmt.Sprintf("strconv.FormatUint(%s, 10)", expr)
+	}
+	return fmt.Sprintf("strconv.FormatInt(%s, 10)", expr)
+}
+
+func int64ParseCall(kind onkir.ScalarKind, expr string) string {
+	if kind == onkir.ScalarUint64 {
+		return fmt.Sprintf("strconv.ParseUint(%s, 10, 64)", expr)
+	}
+	return fmt.Sprintf("strconv.ParseInt(%s, 10, 64)", expr)
 }
 
 func bytesEncodeCall(encoding, expr string) string {
@@ -110,6 +129,9 @@ func writeAuxFieldDecls(p *Printer, c fieldCategories, includeEmpty bool) {
 	for _, f := range c.int64s {
 		p.P(PascalCase(f.Name), " string `json:\"", f.Name, ",omitempty\"`")
 	}
+	for _, f := range c.int64Opts {
+		p.P(PascalCase(f.Name), " *string `json:\"", f.Name, ",omitempty\"`")
+	}
 	for _, f := range c.int64Reps {
 		p.P(PascalCase(f.Name), " []string `json:\"", f.Name, ",omitempty\"`")
 	}
@@ -117,10 +139,18 @@ func writeAuxFieldDecls(p *Printer, c fieldCategories, includeEmpty bool) {
 		p.P(PascalCase(f.Name), " int32 `json:\"", f.Name, ",omitempty\"`")
 	}
 	for _, f := range c.bytesF {
-		p.P(PascalCase(f.Name), " string `json:\"", f.Name, ",omitempty\"`")
+		auxType := "string"
+		if f.Optional {
+			auxType = "*string"
+		}
+		p.P(PascalCase(f.Name), " ", auxType, " `json:\"", f.Name, ",omitempty\"`")
 	}
 	for _, f := range c.timestamps {
-		p.P(PascalCase(f.Name), " ", timestampAuxType(timestampEncodingValue(f)), " `json:\"", f.Name, ",omitempty\"`")
+		auxType := timestampAuxType(timestampEncodingValue(f))
+		if f.Optional {
+			auxType = "*" + auxType
+		}
+		p.P(PascalCase(f.Name), " ", auxType, " `json:\"", f.Name, ",omitempty\"`")
 	}
 	for _, f := range c.flattens {
 		p.P(PascalCase(f.Name), " json.RawMessage `json:\"", f.Name, ",omitempty\"`")
@@ -140,6 +170,13 @@ func writeInt64MarshalAssignments(p *Printer, c fieldCategories) {
 		} else {
 			p.P("aux.", goName, " = strconv.FormatInt(m.", goName, ", 10)")
 		}
+	}
+	for _, f := range c.int64Opts {
+		goName := PascalCase(f.Name)
+		p.P("if m.", goName, " != nil {")
+		p.P("encoded", goName, " := ", int64FormatCall(f.Type.Scalar, "*m."+goName))
+		p.P("aux.", goName, " = &encoded", goName)
+		p.P("}")
 	}
 	for _, f := range c.int64Reps {
 		goName := PascalCase(f.Name)
@@ -164,6 +201,13 @@ func writeEnumMarshalAssignments(p *Printer, c fieldCategories) {
 func writeBytesMarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.bytesF {
 		goName := PascalCase(f.Name)
+		if f.Optional {
+			p.P("if m.", goName, " != nil {")
+			p.P("encoded", goName, " := ", bytesEncodeCall(bytesEncodingValue(f), "*m."+goName))
+			p.P("aux.", goName, " = &encoded", goName)
+			p.P("}")
+			continue
+		}
 		p.P("aux.", goName, " = ", bytesEncodeCall(bytesEncodingValue(f), "m."+goName))
 	}
 }
@@ -171,7 +215,14 @@ func writeBytesMarshalAssignments(p *Printer, c fieldCategories) {
 func writeTimestampMarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.timestamps {
 		goName := PascalCase(f.Name)
-		p.P("aux.", goName, " = ", timestampEncodeExpr(timestampEncodingValue(f), goName))
+		if f.Optional {
+			p.P("if m.", goName, " != nil {")
+			p.P("encoded", goName, " := ", timestampEncodeExpr(timestampEncodingValue(f), "m."+goName))
+			p.P("aux.", goName, " = &encoded", goName)
+			p.P("}")
+			continue
+		}
+		p.P("aux.", goName, " = ", timestampEncodeExpr(timestampEncodingValue(f), "m."+goName))
 	}
 }
 
@@ -278,6 +329,16 @@ func writeInt64UnmarshalAssignments(p *Printer, c fieldCategories) {
 		p.P("m.", goName, " = v")
 		p.P("}")
 	}
+	for _, f := range c.int64Opts {
+		goName := PascalCase(f.Name)
+		p.P("if aux.", goName, " != nil {")
+		p.P("v, err := ", int64ParseCall(f.Type.Scalar, "*aux."+goName))
+		p.P("if err != nil {")
+		p.P("return err")
+		p.P("}")
+		p.P("m.", goName, " = &v")
+		p.P("}")
+	}
 	for _, f := range c.int64Reps {
 		goName := PascalCase(f.Name)
 		p.P("if aux.", goName, " != nil {")
@@ -307,12 +368,22 @@ func writeEnumUnmarshalAssignments(p *Printer, c fieldCategories) {
 func writeBytesUnmarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.bytesF {
 		goName := PascalCase(f.Name)
-		p.P("if aux.", goName, " != \"\" {")
-		p.P("decoded, err := ", bytesDecodeCall(bytesEncodingValue(f), "aux."+goName))
+		valueExpr := "aux." + goName
+		if f.Optional {
+			p.P("if aux.", goName, " != nil {")
+			valueExpr = "*aux." + goName
+		} else {
+			p.P("if aux.", goName, " != \"\" {")
+		}
+		p.P("decoded, err := ", bytesDecodeCall(bytesEncodingValue(f), valueExpr))
 		p.P("if err != nil {")
 		p.P("return err")
 		p.P("}")
-		p.P("m.", goName, " = decoded")
+		if f.Optional {
+			p.P("m.", goName, " = &decoded")
+		} else {
+			p.P("m.", goName, " = decoded")
+		}
 		p.P("}")
 	}
 }
@@ -321,22 +392,47 @@ func writeTimestampUnmarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.timestamps {
 		goName := PascalCase(f.Name)
 		encoding := timestampEncodingValue(f)
+		if f.Optional {
+			p.P("if aux.", goName, " != nil {")
+		}
 		switch encoding {
 		case timestampEncodeUnixSeconds:
-			p.P("if aux.", goName, " != 0 {")
-			p.P("m.", goName, " = time.Unix(aux.", goName, ", 0).UTC()")
-			p.P("}")
+			if f.Optional {
+				p.P("value := time.Unix(*aux.", goName, ", 0).UTC()")
+				p.P("m.", goName, " = &value")
+			} else {
+				p.P("if aux.", goName, " != 0 {")
+				p.P("m.", goName, " = time.Unix(aux.", goName, ", 0).UTC()")
+				p.P("}")
+			}
 		case timestampEncodeUnixMillis:
-			p.P("if aux.", goName, " != 0 {")
-			p.P("m.", goName, " = time.UnixMilli(aux.", goName, ").UTC()")
-			p.P("}")
+			if f.Optional {
+				p.P("value := time.UnixMilli(*aux.", goName, ").UTC()")
+				p.P("m.", goName, " = &value")
+			} else {
+				p.P("if aux.", goName, " != 0 {")
+				p.P("m.", goName, " = time.UnixMilli(aux.", goName, ").UTC()")
+				p.P("}")
+			}
 		case timestampEncodeDate:
-			p.P("if aux.", goName, " != \"\" {")
-			p.P("t, err := time.Parse(\"2006-01-02\", aux.", goName, ")")
+			valueExpr := "aux." + goName
+			if f.Optional {
+				valueExpr = "*aux." + goName
+			} else {
+				p.P("if aux.", goName, " != \"\" {")
+			}
+			p.P("t, err := time.Parse(\"2006-01-02\", ", valueExpr, ")")
 			p.P("if err != nil {")
 			p.P("return err")
 			p.P("}")
-			p.P("m.", goName, " = t")
+			if f.Optional {
+				p.P("m.", goName, " = &t")
+			} else {
+				p.P("m.", goName, " = t")
+				p.P("}")
+			}
+		}
+		if f.Optional {
 			p.P("}")
 		}
 	}

@@ -49,6 +49,8 @@ func GoScalarType(k onkir.ScalarKind) string {
 		return "[]byte"
 	case onkir.ScalarTimestamp:
 		return "time.Time"
+	case onkir.ScalarJSON:
+		return "json.RawMessage"
 	default:
 		return "any"
 	}

@@ -90,6 +90,34 @@ func TestGenerateTypesFormatsCleanly(t *testing.T) {
 	}
 }
 
+func TestGenerateJSONScalarUsesNativeWireTypes(t *testing.T) {
+	ast, err := onklang.Parse(`
+package jsonfixture
+
+message Envelope {
+  payload: json
+  values: json[]
+}
+`)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "json.onk", AST: ast}})
+	if err != nil {
+		t.Fatalf("compile error: %v", err)
+	}
+	out, err := GenerateTypes(pkg.Files[0])
+	if err != nil {
+		t.Fatalf("GenerateTypes error: %v", err)
+	}
+	text := string(out)
+	for _, want := range []string{`"encoding/json"`, "Payload json.RawMessage", "[]json.RawMessage"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("generated JSON scalar types missing %q:\n%s", want, text)
+		}
+	}
+}
+
 func TestGenerateValidationFormatsCleanly(t *testing.T) {
 	file := compileFixture(t)
 	out, err := GenerateValidation(file)
@@ -141,6 +169,49 @@ func TestGenerateClientFormatsCleanly(t *testing.T) {
 	}
 	if len(out) == 0 {
 		t.Fatalf("expected non-empty generated client code")
+	}
+}
+
+func TestGenerateClientEncodesCustomBodyFields(t *testing.T) {
+	ast, err := onklang.Parse(`
+package bodyfixture
+
+enum State {
+  UNKNOWN
+  READY
+}
+
+message AmountRequest { amount: int64 }
+message PayloadRequest { payload: bytes @encode(hex) }
+message StateRequest { state: State @encode(number) }
+message Ack { ok: bool }
+
+service BodyService {
+  sendAmount(AmountRequest) -> Ack @post("/amount") @body("amount")
+  sendPayload(PayloadRequest) -> Ack @post("/payload") @body("payload")
+  sendState(StateRequest) -> Ack @post("/state") @body("state")
+}
+`)
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "body.onk", AST: ast}})
+	if err != nil {
+		t.Fatalf("compile fixture: %v", err)
+	}
+	out, err := GenerateClient(pkg.Files[0])
+	if err != nil {
+		t.Fatalf("GenerateClient error: %v\n%s", err, out)
+	}
+	text := string(out)
+	for _, want := range []string{
+		`bodyValue = strconv.FormatInt(req.Amount, 10)`,
+		`bodyValue = hex.EncodeToString(req.Payload)`,
+		`bodyValue = int32(req.State)`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("generated body client missing %q:\n%s", want, text)
+		}
 	}
 }
 
@@ -288,6 +359,73 @@ func TestGeneratedServerBuildsAndServes(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "server.go"), string(serverSrc))
 	writeFile(t, filepath.Join(dir, "client.go"), string(clientSrc))
 	writeFile(t, filepath.Join(dir, "main.go"), harnessMain)
+
+	cmd := exec.Command("go", "run", ".")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated program failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != "OK\n" {
+		t.Fatalf("unexpected program output: %q", got)
+	}
+}
+
+func TestGeneratedServerPreservesRuntimeHTTPStatus(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+
+	file := compileFixture(t)
+	typesSrc, err := GenerateTypes(file)
+	if err != nil {
+		t.Fatalf("GenerateTypes error: %v", err)
+	}
+	validateSrc, err := GenerateValidation(file)
+	if err != nil {
+		t.Fatalf("GenerateValidation error: %v", err)
+	}
+	serverSrc, err := GenerateServer(file)
+	if err != nil {
+		t.Fatalf("GenerateServer error: %v", err)
+	}
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "go.mod"), "module onekit_gengo_status_fixture\n\ngo 1.26\n")
+	writeFile(t, filepath.Join(dir, "types.go"), string(typesSrc))
+	writeFile(t, filepath.Join(dir, "validate.go"), string(validateSrc))
+	writeFile(t, filepath.Join(dir, "server.go"), string(serverSrc))
+	writeFile(t, filepath.Join(dir, "main.go"), `
+package main
+
+import (
+  "context"
+  "fmt"
+  "net/http"
+  "net/http/httptest"
+  "os"
+  "strings"
+)
+
+type statusError struct{}
+func (statusError) Error() string { return "access denied" }
+func (statusError) HTTPStatusCode() int { return http.StatusForbidden }
+
+type impl struct{}
+func (impl) CreateUser(context.Context, *CreateUserRequest) (*User, error) { return nil, statusError{} }
+func (impl) GetUser(context.Context, *GetUserRequest) (*User, error) { return &User{}, nil }
+func (impl) SendMessage(context.Context, *SendMessageRequest) (*SendMessageResponse, error) { return &SendMessageResponse{}, nil }
+
+func main() {
+  mux := http.NewServeMux()
+  if err := RegisterUserServiceServer(mux, impl{}); err != nil { panic(err) }
+  req := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`+"`"+`{"name":"Alice","email":"alice@example.com"}`+"`"+`))
+  res := httptest.NewRecorder()
+  mux.ServeHTTP(res, req)
+  if res.Code != http.StatusForbidden { fmt.Printf("got status %d\n", res.Code); os.Exit(1) }
+  fmt.Println("OK")
+}
+`)
 
 	cmd := exec.Command("go", "run", ".")
 	cmd.Dir = dir

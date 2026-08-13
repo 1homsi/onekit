@@ -20,12 +20,14 @@ message SearchWidgetsRequest {
   status: int32? @query("status")
   owner_id: int64? @query("owner_id")
   q: string @query("q")
+  tags: string[] @query("tag")
 }
 
 message SearchWidgetsResponse {
   count: int32
   status_echo: int32?
   owner_id_echo: int64?
+  tags_count: int32
 }
 
 service WidgetService {
@@ -52,6 +54,7 @@ func (s *impl) SearchWidgets(ctx context.Context, req *SearchWidgetsRequest) (*S
 	resp := &SearchWidgetsResponse{Count: 1}
 	resp.StatusEcho = req.Status
 	resp.OwnerIdEcho = req.OwnerId
+	resp.TagsCount = int32(len(req.Tags))
 	return resp, nil
 }
 
@@ -73,7 +76,7 @@ func main() {
 
 	status := int32(2)
 	ownerID := int64(42)
-	resp, err := client.SearchWidgets(ctx, &SearchWidgetsRequest{Status: &status, OwnerId: &ownerID, Q: "widg"})
+	resp, err := client.SearchWidgets(ctx, &SearchWidgetsRequest{Status: &status, OwnerId: &ownerID, Q: "widg", Tags: []string{"one", "two"}})
 	if err != nil {
 		fail("SearchWidgets with optional params set failed: %v", err)
 	}
@@ -82,6 +85,9 @@ func main() {
 	}
 	if resp.OwnerIdEcho == nil || *resp.OwnerIdEcho != 42 {
 		fail("expected owner_id echoed back as 42, got %+v", resp.OwnerIdEcho)
+	}
+	if resp.TagsCount != 2 {
+		fail("expected two repeated query values, got %d", resp.TagsCount)
 	}
 
 	resp2, err := client.SearchWidgets(ctx, &SearchWidgetsRequest{Q: "widg"})

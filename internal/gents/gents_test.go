@@ -189,6 +189,52 @@ message Request {
 	}
 }
 
+func TestGeneratedRootUnwrapRPCTypeChecks(t *testing.T) {
+	if _, err := exec.LookPath("tsc"); err != nil {
+		t.Skip("tsc not available")
+	}
+	ast, err := onklang.Parse(`
+package app
+
+message RootValues {
+  values: string[] @unwrap
+}
+
+service RootService {
+  send(RootValues) -> RootValues @post("/values")
+}
+`)
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "root.onk", AST: ast}})
+	if err != nil {
+		t.Fatalf("compile fixture: %v", err)
+	}
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "types.ts"), string(GenerateTypes(pkg.Files[0])))
+	writeFile(t, filepath.Join(dir, "client.ts"), string(GenerateClient(pkg.Files[0])))
+	writeFile(t, filepath.Join(dir, "server.ts"), string(GenerateServer(pkg.Files[0])))
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "lib": ["ES2022", "DOM"]
+  }
+}
+`)
+
+	cmd := exec.Command("tsc", "-p", "tsconfig.json")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("root unwrap RPC TypeScript failed: %v\n%s", err, out)
+	}
+}
+
 const serverHarness = `
 import { createUserServiceRoutes, HttpError } from "./server.ts";
 import type { RouteDescriptor } from "./server.ts";

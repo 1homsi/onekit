@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
@@ -41,6 +42,7 @@ message Envelope {
   payload: bytes @encode("hex")
   optional_payload: bytes?
   chunks: bytes[]
+  blob_map: map[string, bytes]
   callback_url: string @uri
   status: Status
   numeric_status: Status @encode("number")
@@ -78,11 +80,13 @@ mod generated_tests {
 
     #[test]
     fn wire_mapping_and_validation_round_trip() {
+        let blob_map = std::collections::HashMap::from([(String::from("primary"), vec![b'h', b'i'])]);
         let value = Envelope {
             id: 42,
             payload: vec![0, 255],
             optional_payload: Some(vec![1, 2, 3]),
             chunks: vec![vec![4, 5], vec![6]],
+            blob_map,
             callback_url: "https://example.com/callback".into(),
             status: Status::Active,
             numeric_status: Status::Active,
@@ -97,6 +101,7 @@ mod generated_tests {
         assert_eq!(wire["payload"], "00ff");
         assert_eq!(wire["optional_payload"], "AQID");
         assert_eq!(wire["chunks"], serde_json::json!(["BAU=", "Bg=="]));
+        assert_eq!(wire["blob_map"], serde_json::json!({"primary": "aGk="}));
         assert_eq!(wire["status"], "active");
         assert_eq!(wire["numeric_status"], 1);
         assert_eq!(wire["tags"], serde_json::json!(["rust", "api"]));
@@ -147,5 +152,44 @@ func TestGeneratedRustTypesCompileAndRoundTrip(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("generated Rust types failed: %v\n%s\nGenerated source:\n%s", err, out, source)
+	}
+}
+
+func TestGenerateRustClientEncodesCustomBodyFields(t *testing.T) {
+	ast, err := onklang.Parse(`
+package bodyfixture
+
+enum State {
+  UNKNOWN
+  READY
+}
+
+message AmountRequest { amount: int64 }
+message PayloadRequest { payload: bytes @encode(hex) }
+message StateRequest { state: State @encode(number) }
+message Ack { ok: bool }
+
+service BodyService {
+  sendAmount(AmountRequest) -> Ack @post("/amount") @body("amount")
+  sendPayload(PayloadRequest) -> Ack @post("/payload") @body("payload")
+  sendState(StateRequest) -> Ack @post("/state") @body("state")
+}
+`)
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "body.onk", AST: ast}})
+	if err != nil {
+		t.Fatalf("compile fixture: %v", err)
+	}
+	text := string(GenerateClient(pkg.Files[0]))
+	for _, want := range []string{
+		`serde_json::Value::String((*&req.amount).to_string())`,
+		`serde_json::Value::String((&req.payload).iter().map(|byte| format!("{byte:02x}")).collect::<String>())`,
+		`serde_json::Value::Number((match &req.state`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("generated Rust body client missing %q:\n%s", want, text)
+		}
 	}
 }

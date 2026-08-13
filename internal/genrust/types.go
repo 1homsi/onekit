@@ -61,6 +61,10 @@ func collectTypeFeatures(file *onkir.File) typeFeatures {
 					features.intString = true
 				}
 			}
+			if field.Type != nil && field.Type.Kind == onkir.KindMap && field.Type.MapValue != nil &&
+				field.Type.MapValue.Kind == onkir.KindScalar && field.Type.MapValue.Scalar == onkir.ScalarBytes {
+				features.bytes = true
+			}
 			if emptyBehavior(field) != "" {
 				features.empty = true
 			}
@@ -401,6 +405,9 @@ func writeMessageTree(p *Printer, message *onkir.Message) {
 		if field.Oneof != nil {
 			writeOneof(p, message, field)
 		}
+		if mapValueIsBytes(field) {
+			writeMapBytesModule(p, field)
+		}
 		if needsEnumNumberEncoding(field) {
 			writeEnumNumberModule(p, field)
 		}
@@ -519,6 +526,9 @@ func serdeModuleForField(field *onkir.Field) string {
 	if field.Type == nil {
 		return ""
 	}
+	if mapValueIsBytes(field) {
+		return mapBytesModuleName(field)
+	}
 	if needsEnumNumberEncoding(field) {
 		return enumNumberModuleName(field)
 	}
@@ -547,9 +557,9 @@ func serdeModuleForField(field *onkir.Field) string {
 			return "serde_" + cardinality + "bytes_hex"
 		case "base64_raw":
 			return "serde_" + cardinality + "bytes_base64_raw"
-		case "base64_url":
+		case "base64url":
 			return "serde_" + cardinality + "bytes_base64_url"
-		case "base64_url_raw":
+		case "base64url_raw":
 			return "serde_" + cardinality + "bytes_base64_url_raw"
 		default:
 			return "serde_" + cardinality + "bytes_base64"
@@ -559,6 +569,41 @@ func serdeModuleForField(field *onkir.Field) string {
 		return ""
 	}
 	return ""
+}
+
+func mapValueIsBytes(field *onkir.Field) bool {
+	return field.Type != nil && field.Type.Kind == onkir.KindMap && field.Type.MapValue != nil &&
+		field.Type.MapValue.Kind == onkir.KindScalar && field.Type.MapValue.Scalar == onkir.ScalarBytes
+}
+
+func mapBytesModuleName(field *onkir.Field) string {
+	owner := "message"
+	if field.Message != nil {
+		owner = RustMessageName(field.Message)
+	}
+	return "serde_map_bytes_" + SnakeCase(owner) + "_" + SnakeCase(field.Name)
+}
+
+func writeMapBytesModule(p *Printer, field *onkir.Field) {
+	p.P("mod ", mapBytesModuleName(field), " {")
+	p.Indent()
+	p.P("use super::*;")
+	p.P("use base64::Engine as _;")
+	p.P("pub fn serialize<S: Serializer>(value: &std::collections::HashMap<String, Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error> {")
+	p.Indent()
+	p.P("let encoded = value.iter().map(|(key, value)| (key, base64::engine::general_purpose::STANDARD.encode(value))).collect::<std::collections::HashMap<_, _>>();")
+	p.P("encoded.serialize(serializer)")
+	p.Dedent()
+	p.P("}")
+	p.P("pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<std::collections::HashMap<String, Vec<u8>>, D::Error> {")
+	p.Indent()
+	p.P("let encoded = std::collections::HashMap::<String, String>::deserialize(deserializer)?;")
+	p.P("encoded.into_iter().map(|(key, value)| base64::engine::general_purpose::STANDARD.decode(value).map(|value| (key, value)).map_err(serde::de::Error::custom)).collect()")
+	p.Dedent()
+	p.P("}")
+	p.Dedent()
+	p.P("}")
+	p.Blank()
 }
 
 func needsEnumNumberEncoding(field *onkir.Field) bool {
@@ -644,6 +689,14 @@ func fieldEncoding(field *onkir.Field) string {
 	}
 	value, _ := decorator.Value()
 	return value
+}
+
+func needsInt64StringEncoding(field *onkir.Field) bool {
+	if field.Type == nil || field.Type.Kind != onkir.KindScalar ||
+		(field.Type.Scalar != onkir.ScalarInt64 && field.Type.Scalar != onkir.ScalarUint64) {
+		return false
+	}
+	return fieldEncoding(field) != rustEncodeNumber
 }
 
 func flattenPrefix(field *onkir.Field) (string, bool) {

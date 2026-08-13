@@ -34,7 +34,7 @@ func fieldEncodeValue(f *onkir.Field) (string, bool) {
 }
 
 func needsInt64StringEncoding(f *onkir.Field) bool {
-	if f.Type == nil || f.Type.Kind != onkir.KindScalar || !isInt64Kind(f.Type.Scalar) || f.Optional {
+	if f.Type == nil || f.Type.Kind != onkir.KindScalar || !isInt64Kind(f.Type.Scalar) {
 		return false
 	}
 	v, _ := fieldEncodeValue(f)

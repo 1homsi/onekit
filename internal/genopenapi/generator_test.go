@@ -149,6 +149,56 @@ func TestGenerateProducesValidOpenAPIDocument(t *testing.T) {
 	}
 }
 
+func TestGenerateRepeatedQueryParametersAsFormArrays(t *testing.T) {
+	ast, err := onklang.Parse(`
+package queryfixture
+
+message Request {
+  status: int32 @query
+  tags: string[] @query("tag")
+}
+
+message Response {}
+
+service QueryService {
+  list(Request) -> Response @get("/items")
+}
+`)
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "query.onk", AST: ast}})
+	if err != nil {
+		t.Fatalf("compile fixture: %v", err)
+	}
+	out, err := Generate(pkg.Files[0], Options{})
+	if err != nil {
+		t.Fatalf("generate fixture: %v", err)
+	}
+	doc, err := libopenapi.NewDocument(out)
+	if err != nil {
+		t.Fatalf("parse generated OpenAPI: %v", err)
+	}
+	model, err := doc.BuildV3Model()
+	if err != nil {
+		t.Fatalf("build OpenAPI model: %v", err)
+	}
+	path, ok := model.Model.Paths.PathItems.Get("/items")
+	if !ok || path.Get == nil || len(path.Get.Parameters) != 2 {
+		t.Fatalf("unexpected query operation: %+v", path)
+	}
+	for _, parameter := range path.Get.Parameters {
+		if parameter.Name == "tag" {
+			if parameter.Style != "form" || parameter.Explode == nil || !*parameter.Explode {
+				t.Fatalf("repeated query parameter lacks form/explode contract: %+v", parameter)
+			}
+			if parameter.Schema == nil || parameter.Schema.Schema() == nil || len(parameter.Schema.Schema().Type) != 1 || parameter.Schema.Schema().Type[0] != "array" {
+				t.Fatalf("repeated query parameter is not an array schema: %+v", parameter.Schema)
+			}
+		}
+	}
+}
+
 func TestGenerateJSONProducesValidJSON(t *testing.T) {
 	file := compileFixture(t)
 	out, err := GenerateJSON(file, Options{})

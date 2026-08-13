@@ -13,6 +13,7 @@ const (
 	ScalarFloat64
 	ScalarBytes
 	ScalarTimestamp
+	ScalarJSON
 )
 
 func (s ScalarKind) String() string {
@@ -37,6 +38,8 @@ func (s ScalarKind) String() string {
 		return "bytes"
 	case ScalarTimestamp:
 		return "timestamp"
+	case ScalarJSON:
+		return "json"
 	default:
 		return "unknown"
 	}
@@ -64,6 +67,8 @@ func ParseScalarKind(name string) (ScalarKind, bool) {
 		return ScalarBytes, true
 	case "timestamp":
 		return ScalarTimestamp, true
+	case "json":
+		return ScalarJSON, true
 	default:
 		return 0, false
 	}
@@ -88,8 +93,9 @@ type Type struct {
 }
 
 type Arg struct {
-	Name  string
-	Value string
+	Name   string
+	Value  string
+	Quoted bool
 }
 
 type Decorator struct {

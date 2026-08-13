@@ -31,7 +31,7 @@ func (p *Parser) next() error {
 
 func (p *Parser) errf(format string, args ...any) error {
 	msg := fmt.Sprintf(format, args...)
-	return fmt.Errorf("onklang:%d:%d: %s", p.tok.Line, p.tok.Col, msg)
+	return &Error{Line: p.tok.Line, Column: p.tok.Col, Message: msg}
 }
 
 func (p *Parser) expect(k Kind) (Token, error) {
@@ -75,6 +75,9 @@ func (p *Parser) expectIdentText(text string) error {
 
 func (p *Parser) parseFile() (*File, error) {
 	f := &File{}
+	if p.isIdent("package") {
+		f.LeadingComments = append([]string(nil), p.tok.LeadingComments...)
+	}
 
 	if p.isIdent("package") {
 		if err := p.next(); err != nil {
@@ -88,6 +91,7 @@ func (p *Parser) parseFile() (*File, error) {
 	}
 
 	for p.isIdent("import") {
+		f.ImportComments = append(f.ImportComments, append([]string(nil), p.tok.LeadingComments...))
 		if err := p.next(); err != nil {
 			return nil, err
 		}
@@ -106,22 +110,26 @@ func (p *Parser) parseFile() (*File, error) {
 				return nil, err
 			}
 			f.Messages = append(f.Messages, m)
+			f.Declarations = append(f.Declarations, m)
 		case p.isIdent("enum"):
 			e, err := p.parseEnum()
 			if err != nil {
 				return nil, err
 			}
 			f.Enums = append(f.Enums, e)
+			f.Declarations = append(f.Declarations, e)
 		case p.isIdent("service"):
 			s, err := p.parseService()
 			if err != nil {
 				return nil, err
 			}
 			f.Services = append(f.Services, s)
+			f.Declarations = append(f.Declarations, s)
 		default:
 			return nil, p.errf("expected message/enum/service, got %s %q", p.tok.Kind, p.tok.Text)
 		}
 	}
+	f.TrailingComments = append([]string(nil), p.tok.LeadingComments...)
 
 	return f, nil
 }
@@ -147,13 +155,14 @@ func (p *Parser) parseDottedName() (string, error) {
 	return sb.String(), nil
 }
 
-func (p *Parser) parseValue() (string, error) {
+func (p *Parser) parseValue() (string, bool, error) {
 	switch p.tok.Kind {
 	case STRING, IDENT, INT, FLOAT:
 		v := p.tok.Text
-		return v, p.next()
+		quoted := p.tok.Kind == STRING
+		return v, quoted, p.next()
 	default:
-		return "", p.errf("expected value, got %s %q", p.tok.Kind, p.tok.Text)
+		return "", false, p.errf("expected value, got %s %q", p.tok.Kind, p.tok.Text)
 	}
 }
 
@@ -180,21 +189,21 @@ func (p *Parser) parseArgs() ([]Arg, error) {
 				if err := p.next(); err != nil {
 					return nil, err
 				}
-				val, err := p.parseValue()
+				val, quoted, err := p.parseValue()
 				if err != nil {
 					return nil, err
 				}
-				args = append(args, Arg{Name: save.Text, Value: val})
+				args = append(args, Arg{Name: save.Text, Value: val, Quoted: quoted})
 				continue
 			}
 			args = append(args, Arg{Value: save.Text})
 			continue
 		}
-		val, err := p.parseValue()
+		val, quoted, err := p.parseValue()
 		if err != nil {
 			return nil, err
 		}
-		args = append(args, Arg{Value: val})
+		args = append(args, Arg{Value: val, Quoted: quoted})
 	}
 	if _, err := p.expect(RPAREN); err != nil {
 		return nil, err
@@ -269,7 +278,7 @@ func (p *Parser) parseOneofVariant() (OneofVariant, error) {
 	if err != nil {
 		return OneofVariant{}, err
 	}
-	return OneofVariant{Name: name.Text, Type: typ, Decorators: decorators, Line: name.Line}, nil
+	return OneofVariant{Name: name.Text, LeadingComments: append([]string(nil), name.LeadingComments...), Type: typ, Decorators: decorators, Line: name.Line, Col: name.Col}, nil
 }
 
 func (p *Parser) parseOneof() (*OneofDecl, error) {
@@ -281,7 +290,7 @@ func (p *Parser) parseOneof() (*OneofDecl, error) {
 	if _, err := p.expect(LBRACE); err != nil {
 		return nil, err
 	}
-	o := &OneofDecl{Args: args, Line: line}
+	o := &OneofDecl{LeadingComments: append([]string(nil), p.prev.LeadingComments...), Args: args, Line: line, Col: p.prev.Col}
 	for p.tok.Kind != RBRACE {
 		v, err := p.parseOneofVariant()
 		if err != nil {
@@ -300,7 +309,7 @@ func (p *Parser) parseField() (*FieldDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	f := &FieldDecl{Name: name.Text, Doc: name.Doc, Line: name.Line}
+	f := &FieldDecl{Name: name.Text, Doc: name.Doc, LeadingComments: append([]string(nil), name.LeadingComments...), Line: name.Line, Col: name.Col}
 
 	if _, err := p.expect(COLON); err != nil {
 		return nil, err
@@ -315,6 +324,7 @@ func (p *Parser) parseField() (*FieldDecl, error) {
 			return nil, err
 		}
 		f.Oneof = oneof
+		f.Decorators = nil
 		return f, nil
 	}
 
@@ -358,7 +368,7 @@ func (p *Parser) parseMessage() (*MessageDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &MessageDecl{Name: name.Text, Doc: doc, Line: line}
+	m := &MessageDecl{Name: name.Text, Doc: doc, LeadingComments: append([]string(nil), p.prev.LeadingComments...), Line: line, Col: name.Col}
 
 	decorators, err := p.parseDecorators()
 	if err != nil {
@@ -377,18 +387,21 @@ func (p *Parser) parseMessage() (*MessageDecl, error) {
 				return nil, err
 			}
 			m.Nested = append(m.Nested, nested)
+			m.Members = append(m.Members, nested)
 		case p.isKeywordIntroducer("enum"):
 			nested, err := p.parseEnum()
 			if err != nil {
 				return nil, err
 			}
 			m.NestedEn = append(m.NestedEn, nested)
+			m.Members = append(m.Members, nested)
 		default:
 			field, err := p.parseField()
 			if err != nil {
 				return nil, err
 			}
 			m.Fields = append(m.Fields, field)
+			m.Members = append(m.Members, field)
 		}
 	}
 	if _, err := p.expect(RBRACE); err != nil {
@@ -407,7 +420,7 @@ func (p *Parser) parseEnum() (*EnumDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	e := &EnumDecl{Name: name.Text, Doc: doc, Line: line}
+	e := &EnumDecl{Name: name.Text, Doc: doc, LeadingComments: append([]string(nil), p.prev.LeadingComments...), Line: line, Col: name.Col}
 
 	if _, err := p.expect(LBRACE); err != nil {
 		return nil, err
@@ -421,7 +434,7 @@ func (p *Parser) parseEnum() (*EnumDecl, error) {
 		if err != nil {
 			return nil, err
 		}
-		e.Values = append(e.Values, EnumValueDecl{Name: vname.Text, Doc: vname.Doc, Decorators: decorators, Line: vname.Line})
+		e.Values = append(e.Values, EnumValueDecl{Name: vname.Text, Doc: vname.Doc, LeadingComments: append([]string(nil), vname.LeadingComments...), Decorators: decorators, Line: vname.Line, Col: vname.Col})
 	}
 	if _, err := p.expect(RBRACE); err != nil {
 		return nil, err
@@ -457,10 +470,12 @@ func (p *Parser) parseHeadersBlock() ([]HeaderDecl, error) {
 			return nil, err
 		}
 		headers = append(headers, HeaderDecl{
-			Name:       nameTok.Text,
-			Type:       typeTok.Text,
-			Decorators: decorators,
-			Line:       nameTok.Line,
+			Name:            nameTok.Text,
+			LeadingComments: append([]string(nil), nameTok.LeadingComments...),
+			Type:            typeTok.Text,
+			Decorators:      decorators,
+			Line:            nameTok.Line,
+			Col:             nameTok.Col,
 		})
 	}
 	if _, err := p.expect(RBRACE); err != nil {
@@ -474,7 +489,7 @@ func (p *Parser) parseRPC() (*RPCDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	r := &RPCDecl{Name: name.Text, Doc: name.Doc, Line: name.Line}
+	r := &RPCDecl{Name: name.Text, Doc: name.Doc, LeadingComments: append([]string(nil), name.LeadingComments...), Line: name.Line, Col: name.Col}
 
 	if _, err := p.expect(LPAREN); err != nil {
 		return nil, err
@@ -520,6 +535,7 @@ func (p *Parser) parseRPC() (*RPCDecl, error) {
 		for p.tok.Kind != RBRACE {
 			switch {
 			case p.isIdent("headers"):
+				r.HeadersComments = append([]string(nil), p.tok.LeadingComments...)
 				h, err := p.parseHeadersBlock()
 				if err != nil {
 					return nil, err
@@ -547,7 +563,7 @@ func (p *Parser) parseService() (*ServiceDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &ServiceDecl{Name: name.Text, Doc: doc, Line: line}
+	s := &ServiceDecl{Name: name.Text, Doc: doc, LeadingComments: append([]string(nil), p.prev.LeadingComments...), Line: line, Col: name.Col}
 
 	if _, err := p.expect(LBRACE); err != nil {
 		return nil, err
@@ -555,6 +571,7 @@ func (p *Parser) parseService() (*ServiceDecl, error) {
 	for p.tok.Kind != RBRACE {
 		switch {
 		case p.isIdent("base_path"):
+			s.BasePathComments = append([]string(nil), p.tok.LeadingComments...)
 			if err := p.next(); err != nil {
 				return nil, err
 			}
@@ -567,6 +584,7 @@ func (p *Parser) parseService() (*ServiceDecl, error) {
 			}
 			s.BasePath = path.Text
 		case p.isIdent("headers"):
+			s.HeadersComments = append([]string(nil), p.tok.LeadingComments...)
 			h, err := p.parseHeadersBlock()
 			if err != nil {
 				return nil, err

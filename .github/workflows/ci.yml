@@ -112,6 +112,12 @@ jobs:
       - name: Build binaries
         run: make build
 
+      - name: Verify committed generated output
+        run: make check-generated
+
+      - name: Verify schema formatting and semantics
+        run: make check-schema
+
       - name: Run tests
         run: ./scripts/run_tests.sh ${{ matrix.test-args }}
         shell: bash

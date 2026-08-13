@@ -1,6 +1,9 @@
 package onek
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -36,6 +39,7 @@ func discoverOnkFiles(dir string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("walk %s: %w", dir, err)
 	}
+	sort.Strings(files)
 	return files, nil
 }
 
@@ -48,7 +52,7 @@ func parseSources(paths []string) ([]onkcompile.Source, error) {
 		}
 		ast, err := onklang.Parse(string(data))
 		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", path, err)
+			return nil, &ParseDiagnosticError{Path: path, Err: err}
 		}
 		sources = append(sources, onkcompile.Source{Path: path, AST: ast})
 	}
@@ -378,13 +382,101 @@ func Build(dir string) error {
 			return err
 		}
 	}
-	return cleanupStaleGeneratedOutputs(cfg, idx)
+	if err := cleanupStaleGeneratedOutputs(cfg, idx); err != nil {
+		return err
+	}
+	return writeGenerationManifest(cfg, idx)
+}
+
+type generationManifest struct {
+	Version     int                 `json:"version"`
+	Module      string              `json:"module"`
+	RoutePrefix string              `json:"route_prefix,omitempty"`
+	SchemaHash  string              `json:"schema_hash"`
+	SchemaFiles []string            `json:"schema_files"`
+	Outputs     map[string][]string `json:"outputs"`
+}
+
+// writeGenerationManifest records the exact schema/config fingerprint and
+// generated output set. It gives CI and editor tooling a stable way to detect
+// drift without guessing which files belong to OneKit.
+func writeGenerationManifest(cfg *Config, idx *sourceIndex) error {
+	paths, err := discoverOnkFiles(cfg.dir)
+	if err != nil {
+		return err
+	}
+	sort.Strings(paths)
+	hash := sha256.New()
+	var schemaFiles []string
+	for _, path := range paths {
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return fmt.Errorf("read schema for manifest %s: %w", path, readErr)
+		}
+		rel, relErr := filepath.Rel(cfg.dir, path)
+		if relErr != nil {
+			return fmt.Errorf("relativize schema %s: %w", path, relErr)
+		}
+		rel = filepath.ToSlash(rel)
+		schemaFiles = append(schemaFiles, rel)
+		_, _ = hash.Write([]byte(rel))
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write(data)
+		_, _ = hash.Write([]byte{0})
+	}
+	configData, err := os.ReadFile(filepath.Join(cfg.dir, configFileName))
+	if err != nil {
+		return fmt.Errorf("read config for manifest: %w", err)
+	}
+	_, _ = hash.Write([]byte(configFileName))
+	_, _ = hash.Write([]byte{0})
+	_, _ = hash.Write(configData)
+
+	outputs := map[string][]string{}
+	for root, expected := range expectedGeneratedOutputs(cfg, idx) {
+		rootRel, relErr := filepath.Rel(cfg.dir, root)
+		if relErr != nil {
+			return fmt.Errorf("relativize generated root %s: %w", root, relErr)
+		}
+		rootRel = filepath.ToSlash(rootRel)
+		files := make([]string, 0, len(expected))
+		for file := range expected {
+			files = append(files, filepath.ToSlash(filepath.Join(rootRel, file)))
+		}
+		sort.Strings(files)
+		outputs[rootRel] = files
+	}
+	manifest := generationManifest{
+		Version:     1,
+		Module:      cfg.Module,
+		RoutePrefix: cfg.RoutePrefix,
+		SchemaHash:  hex.EncodeToString(hash.Sum(nil)),
+		SchemaFiles: schemaFiles,
+		Outputs:     outputs,
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal generation manifest: %w", err)
+	}
+	data = append(data, '\n')
+	return writeFile(filepath.Join(cfg.dir, ".onekit", "manifest.json"), data)
 }
 
 func cleanupStaleGeneratedOutputs(cfg *Config, idx *sourceIndex) error {
 	expectedByRoot := expectedGeneratedOutputs(cfg, idx)
-	for root, expected := range expectedByRoot {
-		if err := cleanupGeneratedRoot(root, expected); err != nil {
+	roots := make([]string, 0, len(expectedByRoot))
+	for root := range expectedByRoot {
+		roots = append(roots, root)
+	}
+	sort.Strings(roots)
+	for _, root := range roots {
+		protected := make([]string, 0)
+		for _, other := range roots {
+			if root != other && pathWithin(root, other) {
+				protected = append(protected, other)
+			}
+		}
+		if err := cleanupGeneratedRoot(root, expectedByRoot[root], protected); err != nil {
 			return err
 		}
 	}
@@ -480,7 +572,7 @@ func expectedGeneratedOutputs(cfg *Config, idx *sourceIndex) map[string]map[stri
 	return roots
 }
 
-func cleanupGeneratedRoot(root string, expected map[string]bool) error {
+func cleanupGeneratedRoot(root string, expected map[string]bool, protectedRoots []string) error {
 	info, err := os.Stat(root)
 	if os.IsNotExist(err) {
 		return nil
@@ -496,6 +588,11 @@ func cleanupGeneratedRoot(root string, expected map[string]bool) error {
 			return walkErr
 		}
 		if entry.IsDir() {
+			for _, protectedRoot := range protectedRoots {
+				if filepath.Clean(filePath) == filepath.Clean(protectedRoot) {
+					return fs.SkipDir
+				}
+			}
 			return nil
 		}
 		rel, relErr := filepath.Rel(root, filePath)
@@ -508,6 +605,14 @@ func cleanupGeneratedRoot(root string, expected map[string]bool) error {
 		}
 		return nil
 	})
+}
+
+func pathWithin(parent, child string) bool {
+	rel, err := filepath.Rel(parent, child)
+	if err != nil || rel == "." || filepath.IsAbs(rel) {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func isOnekitGeneratedFile(filePath string) bool {

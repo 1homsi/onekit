@@ -196,6 +196,32 @@ func TestCompileResolvesFieldTypes(t *testing.T) {
 	}
 }
 
+func TestCompileSupportsJSONScalar(t *testing.T) {
+	ast := parseOrFatal(t, `
+package examples.json
+
+message Envelope {
+  payload: json
+  attributes: map[string, json]
+  items: json[]
+}
+`)
+	pkg, err := Compile([]Source{{Path: "json.onk", AST: ast}})
+	if err != nil {
+		t.Fatalf("unexpected compile error: %v", err)
+	}
+	message := pkg.Files[0].Messages[0]
+	if message.Fields[0].Type.Scalar != onkir.ScalarJSON {
+		t.Fatalf("expected json scalar, got %+v", message.Fields[0].Type)
+	}
+	if message.Fields[1].Type.MapValue.Scalar != onkir.ScalarJSON {
+		t.Fatalf("expected json map value, got %+v", message.Fields[1].Type.MapValue)
+	}
+	if message.Fields[2].Type.Scalar != onkir.ScalarJSON || !message.Fields[2].Repeated {
+		t.Fatalf("expected repeated json scalar, got %+v", message.Fields[2])
+	}
+}
+
 func TestCompileResolvesOneofVariantTypes(t *testing.T) {
 	pkg := compileFixture(t)
 	models := pkg.Files[0]
@@ -494,6 +520,48 @@ func TestCompileResolvesPackageQualifiedReferenceDespiteAmbiguity(t *testing.T) 
 			"b",
 			settingsField.Type.Message.Fields,
 		)
+	}
+}
+
+func TestCompileValidatesLocalImports(t *testing.T) {
+	_, err := Compile([]Source{
+		{Path: "api/service.onk", AST: parseOrFatal(t, `import "../missing.onk"
+service API {}`)},
+	})
+	if err == nil || !strings.Contains(err.Error(), "does not match a discovered .onk file") {
+		t.Fatalf("expected missing import error, got %v", err)
+	}
+}
+
+func TestCompileResolvesOnlyImportedDirectoriesWhenImportsAreDeclared(t *testing.T) {
+	pkg, err := Compile([]Source{
+		{Path: "common/models.onk", AST: parseOrFatal(t, `package common
+message Shared { value: string }`)},
+		{Path: "other/models.onk", AST: parseOrFatal(t, `package other
+message Shared { other: string }`)},
+		{Path: "api/service.onk", AST: parseOrFatal(t, `package api
+import "../common/models.onk"
+message Request { value: string }
+service API { get(Request) -> Shared @get("/shared") }`)},
+	})
+	if err != nil {
+		t.Fatalf("expected imported type to resolve: %v", err)
+	}
+	method := pkg.Files[2].Services[0].Methods[0]
+	if method.Response == nil || method.Response.File == nil || method.Response.File.Package != "common" {
+		t.Fatalf("expected response from imported common package, got %+v", method.Response)
+	}
+}
+
+func TestCompileRejectsImportCycles(t *testing.T) {
+	_, err := Compile([]Source{
+		{Path: "a.onk", AST: parseOrFatal(t, `import "b.onk"
+message A {}`)},
+		{Path: "b.onk", AST: parseOrFatal(t, `import "a.onk"
+message B {}`)},
+	})
+	if err == nil || !strings.Contains(err.Error(), "cyclic schema import") {
+		t.Fatalf("expected import cycle error, got %v", err)
 	}
 }
 

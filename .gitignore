@@ -68,6 +68,7 @@ Thumbs.db
 # Coverage reports and profiles
 *.coverprofile
 coverage/
+.onekit/
 
 # Generated protobuf files
 internal/generated/proto/

@@ -212,13 +212,13 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		}
 		p.P("}")
 	}
-	p.P("const body: Record<string, unknown> = {};")
+	p.P("let body: any = {};")
 	if bodyBearing {
 		p.P("try {")
 		if bodyField, ok := m.BodyField(); ok {
 			p.P("body[", fmt.Sprintf("%q", bodyField), "] = await req.json();")
 		} else {
-			p.P("Object.assign(body, await req.json());")
+			p.P("body = await req.json();")
 		}
 		p.P("} catch {")
 		p.P(`throw new HttpError(400, { message: "invalid request body" });`)
@@ -262,6 +262,14 @@ func writeServerQueryParams(p *Printer, req *onkir.Message) {
 		queryName, _ := d.Value()
 		if queryName == "" {
 			queryName = field.Name
+		}
+		if field.Repeated {
+			values := CamelCase(field.Name) + "Values"
+			p.P(fmt.Sprintf("const %s = url.searchParams.getAll(%q);", values, queryName))
+			p.P("if (", values, ".length > 0) {")
+			p.P("body.", field.Name, " = ", values, ".map((value) => ", queryScalarConvert(field.Type.Scalar, "value", "query parameter "+queryName), ");")
+			p.P("}")
+			continue
 		}
 		p.P(fmt.Sprintf("const %s = url.searchParams.get(%q);", CamelCase(field.Name), queryName))
 		p.P("if (", CamelCase(field.Name), " !== null) {")

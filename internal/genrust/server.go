@@ -153,7 +153,11 @@ func writeHandler(
 	if bodyBearing {
 		if bodyField, ok := method.BodyField(); ok {
 			if field := findField(method.Request, bodyField); field != nil {
-				p.P("Json(body): Json<", rustFieldType(p, field), ">,")
+				if bodyFieldNeedsCustomWire(field) {
+					p.P("Json(body): Json<serde_json::Value>,")
+				} else {
+					p.P("Json(body): Json<", rustFieldType(p, field), ">,")
+				}
 			} else {
 				p.P("Json(mut req): Json<", requestType, ">,")
 			}
@@ -167,14 +171,25 @@ func writeHandler(
 	p.P(") -> Response {")
 	p.Indent()
 
+	errorName := serverErrorName(service, method)
 	if bodyField, ok := method.BodyField(); ok && bodyBearing {
 		if field := findField(method.Request, bodyField); field != nil {
-			p.P("let mut req = ", requestType, "::default();")
-			p.P("req.", RustIdent(field.Name), " = body;")
+			if bodyFieldNeedsCustomWire(field) {
+				p.P("let mut body_object = serde_json::Map::new();")
+				p.P("body_object.insert(", strconv.Quote(field.Name), ".into(), body);")
+				p.P("let mut req: ", requestType, " = match serde_json::from_value(serde_json::Value::Object(body_object)) {")
+				p.Indent()
+				p.P("Ok(value) => value,")
+				p.P("Err(error) => return ", errorName, "::InvalidRequest(error.to_string()).into_response(),")
+				p.Dedent()
+				p.P("};")
+			} else {
+				p.P("let mut req = ", requestType, "::default();")
+				p.P("req.", RustIdent(field.Name), " = body;")
+			}
 		}
 	}
 
-	errorName := serverErrorName(service, method)
 	for _, name := range pathFields {
 		field := findField(method.Request, name)
 		if field == nil {

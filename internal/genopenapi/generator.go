@@ -41,6 +41,8 @@ func scalarSchema(k onkir.ScalarKind) *base.Schema {
 		return &base.Schema{Type: []string{"string"}, Format: "byte"}
 	case onkir.ScalarTimestamp:
 		return &base.Schema{Type: []string{"string"}, Format: "date-time"}
+	case onkir.ScalarJSON:
+		return &base.Schema{}
 	default:
 		return &base.Schema{}
 	}
@@ -336,12 +338,17 @@ func queryParameters(req *onkir.Message) []*v3.Parameter {
 		if name == "" {
 			name = f.Name
 		}
-		params = append(params, &v3.Parameter{
+		parameter := &v3.Parameter{
 			Name:     name,
 			In:       "query",
-			Required: new(f.HasDecorator("required")),
-			Schema:   base.CreateSchemaProxy(scalarSchema(f.Type.Scalar)),
-		})
+			Required: new(!f.Optional || f.HasDecorator("required")),
+			Schema:   fieldSchemaProxy(f),
+		}
+		if f.Repeated {
+			parameter.Style = "form"
+			parameter.Explode = new(true)
+		}
+		params = append(params, parameter)
 	}
 	return params
 }

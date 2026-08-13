@@ -22,6 +22,9 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) []by
 	if fileHasStreamMethods(file) {
 		p.P("use futures_util::{Stream, StreamExt as _};")
 	}
+	if fileNeedsBodyWireEncoding(file) {
+		p.P("use base64::Engine as _;")
+	}
 	p.P("use serde::Serialize;")
 	p.Blank()
 	writeClientHelpers(p)
@@ -150,7 +153,12 @@ func writeClientMethod(
 	if isBodyBearingVerb(verb) {
 		if bodyField, ok := method.BodyField(); ok {
 			if field := findField(method.Request, bodyField); field != nil {
-				p.P("request = request.json(&req.", RustIdent(field.Name), ");")
+				if bodyFieldNeedsCustomWire(field) {
+					writeBodyValue(p, field)
+					p.P("request = request.json(&body_value);")
+				} else {
+					p.P("request = request.json(&req.", RustIdent(field.Name), ");")
+				}
 			} else {
 				p.P("request = request.json(req);")
 			}
@@ -188,6 +196,81 @@ func writeClientMethod(
 	p.Blank()
 }
 
+func fileNeedsBodyWireEncoding(file *onkir.File) bool {
+	for _, service := range file.Services {
+		for _, method := range service.Methods {
+			bodyName, ok := method.BodyField()
+			if !ok {
+				continue
+			}
+			if field := findField(method.Request, bodyName); field != nil && bodyFieldNeedsCustomWire(field) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func bodyFieldNeedsCustomWire(field *onkir.Field) bool {
+	return needsInt64StringEncoding(field) || needsEnumNumberEncoding(field) ||
+		(field.Type != nil && field.Type.Kind == onkir.KindScalar && field.Type.Scalar == onkir.ScalarBytes)
+}
+
+func writeBodyValue(p *Printer, field *onkir.Field) {
+	fieldExpr := "req." + RustIdent(field.Name)
+	if field.Optional {
+		p.P("let body_value = ", fieldExpr, ".as_ref().map(|value| ", rustBodyValueExpr(p, field, "value"), ").unwrap_or(serde_json::Value::Null);")
+		return
+	}
+	p.P("let body_value = ", rustBodyValueExpr(p, field, "&"+fieldExpr), ";")
+}
+
+func rustBodyValueExpr(p *Printer, field *onkir.Field, expr string) string {
+	switch {
+	case needsInt64StringEncoding(field):
+		return "serde_json::Value::String((*" + expr + ").to_string())"
+	case needsEnumNumberEncoding(field):
+		return "serde_json::Value::Number((" + rustEnumNumberExpr(p, field.Type.Enum, expr) + ").into())"
+	case field.Type != nil && field.Type.Kind == onkir.KindScalar && field.Type.Scalar == onkir.ScalarBytes:
+		return "serde_json::Value::String(" + rustBytesEncodeExpr(fieldEncoding(field), expr) + ")"
+	default:
+		return "serde_json::to_value(" + expr + ").expect(\"generated body value must serialize\")"
+	}
+}
+
+func rustEnumNumberExpr(p *Printer, enum *onkir.Enum, expr string) string {
+	var b strings.Builder
+	b.WriteString("match ")
+	b.WriteString(expr)
+	b.WriteString(" {")
+	for _, value := range enum.Values {
+		b.WriteString(" ")
+		b.WriteString(p.EnumTypeName(enum))
+		b.WriteString("::")
+		b.WriteString(PascalCase(value.Name))
+		b.WriteString(" => ")
+		b.WriteString(strconv.Itoa(value.Index))
+		b.WriteString(",")
+	}
+	b.WriteString(" }")
+	return b.String()
+}
+
+func rustBytesEncodeExpr(encoding, expr string) string {
+	switch encoding {
+	case "hex":
+		return "(" + expr + ").iter().map(|byte| format!(\"{byte:02x}\")).collect::<String>()"
+	case "base64_raw":
+		return "base64::engine::general_purpose::STANDARD_NO_PAD.encode(" + expr + ")"
+	case "base64url":
+		return "base64::engine::general_purpose::URL_SAFE.encode(" + expr + ")"
+	case "base64url_raw":
+		return "base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(" + expr + ")"
+	default:
+		return "base64::engine::general_purpose::STANDARD.encode(" + expr + ")"
+	}
+}
+
 func writeQueryParams(p *Printer, request *onkir.Message, pathFields []string) {
 	pathSet := map[string]bool{}
 	for _, field := range pathFields {
@@ -199,14 +282,22 @@ func writeQueryParams(p *Printer, request *onkir.Message, pathFields []string) {
 		if pathSet[field.Name] || field.Oneof != nil {
 			continue
 		}
+		queryDecorator, ok := field.Decorator("query")
+		if !ok || field.Type == nil || field.Type.Kind != onkir.KindScalar {
+			continue
+		}
+		queryName, _ := queryDecorator.Value()
+		if queryName == "" {
+			queryName = field.Name
+		}
 		access := "req." + RustIdent(field.Name)
 		switch {
 		case field.Optional:
-			p.P("if let Some(value) = &", access, " { query.push((", strconv.Quote(field.Name), ", query_value(value))); }")
+			p.P("if let Some(value) = &", access, " { query.push((", strconv.Quote(queryName), ", query_value(value))); }")
 		case field.Repeated:
-			p.P("for value in &", access, " { query.push((", strconv.Quote(field.Name), ", query_value(value))); }")
+			p.P("for value in &", access, " { query.push((", strconv.Quote(queryName), ", query_value(value))); }")
 		default:
-			p.P("query.push((", strconv.Quote(field.Name), ", query_value(&", access, ")));")
+			p.P("query.push((", strconv.Quote(queryName), ", query_value(&", access, ")));")
 		}
 	}
 }

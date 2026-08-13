@@ -15,6 +15,7 @@ package main
 message Money {
   amount_cents: int64
   amount_number: int64 @encode(number)
+  optional_amount: int64?
   amounts: int64[]
 }
 
@@ -26,11 +27,16 @@ enum Status {
 message StatusHolder {
   status: Status
   status_num: Status @encode(number)
+  statuses: Status[]
+  status_by_name: map[string, Status]
 }
 
 message Document {
   data: bytes
   hash: bytes @encode(hex)
+  optional_hash: bytes? @encode(hex)
+  chunks: bytes[]
+  by_hash: map[string, bytes]
 }
 
 message Event {
@@ -59,12 +65,20 @@ message ResponseNull {
 message IdList {
   ids: string[] @unwrap
 }
+
+message BlobList {
+  values: bytes[] @unwrap
+}
+
+message StatusMap {
+  values: map[string, Status] @unwrap
+}
 `
 
 const jsonMappingHarness = `
 import json
 
-from models import Money, StatusHolder, Document, Event, Order, Address, Meta, ResponseNull, IdList, Status
+from models import Money, StatusHolder, Document, Event, Order, Address, Meta, ResponseNull, IdList, BlobList, StatusMap, Status
 
 
 def fail(msg):
@@ -74,40 +88,50 @@ def fail(msg):
 
 def main():
     # int64 default string, @encode(number), repeated string
-    money = Money(amount_cents=12345, amount_number=999, amounts=[1, 2, 3])
+    money = Money(amount_cents=12345, amount_number=999, optional_amount=77, amounts=[1, 2, 3])
     d = money.to_dict()
     s = json.dumps(d)
     if d.get("amount_cents") != "12345":
         fail("expected amount_cents as string: " + s)
     if d.get("amount_number") != 999:
         fail("expected amount_number as number: " + s)
+    if d.get("optional_amount") != "77":
+        fail("expected optional_amount as string: " + s)
     if d.get("amounts") != ["1", "2", "3"]:
         fail("expected amounts as string array: " + s)
     money2 = Money.from_dict(json.loads(s))
-    if money2.amount_cents != 12345 or money2.amount_number != 999 or money2.amounts != [1, 2, 3]:
+    if money2.amount_cents != 12345 or money2.amount_number != 999 or money2.optional_amount != 77 or money2.amounts != [1, 2, 3]:
         fail("round trip mismatch: " + repr(money2))
 
     # enum default string, @encode(number)
-    holder = StatusHolder(status=Status.ACTIVE, status_num=Status.ACTIVE)
+    holder = StatusHolder(status=Status.ACTIVE, status_num=Status.ACTIVE, statuses=[Status.ACTIVE], status_by_name={"primary": Status.ACTIVE})
     hd = holder.to_dict()
     if hd.get("status") != "active":
         fail("expected status as string: " + json.dumps(hd))
     if hd.get("status_num") != 1:
         fail("expected status_num as number: " + json.dumps(hd))
+    if hd.get("statuses") != ["active"] or hd.get("status_by_name") != {"primary": "active"}:
+        fail("expected repeated/map enum strings: " + json.dumps(hd))
     holder2 = StatusHolder.from_dict(json.loads(json.dumps(hd)))
-    if holder2.status != Status.ACTIVE or holder2.status_num != Status.ACTIVE:
+    if holder2.status != Status.ACTIVE or holder2.status_num != Status.ACTIVE or holder2.statuses != [Status.ACTIVE] or holder2.status_by_name != {"primary": Status.ACTIVE}:
         fail("round trip mismatch: " + repr(holder2))
 
     # bytes default base64, @encode(hex)
-    doc = Document(data=b"hi", hash=b"hi")
+    doc = Document(data=b"hi", hash=b"hi", optional_hash=b"hi", chunks=[b"one", b"two"], by_hash={"primary": b"hi"})
     dd = doc.to_dict()
     if dd.get("data") != "aGk=":
         fail("expected base64 data: " + json.dumps(dd))
     if dd.get("hash") != "6869":
         fail("expected hex hash: " + json.dumps(dd))
+    if dd.get("optional_hash") != "6869":
+        fail("expected optional hex hash: " + json.dumps(dd))
+    if dd.get("chunks") != ["b25l", "dHdv"] or dd.get("by_hash") != {"primary": "aGk="}:
+        fail("expected repeated/map byte strings: " + json.dumps(dd))
     doc2 = Document.from_dict(json.loads(json.dumps(dd)))
-    if doc2.data != b"hi" or doc2.hash != b"hi":
+    if doc2.data != b"hi" or doc2.hash != b"hi" or doc2.optional_hash != b"hi" or doc2.chunks != [b"one", b"two"] or doc2.by_hash != {"primary": b"hi"}:
         fail("round trip mismatch: " + repr(doc2))
+    if Document.from_dict({}).optional_hash is not None:
+        fail("expected missing optional bytes to remain None")
 
     # timestamp default rfc3339 (str passthrough), @encode(unix_seconds) (int passthrough)
     ev = Event(created_at="2024-01-15T09:30:00Z", unix_at=1705311000)
@@ -150,6 +174,14 @@ def main():
     lst2 = IdList.from_dict(json.loads(json.dumps(ld)))
     if lst2.ids != ["a", "b", "c"]:
         fail("round trip mismatch: " + repr(lst2))
+
+    blobs = BlobList(values=[b"one", b"two"])
+    if blobs.to_dict() != ["b25l", "dHdv"] or BlobList.from_dict(blobs.to_dict()).values != [b"one", b"two"]:
+        fail("expected root-unwrapped byte encoding")
+
+    statuses = StatusMap(values={"primary": Status.ACTIVE})
+    if statuses.to_dict() != {"primary": "active"} or StatusMap.from_dict(statuses.to_dict()).values != {"primary": Status.ACTIVE}:
+        fail("expected root-unwrapped enum map encoding")
 
     print("OK")
 

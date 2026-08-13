@@ -34,9 +34,48 @@ func PyScalarType(k onkir.ScalarKind) string {
 		return "float"
 	case onkir.ScalarBytes:
 		return "bytes"
+	case onkir.ScalarJSON:
+		return "Any"
 	default:
 		return "object"
 	}
+}
+
+func fileUsesScalar(file *onkir.File, scalar onkir.ScalarKind) bool {
+	var typeUsesScalar func(*onkir.Type) bool
+	typeUsesScalar = func(typ *onkir.Type) bool {
+		if typ == nil {
+			return false
+		}
+		switch typ.Kind {
+		case onkir.KindScalar:
+			return typ.Scalar == scalar
+		case onkir.KindMap:
+			return typeUsesScalar(typ.MapValue)
+		default:
+			return false
+		}
+	}
+	var walk func(*onkir.Message) bool
+	walk = func(message *onkir.Message) bool {
+		for _, field := range message.Fields {
+			if typeUsesScalar(field.Type) {
+				return true
+			}
+		}
+		for _, nested := range message.Nested {
+			if walk(nested) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, message := range file.Messages {
+		if walk(message) {
+			return true
+		}
+	}
+	return false
 }
 
 // PyFieldType resolves Message/Enum kinds through this printer's
