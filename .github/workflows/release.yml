@@ -116,13 +116,28 @@ jobs:
       - name: Run tests and coverage
         run: ./scripts/run_tests.sh
 
-      - name: Run GoReleaser
+      - name: Build release artifacts
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:
           version: v2.17.1
-          args: release --clean
+          args: release --clean --skip=publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish release artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          artifacts=(dist/checksums.txt dist/*.tar.gz dist/*.zip)
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${artifacts[@]}" --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              --title "onekit $RELEASE_TAG" \
+              --generate-notes \
+              "${artifacts[@]}"
+          fi
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
