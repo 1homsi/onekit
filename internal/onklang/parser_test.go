@@ -587,13 +587,13 @@ func TestParseExtendedLiterals(t *testing.T) {
 
 func TestParseRejectsExcessiveNesting(t *testing.T) {
 	var src strings.Builder
-	for index := 0; index < maxParserNestingDepth+1; index++ {
+	for index := range maxParserNestingDepth + 1 {
 		src.WriteString("message M")
-		src.WriteString(string(rune('A' + index%26)))
+		src.WriteRune(rune('A' + index%26))
 		src.WriteString(" {\n")
 	}
 	src.WriteString("value: string\n")
-	for index := 0; index < maxParserNestingDepth+1; index++ {
+	for range maxParserNestingDepth + 1 {
 		src.WriteString("}\n")
 	}
 	if _, err := Parse(src.String()); err == nil || !strings.Contains(err.Error(), "maximum message nesting depth") {

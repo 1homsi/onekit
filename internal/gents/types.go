@@ -140,7 +140,7 @@ func writeRootCodecFuncs(p *Printer, m *onkir.Message) {
 	p.P("export function validate", m.Name, "(_v: ", m.Name, "): string[] {")
 	p.P("const violations: string[] = [];")
 	if field := rootUnwrapField(m); field != nil {
-		p.P("if (!(", tsRuntimeTypeExpression(p, field, "_v as any"), ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid type"), ");")
+		p.P("if (!(", tsRuntimeTypeExpression(field, "_v as any"), ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid type"), ");")
 	}
 	p.P("return violations;")
 	p.P("}")
@@ -159,7 +159,7 @@ func writeValidateFunc(p *Printer, m *onkir.Message) {
 		field := f.field
 		accessor := "v." + f.ts
 		present := accessor + " !== undefined && " + accessor + " !== null"
-		p.P("if (", present, " && !(", tsRuntimeTypeExpression(p, field, accessor), ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid type"), ");")
+		p.P("if (", present, " && !(", tsRuntimeTypeExpression(field, accessor), ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid type"), ");")
 		if field.HasDecorator("required") {
 			required := "!(" + present + ")"
 			if field.Type != nil && field.Type.Kind == onkir.KindScalar && field.Type.Scalar == onkir.ScalarString {
@@ -247,24 +247,26 @@ func isTSNumeric(kind onkir.ScalarKind) bool {
 	}
 }
 
-func tsRuntimeTypeExpression(p *Printer, field *onkir.Field, expr string) string {
+const tsTrueExpression = "true"
+
+func tsRuntimeTypeExpression(field *onkir.Field, expr string) string {
 	if field == nil {
-		return "true"
+		return tsTrueExpression
 	}
 	if field.Oneof != nil {
 		disc := oneofDiscriminatorKey(field)
 		return fmt.Sprintf("typeof %s === \"object\" && %s !== null && !Array.isArray(%s) && typeof %s.%s === \"string\"", expr, expr, expr, expr, disc)
 	}
 	if field.Type == nil {
-		return "true"
+		return tsTrueExpression
 	}
 	if field.Repeated {
 		item := &onkir.Field{Type: field.Type}
-		return fmt.Sprintf("Array.isArray(%s) && (%s).every((item: any) => %s)", expr, expr, tsRuntimeTypeExpression(p, item, "item"))
+		return fmt.Sprintf("Array.isArray(%s) && (%s).every((item: any) => %s)", expr, expr, tsRuntimeTypeExpression(item, "item"))
 	}
 	if field.Type.Kind == onkir.KindMap {
 		value := &onkir.Field{Type: field.Type.MapValue}
-		return fmt.Sprintf("typeof %s === \"object\" && %s !== null && !Array.isArray(%s) && Object.values(%s).every((item: any) => %s)", expr, expr, expr, expr, tsRuntimeTypeExpression(p, value, "item"))
+		return fmt.Sprintf("typeof %s === \"object\" && %s !== null && !Array.isArray(%s) && Object.values(%s).every((item: any) => %s)", expr, expr, expr, expr, tsRuntimeTypeExpression(value, "item"))
 	}
 	switch field.Type.Kind {
 	case onkir.KindMessage:
@@ -303,10 +305,10 @@ func tsRuntimeTypeExpression(p *Printer, field *onkir.Field, expr string) string
 			}
 			return fmt.Sprintf("typeof %s === \"string\"", expr)
 		default:
-			return "true"
+			return tsTrueExpression
 		}
 	default:
-		return "true"
+		return tsTrueExpression
 	}
 }
 

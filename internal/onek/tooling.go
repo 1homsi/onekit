@@ -39,7 +39,7 @@ func Format(dir string, check bool) error {
 	}
 	var changed []string
 	for _, path := range paths {
-		data, err := readRegularFile(path, maxInputFileBytes)
+		data, err := readRegularFile(path)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", path, err)
 		}
@@ -157,7 +157,7 @@ func projectSnapshot(dir string) ([]fileStamp, error) {
 		if err != nil {
 			return nil, err
 		}
-		data, err := readRegularFile(path, maxInputFileBytes)
+		data, err := readRegularFile(path)
 		if err != nil {
 			return nil, err
 		}

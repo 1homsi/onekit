@@ -32,7 +32,8 @@ func canonicalProjectDir(dir string) (string, error) {
 	return filepath.Clean(realPath), nil
 }
 
-func readRegularFile(filePath string, maxBytes int64) ([]byte, error) {
+func readRegularFile(filePath string) ([]byte, error) {
+	const maxBytes = maxInputFileBytes
 	info, err := os.Lstat(filePath)
 	if err != nil {
 		return nil, err

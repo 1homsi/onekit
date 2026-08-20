@@ -60,7 +60,7 @@ func LoadConfig(dir string) (*Config, error) {
 		return nil, &ConfigError{Path: filepath.Join(dir, configFileName), Err: err}
 	}
 	path := filepath.Join(root, configFileName)
-	data, err := readRegularFile(path, maxInputFileBytes)
+	data, err := readRegularFile(path)
 	if err != nil {
 		return nil, &ConfigError{Path: path, Err: fmt.Errorf("read: %w", err)}
 	}

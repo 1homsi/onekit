@@ -69,7 +69,7 @@ func discoverOnkFiles(dir string) ([]string, error) {
 func parseSources(paths []string) ([]onkcompile.Source, error) {
 	var sources []onkcompile.Source
 	for _, path := range paths {
-		data, err := readRegularFile(path, maxInputFileBytes)
+		data, err := readRegularFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", path, err)
 		}
@@ -439,7 +439,7 @@ func writeGenerationManifest(cfg *Config, idx *sourceIndex) error {
 	hash := sha256.New()
 	var schemaFiles []string
 	for _, path := range paths {
-		data, readErr := readRegularFile(path, maxInputFileBytes)
+		data, readErr := readRegularFile(path)
 		if readErr != nil {
 			return fmt.Errorf("read schema for manifest %s: %w", path, readErr)
 		}
@@ -454,7 +454,7 @@ func writeGenerationManifest(cfg *Config, idx *sourceIndex) error {
 		_, _ = hash.Write(data)
 		_, _ = hash.Write([]byte{0})
 	}
-	configData, err := readRegularFile(filepath.Join(cfg.dir, configFileName), maxInputFileBytes)
+	configData, err := readRegularFile(filepath.Join(cfg.dir, configFileName))
 	if err != nil {
 		return fmt.Errorf("read config for manifest: %w", err)
 	}
@@ -520,7 +520,7 @@ func cleanupStaleGeneratedOutputs(cfg *Config, idx *sourceIndex) error {
 func previousGeneratedOutputs(cfg *Config) (map[string]map[string]bool, error) {
 	owned := map[string]map[string]bool{}
 	manifestPath := filepath.Join(cfg.dir, ".onekit", "manifest.json")
-	data, err := readRegularFile(manifestPath, maxInputFileBytes)
+	data, err := readRegularFile(manifestPath)
 	if os.IsNotExist(err) {
 		return owned, nil
 	}

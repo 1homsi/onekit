@@ -15,7 +15,9 @@ import (
 
 const (
 	flattenDecorator            = "flatten"
+	flattenPrefixArg            = "prefix"
 	maxCrossRuntimePatternBytes = 4096
+	oneofDiscriminatorArg       = "discriminator"
 	postVerb                    = "post"
 	putVerb                     = "put"
 	patchVerb                   = "patch"
@@ -218,17 +220,17 @@ func validateNamedMember(path string, line int, name string, decorators []onklan
 func validateOneofArgs(path string, line int, args []onklang.Arg) error {
 	seen := map[string]bool{}
 	for _, arg := range args {
-		if arg.Name != "discriminator" && arg.Name != flattenDecorator {
+		if arg.Name != oneofDiscriminatorArg && arg.Name != flattenDecorator {
 			return &Error{Path: path, Line: line, Msg: fmt.Sprintf("unknown oneof argument %q", arg.Name)}
 		}
 		if seen[arg.Name] {
 			return &Error{Path: path, Line: line, Msg: fmt.Sprintf("duplicate oneof argument %q", arg.Name)}
 		}
 		seen[arg.Name] = true
-		if arg.Name == "discriminator" && arg.Value == "" {
+		if arg.Name == oneofDiscriminatorArg && arg.Value == "" {
 			return &Error{Path: path, Line: line, Msg: "oneof discriminator must not be empty"}
 		}
-		if arg.Name == "discriminator" && !isGeneratedKey(arg.Value) {
+		if arg.Name == oneofDiscriminatorArg && !isGeneratedKey(arg.Value) {
 			return &Error{Path: path, Line: line, Msg: "oneof discriminator must contain only letters, digits, and underscores and must not start with a digit"}
 		}
 		if arg.Name == flattenDecorator && arg.Value != "true" && arg.Value != "false" {
@@ -613,7 +615,7 @@ func validateDecorators(path string, line int, decorators []onklang.Decorator, r
 			return &Error{Path: path, Line: line, Msg: fmt.Sprintf("@%s expects %s", decorator.Name, argCount(rule.minArgs, rule.maxArgs))}
 		}
 		for _, arg := range decorator.Args {
-			if arg.Name != "" && (decorator.Name != flattenDecorator || arg.Name != "prefix") {
+			if arg.Name != "" && (decorator.Name != flattenDecorator || arg.Name != flattenPrefixArg) {
 				return &Error{Path: path, Line: line, Msg: fmt.Sprintf("@%s does not accept named argument %q", decorator.Name, arg.Name)}
 			}
 			if arg.Value == "" && decorator.Name != flattenDecorator && decorator.Name != "in" {
@@ -632,11 +634,11 @@ func validateDecorators(path string, line int, decorators []onklang.Decorator, r
 				return &Error{Path: path, Line: line, Msg: "@auth must be api_key, bearer, or basic"}
 			}
 		case flattenDecorator:
-			if len(decorator.Args) == 1 && decorator.Args[0].Name != "prefix" {
+			if len(decorator.Args) == 1 && decorator.Args[0].Name != flattenPrefixArg {
 				return &Error{Path: path, Line: line, Msg: "@flatten argument must be named prefix"}
 			}
 			for _, arg := range decorator.Args {
-				if arg.Name == "prefix" && !isGeneratedKey(arg.Value) {
+				if arg.Name == flattenPrefixArg && !isGeneratedKey(arg.Value) {
 					return &Error{Path: path, Line: line, Msg: "@flatten prefix must contain only letters, digits, and underscores and must not start with a digit"}
 				}
 			}
