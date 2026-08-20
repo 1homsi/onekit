@@ -10,14 +10,38 @@ import (
 	"net/http"
 )
 
+const defaultMaxResponseBodyBytes int64 = 8 << 20
+const defaultMaxSSELineBytes = 1 << 20
+
+func responseBodyLimit(value int64) int64 {
+	if value <= 0 {
+		return defaultMaxResponseBodyBytes
+	}
+	return value
+}
+
+func readResponseBody(body io.Reader, limit int64) ([]byte, error) {
+	limit = responseBodyLimit(limit)
+	data, err := io.ReadAll(io.LimitReader(body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("response body exceeds configured limit")
+	}
+	return data, nil
+}
+
 type UserServiceClient struct {
-	BaseURL    string
-	HTTPClient *http.Client
-	Headers    map[string]string
+	BaseURL              string
+	HTTPClient           *http.Client
+	Headers              map[string]string
+	MaxResponseBodyBytes int64
+	MaxSSELineBytes      int
 }
 
 func NewUserServiceClient(baseURL string) *UserServiceClient {
-	return &UserServiceClient{BaseURL: baseURL, HTTPClient: http.DefaultClient, Headers: map[string]string{}}
+	return &UserServiceClient{BaseURL: baseURL, HTTPClient: http.DefaultClient, Headers: map[string]string{}, MaxResponseBodyBytes: defaultMaxResponseBodyBytes, MaxSSELineBytes: defaultMaxSSELineBytes}
 }
 
 func (c *UserServiceClient) CreateUser(ctx context.Context, req *CreateUserRequest) (*User, error) {
@@ -46,11 +70,14 @@ func (c *UserServiceClient) CreateUser(ctx context.Context, req *CreateUserReque
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, bodyErr := readResponseBody(resp.Body, c.MaxResponseBodyBytes)
+		if bodyErr != nil {
+			return nil, bodyErr
+		}
 		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
 	}
 	result := new(User)
-	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return result, nil
@@ -82,11 +109,14 @@ func (c *UserServiceClient) GetUser(ctx context.Context, req *GetUserRequest) (*
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, bodyErr := readResponseBody(resp.Body, c.MaxResponseBodyBytes)
+		if bodyErr != nil {
+			return nil, bodyErr
+		}
 		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
 	}
 	result := new(User)
-	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return result, nil
@@ -118,11 +148,14 @@ func (c *UserServiceClient) Login(ctx context.Context, req *LoginRequest) (*Logi
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, bodyErr := readResponseBody(resp.Body, c.MaxResponseBodyBytes)
+		if bodyErr != nil {
+			return nil, bodyErr
+		}
 		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
 	}
 	result := new(LoginResponse)
-	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return result, nil

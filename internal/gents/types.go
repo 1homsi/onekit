@@ -138,7 +138,11 @@ func writeRootCodecFuncs(p *Printer, m *onkir.Message) {
 	p.P("}")
 	p.P()
 	p.P("export function validate", m.Name, "(_v: ", m.Name, "): string[] {")
-	p.P("return [];")
+	p.P("const violations: string[] = [];")
+	if field := rootUnwrapField(m); field != nil {
+		p.P("if (!(", tsRuntimeTypeExpression(p, field, "_v as any"), ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid type"), ");")
+	}
+	p.P("return violations;")
 	p.P("}")
 	p.P()
 }
@@ -155,6 +159,7 @@ func writeValidateFunc(p *Printer, m *onkir.Message) {
 		field := f.field
 		accessor := "v." + f.ts
 		present := accessor + " !== undefined && " + accessor + " !== null"
+		p.P("if (", present, " && !(", tsRuntimeTypeExpression(p, field, accessor), ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid type"), ");")
 		if field.HasDecorator("required") {
 			required := "!(" + present + ")"
 			if field.Type != nil && field.Type.Kind == onkir.KindScalar && field.Type.Scalar == onkir.ScalarString {
@@ -239,6 +244,69 @@ func isTSNumeric(kind onkir.ScalarKind) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func tsRuntimeTypeExpression(p *Printer, field *onkir.Field, expr string) string {
+	if field == nil {
+		return "true"
+	}
+	if field.Oneof != nil {
+		disc := oneofDiscriminatorKey(field)
+		return fmt.Sprintf("typeof %s === \"object\" && %s !== null && !Array.isArray(%s) && typeof %s.%s === \"string\"", expr, expr, expr, expr, disc)
+	}
+	if field.Type == nil {
+		return "true"
+	}
+	if field.Repeated {
+		item := &onkir.Field{Type: field.Type}
+		return fmt.Sprintf("Array.isArray(%s) && (%s).every((item: any) => %s)", expr, expr, tsRuntimeTypeExpression(p, item, "item"))
+	}
+	if field.Type.Kind == onkir.KindMap {
+		value := &onkir.Field{Type: field.Type.MapValue}
+		return fmt.Sprintf("typeof %s === \"object\" && %s !== null && !Array.isArray(%s) && Object.values(%s).every((item: any) => %s)", expr, expr, expr, expr, tsRuntimeTypeExpression(p, value, "item"))
+	}
+	switch field.Type.Kind {
+	case onkir.KindMessage:
+		return fmt.Sprintf("typeof %s === \"object\" && %s !== null && !Array.isArray(%s)", expr, expr, expr)
+	case onkir.KindEnum:
+		values := make([]string, 0, len(field.Type.Enum.Values))
+		for _, value := range field.Type.Enum.Values {
+			values = append(values, fmt.Sprintf("%q", value.JSONName()))
+		}
+		return fmt.Sprintf("[%s].includes(%s as any)", strings.Join(values, ", "), expr)
+	case onkir.KindScalar:
+		switch field.Type.Scalar {
+		case onkir.ScalarString, onkir.ScalarBytes:
+			return fmt.Sprintf("typeof %s === \"string\"", expr)
+		case onkir.ScalarBool:
+			return fmt.Sprintf("typeof %s === \"boolean\"", expr)
+		case onkir.ScalarInt32:
+			return fmt.Sprintf("typeof %s === \"number\" && Number.isInteger(%s) && %s >= -2147483648 && %s <= 2147483647", expr, expr, expr, expr)
+		case onkir.ScalarUint32:
+			return fmt.Sprintf("typeof %s === \"number\" && Number.isInteger(%s) && %s >= 0 && %s <= 4294967295", expr, expr, expr, expr)
+		case onkir.ScalarInt64:
+			if needsInt64NumberEncoding(field) {
+				return fmt.Sprintf("typeof %s === \"number\" && Number.isSafeInteger(%s) && %s >= Number.MIN_SAFE_INTEGER && %s <= Number.MAX_SAFE_INTEGER", expr, expr, expr, expr)
+			}
+			return fmt.Sprintf("typeof %s === \"string\" && /^-?(0|[1-9][0-9]*)$/.test(%s)", expr, expr)
+		case onkir.ScalarUint64:
+			if needsInt64NumberEncoding(field) {
+				return fmt.Sprintf("typeof %s === \"number\" && Number.isSafeInteger(%s) && %s >= 0 && %s <= Number.MAX_SAFE_INTEGER", expr, expr, expr, expr)
+			}
+			return fmt.Sprintf("typeof %s === \"string\" && /^(0|[1-9][0-9]*)$/.test(%s)", expr, expr)
+		case onkir.ScalarFloat32, onkir.ScalarFloat64:
+			return fmt.Sprintf("typeof %s === \"number\" && Number.isFinite(%s)", expr, expr)
+		case onkir.ScalarTimestamp:
+			if timestampEncodingValue(field) == timestampEncodeUnixSeconds || timestampEncodingValue(field) == timestampEncodeUnixMillis {
+				return fmt.Sprintf("typeof %s === \"number\" && Number.isFinite(%s)", expr, expr)
+			}
+			return fmt.Sprintf("typeof %s === \"string\"", expr)
+		default:
+			return "true"
+		}
+	default:
+		return "true"
 	}
 }
 
@@ -387,7 +455,7 @@ func writeEncodeFunc(p *Printer, m *onkir.Message) {
 // handles - so they pass through unchanged.
 func decodeExpr(p *Printer, f *onkir.Field, expr string) string {
 	if f.Oneof != nil {
-		return decodeOneofExpr(p, f)
+		return decodeOneofExpr(p, f, expr)
 	}
 	if f.Type == nil {
 		return expr
@@ -464,24 +532,26 @@ func oneofDiscriminatorKey(f *onkir.Field) string {
 // variant data lives as sibling keys of the enclosing wire object (not
 // nested under the oneof field's own key), so both read directly off "v"
 // rather than off a per-field wire expression.
-func decodeOneofExpr(p *Printer, f *onkir.Field) string {
+func decodeOneofExpr(p *Printer, f *onkir.Field, expr string) string {
 	disc := oneofDiscriminatorKey(f)
 	flatten := f.Oneof.Flatten()
 	var b strings.Builder
 	fmt.Fprintf(&b, "((): %s | undefined => {\n", OneofTypeName(f.Message, f))
-	fmt.Fprintf(&b, "switch (v.%s) {\n", disc)
+	fmt.Fprintf(&b, "const ov: any = %s;\n", expr)
+	b.WriteString("if (ov === undefined || ov === null || typeof ov !== \"object\") return undefined;\n")
+	fmt.Fprintf(&b, "switch (ov.%s) {\n", disc)
 	for _, variant := range f.Oneof.Variants {
 		tag := variant.Tag()
 		variantKey := variant.Name
 		decoded := decodeExpr(
 			p,
 			&onkir.Field{Type: variant.Type, Message: f.Message},
-			fmt.Sprintf("v.%s", variantKey),
+			fmt.Sprintf("ov.%s", variantKey),
 		)
 		if flatten {
-			fmt.Fprintf(&b, "case %q: return { %s: v.%s, ...%s };\n", tag, disc, disc, decoded)
+			fmt.Fprintf(&b, "case %q: return { %s: ov.%s, ...%s };\n", tag, disc, disc, decoded)
 		} else {
-			fmt.Fprintf(&b, "case %q: return { %s: v.%s, %s: %s };\n", tag, disc, disc, CamelCase(variantKey), decoded)
+			fmt.Fprintf(&b, "case %q: return { %s: ov.%s, %s: %s };\n", tag, disc, disc, CamelCase(variantKey), decoded)
 		}
 	}
 	b.WriteString("default: return undefined;\n")

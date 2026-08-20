@@ -39,7 +39,7 @@ func Format(dir string, check bool) error {
 	}
 	var changed []string
 	for _, path := range paths {
-		data, err := os.ReadFile(path)
+		data, err := readRegularFile(path, maxInputFileBytes)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", path, err)
 		}
@@ -96,26 +96,36 @@ version = "0.1.0"
 
 // Init creates a small, immediately buildable OneKit project.
 func Init(dir string, force bool) error {
-	if err := os.MkdirAll(dir, genDirPerm); err != nil {
-		return fmt.Errorf("create project directory %s: %w", dir, err)
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("resolve project directory %s: %w", dir, err)
+	}
+	if err := os.MkdirAll(root, genDirPerm); err != nil {
+		return fmt.Errorf("create project directory %s: %w", root, err)
+	}
+	root, err = canonicalProjectDir(root)
+	if err != nil {
+		return err
 	}
 	files := []struct {
 		path    string
 		content string
 	}{
-		{path: filepath.Join(dir, configFileName), content: initConfig},
-		{path: filepath.Join(dir, "api.onk"), content: initSchema},
+		{path: filepath.Join(root, configFileName), content: initConfig},
+		{path: filepath.Join(root, "api.onk"), content: initSchema},
 	}
 	for _, file := range files {
 		path := file.path
-		if _, err := os.Stat(path); err == nil && !force {
+		if info, err := os.Lstat(path); err == nil && !force {
 			return fmt.Errorf("refusing to overwrite %s; pass --force to replace it", path)
+		} else if err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing symlink target %s", path)
 		} else if err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("stat %s: %w", path, err)
 		}
 	}
 	for _, file := range files {
-		if err := os.WriteFile(file.path, []byte(file.content), genFilePerm); err != nil {
+		if err := writeFile(file.path, []byte(file.content)); err != nil {
 			return fmt.Errorf("write %s: %w", file.path, err)
 		}
 	}
@@ -147,7 +157,7 @@ func projectSnapshot(dir string) ([]fileStamp, error) {
 		if err != nil {
 			return nil, err
 		}
-		data, err := os.ReadFile(path)
+		data, err := readRegularFile(path, maxInputFileBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -172,8 +182,8 @@ func sameSnapshot(left, right []fileStamp) bool {
 // Build failures are reported and do not terminate the watch, allowing an
 // editor to keep working while a file is temporarily incomplete.
 func Watch(ctx context.Context, dir string, interval time.Duration, out io.Writer) error {
-	if interval <= 0 {
-		interval = 500 * time.Millisecond
+	if interval < 100*time.Millisecond {
+		interval = 100 * time.Millisecond
 	}
 	if err := Build(dir); err != nil {
 		return err

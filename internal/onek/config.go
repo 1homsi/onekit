@@ -3,7 +3,6 @@ package onek
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -56,8 +55,12 @@ func (e *ConfigError) Error() string { return fmt.Sprintf("parse %s: %v", e.Path
 func (e *ConfigError) Unwrap() error { return e.Err }
 
 func LoadConfig(dir string) (*Config, error) {
-	path := filepath.Join(dir, configFileName)
-	data, err := os.ReadFile(path)
+	root, err := canonicalProjectDir(dir)
+	if err != nil {
+		return nil, &ConfigError{Path: filepath.Join(dir, configFileName), Err: err}
+	}
+	path := filepath.Join(root, configFileName)
+	data, err := readRegularFile(path, maxInputFileBytes)
 	if err != nil {
 		return nil, &ConfigError{Path: path, Err: fmt.Errorf("read: %w", err)}
 	}
@@ -79,10 +82,10 @@ func LoadConfig(dir string) (*Config, error) {
 	if err := validateRoutePrefix(cfg.RoutePrefix); err != nil {
 		return nil, &ConfigError{Path: path, Err: err}
 	}
+	cfg.dir = root
 	if err := validateTargetPaths(&cfg); err != nil {
 		return nil, &ConfigError{Path: path, Err: err}
 	}
-	cfg.dir = dir
 	return &cfg, nil
 }
 
@@ -99,7 +102,7 @@ func validateRoutePrefix(prefix string) error {
 	if strings.HasSuffix(prefix, "/") {
 		return errors.New("route_prefix must not end with /")
 	}
-	if path.Clean(prefix) != prefix || strings.ContainsAny(prefix, "?#%{}") {
+	if path.Clean(prefix) != prefix || strings.ContainsAny(prefix, "?#%{}\\\"\r\n\t") {
 		return errors.New("route_prefix must be a canonical literal URL path")
 	}
 	return nil
@@ -111,12 +114,22 @@ func validateTargetPaths(cfg *Config) error {
 		cfg.Generate.RustClient, cfg.Generate.RustServer,
 	}
 	for _, target := range targets {
-		if target != nil && strings.TrimSpace(target.Out) == "" {
-			return errors.New("generator output path must not be empty")
+		if target != nil {
+			if strings.TrimSpace(target.Out) == "" {
+				return errors.New("generator output path must not be empty")
+			}
+			if err := validateContainedOutput(cfg.dir, target.Out); err != nil {
+				return err
+			}
 		}
 	}
-	if cfg.Generate.OpenAPI != nil && strings.TrimSpace(cfg.Generate.OpenAPI.Out) == "" {
-		return errors.New("generator output path must not be empty")
+	if cfg.Generate.OpenAPI != nil {
+		if strings.TrimSpace(cfg.Generate.OpenAPI.Out) == "" {
+			return errors.New("generator output path must not be empty")
+		}
+		if err := validateContainedOutput(cfg.dir, cfg.Generate.OpenAPI.Out); err != nil {
+			return err
+		}
 	}
 	if cfg.Generate.GoServer != nil && cfg.Generate.GoClient != nil &&
 		filepath.Clean(cfg.Generate.GoServer.Out) != filepath.Clean(cfg.Generate.GoClient.Out) {

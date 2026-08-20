@@ -35,6 +35,23 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) []by
 }
 
 func writeClientHelpers(p *Printer) {
+	p.P("const DEFAULT_MAX_RESPONSE_BODY_BYTES: usize = 8 * 1024 * 1024;")
+	p.P("const DEFAULT_MAX_SSE_FRAME_BYTES: usize = 1024 * 1024;")
+	p.Blank()
+	p.P("async fn read_response_body(mut response: reqwest::Response, limit: usize) -> Result<Vec<u8>, String> {")
+	p.Indent()
+	p.P("let limit = if limit == 0 { DEFAULT_MAX_RESPONSE_BODY_BYTES } else { limit };")
+	p.P("let mut body = Vec::new();")
+	p.P("while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {")
+	p.Indent()
+	p.P("if body.len().saturating_add(chunk.len()) > limit { return Err(\"response body exceeds configured limit\".into()); }")
+	p.P("body.extend_from_slice(&chunk);")
+	p.Dedent()
+	p.P("}")
+	p.P("Ok(body)")
+	p.Dedent()
+	p.P("}")
+	p.Blank()
 	p.P("#[allow(dead_code)]")
 	p.P("fn query_value<T: Serialize>(value: &T) -> String {")
 	p.Indent()
@@ -58,6 +75,8 @@ func writeClient(p *Printer, service *onkir.Service) {
 	p.P("base_url: String,")
 	p.P("http: reqwest::Client,")
 	p.P("headers: reqwest::header::HeaderMap,")
+	p.P("max_response_body_bytes: usize,")
+	p.P("max_sse_frame_bytes: usize,")
 	p.Dedent()
 	p.P("}")
 	p.Blank()
@@ -67,7 +86,8 @@ func writeClient(p *Printer, service *onkir.Service) {
 	p.Indent()
 	p.P(
 		"Self { base_url: base_url.into().trim_end_matches('/').to_owned(), ",
-		"http: reqwest::Client::new(), headers: reqwest::header::HeaderMap::new() }",
+		"http: reqwest::Client::new(), headers: reqwest::header::HeaderMap::new(), ",
+		"max_response_body_bytes: DEFAULT_MAX_RESPONSE_BODY_BYTES, max_sse_frame_bytes: DEFAULT_MAX_SSE_FRAME_BYTES }",
 	)
 	p.Dedent()
 	p.P("}")
@@ -85,6 +105,20 @@ func writeClient(p *Printer, service *onkir.Service) {
 	)
 	p.Indent()
 	p.P("self.headers.insert(name, value);")
+	p.P("self")
+	p.Dedent()
+	p.P("}")
+	p.Blank()
+	p.P("pub fn with_max_response_body_bytes(mut self, limit: usize) -> Self {")
+	p.Indent()
+	p.P("self.max_response_body_bytes = if limit == 0 { DEFAULT_MAX_RESPONSE_BODY_BYTES } else { limit };")
+	p.P("self")
+	p.Dedent()
+	p.P("}")
+	p.Blank()
+	p.P("pub fn with_max_sse_frame_bytes(mut self, limit: usize) -> Self {")
+	p.Indent()
+	p.P("self.max_sse_frame_bytes = if limit == 0 { DEFAULT_MAX_SSE_FRAME_BYTES } else { limit };")
 	p.P("self")
 	p.Dedent()
 	p.P("}")
@@ -176,7 +210,7 @@ func writeClientMethod(
 	p.P("let status = response.status();")
 	p.P("if !status.is_success() {")
 	p.Indent()
-	p.P("let body = response.bytes().await.map_err(", errorName, "::Transport)?;")
+	p.P("let body = read_response_body(response, self.max_response_body_bytes).await.map_err(", errorName, "::Response)?;")
 	writeTypedClientErrors(p, method, errorName)
 	p.P(
 		"return Err(", errorName,
@@ -186,9 +220,10 @@ func writeClientMethod(
 	p.Dedent()
 	p.P("}")
 	if method.IsStream() {
+		p.P("let max_frame_bytes = self.max_sse_frame_bytes;")
 		writeClientStreamResponse(p, responseType, errorName)
 	} else {
-		p.P("let body = response.bytes().await.map_err(", errorName, "::Transport)?;")
+		p.P("let body = read_response_body(response, self.max_response_body_bytes).await.map_err(", errorName, "::Response)?;")
 		p.P("serde_json::from_slice(&body).map_err(", errorName, "::Decode)")
 	}
 	p.Dedent()
@@ -334,6 +369,7 @@ func writeClientStreamResponse(p *Printer, responseType, errorName string) {
 	p.P("Ok(chunk) => {")
 	p.Indent()
 	p.P("buffer.push_str(&String::from_utf8_lossy(&chunk));")
+	p.P("if buffer.len() > max_frame_bytes { yield Err(", errorName, "::Response(\"SSE frame exceeds configured limit\".into())); break; }")
 	p.P("while let Some(boundary) = buffer.find(\"\\n\\n\") {")
 	p.Indent()
 	p.P("let frame = buffer[..boundary].to_owned();")
@@ -378,6 +414,7 @@ func writeClientError(p *Printer, service *onkir.Service, method *onkir.Method) 
 	p.P("Validation(ValidationError),")
 	p.P("InvalidRequest(String),")
 	p.P("Transport(reqwest::Error),")
+	p.P("Response(String),")
 	p.P("Decode(serde_json::Error),")
 	if method.IsStream() {
 		p.P("Stream(String),")
@@ -402,6 +439,7 @@ func writeClientError(p *Printer, service *onkir.Service, method *onkir.Method) 
 	p.P("Self::Validation(error) => write!(formatter, \"request validation failed: {error}\"),")
 	p.P("Self::InvalidRequest(error) => write!(formatter, \"invalid request: {error}\"),")
 	p.P("Self::Transport(error) => write!(formatter, \"HTTP transport failed: {error}\"),")
+	p.P("Self::Response(error) => write!(formatter, \"response failed: {error}\"),")
 	p.P("Self::Decode(error) => write!(formatter, \"response decoding failed: {error}\"),")
 	if method.IsStream() {
 		p.P("Self::Stream(error) => write!(formatter, \"stream failed: {error}\"),")

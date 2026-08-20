@@ -603,6 +603,7 @@ service API {
   first(Request) -> Response @get("/items")
   second(Request) -> Response @get("/items")
 }
+
 `)}},
 			wantErr: "duplicate HTTP route GET /items",
 		},
@@ -624,6 +625,21 @@ service API { get(Request) -> Response @get("/items") @post("/items") }
 				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
 			}
 		})
+	}
+}
+
+func TestCompileRejectsMapValueUnwrap(t *testing.T) {
+	_, err := Compile([]Source{{Path: "api.onk", AST: parseOrFatal(t, `
+message Entry {
+  value: string @unwrap
+}
+
+message Catalog {
+  entries: map[string, Entry]
+}
+`)}})
+	if err == nil || !strings.Contains(err.Error(), "@unwrap is not supported on map value message") {
+		t.Fatalf("expected map-value unwrap error, got %v", err)
 	}
 }
 
@@ -738,6 +754,9 @@ service API {
   get(Req) -> Resp @get("/items")
 }
 `, "@auth must be api_key, bearer, or basic"},
+		{"backtracking pattern", `
+message M { value: string @pattern("^(a+)+$") }
+`, "nested repetition that is unsafe"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

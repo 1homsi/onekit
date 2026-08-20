@@ -60,7 +60,42 @@ func pyModulePath(relDir string) string {
 	if relDir == "." || relDir == "" {
 		return "models"
 	}
-	return strings.ReplaceAll(filepath.ToSlash(relDir), "/", ".") + ".models"
+	parts := strings.Split(filepath.ToSlash(relDir), "/")
+	for i, part := range parts {
+		parts[i] = pythonModuleSegment(part)
+	}
+	return strings.Join(parts, ".") + ".models"
+}
+
+func pythonModuleSegment(value string) string {
+	var b strings.Builder
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	segment := b.String()
+	if segment == "" {
+		segment = "pkg"
+	}
+	if segment[0] >= '0' && segment[0] <= '9' {
+		segment = "pkg_" + segment
+	}
+	if pythonKeywords[segment] {
+		segment += "_"
+	}
+	return segment
+}
+
+var pythonKeywords = map[string]bool{
+	"and": true, "as": true, "assert": true, "async": true, "await": true, "break": true,
+	"case": true, "class": true, "continue": true, "def": true, "del": true, "elif": true,
+	"else": true, "except": true, "finally": true, "for": true, "from": true, "global": true,
+	"if": true, "import": true, "in": true, "is": true, "lambda": true, "match": true,
+	"None": true, "not": true, "or": true, "pass": true, "raise": true, "return": true,
+	"True": true, "try": true, "while": true, "with": true, "yield": true,
 }
 
 // pyResolver implements genpy.PackageResolver the same way tsResolver does

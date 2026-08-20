@@ -1,0 +1,14 @@
+.git
+.github
+.secrets
+.env
+.env.*
+.onekit
+bin
+build
+coverage
+dist
+*.out
+*.log
+*.test
+Dockerfile*

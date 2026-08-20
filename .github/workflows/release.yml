@@ -1,9 +1,6 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
@@ -11,73 +8,172 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 permissions:
-  contents: write
-  packages: write
-  issues: write
-  pull-requests: write
+  contents: read
 
 jobs:
+  prepare:
+    name: Prepare release metadata
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      sha: ${{ steps.version.outputs.sha }}
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve and validate tag
+        id: version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          VERSION="${INPUT_TAG:-$REF_NAME}"
+          VERSION="${VERSION#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid release version: $VERSION"
+            exit 1
+          fi
+          TAG="v$VERSION"
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          if ! git show-ref --verify --quiet "refs/tags/$TAG"; then
+            echo "::error::Release tag does not exist: $TAG"
+            exit 1
+          fi
+          TAG_SHA=$(git rev-parse "refs/tags/$TAG^{commit}")
+          MAIN_SHA=$(git rev-parse 'refs/remotes/origin/main^{commit}')
+          if ! git merge-base --is-ancestor "$TAG_SHA" "$MAIN_SHA"; then
+            echo "::error::Release tag $TAG is not an ancestor of origin/main"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=$TAG_SHA" >> "$GITHUB_OUTPUT"
+
   release:
     name: Release
     runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: prepare
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          
+          persist-credentials: false
+          ref: ${{ needs.prepare.outputs.sha }}
+
       - name: Setup Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.26'
           cache: true
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24'
 
       - name: Install TypeScript compiler
-        run: npm install -g typescript
+        run: npm install --global --ignore-scripts typescript@7.0.2
 
       - name: Install dependencies
         run: go mod download
 
-      - name: Run tests
-        run: ./scripts/run_tests.sh
-        
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v7
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
-          version: latest
+          version: v2.11.3
+          args: ""
+          only-new-issues: false
+
+      - name: Run Go vet
+        run: go vet ./...
+
+      - name: Verify committed generated output
+        run: make check-generated
+
+      - name: Verify schema formatting and semantics
+        run: make check-schema
+
+      - name: Run tests and coverage
+        run: ./scripts/run_tests.sh
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
+        with:
+          version: v2.17.1
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+        with:
+          cosign-release: 'v3.1.3'
+
+      - name: Sign release checksums
+        run: cosign sign-blob --yes --bundle dist/checksums.txt.sigstore.json dist/checksums.txt
+
+      - name: Upload checksum signature
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release upload "$RELEASE_TAG" dist/checksums.txt.sigstore.json --clobber
+
+      - name: Attest release checksums
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: dist/checksums.txt
+
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: release-artifacts
           path: dist/
-          
+
   docker:
     name: Docker Image
     runs-on: ubuntu-latest
-    needs: release
+    timeout-minutes: 30
+    needs: [prepare, release]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ needs.prepare.outputs.sha }}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -85,20 +181,17 @@ jobs:
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
-          images: |
-            ghcr.io/${{ github.repository_owner }}/onek
+          images: ghcr.io/${{ github.repository_owner }}/onek
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=raw,value=${{ needs.prepare.outputs.version }}
+            type=raw,value=latest
             type=sha
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v7
+        id: push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           file: docker/Dockerfile.onek
@@ -108,72 +201,61 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          
-  announce:
-    name: Announce Release
-    runs-on: ubuntu-latest
-    needs: [release, docker]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-        
-      - name: Get release info
-        id: release
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ inputs.tag }}"
-          else
-            TAG=${GITHUB_REF#refs/tags/}
-          fi
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
-          
-      - name: Create announcement issue
-        uses: actions/github-script@v9
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const tag = '${{ steps.release.outputs.tag }}';
-            const version = '${{ steps.release.outputs.version }}';
-            
-            const { data: release } = await github.rest.repos.getReleaseByTag({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              tag: tag
-            });
-            
-            const issueBody = `## onekit ${tag} has been released
+          cosign-release: 'v3.1.3'
 
-            ### What's New
-            ${release.body}
+      - name: Sign Docker image
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/onek@${{ steps.push.outputs.digest }}
+        run: cosign sign --yes "$IMAGE"
 
-            ### Installation
+      - name: Generate Docker SBOM
+        uses: anchore/sbom-action@f8bdd1d8ac5e901a77a92f111440fdb1b593736b # v0.20.6
+        with:
+          image: ghcr.io/${{ github.repository_owner }}/onek@${{ steps.push.outputs.digest }}
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          format: spdx-json
+          output-file: onek-sbom.spdx.json
+          artifact-name: onek-sbom.spdx.json
+          upload-release-assets: false
 
-            #### Using Go
-            \`\`\`bash
-            go install github.com/1homsi/onekit/cmd/onek@${tag}
-            \`\`\`
+      - name: Attest Docker SBOM
+        uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/onek
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: onek-sbom.spdx.json
+          push-to-registry: true
 
-            #### Using Docker
-            \`\`\`bash
-            docker pull ghcr.io/1homsi/onek:${version}
-            \`\`\`
+      - name: Attest Docker provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/onek
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
 
-            #### Download Binaries
-            Download pre-built binaries from the [release page](${release.html_url}).
-
-            ### Documentation
-            - [Getting Started](https://github.com/1homsi/onekit#quick-start)
-            - [API Documentation](https://pkg.go.dev/github.com/1homsi/onekit)
-            - [Examples](https://github.com/1homsi/onekit/tree/main/examples)
-
-            ---
-            _This is an automated release announcement._`;
-            
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `Release ${tag}`,
-              body: issueBody,
-              labels: ['release', 'announcement']
-            });
+  announce:
+    name: Summarize Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [prepare, release]
+    permissions:
+      contents: read
+    if: ${{ needs.prepare.result == 'success' && needs.release.result == 'success' }}
+    steps:
+      - name: Write release summary
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          {
+            echo "## onekit ${RELEASE_TAG}"
+            echo
+            echo "The release artifacts are published. Docker image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/onek:${RELEASE_VERSION}"
+            echo
+            echo "Canonical release page: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}"
+          } >> "$GITHUB_STEP_SUMMARY"

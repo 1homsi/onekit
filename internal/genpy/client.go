@@ -50,6 +50,8 @@ func GenerateClientWithResolver(file *onkir.File, typesModule string, resolver P
 	}
 	p.P()
 
+	writeResponseBodyRuntime(p)
+
 	for _, s := range file.Services {
 		writeClientClass(p, s)
 	}
@@ -90,10 +92,12 @@ func localReferencedTypeNames(file *onkir.File, resolver PackageResolver) []stri
 func writeClientClass(p *Printer, s *onkir.Service) {
 	p.P("class ", s.Name, "Client:")
 	p.Indent()
-	p.P("def __init__(self, base_url: str, headers: dict | None = None) -> None:")
+	p.P("def __init__(self, base_url: str, headers: dict | None = None, max_response_body_bytes: int = DEFAULT_MAX_RESPONSE_BODY_BYTES, max_sse_line_bytes: int = DEFAULT_MAX_SSE_LINE_BYTES) -> None:")
 	p.Indent()
 	p.P("self.base_url = base_url")
 	p.P("self.headers = headers or {}")
+	p.P("self.max_response_body_bytes = max_response_body_bytes if max_response_body_bytes > 0 else DEFAULT_MAX_RESPONSE_BODY_BYTES")
+	p.P("self.max_sse_line_bytes = max_sse_line_bytes if max_sse_line_bytes > 0 else DEFAULT_MAX_SSE_LINE_BYTES")
 	p.Dedent()
 	p.Blank()
 
@@ -134,8 +138,11 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("with urllib.request.urlopen(request) as resp:")
 	p.Indent()
 	p.P("event = \"\"")
-	p.P("for raw_line in resp:")
+	p.P("while True:")
 	p.Indent()
+	p.P("raw_line = resp.readline(self.max_sse_line_bytes + 1)")
+	p.P("if not raw_line: break")
+	p.P("if len(raw_line) > self.max_sse_line_bytes: raise ValueError(\"SSE line exceeds configured limit\")")
 	p.P("line = raw_line.decode(\"utf-8\").rstrip(\"\\r\\n\")")
 	p.P("if line.startswith(\"event: \"):")
 	p.Indent()
@@ -158,7 +165,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.Dedent()
 	p.P("except urllib.error.HTTPError as e:")
 	p.Indent()
-	p.P("error_body = e.read()")
+	p.P("error_body = _read_bounded(e, self.max_response_body_bytes)")
 	for _, errType := range m.ErrorTypes {
 		status := 500
 		if code, ok := errType.StatusCode(); ok {
@@ -231,12 +238,12 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.Indent()
 	p.P("with urllib.request.urlopen(request) as resp:")
 	p.Indent()
-	p.P("return ", p.MessageTypeName(m.Response), ".from_dict(json.loads(resp.read()))")
+	p.P("return ", p.MessageTypeName(m.Response), ".from_dict(json.loads(_read_bounded(resp, self.max_response_body_bytes)))")
 	p.Dedent()
 	p.Dedent()
 	p.P("except urllib.error.HTTPError as e:")
 	p.Indent()
-	p.P("error_body = e.read()")
+	p.P("error_body = _read_bounded(e, self.max_response_body_bytes)")
 	for _, errType := range m.ErrorTypes {
 		status := 500
 		if code, ok := errType.StatusCode(); ok {
@@ -251,6 +258,20 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.Dedent()
 	p.Dedent()
 	p.Blank()
+}
+
+func writeResponseBodyRuntime(p *Printer) {
+	p.P("DEFAULT_MAX_RESPONSE_BODY_BYTES = 8 * 1024 * 1024")
+	p.P("DEFAULT_MAX_SSE_LINE_BYTES = 1024 * 1024")
+	p.P()
+	p.P("def _read_bounded(stream, limit: int) -> bytes:")
+	p.Indent()
+	p.P("limit = limit if limit > 0 else DEFAULT_MAX_RESPONSE_BODY_BYTES")
+	p.P("data = stream.read(limit + 1)")
+	p.P("if len(data) > limit: raise ValueError(\"response body exceeds configured limit\")")
+	p.P("return data")
+	p.Dedent()
+	p.P()
 }
 
 func findField(msg *onkir.Message, name string) *onkir.Field {

@@ -10,18 +10,24 @@ on:
 env:
   GO_VERSION: '1.26'
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint & Code Quality
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       lint-status: ${{ steps.lint-summary.outputs.status }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -30,7 +36,7 @@ jobs:
             go.mod
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: v2.11.3
           args: ""
@@ -78,6 +84,7 @@ jobs:
   test:
     name: Test (Go ${{ matrix.go-version }} - ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -90,10 +97,12 @@ jobs:
             test-args: --fast
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: ${{ matrix.go-version }}
           cache: true
@@ -102,12 +111,12 @@ jobs:
             go.mod
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24'
 
       - name: Install TypeScript compiler
-        run: npm install -g typescript
+        run: npm install --global --ignore-scripts typescript@7.0.2
 
       - name: Build binaries
         run: make build
@@ -125,15 +134,18 @@ jobs:
   coverage:
     name: Coverage Analysis
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: lint
     if: always()
     continue-on-error: true  # Make coverage a warning, not a failure
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Setup Go for coverage tools
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -142,12 +154,12 @@ jobs:
             go.mod
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24'
 
       - name: Install TypeScript compiler
-        run: npm install -g typescript
+        run: npm install --global --ignore-scripts typescript@7.0.2
 
       - name: Build binaries
         run: make build
@@ -188,7 +200,8 @@ jobs:
           fi
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v7
+        if: github.event_name != 'pull_request'
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           files: ./coverage/coverage.out
           flags: unittests
@@ -197,7 +210,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload coverage reports
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-reports
           path: |
@@ -206,7 +219,7 @@ jobs:
 
       - name: Comment PR with coverage
         if: github.event_name == 'pull_request'
-        uses: fgrosse/go-coverage-report@v1.3.1
+        uses: fgrosse/go-coverage-report@e432de98ee94a276e8f666d25bfd76347665f75b # v1.3.1
         continue-on-error: true  # Don't fail on coverage reporting issues
         with:
           coverage-artifact-name: coverage-reports
@@ -215,19 +228,20 @@ jobs:
   coverage-check:
     name: Coverage Target Report
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: coverage
     if: always()
     continue-on-error: true  # Don't fail the whole pipeline on coverage issues
     steps:
       - name: Download coverage reports
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: coverage-reports
           path: ./
         continue-on-error: true  # Handle missing artifacts gracefully
 
       - name: Setup Go for coverage analysis
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
@@ -259,7 +273,7 @@ jobs:
       - name: Update commit status
         if: github.event_name == 'pull_request'
         continue-on-error: true  # Don't fail on status update issues
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             try {
@@ -280,13 +294,16 @@ jobs:
   build:
     name: Build Binaries
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: lint
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -307,7 +324,7 @@ jobs:
         run: make check-generated
 
       - name: Upload binaries
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: onek-binary
           path: bin/
@@ -315,6 +332,7 @@ jobs:
   status-check:
     name: PR Status Summary
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [lint, test, coverage-check, build]
     if: always() && github.event_name == 'pull_request'
     permissions:
@@ -323,7 +341,7 @@ jobs:
       checks: write
     steps:
       - name: Generate PR status summary
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const { data: checkRuns } = await github.rest.checks.listForRef({

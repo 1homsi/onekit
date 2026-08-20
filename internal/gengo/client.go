@@ -115,6 +115,7 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	if hasStream {
 		writeEventStreamRuntime(p)
 	}
+	writeResponseBodyRuntime(p)
 
 	for _, s := range file.Services {
 		writeClientType(p, s)
@@ -135,10 +136,12 @@ func writeClientType(p *Printer, s *onkir.Service) {
 	p.P("BaseURL string")
 	p.P("HTTPClient *http.Client")
 	p.P("Headers map[string]string")
+	p.P("MaxResponseBodyBytes int64")
+	p.P("MaxSSELineBytes int")
 	p.P("}")
 	p.P()
 	p.P("func New", s.Name, "Client(baseURL string) *", s.Name, "Client {")
-	p.P("return &", s.Name, "Client{BaseURL: baseURL, HTTPClient: http.DefaultClient, Headers: map[string]string{}}")
+	p.P("return &", s.Name, "Client{BaseURL: baseURL, HTTPClient: http.DefaultClient, Headers: map[string]string{}, MaxResponseBodyBytes: defaultMaxResponseBodyBytes, MaxSSELineBytes: defaultMaxSSELineBytes}")
 	p.P("}")
 	p.P()
 }
@@ -213,10 +216,29 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeClientErrorHandling(p, m)
 
 	p.P("result := new(", p.MessageTypeName(m.Response), ")")
-	p.P("if err := json.NewDecoder(resp.Body).Decode(result); err != nil {")
+	p.P("if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil {")
 	p.P(`return nil, fmt.Errorf("decode response: %w", err)`)
 	p.P("}")
 	p.P("return result, nil")
+	p.P("}")
+	p.P()
+}
+
+func writeResponseBodyRuntime(p *Printer) {
+	p.P("const defaultMaxResponseBodyBytes int64 = 8 << 20")
+	p.P("const defaultMaxSSELineBytes = 1 << 20")
+	p.P()
+	p.P("func responseBodyLimit(value int64) int64 {")
+	p.P("if value <= 0 { return defaultMaxResponseBodyBytes }")
+	p.P("return value")
+	p.P("}")
+	p.P()
+	p.P("func readResponseBody(body io.Reader, limit int64) ([]byte, error) {")
+	p.P("limit = responseBodyLimit(limit)")
+	p.P("data, err := io.ReadAll(io.LimitReader(body, limit+1))")
+	p.P("if err != nil { return nil, err }")
+	p.P("if int64(len(data)) > limit { return nil, fmt.Errorf(\"response body exceeds configured limit\") }")
+	p.P("return data, nil")
 	p.P("}")
 	p.P()
 }
@@ -320,7 +342,8 @@ func clientStringifyExpr(kind onkir.ScalarKind, expr string) string {
 
 func writeClientErrorHandling(p *Printer, m *onkir.Method) {
 	p.P("if resp.StatusCode < 200 || resp.StatusCode >= 300 {")
-	p.P("respBody, _ := io.ReadAll(resp.Body)")
+	p.P("respBody, bodyErr := readResponseBody(resp.Body, c.MaxResponseBodyBytes)")
+	p.P("if bodyErr != nil { return nil, bodyErr }")
 	for _, errType := range m.ErrorTypes {
 		status := 500
 		if code, ok := errType.StatusCode(); ok {

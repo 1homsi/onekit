@@ -339,7 +339,7 @@ func writeServerError(
 		}
 		p.P("Self::", errorVariantName(errorType), "(error) => (StatusCode::from_u16(", status, ").unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), Json(error)).into_response(),")
 	}
-	p.P("Self::Internal(error) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ \"error\": error }))).into_response(),")
+	p.P("Self::Internal(_error) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ \"error\": \"internal server error\" }))).into_response(),")
 	p.Dedent()
 	p.P("}")
 	p.Dedent()

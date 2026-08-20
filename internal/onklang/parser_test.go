@@ -584,3 +584,19 @@ func TestParseExtendedLiterals(t *testing.T) {
 		t.Fatalf("decoded pattern = %q", got)
 	}
 }
+
+func TestParseRejectsExcessiveNesting(t *testing.T) {
+	var src strings.Builder
+	for index := 0; index < maxParserNestingDepth+1; index++ {
+		src.WriteString("message M")
+		src.WriteString(string(rune('A' + index%26)))
+		src.WriteString(" {\n")
+	}
+	src.WriteString("value: string\n")
+	for index := 0; index < maxParserNestingDepth+1; index++ {
+		src.WriteString("}\n")
+	}
+	if _, err := Parse(src.String()); err == nil || !strings.Contains(err.Error(), "maximum message nesting depth") {
+		t.Fatalf("expected nesting-depth diagnostic, got %v", err)
+	}
+}

@@ -5,10 +5,13 @@ import (
 	"strings"
 )
 
+const maxParserNestingDepth = 64
+
 type Parser struct {
-	lex  *Lexer
-	tok  Token
-	prev Token
+	lex          *Lexer
+	tok          Token
+	prev         Token
+	nestingDepth int
 }
 
 func Parse(src string) (*File, error) {
@@ -47,6 +50,18 @@ func (p *Parser) expect(k Kind) (Token, error) {
 
 func (p *Parser) isIdent(text string) bool {
 	return p.tok.Kind == IDENT && p.tok.Text == text
+}
+
+func (p *Parser) enterNesting(kind string) error {
+	if p.nestingDepth >= maxParserNestingDepth {
+		return p.errf("maximum %s nesting depth of %d exceeded", kind, maxParserNestingDepth)
+	}
+	p.nestingDepth++
+	return nil
+}
+
+func (p *Parser) leaveNesting() {
+	p.nestingDepth--
 }
 
 // isKeywordIntroducer reports whether the current token is the identifier
@@ -232,6 +247,10 @@ func (p *Parser) parseDecorators() ([]Decorator, error) {
 }
 
 func (p *Parser) parseType() (*TypeRef, error) {
+	if err := p.enterNesting("type"); err != nil {
+		return nil, err
+	}
+	defer p.leaveNesting()
 	if p.isIdent("map") {
 		if err := p.next(); err != nil {
 			return nil, err
@@ -359,6 +378,10 @@ func (p *Parser) parseField() (*FieldDecl, error) {
 }
 
 func (p *Parser) parseMessage() (*MessageDecl, error) {
+	if err := p.enterNesting("message"); err != nil {
+		return nil, err
+	}
+	defer p.leaveNesting()
 	doc := p.tok.Doc
 	if err := p.expectIdentText("message"); err != nil {
 		return nil, err

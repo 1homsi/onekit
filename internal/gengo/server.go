@@ -76,10 +76,14 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	p.P(`"encoding/json"`)
 	p.P(`"errors"`)
 	p.P(`"fmt"`)
+	p.P(`"math"`)
 	p.P(`"net/http"`)
 	p.P(`"regexp"`)
 	p.P(`"strconv"`)
 	p.P(`"time"`)
+	if hasStream && fileHasStreamPathParams(file) {
+		p.P(`"net/url"`)
+	}
 	for _, ref := range externalRefs {
 		p.P(ref.Alias, " ", fmt.Sprintf("%q", ref.ImportPath))
 	}
@@ -98,6 +102,20 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	}
 
 	return p.Format()
+}
+
+func fileHasStreamPathParams(file *onkir.File) bool {
+	for _, service := range file.Services {
+		for _, method := range service.Methods {
+			if method.IsStream() {
+				path, _ := method.Path()
+				if len(pathParamNames(path)) > 0 {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // writeServerOptions emits runtime hooks shared by every generated server.
@@ -180,7 +198,7 @@ func writeServerOptions(p *Printer) {
 	p.P(`if o.authorizer != nil {`)
 	p.P(`if err := o.authorizer(ctx, metadata, r); err != nil {`)
 	p.P(`var statusErr interface{ HTTPStatusCode() int }`)
-	p.P(`if errors.As(err, &statusErr) { writeHandlerError(w, err) } else { writeJSONError(w, http.StatusUnauthorized, err.Error()) }`)
+	p.P(`if errors.As(err, &statusErr) { writeHandlerError(w, err) } else { writeJSONError(w, http.StatusUnauthorized, "unauthorized") }`)
 	p.P(`return`)
 	p.P(`}`)
 	p.P(`}`)
@@ -216,15 +234,15 @@ func writeRuntimeHelpers(p *Printer) {
 	p.P(`status = candidate`)
 	p.P(`}`)
 	p.P(`}`)
-	p.P(`writeJSONError(w, status, err.Error())`)
+	p.P(`writeJSONError(w, status, "internal server error")`)
 	p.P(`}`)
 	p.P()
 	p.P(`func parseInt32(s string) (int32, error) { v, err := strconv.ParseInt(s, 10, 32); return int32(v), err }`)
 	p.P(`func parseInt64(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) }`)
 	p.P(`func parseUint32(s string) (uint32, error) { v, err := strconv.ParseUint(s, 10, 32); return uint32(v), err }`)
 	p.P(`func parseUint64(s string) (uint64, error) { return strconv.ParseUint(s, 10, 64) }`)
-	p.P(`func parseFloat32(s string) (float32, error) { v, err := strconv.ParseFloat(s, 32); return float32(v), err }`)
-	p.P(`func parseFloat64(s string) (float64, error) { return strconv.ParseFloat(s, 64) }`)
+	p.P(`func parseFloat32(s string) (float32, error) { v, err := strconv.ParseFloat(s, 32); if err != nil || math.IsNaN(v) || math.IsInf(v, 0) { return 0, fmt.Errorf("must be a finite number") }; return float32(v), nil }`)
+	p.P(`func parseFloat64(s string) (float64, error) { v, err := strconv.ParseFloat(s, 64); if err != nil || math.IsNaN(v) || math.IsInf(v, 0) { return 0, fmt.Errorf("must be a finite number") }; return v, nil }`)
 	p.P(`func parseBool(s string) (bool, error) {`)
 	p.P(`if s == "true" { return true, nil }`)
 	p.P(`if s == "false" { return false, nil }`)
@@ -306,24 +324,25 @@ func writeBodyBinding(p *Printer, method *onkir.Method) {
 		}
 	}
 	p.P("if r.Body != nil {")
+	p.P("r.Body = http.MaxBytesReader(w, r.Body, 8<<20)")
 	if bodyField != nil && bodyFieldNeedsCustomJSON(bodyField) {
 		p.P("var bodyValue json.RawMessage")
 		p.P("if err := json.NewDecoder(r.Body).Decode(&bodyValue); err != nil && err.Error() != \"EOF\" {")
-		p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body: "+err.Error())`)
+		p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body")`)
 		p.P("return")
 		p.P("}")
 		p.P("var bodyObject struct { Value json.RawMessage `json:\"", bodyField.Name, "\"` }")
 		p.P("bodyObject.Value = bodyValue")
 		p.P("bodyData, err := json.Marshal(bodyObject)")
 		p.P("if err != nil {")
-		p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body: "+err.Error())`)
+		p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body")`)
 		p.P("return")
 		p.P("}")
 		p.P("if err := json.Unmarshal(bodyData, req); err != nil {")
 	} else {
 		p.P("if err := json.NewDecoder(r.Body).Decode(", target, "); err != nil && err.Error() != \"EOF\" {")
 	}
-	p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body: "+err.Error())`)
+	p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body")`)
 	p.P("return")
 	p.P("}")
 	p.P("}")
@@ -431,7 +450,7 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	fullPath := s.BasePath + path
 	bodyBearing := isBodyBearingVerb(verb)
 
-	p.P(`mux.Handle("`, strings.ToUpper(verb), " ", fullPath, `", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {`)
+	p.P("mux.Handle(", fmt.Sprintf("%q", strings.ToUpper(verb)+" "+fullPath), ", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
 	p.P("req := new(", p.MessageTypeName(m.Request), ")")
 
 	if bodyBearing {
@@ -493,16 +512,16 @@ func writeHeaderCheck(p *Printer, h *onkir.Header) {
 		return
 	}
 	p.P("{")
-	p.P(`value := r.Header.Get("`, h.Name, `")`)
+	p.P("value := r.Header.Get(", fmt.Sprintf("%q", h.Name), ")")
 	if h.Required() {
 		p.P(`if value == "" {`)
-		p.P(`writeJSONError(w, http.StatusBadRequest, "missing required header: `, h.Name, `")`)
+		p.P("writeJSONError(w, http.StatusBadRequest, ", fmt.Sprintf("%q", "missing required header: "+h.Name), ")")
 		p.P("return")
 		p.P("}")
 	}
 	if hasFormat {
 		p.P(`if value != "" && !validHeaderFormat(value, `, fmt.Sprintf("%q", format), `) {`)
-		p.P(`writeJSONError(w, http.StatusBadRequest, "invalid header `, h.Name, `: expected `, format, `")`)
+		p.P("writeJSONError(w, http.StatusBadRequest, ", fmt.Sprintf("%q", "invalid header "+h.Name+": expected "+format), ")")
 		p.P("return")
 		p.P("}")
 	}

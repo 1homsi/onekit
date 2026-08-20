@@ -23,16 +23,39 @@ import (
 )
 
 func discoverOnkFiles(dir string) ([]string, error) {
+	root, err := canonicalProjectDir(dir)
+	if err != nil {
+		return nil, err
+	}
 	var files []string
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing symlink in project tree: %s", path)
 		}
 		if d.IsDir() {
 			return nil
 		}
 		if strings.HasSuffix(path, ".onk") {
+			info, infoErr := d.Info()
+			if infoErr != nil {
+				return infoErr
+			}
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("schema input %s is not a regular file", path)
+			}
+			if info.Size() > maxInputFileBytes {
+				return fmt.Errorf("schema input %s exceeds the %d-byte limit", path, maxInputFileBytes)
+			}
+			if err := validateSchemaPath(root, path); err != nil {
+				return err
+			}
 			files = append(files, path)
+			if len(files) > maxInputFileCount {
+				return fmt.Errorf("project contains more than %d schema files", maxInputFileCount)
+			}
 		}
 		return nil
 	})
@@ -46,7 +69,7 @@ func discoverOnkFiles(dir string) ([]string, error) {
 func parseSources(paths []string) ([]onkcompile.Source, error) {
 	var sources []onkcompile.Source
 	for _, path := range paths {
-		data, err := os.ReadFile(path)
+		data, err := readRegularFile(path, maxInputFileBytes)
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", path, err)
 		}
@@ -222,7 +245,11 @@ func Compile(dir string) (*onkir.Package, error) {
 // requested compatibility behavior. It also applies the same default
 // service base paths used by Build.
 func CompileWithOptions(dir string, options onkcompile.CompileOptions) (*onkir.Package, error) {
-	files, err := discoverOnkFiles(dir)
+	root, err := canonicalProjectDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	files, err := discoverOnkFiles(root)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +264,7 @@ func CompileWithOptions(dir string, options onkcompile.CompileOptions) (*onkir.P
 	if err != nil {
 		return nil, err
 	}
-	if err := applyDefaultBasePaths(pkg, dir); err != nil {
+	if err := applyDefaultBasePaths(pkg, root); err != nil {
 		return nil, err
 	}
 	return pkg, nil
@@ -299,6 +326,9 @@ const (
 )
 
 func writeFile(path string, data []byte) error {
+	if err := rejectSymlinkPath(path); err != nil {
+		return err
+	}
 	if len(data) == 0 {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove stale generated output %s: %w", path, err)
@@ -350,14 +380,14 @@ func Build(dir string) error {
 		return err
 	}
 
-	pkg, err := CompileWithOptions(dir, onkcompile.CompileOptions{
+	pkg, err := CompileWithOptions(cfg.dir, onkcompile.CompileOptions{
 		AllowLegacyContracts: cfg.AllowLegacyContracts,
 	})
 	if err != nil {
 		return err
 	}
 	applyRoutePrefix(pkg, cfg.RoutePrefix)
-	idx, err := groupByDirectory(pkg, dir)
+	idx, err := groupByDirectory(pkg, cfg.dir)
 	if err != nil {
 		return err
 	}
@@ -409,7 +439,7 @@ func writeGenerationManifest(cfg *Config, idx *sourceIndex) error {
 	hash := sha256.New()
 	var schemaFiles []string
 	for _, path := range paths {
-		data, readErr := os.ReadFile(path)
+		data, readErr := readRegularFile(path, maxInputFileBytes)
 		if readErr != nil {
 			return fmt.Errorf("read schema for manifest %s: %w", path, readErr)
 		}
@@ -424,7 +454,7 @@ func writeGenerationManifest(cfg *Config, idx *sourceIndex) error {
 		_, _ = hash.Write(data)
 		_, _ = hash.Write([]byte{0})
 	}
-	configData, err := os.ReadFile(filepath.Join(cfg.dir, configFileName))
+	configData, err := readRegularFile(filepath.Join(cfg.dir, configFileName), maxInputFileBytes)
 	if err != nil {
 		return fmt.Errorf("read config for manifest: %w", err)
 	}
@@ -464,6 +494,10 @@ func writeGenerationManifest(cfg *Config, idx *sourceIndex) error {
 
 func cleanupStaleGeneratedOutputs(cfg *Config, idx *sourceIndex) error {
 	expectedByRoot := expectedGeneratedOutputs(cfg, idx)
+	ownedByRoot, err := previousGeneratedOutputs(cfg)
+	if err != nil {
+		return err
+	}
 	roots := make([]string, 0, len(expectedByRoot))
 	for root := range expectedByRoot {
 		roots = append(roots, root)
@@ -476,11 +510,44 @@ func cleanupStaleGeneratedOutputs(cfg *Config, idx *sourceIndex) error {
 				protected = append(protected, other)
 			}
 		}
-		if err := cleanupGeneratedRoot(root, expectedByRoot[root], protected); err != nil {
+		if err := cleanupGeneratedRoot(root, expectedByRoot[root], ownedByRoot[root], protected); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func previousGeneratedOutputs(cfg *Config) (map[string]map[string]bool, error) {
+	owned := map[string]map[string]bool{}
+	manifestPath := filepath.Join(cfg.dir, ".onekit", "manifest.json")
+	data, err := readRegularFile(manifestPath, maxInputFileBytes)
+	if os.IsNotExist(err) {
+		return owned, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read generation manifest for cleanup: %w", err)
+	}
+	var manifest generationManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil, fmt.Errorf("parse generation manifest for cleanup: %w", err)
+	}
+	for rootRel, files := range manifest.Outputs {
+		root := filepath.Clean(filepath.Join(cfg.dir, filepath.FromSlash(rootRel)))
+		if !pathWithin(cfg.dir, root) {
+			continue
+		}
+		for _, file := range files {
+			rel, err := filepath.Rel(rootRel, filepath.FromSlash(file))
+			if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				continue
+			}
+			if owned[root] == nil {
+				owned[root] = map[string]bool{}
+			}
+			owned[root][filepath.Clean(rel)] = true
+		}
+	}
+	return owned, nil
 }
 
 //nolint:gocognit // Target combinations intentionally share one explicit output manifest.
@@ -572,7 +639,7 @@ func expectedGeneratedOutputs(cfg *Config, idx *sourceIndex) map[string]map[stri
 	return roots
 }
 
-func cleanupGeneratedRoot(root string, expected map[string]bool, protectedRoots []string) error {
+func cleanupGeneratedRoot(root string, expected, owned map[string]bool, protectedRoots []string) error {
 	info, err := os.Stat(root)
 	if os.IsNotExist(err) {
 		return nil
@@ -587,6 +654,10 @@ func cleanupGeneratedRoot(root string, expected map[string]bool, protectedRoots 
 		if walkErr != nil {
 			return walkErr
 		}
+		if entry.Type()&os.ModeSymlink != 0 || entry.Type()&os.ModeNamedPipe != 0 ||
+			entry.Type()&os.ModeDevice != 0 || entry.Type()&os.ModeSocket != 0 {
+			return nil
+		}
 		if entry.IsDir() {
 			for _, protectedRoot := range protectedRoots {
 				if filepath.Clean(filePath) == filepath.Clean(protectedRoot) {
@@ -596,7 +667,7 @@ func cleanupGeneratedRoot(root string, expected map[string]bool, protectedRoots 
 			return nil
 		}
 		rel, relErr := filepath.Rel(root, filePath)
-		if relErr != nil || expected[filepath.Clean(rel)] || !isOnekitGeneratedFile(filePath) {
+		if relErr != nil || expected[filepath.Clean(rel)] || !owned[filepath.Clean(rel)] {
 			return relErr
 		}
 		// #nosec G122 -- WalkDir does not follow directory symlinks, and only files with OneKit's generated banner are removed.
@@ -615,17 +686,6 @@ func pathWithin(parent, child string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func isOnekitGeneratedFile(filePath string) bool {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return false
-	}
-	defer func() { _ = file.Close() }()
-	buffer := make([]byte, 128)
-	count, _ := file.Read(buffer)
-	return strings.Contains(string(buffer[:count]), "Code generated by onek. DO NOT EDIT.")
-}
-
 // goPackageAlias derives a valid, collision-resistant Go import alias from a
 // schema directory path (e.g. "common/pagination/v1" -> "common_pagination_v1").
 func goPackageAlias(relDir string) string {
@@ -634,7 +694,15 @@ func goPackageAlias(relDir string) string {
 	}
 	segments := strings.Split(filepath.ToSlash(relDir), "/")
 	for i, seg := range segments {
-		segments[i] = strings.ReplaceAll(seg, "-", "_")
+		var safe strings.Builder
+		for _, r := range seg {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+				safe.WriteRune(r)
+			} else {
+				safe.WriteByte('_')
+			}
+		}
+		segments[i] = safe.String()
 	}
 	alias := strings.Join(segments, "_")
 	if alias == "" {
@@ -643,7 +711,18 @@ func goPackageAlias(relDir string) string {
 	if alias[0] >= '0' && alias[0] <= '9' {
 		alias = "pkg_" + alias
 	}
+	if goKeywords[alias] {
+		alias = "pkg_" + alias
+	}
 	return alias
+}
+
+var goKeywords = map[string]bool{
+	"break": true, "default": true, "func": true, "interface": true, "select": true,
+	"case": true, "defer": true, "go": true, "map": true, "struct": true,
+	"chan": true, "else": true, "goto": true, "package": true, "switch": true,
+	"const": true, "fallthrough": true, "if": true, "range": true, "type": true,
+	"continue": true, "for": true, "import": true, "return": true, "var": true,
 }
 
 func goImportPath(module, relDir string) string {

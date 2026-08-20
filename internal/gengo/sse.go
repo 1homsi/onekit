@@ -107,7 +107,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	path, _ := m.Path()
 	fullPath := s.BasePath + path
 
-	p.P(`mux.Handle("`, upperVerb(verb), " ", fullPath, `", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {`)
+	p.P("mux.Handle(", fmt.Sprintf("%q", upperVerb(verb)+" "+fullPath), ", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
 	p.P("req := new(", p.MessageTypeName(m.Request), ")")
 
 	writePathParamBinding(p, path, m.Request)
@@ -134,7 +134,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		p.P(`_ = sender.SendWithEvent("error", e)`)
 	}
 	p.P("default:")
-	p.P(`_ = sender.SendWithEvent("error", map[string]string{"message": err.Error()})`)
+	p.P(`_ = sender.SendWithEvent("error", map[string]string{"message": "internal server error"})`)
 	p.P("}")
 	p.P("}")
 	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", upperVerb(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), "}))")
@@ -169,19 +169,32 @@ func writeEventStreamRuntime(p *Printer) {
 	p.P("type EventStream[T any] struct {")
 	p.P("body io.ReadCloser")
 	p.P("reader *bufio.Reader")
+	p.P("maxLineBytes int")
 	p.P("err error")
 	p.P("pendingEvent string")
 	p.P("}")
 	p.P()
 
-	p.P("func newEventStream[T any](body io.ReadCloser) *EventStream[T] {")
-	p.P("return &EventStream[T]{body: body, reader: bufio.NewReader(body)}")
+	p.P("func newEventStream[T any](body io.ReadCloser, maxLineBytes int) *EventStream[T] {")
+	p.P("if maxLineBytes <= 0 { maxLineBytes = defaultMaxSSELineBytes }")
+	p.P("return &EventStream[T]{body: body, reader: bufio.NewReader(body), maxLineBytes: maxLineBytes}")
+	p.P("}")
+	p.P()
+	p.P("func readEventStreamLine(reader *bufio.Reader, maxBytes int) (string, error) {")
+	p.P("var line []byte")
+	p.P("for {")
+	p.P("part, err := reader.ReadSlice('\\n')")
+	p.P("line = append(line, part...)")
+	p.P("if len(line) > maxBytes { return \"\", fmt.Errorf(\"SSE line exceeds configured limit\") }")
+	p.P("if err == nil { return string(line), nil }")
+	p.P("if err != bufio.ErrBufferFull { return string(line), err }")
+	p.P("}")
 	p.P("}")
 	p.P()
 
 	p.P("func (s *EventStream[T]) Next(event *T) bool {")
 	p.P("for {")
-	p.P("line, err := s.reader.ReadString('\\n')")
+	p.P("line, err := readEventStreamLine(s.reader, s.maxLineBytes)")
 	p.P("if err != nil {")
 	p.P("if err != io.EOF {")
 	p.P("s.err = err")
@@ -233,8 +246,8 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		if field == nil {
 			continue
 		}
-		p.P("path = strings.ReplaceAll(path, ", fmt.Sprintf("%q", "{"+paramName+"}"), ", ",
-			fmt.Sprintf("fmt.Sprintf(%q, req.%s)", "%v", PascalCase(paramName)), ")")
+		p.P("path = strings.ReplaceAll(path, ", fmt.Sprintf("%q", "{"+paramName+"}"), ", ")
+		p.P("url.PathEscape(fmt.Sprintf(\"%v\", req.", PascalCase(paramName), ")))")
 	}
 	writeClientQueryParams(p, m.Request)
 
@@ -255,7 +268,8 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 	p.P("if resp.StatusCode < 200 || resp.StatusCode >= 300 {")
 	p.P("defer resp.Body.Close()")
-	p.P("respBody, _ := io.ReadAll(resp.Body)")
+	p.P("respBody, bodyErr := readResponseBody(resp.Body, c.MaxResponseBodyBytes)")
+	p.P("if bodyErr != nil { return nil, bodyErr }")
 	for _, errType := range m.ErrorTypes {
 		status := 500
 		if code, ok := errType.StatusCode(); ok {
@@ -271,7 +285,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P(`return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))`)
 	p.P("}")
 
-	p.P("return newEventStream[", p.MessageTypeName(m.Response), "](resp.Body), nil")
+	p.P("return newEventStream[", p.MessageTypeName(m.Response), "](resp.Body, c.MaxSSELineBytes), nil")
 	p.P("}")
 	p.P()
 }

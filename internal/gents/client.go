@@ -89,6 +89,7 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) []by
 	}
 	p.P()
 
+	writeResponseBodyRuntime(p)
 	writeAPIError(p)
 
 	for _, s := range file.Services {
@@ -118,10 +119,51 @@ func writeAPIError(p *Printer) {
 	p.P()
 }
 
+func writeResponseBodyRuntime(p *Printer) {
+	p.P("const DEFAULT_MAX_RESPONSE_BODY_BYTES = 8 * 1024 * 1024;")
+	p.P("const DEFAULT_MAX_SSE_LINE_BYTES = 1024 * 1024;")
+	p.P()
+	p.P("function responseBodyLimit(value: number | undefined): number {")
+	p.P("return value && value > 0 ? value : DEFAULT_MAX_RESPONSE_BODY_BYTES;")
+	p.P("}")
+	p.P()
+	p.P("async function readResponseText(res: Response, configuredLimit?: number): Promise<string> {")
+	p.P("const limit = responseBodyLimit(configuredLimit);")
+	p.P("const contentLength = Number(res.headers.get(\"content-length\"));")
+	p.P("if (Number.isFinite(contentLength) && contentLength > limit) throw new Error(\"response body exceeds configured limit\");")
+	p.P("if (!res.body) {")
+	p.P("const text = await res.text();")
+	p.P("if (new TextEncoder().encode(text).byteLength > limit) throw new Error(\"response body exceeds configured limit\");")
+	p.P("return text;")
+	p.P("}")
+	p.P("const reader = res.body.getReader();")
+	p.P("const chunks: Uint8Array[] = [];")
+	p.P("let total = 0;")
+	p.P("try {")
+	p.P("while (true) {")
+	p.P("const { done, value } = await reader.read();")
+	p.P("if (done) break;")
+	p.P("total += value.byteLength;")
+	p.P("if (total > limit) { await reader.cancel(); throw new Error(\"response body exceeds configured limit\"); }")
+	p.P("chunks.push(value);")
+	p.P("}")
+	p.P("} finally {")
+	p.P("reader.releaseLock();")
+	p.P("}")
+	p.P("const body = new Uint8Array(total);")
+	p.P("let offset = 0;")
+	p.P("for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }")
+	p.P("return new TextDecoder().decode(body);")
+	p.P("}")
+	p.P()
+}
+
 func writeClientClass(p *Printer, s *onkir.Service) {
 	p.P("export interface ", s.Name, "ClientOptions {")
 	p.P("fetch?: typeof fetch;")
 	p.P("defaultHeaders?: Record<string, string>;")
+	p.P("maxResponseBodyBytes?: number;")
+	p.P("maxSSELineBytes?: number;")
 	p.P("}")
 	p.P()
 
@@ -198,7 +240,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeClientErrorHandling(p, m)
 	p.P("}")
 	p.P()
-	p.P("return decode", m.Response.Name, "(await res.json());")
+	p.P("return decode", m.Response.Name, "(JSON.parse(await readResponseText(res, this.options.maxResponseBodyBytes)));")
 	p.P("}")
 	p.P()
 }
@@ -257,7 +299,7 @@ func writeClientQueryParams(p *Printer, req *onkir.Message) {
 }
 
 func writeClientErrorHandling(p *Printer, m *onkir.Method) {
-	p.P("const body = await res.text();")
+	p.P("const body = await readResponseText(res, this.options.maxResponseBodyBytes);")
 	for _, errType := range m.ErrorTypes {
 		status := 500
 		if code, ok := errType.StatusCode(); ok {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"regexp/syntax"
 	"strconv"
 	"strings"
 
@@ -13,11 +14,12 @@ import (
 )
 
 const (
-	flattenDecorator = "flatten"
-	postVerb         = "post"
-	putVerb          = "put"
-	patchVerb        = "patch"
-	queryVerb        = "query"
+	flattenDecorator            = "flatten"
+	maxCrossRuntimePatternBytes = 4096
+	postVerb                    = "post"
+	putVerb                     = "put"
+	patchVerb                   = "patch"
+	queryVerb                   = "query"
 )
 
 // validateSyntax rejects decorators and RPC declarations that the generators
@@ -226,6 +228,9 @@ func validateOneofArgs(path string, line int, args []onklang.Arg) error {
 		if arg.Name == "discriminator" && arg.Value == "" {
 			return &Error{Path: path, Line: line, Msg: "oneof discriminator must not be empty"}
 		}
+		if arg.Name == "discriminator" && !isGeneratedKey(arg.Value) {
+			return &Error{Path: path, Line: line, Msg: "oneof discriminator must contain only letters, digits, and underscores and must not start with a digit"}
+		}
 		if arg.Name == flattenDecorator && arg.Value != "true" && arg.Value != "false" {
 			return &Error{Path: path, Line: line, Msg: "oneof flatten must be true or false"}
 		}
@@ -310,8 +315,19 @@ func validateDecoratorValue(filePath string, line int, decorator onklang.Decorat
 			return err
 		}
 	case "pattern":
-		if _, err := regexp.Compile(value(0)); err != nil {
+		pattern := value(0)
+		if len(pattern) > maxCrossRuntimePatternBytes {
+			return &Error{Path: filePath, Line: line, Msg: fmt.Sprintf("@pattern must not exceed %d bytes", maxCrossRuntimePatternBytes)}
+		}
+		if _, err := regexp.Compile(pattern); err != nil {
 			return &Error{Path: filePath, Line: line, Msg: fmt.Sprintf("invalid @pattern regular expression: %v", err)}
+		}
+		parsed, err := syntax.Parse(pattern, syntax.Perl)
+		if err != nil {
+			return &Error{Path: filePath, Line: line, Msg: fmt.Sprintf("invalid @pattern regular expression: %v", err)}
+		}
+		if hasNestedRegexpRepeat(parsed, false) {
+			return &Error{Path: filePath, Line: line, Msg: "@pattern contains nested repetition that is unsafe in backtracking runtimes"}
 		}
 	case "empty":
 		if value(0) != "null" && value(0) != "omit" && value(0) != "preserve" {
@@ -328,6 +344,23 @@ func validateDecoratorValue(filePath string, line int, decorator onklang.Decorat
 		}
 	}
 	return nil
+}
+
+func hasNestedRegexpRepeat(expr *syntax.Regexp, insideRepeat bool) bool {
+	repeat := insideRepeat
+	switch expr.Op {
+	case syntax.OpStar, syntax.OpPlus, syntax.OpQuest, syntax.OpRepeat:
+		if insideRepeat {
+			return true
+		}
+		repeat = true
+	}
+	for _, child := range expr.Sub {
+		if hasNestedRegexpRepeat(child, repeat) {
+			return true
+		}
+	}
+	return false
 }
 
 func isScalarNamed(typ *onklang.TypeRef, name string) bool {
@@ -437,6 +470,9 @@ func validateHeaders(path string, headers []onklang.HeaderDecl) error {
 		if key == "" {
 			return &Error{Path: path, Line: header.Line, Msg: "header name must not be empty"}
 		}
+		if !validHTTPHeaderName(header.Name) {
+			return &Error{Path: path, Line: header.Line, Msg: fmt.Sprintf("header name %q contains invalid HTTP token characters", header.Name)}
+		}
 		if seen[key] {
 			return &Error{Path: path, Line: header.Line, Msg: fmt.Sprintf("duplicate header %q", header.Name)}
 		}
@@ -463,6 +499,18 @@ func validateHeaders(path string, headers []onklang.HeaderDecl) error {
 		}
 	}
 	return nil
+}
+
+func validHTTPHeaderName(value string) bool {
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case strings.ContainsRune("!#$%&'*+-.^_`|~", r):
+		default:
+			return false
+		}
+	}
+	return value != ""
 }
 
 func validateRPC(path string, rpc *onklang.RPCDecl) (string, string, error) {
@@ -505,6 +553,9 @@ func validateRPC(path string, rpc *onklang.RPCDecl) (string, string, error) {
 			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@body requires one non-empty request field name"}
 		}
 	}
+	if hasDecorator(rpc.Decorators, "stream") && isBodyBearingVerb(verb) {
+		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@stream cannot be combined with a body-bearing HTTP verb; use @get or @delete for streaming"}
+	}
 	return verb, route, nil
 }
 
@@ -517,6 +568,11 @@ func validateHTTPPath(value string, allowEmpty bool) error {
 	}
 	if strings.ContainsAny(value, "?#%") || strings.Contains(value, "//") {
 		return errors.New("must be a canonical literal URL path")
+	}
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f || r == '"' || r == '\\' {
+			return errors.New("must not contain control, quote, or backslash characters")
+		}
 	}
 	withoutParams := regexp.MustCompile(`\{[^{}]+\}`).ReplaceAllString(value, "x")
 	if path.Clean(withoutParams) != withoutParams {
@@ -579,6 +635,11 @@ func validateDecorators(path string, line int, decorators []onklang.Decorator, r
 			if len(decorator.Args) == 1 && decorator.Args[0].Name != "prefix" {
 				return &Error{Path: path, Line: line, Msg: "@flatten argument must be named prefix"}
 			}
+			for _, arg := range decorator.Args {
+				if arg.Name == "prefix" && !isGeneratedKey(arg.Value) {
+					return &Error{Path: path, Line: line, Msg: "@flatten prefix must contain only letters, digits, and underscores and must not start with a digit"}
+				}
+			}
 		}
 	}
 	return nil
@@ -592,6 +653,18 @@ func generatedIdentifier(value string) string {
 		}
 	}
 	return strings.ToLower(out.String())
+}
+
+func isGeneratedKey(value string) bool {
+	if value == "" || (value[0] >= '0' && value[0] <= '9') {
+		return false
+	}
+	for _, r := range value {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 var reservedDeclarationNames = map[string]bool{
@@ -718,6 +791,13 @@ func validateCompiledMessage(filePath string, message *onkir.Message, fullNames 
 }
 
 func validateCompiledField(filePath string, field *onkir.Field) error {
+	if field.Type != nil && field.Type.Kind == onkir.KindMap && field.Type.MapValue != nil &&
+		field.Type.MapValue.Kind == onkir.KindMessage && isRootUnwrappedMessage(field.Type.MapValue.Message) {
+		return &Error{Path: filePath, Msg: fmt.Sprintf(
+			"@unwrap is not supported on map value message %s; use @unwrap only on a top-level request/response message",
+			field.Type.MapValue.Message.FullName(),
+		)}
+	}
 	decorator, hasEncode := field.Decorator("encode")
 	if hasEncode {
 		value, _ := decorator.Value()
@@ -744,6 +824,10 @@ func validateCompiledField(filePath string, field *onkir.Field) error {
 		}
 	}
 	return nil
+}
+
+func isRootUnwrappedMessage(message *onkir.Message) bool {
+	return message != nil && len(message.Fields) == 1 && message.Fields[0].HasDecorator("unwrap")
 }
 
 func validateMethodBindings(filePath string, method *onkir.Method) error {
