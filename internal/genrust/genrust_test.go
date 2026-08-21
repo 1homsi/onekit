@@ -193,3 +193,55 @@ service BodyService {
 		}
 	}
 }
+
+// TestGeneratedRustUsesLiteralQueryMethod pins the cross-language wire
+// contract for @query RPCs: the client must send HTTP QUERY (not POST), and
+// the server must accept it via axum::routing::any with an in-handler method
+// guard, because MethodRouter cannot match custom methods.
+func TestGeneratedRustUsesLiteralQueryMethod(t *testing.T) {
+	ast, err := onklang.Parse(`
+package queryfixture
+
+message SearchRequest { term: string }
+message SearchResponse { total: int64 }
+
+service SearchService {
+  search(SearchRequest) -> SearchResponse @query("/search")
+}
+`)
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "query.onk", AST: ast}})
+	if err != nil {
+		t.Fatalf("compile fixture: %v", err)
+	}
+	file := pkg.Files[0]
+
+	clientText := string(GenerateClient(file))
+	for _, want := range []string{
+		`reqwest::Method::from_bytes(b"QUERY")`,
+	} {
+		if !strings.Contains(clientText, want) {
+			t.Fatalf("generated Rust client missing %q:\n%s", want, clientText)
+		}
+	}
+	if strings.Contains(clientText, `self.http.post(&url)`) {
+		t.Fatalf("generated Rust client downgraded @query to POST:\n%s", clientText)
+	}
+
+	serverText := string(GenerateServer(file))
+	for _, want := range []string{
+		`axum::routing::any(`,
+		`method: axum::http::Method,`,
+		`if method.as_str() != "QUERY" {`,
+		`StatusCode::METHOD_NOT_ALLOWED`,
+	} {
+		if !strings.Contains(serverText, want) {
+			t.Fatalf("generated Rust server missing %q:\n%s", want, serverText)
+		}
+	}
+	if strings.Contains(serverText, `axum::routing::post(`) {
+		t.Fatalf("generated Rust server routed @query as POST:\n%s", serverText)
+	}
+}

@@ -126,7 +126,9 @@ func relDirOf(schemaRoot string, f *onkir.File) (string, error) {
 
 // applyDefaultBasePaths fills in Service.BasePath for every service that
 // didn't set one explicitly, inferring it from the service's source
-// directory (see inferBasePath). An explicit base_path always wins.
+// directory (see inferBasePath). An explicit base_path always wins. The
+// degenerate root inference "/" is stored as "" so route concatenation
+// cannot produce invalid "//path" patterns (Go's ServeMux panics on them).
 func applyDefaultBasePaths(pkg *onkir.Package, schemaRoot string) error {
 	for _, f := range pkg.Files {
 		if len(f.Services) == 0 {
@@ -138,11 +140,20 @@ func applyDefaultBasePaths(pkg *onkir.Package, schemaRoot string) error {
 		}
 		for _, svc := range f.Services {
 			if svc.BasePath == "" {
-				svc.BasePath = inferBasePath(rel)
+				svc.BasePath = normalizeBasePath(inferBasePath(rel))
 			}
 		}
 	}
 	return nil
+}
+
+// normalizeBasePath collapses a bare "/" base path to "" - both mean "serve
+// at the root", but only "" keeps BasePath+route concatenation well-formed.
+func normalizeBasePath(basePath string) string {
+	if basePath == "/" {
+		return ""
+	}
+	return basePath
 }
 
 // applyRoutePrefix prepends the configured public HTTP prefix after service
@@ -150,16 +161,14 @@ func applyDefaultBasePaths(pkg *onkir.Package, schemaRoot string) error {
 // generator backend in lockstep while leaving package layout and imports
 // relative to the schema root.
 func applyRoutePrefix(pkg *onkir.Package, prefix string) {
-	if prefix == "" {
-		return
-	}
 	for _, f := range pkg.Files {
 		for _, service := range f.Services {
-			if service.BasePath == "/" {
-				service.BasePath = prefix
-				continue
+			switch {
+			case prefix != "":
+				service.BasePath = prefix + normalizeBasePath(service.BasePath)
+			default:
+				service.BasePath = normalizeBasePath(service.BasePath)
 			}
-			service.BasePath = prefix + service.BasePath
 		}
 	}
 }

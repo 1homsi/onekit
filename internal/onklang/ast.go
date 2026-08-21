@@ -1,7 +1,10 @@
 package onklang
 
 type File struct {
-	Package          string
+	Package string
+	// PackageDoc holds `///` documentation attached to the package
+	// declaration so formatters can round-trip file-level docs.
+	PackageDoc       string
 	Imports          []string
 	ImportComments   [][]string
 	LeadingComments  []string

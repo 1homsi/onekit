@@ -136,7 +136,13 @@ func writeAuxFieldDecls(p *Printer, c fieldCategories, includeEmpty bool) {
 		p.P(PascalCase(f.Name), " []string `json:\"", f.Name, ",omitempty\"`")
 	}
 	for _, f := range c.enums {
-		p.P(PascalCase(f.Name), " int32 `json:\"", f.Name, ",omitempty\"`")
+		if f.Optional {
+			p.P(PascalCase(f.Name), " int32 `json:\"", f.Name, ",omitempty\"`")
+			continue
+		}
+		// Non-optional number-encoded enums must not be omitempty: enum
+		// member 0 is a legitimate wire value and would otherwise vanish.
+		p.P(PascalCase(f.Name), " int32 `json:\"", f.Name, "\"`")
 	}
 	for _, f := range c.bytesF {
 		auxType := "string"
@@ -148,9 +154,12 @@ func writeAuxFieldDecls(p *Printer, c fieldCategories, includeEmpty bool) {
 	for _, f := range c.timestamps {
 		auxType := timestampAuxType(timestampEncodingValue(f))
 		if f.Optional {
-			auxType = "*" + auxType
+			p.P(PascalCase(f.Name), " *", auxType, " `json:\"", f.Name, ",omitempty\"`")
+			continue
 		}
-		p.P(PascalCase(f.Name), " ", auxType, " `json:\"", f.Name, ",omitempty\"`")
+		// Non-optional unix encodings must not be omitempty: epoch zero is
+		// a legitimate wire value and would otherwise vanish.
+		p.P(PascalCase(f.Name), " ", auxType, " `json:\"", f.Name, "\"`")
 	}
 	for _, f := range c.flattens {
 		p.P(PascalCase(f.Name), " json.RawMessage `json:\"", f.Name, ",omitempty\"`")
@@ -401,25 +410,21 @@ func writeTimestampUnmarshalAssignments(p *Printer, c fieldCategories) {
 				p.P("value := time.Unix(*aux.", goName, ", 0).UTC()")
 				p.P("m.", goName, " = &value")
 			} else {
-				p.P("if aux.", goName, " != 0 {")
+				// No zero guard: epoch zero (1970-01-01T00:00:00Z) is a
+				// legitimate value and must round-trip like any other.
 				p.P("m.", goName, " = time.Unix(aux.", goName, ", 0).UTC()")
-				p.P("}")
 			}
 		case timestampEncodeUnixMillis:
 			if f.Optional {
 				p.P("value := time.UnixMilli(*aux.", goName, ").UTC()")
 				p.P("m.", goName, " = &value")
 			} else {
-				p.P("if aux.", goName, " != 0 {")
 				p.P("m.", goName, " = time.UnixMilli(aux.", goName, ").UTC()")
-				p.P("}")
 			}
 		case timestampEncodeDate:
 			valueExpr := "aux." + goName
 			if f.Optional {
 				valueExpr = "*aux." + goName
-			} else {
-				p.P("if aux.", goName, " != \"\" {")
 			}
 			p.P("t, err := time.Parse(\"2006-01-02\", ", valueExpr, ")")
 			p.P("if err != nil {")
@@ -429,7 +434,6 @@ func writeTimestampUnmarshalAssignments(p *Printer, c fieldCategories) {
 				p.P("m.", goName, " = &t")
 			} else {
 				p.P("m.", goName, " = t")
-				p.P("}")
 			}
 		}
 		if f.Optional {

@@ -72,8 +72,11 @@ func (f *formatter) comments(comments []string) {
 }
 
 func (f *formatter) file(file *File) {
+	// Leading comments are emitted even without a package declaration so
+	// formatting never discards the only content of a notes-only schema file.
+	f.comments(file.LeadingComments)
 	if file.Package != "" {
-		f.comments(file.LeadingComments)
+		f.docs(file.PackageDoc)
 		f.line("package " + file.Package)
 		f.blank()
 	}

@@ -183,7 +183,14 @@ func writeClientMethod(
 		}
 	}
 	p.P("let url = format!(\"{}{}\", self.base_url, path);")
-	p.P("let mut request = self.http.", rustReqwestVerb(verb), "(&url).headers(self.headers.clone());")
+	if verb == queryVerb {
+		// The cross-language wire contract for @query is a literal HTTP
+		// QUERY method (matching the Go/TS/Python clients); reqwest accepts
+		// arbitrary methods even though there is no .query() builder.
+		p.P(`let mut request = self.http.request(reqwest::Method::from_bytes(b"QUERY").expect("QUERY is a valid HTTP method"), &url).headers(self.headers.clone());`)
+	} else {
+		p.P("let mut request = self.http.", verb, "(&url).headers(self.headers.clone());")
+	}
 	if onkir.IsBodyBearingVerb(verb) {
 		if bodyField, ok := method.BodyField(); ok {
 			if field := onkir.FindField(method.Request, bodyField); field != nil {
@@ -454,13 +461,6 @@ func writeClientError(p *Printer, service *onkir.Service, method *onkir.Method) 
 
 func clientErrorName(service *onkir.Service, method *onkir.Method) string {
 	return PascalCase(service.Name) + PascalCase(method.Name) + "Error"
-}
-
-func rustReqwestVerb(verb string) string {
-	if verb == "query" {
-		return rustVerbPost
-	}
-	return strings.ToLower(verb)
 }
 
 func pathFieldNames(path string) []string {

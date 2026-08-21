@@ -105,6 +105,19 @@ func validateRoutePrefix(prefix string) error {
 	if path.Clean(prefix) != prefix || strings.ContainsAny(prefix, "?#%{}\\\"\r\n\t") {
 		return errors.New("route_prefix must be a canonical literal URL path")
 	}
+	// Restrict every path segment to RFC 3986 pchar-safe characters so the
+	// prefix cannot smuggle spaces, control characters, or delimiters into
+	// generated routes and OpenAPI server URLs.
+	for _, segment := range strings.Split(strings.TrimPrefix(prefix, "/"), "/") {
+		for _, r := range segment {
+			switch {
+			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			case strings.ContainsRune("-._~!$&'()*+,;=:@", r):
+			default:
+				return fmt.Errorf("route_prefix contains character %q which is not allowed in a URL path; use only letters, digits, and -._~!$&'()*+,;=:@", r)
+			}
+		}
+	}
 	return nil
 }
 

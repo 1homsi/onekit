@@ -9,6 +9,7 @@ import (
 
 const (
 	rustVerbPost       = "post"
+	queryVerb          = "query"
 	rustVerbPut        = "put"
 	rustVerbPatch      = "patch"
 	rustEncodeNumber   = "number"

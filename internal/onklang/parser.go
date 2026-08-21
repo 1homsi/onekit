@@ -92,6 +92,7 @@ func (p *Parser) parseFile() (*File, error) {
 	f := &File{}
 	if p.isIdent("package") {
 		f.LeadingComments = append([]string(nil), p.tok.LeadingComments...)
+		f.PackageDoc = p.tok.Doc
 		if err := p.next(); err != nil {
 			return nil, err
 		}

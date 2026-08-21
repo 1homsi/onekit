@@ -274,6 +274,14 @@ func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl, 
 			if field.Repeated || field.Type.IsMap || isScalarTypeRef(field.Type) {
 				return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@%s requires a non-repeated message field", decorator.Name)}
 			}
+			// The two wire-mapping strategies are mutually exclusive: every
+			// backend either inlines the child under a prefix or rewrites
+			// its empty encoding - combining them produces conflicting
+			// generated code (duplicate aux fields in Go, conflicting serde
+			// attributes in Rust).
+			if hasDecorator(field.Decorators, flattenDecorator) && hasDecorator(field.Decorators, "empty") {
+				return &Error{Path: filePath, Line: field.Line, Msg: "@flatten cannot be combined with @empty; choose one JSON mapping for the field"}
+			}
 		case "unwrap":
 			if field.Optional {
 				return &Error{Path: filePath, Line: field.Line, Msg: "@unwrap cannot be optional"}

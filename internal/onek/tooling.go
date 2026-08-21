@@ -50,6 +50,12 @@ func Format(dir string, check bool) error {
 		if string(formatted) == string(data) {
 			continue
 		}
+		if len(formatted) == 0 && len(data) > 0 {
+			// writeFile treats empty output as "remove stale generated file";
+			// formatting must never delete a source schema, so leave files
+			// that carry no formattable declarations untouched.
+			continue
+		}
 		if check {
 			changed = append(changed, path)
 			continue

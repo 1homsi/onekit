@@ -146,6 +146,7 @@ func TestLoadConfigRejectsUnknownAndInvalidConfiguration(t *testing.T) {
 		{"empty output", "module = \"example.com/api\"\n[generate.go-server]\nout = \"\"\n", "output path must not be empty"},
 		{"route prefix without slash", "module = \"example.com/api\"\nroute_prefix = \"api\"\n", "route_prefix must start with /"},
 		{"route prefix with trailing slash", "module = \"example.com/api\"\nroute_prefix = \"/api/\"\n", "route_prefix must not end with /"},
+		{"route prefix with space", "module = \"example.com/api\"\nroute_prefix = \"/my api\"\n", "not allowed in a URL path"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -268,5 +269,35 @@ service API { get(Request) -> Response @get("/items") }
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Fatalf("nested generated output %s was removed: %v", name, err)
 		}
+	}
+}
+
+// TestBuildNormalizesRootBasePath pins the fix for inferred "/" base paths:
+// a root-level service without base_path must generate "GET /route", not the
+// malformed "GET //route" that makes net/http's ServeMux panic at startup.
+func TestBuildNormalizesRootBasePath(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/rootprobe\"\n\n[generate.go-server]\nout = \"./gen\"\n")
+	writeTestFile(t, filepath.Join(dir, "svc.onk"), `package probe
+
+message Req { id: string }
+message Res { ok: bool }
+
+service Svc {
+  list(Req) -> Res @get("/things")
+}
+`)
+	if err := Build(dir); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "gen", "server.gen.go"))
+	if err != nil {
+		t.Fatalf("read server: %v", err)
+	}
+	if strings.Contains(string(data), `"GET //`) || strings.Contains(string(data), "//things") && !strings.Contains(string(data), `"GET /things"`) {
+		t.Fatalf("generated route contains a double slash:\n%s", data)
+	}
+	if !strings.Contains(string(data), `"GET /things"`) {
+		t.Fatalf("expected canonical GET /things route:\n%s", data)
 	}
 }

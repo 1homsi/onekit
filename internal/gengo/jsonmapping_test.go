@@ -186,6 +186,36 @@ func main() {
 		fail("round trip mismatch: created=%v unix=%v", ev2.CreatedAt, ev2.UnixAt)
 	}
 
+	// epoch zero must round-trip for non-optional unix encodings; a zero
+	// guard on decode would silently turn 1970-01-01T00:00:00Z into the
+	// zero-value time (year 1)
+	epoch := time.Unix(0, 0).UTC()
+	evEpoch := &Event{CreatedAt: epoch, UnixAt: epoch}
+	b, err = json.Marshal(evEpoch)
+	if err != nil {
+		fail("marshal Event(epoch): %v", err)
+	}
+	if !strings.Contains(string(b), "\"unix_at\":0") {
+		fail("expected unix_at 0 on the wire, got %s", string(b))
+	}
+	var evEpoch2 Event
+	if err := json.Unmarshal([]byte("{\"created_at\":\"1970-01-01T00:00:00Z\",\"unix_at\":0}"), &evEpoch2); err != nil {
+		fail("unmarshal Event(epoch): %v", err)
+	}
+	if !evEpoch2.UnixAt.Equal(epoch) || !evEpoch2.CreatedAt.Equal(epoch) {
+		fail("epoch zero corrupted: unix=%v created=%v", evEpoch2.UnixAt, evEpoch2.CreatedAt)
+	}
+
+	// enum member 0 must survive @encode(number) marshaling (not omitempty)
+	zeroHolder := &StatusHolder{Status: StatusUnspecified, StatusNum: StatusUnspecified}
+	b, err = json.Marshal(zeroHolder)
+	if err != nil {
+		fail("marshal zero Holder: %v", err)
+	}
+	if !strings.Contains(string(b), "\"status_num\":0") {
+		fail("expected zero-valued number-encoded enum on the wire, got %s", string(b))
+	}
+
 	// flatten
 	order := &Order{Id: "o1", Billing: &Address{Street: "123 Main", City: "Springfield"}}
 	b, err = json.Marshal(order)

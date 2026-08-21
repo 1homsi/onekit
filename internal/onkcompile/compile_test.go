@@ -616,6 +616,16 @@ service API { get(Request) -> Response @get("/items") @post("/items") }
 `)}},
 			wantErr: "RPC must declare exactly one HTTP verb",
 		},
+		{
+			name: "flatten combined with empty",
+			sources: []Source{{Path: "api.onk", AST: parseOrFatal(t, `
+message Meta { street: string }
+message Request { meta: Meta @flatten(prefix: "m_") @empty(null) }
+message Response { ok: bool }
+service API { create(Request) -> Response @post("/x") }
+`)}},
+			wantErr: "@flatten cannot be combined with @empty",
+		},
 	}
 
 	for _, tt := range tests {

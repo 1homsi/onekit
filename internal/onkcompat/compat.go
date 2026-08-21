@@ -218,6 +218,12 @@ func typeName(typ *onkir.Type) string {
 	}
 }
 
+// routes snapshots every RPC's HTTP contract keyed by qualified service
+// name plus verb and effective path. Service identity is part of the key so
+// that two services whose effective routes collide (possible when compile-
+// time uniqueness is scoped by declared base_path/package but comparison
+// uses post-inference paths) cannot silently overwrite each other's entry -
+// which previously made detection depend on file iteration order.
 func routes(pkg *onkir.Package) map[string]string {
 	out := map[string]string{}
 	if pkg == nil {
@@ -229,12 +235,19 @@ func routes(pkg *onkir.Package) map[string]string {
 				verb, verbOK := method.Verb()
 				methodPath, pathOK := method.Path()
 				if verbOK && pathOK {
-					out[verb+" "+service.BasePath+methodPath] = methodSignature(service, method)
+					out[routeKey(file.Package, service.Name, verb, service.BasePath+methodPath)] = methodSignature(service, method)
 				}
 			}
 		}
 	}
 	return out
+}
+
+func routeKey(pkg, service, verb, fullPath string) string {
+	if pkg == "" {
+		return service + " " + verb + " " + fullPath
+	}
+	return pkg + "." + service + " " + verb + " " + fullPath
 }
 
 func methodSignature(service *onkir.Service, method *onkir.Method) string {

@@ -120,8 +120,16 @@ func writeRouter(p *Printer, service *onkir.Service) {
 		verb, _ := method.Verb()
 		path, _ := method.Path()
 		fullPath := service.BasePath + path
+		// axum 0.8's MethodRouter only routes the fixed HTTP verb set, so a
+		// literal QUERY route needs axum::routing::any plus an in-handler
+		// method guard (see writeHandler) to keep the wire contract that the
+		// Go/TS/Python backends implement.
+		routeFn := rustAxumRouteFunction(verb)
+		if verb == queryVerb {
+			routeFn = "any"
+		}
 		p.P(
-			".route(", strconv.Quote(fullPath), ", axum::routing::", rustAxumRouteFunction(verb),
+			".route(", strconv.Quote(fullPath), ", axum::routing::", routeFn,
 			"(", handlerName(service, method), "::<T>))",
 		)
 	}
@@ -141,10 +149,14 @@ func writeHandler(
 	traitName := PascalCase(service.Name)
 	requestType := p.MessageTypeName(method.Request)
 	pathFields := pathFieldNames(mustMethodPath(method))
-	bodyBearing := onkir.IsBodyBearingVerb(mustMethodVerb(method))
+	verb := mustMethodVerb(method)
+	bodyBearing := onkir.IsBodyBearingVerb(verb)
 
 	p.P("async fn ", handlerName(service, method), "<T: ", traitName, ">(")
 	p.Indent()
+	if verb == queryVerb {
+		p.P("method: axum::http::Method,")
+	}
 	p.P("State(service): State<Arc<T>>,")
 	p.P("headers: HeaderMap,")
 	if len(pathFields) > 0 {
@@ -172,6 +184,9 @@ func writeHandler(
 	p.Indent()
 
 	errorName := serverErrorName(service, method)
+	if verb == queryVerb {
+		writeQueryMethodGuard(p)
+	}
 	if bodyField, ok := method.BodyField(); ok && bodyBearing {
 		if field := onkir.FindField(method.Request, bodyField); field != nil {
 			if bodyFieldNeedsCustomWire(field) {
@@ -361,6 +376,18 @@ func serverErrorName(service *onkir.Service, method *onkir.Method) string {
 
 func handlerName(service *onkir.Service, method *onkir.Method) string {
 	return SnakeCase(service.Name) + "_" + SnakeCase(method.Name) + "_handler"
+}
+
+// writeQueryMethodGuard emits the axum-compatibility method check for
+// literal-QUERY routes: the route is registered with axum::routing::any
+// because MethodRouter cannot match the custom QUERY method, so the handler
+// enforces the wire contract itself.
+func writeQueryMethodGuard(p *Printer) {
+	p.P(`if method.as_str() != "QUERY" {`)
+	p.Indent()
+	p.P("return (axum::http::StatusCode::METHOD_NOT_ALLOWED, \"method not allowed\").into_response();")
+	p.Dedent()
+	p.P("}")
 }
 
 func rustAxumRouteFunction(verb string) string {
