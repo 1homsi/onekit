@@ -3,6 +3,7 @@ package onek
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -33,12 +34,34 @@ type GenerateConfig struct {
 }
 
 type Config struct {
-	Module               string         `toml:"module"`
+	Module string `toml:"module"`
+	// SchemaRoot points at the directory holding the .onk schema tree,
+	// relative to the project directory (the one containing onekit.toml).
+	// It lets repositories keep schemas in a subdirectory while generator
+	// outputs stay anchored elsewhere. Defaults to "." - i.e. the schema
+	// tree and the project directory are the same. Base-path inference and
+	// cross-package import mirroring are computed relative to this root;
+	// output containment keeps being validated against the project dir.
+	SchemaRoot           string         `toml:"schema_root"`
 	RoutePrefix          string         `toml:"route_prefix"`
 	AllowLegacyContracts bool           `toml:"allow_legacy_contracts"`
 	Generate             GenerateConfig `toml:"generate"`
 
-	dir string
+	dir       string
+	schemaDir string
+}
+
+// ProjectDir returns the absolute canonical directory containing
+// onekit.toml. Generator outputs and the drift manifest anchor here.
+func (c *Config) ProjectDir() string { return c.dir }
+
+// SchemaDir returns the absolute canonical root of the .onk schema tree.
+// It defaults to ProjectDir when schema_root is not configured.
+func (c *Config) SchemaDir() string {
+	if c.schemaDir == "" {
+		return c.dir
+	}
+	return c.schemaDir
 }
 
 const configFileName = "onekit.toml"
@@ -83,10 +106,46 @@ func LoadConfig(dir string) (*Config, error) {
 		return nil, &ConfigError{Path: path, Err: err}
 	}
 	cfg.dir = root
+	if err := resolveSchemaRootConfig(&cfg); err != nil {
+		return nil, &ConfigError{Path: path, Err: err}
+	}
 	if err := validateTargetPaths(&cfg); err != nil {
 		return nil, &ConfigError{Path: path, Err: err}
 	}
 	return &cfg, nil
+}
+
+// resolveSchemaRootConfig validates and resolves Config.SchemaRoot against
+// the project directory. Empty values default to the project dir itself.
+func resolveSchemaRootConfig(cfg *Config) error {
+	cfg.schemaDir = cfg.dir
+	if cfg.SchemaRoot == "" {
+		return nil
+	}
+	if filepath.IsAbs(cfg.SchemaRoot) {
+		return errors.New("schema_root must be relative to the project directory")
+	}
+	clean := filepath.Clean(filepath.FromSlash(cfg.SchemaRoot))
+	rel, err := filepath.Rel(cfg.dir, filepath.Join(cfg.dir, clean))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("schema_root %q must stay inside the project directory", cfg.SchemaRoot)
+	}
+	if rel == "." {
+		return nil // explicit "." - schema tree is the project dir
+	}
+	resolved, err := canonicalProjectDir(filepath.Join(cfg.dir, clean))
+	if err != nil {
+		return fmt.Errorf("resolve schema_root: %w", err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return fmt.Errorf("stat schema_root: %w", err)
+	}
+	if !info.IsDir() {
+		return errors.New("schema_root must be a directory")
+	}
+	cfg.schemaDir = resolved
+	return nil
 }
 
 func validateRoutePrefix(prefix string) error {

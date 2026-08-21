@@ -30,7 +30,11 @@ func (e *FormatError) Error() string {
 // Format formats every .onk file under dir. In check mode it never writes and
 // returns a FormatError when any file differs from the canonical form.
 func Format(dir string, check bool) error {
-	paths, err := discoverOnkFiles(dir)
+	schemaRoot, err := resolveSchemaTree(dir)
+	if err != nil {
+		return err
+	}
+	paths, err := discoverOnkFiles(schemaRoot)
 	if err != nil {
 		return err
 	}
@@ -146,7 +150,11 @@ type fileStamp struct {
 }
 
 func projectSnapshot(dir string) ([]fileStamp, error) {
-	paths, err := discoverOnkFiles(dir)
+	schemaRoot, err := resolveSchemaTree(dir)
+	if err != nil {
+		return nil, err
+	}
+	paths, err := discoverOnkFiles(schemaRoot)
 	if err != nil {
 		return nil, err
 	}

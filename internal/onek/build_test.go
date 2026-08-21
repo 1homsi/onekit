@@ -1,6 +1,7 @@
 package onek
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -147,6 +148,8 @@ func TestLoadConfigRejectsUnknownAndInvalidConfiguration(t *testing.T) {
 		{"route prefix without slash", "module = \"example.com/api\"\nroute_prefix = \"api\"\n", "route_prefix must start with /"},
 		{"route prefix with trailing slash", "module = \"example.com/api\"\nroute_prefix = \"/api/\"\n", "route_prefix must not end with /"},
 		{"route prefix with space", "module = \"example.com/api\"\nroute_prefix = \"/my api\"\n", "not allowed in a URL path"},
+		{"schema root absolute", "module = \"example.com/api\"\nschema_root = \"/etc\"\n", "schema_root must be relative"},
+		{"schema root escapes project", "module = \"example.com/api\"\nschema_root = \"../elsewhere\"\n", "must stay inside the project directory"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -299,5 +302,82 @@ service Svc {
 	}
 	if !strings.Contains(string(data), `"GET /things"`) {
 		t.Fatalf("expected canonical GET /things route:\n%s", data)
+	}
+}
+
+// TestBuildHonorsSchemaRoot pins the voxie-style layout: onekit.toml at the
+// project root, schemas under schema_root ("api"), generator outputs anchored
+// at the project root. Base-path inference must follow the schema tree while
+// output containment keeps being checked against the project dir.
+func TestBuildHonorsSchemaRoot(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `module = "example.com/voxie/gen/go"
+schema_root = "api"
+
+[generate.go-server]
+out = "gen/go"
+`)
+	writeTestFile(t, filepath.Join(dir, "api", "svc.onk"), `package probe
+
+message Req { id: string }
+message Res { ok: bool }
+
+service Svc {
+  list(Req) -> Res @get("/things")
+}
+`)
+	if err := Build(dir); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "gen", "go", "server.gen.go"))
+	if err != nil {
+		t.Fatalf("read generated server: %v", err)
+	}
+	if !strings.Contains(string(data), `"GET /things"`) || strings.Contains(string(data), "//things") {
+		t.Fatalf("expected canonical GET /things route from schema-root layout:\n%s", data)
+	}
+	manifestData, err := os.ReadFile(filepath.Join(dir, ".onekit", "manifest.json"))
+	if err != nil {
+		t.Fatalf("manifest must stay at the project root: %v", err)
+	}
+	var manifest generationManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatalf("decode manifest: %v", err)
+	}
+	if len(manifest.SchemaFiles) != 1 || manifest.SchemaFiles[0] != "svc.onk" {
+		t.Fatalf("SchemaFiles should be relative to the schema root, got %+v", manifest.SchemaFiles)
+	}
+	if err := Check(dir); err != nil {
+		t.Fatalf("Check with schema_root layout: %v", err)
+	}
+}
+
+// TestCompatibilityHonorsSchemaRoot ensures onek compat compares the schema
+// trees (not the project roots) when both revisions declare schema_root.
+func TestCompatibilityHonorsSchemaRoot(t *testing.T) {
+	configFor := `module = "example.com/compat"
+schema_root = "api"
+`
+	schemaFor := func(fieldType string) string {
+		return "package probe\n\nmessage R { id: " + fieldType + " }\nmessage Res { ok: bool }\n\nservice Svc {\n  list(R) -> Res @get(\"/things\")\n}\n"
+	}
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	writeTestFile(t, filepath.Join(oldDir, "onekit.toml"), configFor)
+	writeTestFile(t, filepath.Join(oldDir, "api", "svc.onk"), schemaFor("string"))
+	writeTestFile(t, filepath.Join(newDir, "onekit.toml"), configFor)
+	writeTestFile(t, filepath.Join(newDir, "api", "svc.onk"), schemaFor("int64"))
+
+	findings, err := Compatibility(oldDir, newDir)
+	if err != nil {
+		t.Fatalf("Compatibility: %v", err)
+	}
+	found := false
+	for _, f := range findings {
+		if strings.Contains(f.Message, "field type") || strings.Contains(f.Message, "payload contract") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected payload-contract finding across schema_root projects, got %+v", findings)
 	}
 }

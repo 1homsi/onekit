@@ -7,11 +7,26 @@ import (
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
+// goReservedWords are Go keywords (plus predeclared literals that cannot be
+// package identifiers); outputs ending in one get a "pkg_" prefix.
+var goReservedWords = map[string]bool{
+	"break": true, "case": true, "chan": true, "const": true, "continue": true,
+	"default": true, "defer": true, "else": true, "fallthrough": true, "for": true,
+	"func": true, "go": true, "goto": true, "if": true, "import": true,
+	"interface": true, "map": true, "package": true, "range": true, "return": true,
+	"select": true, "struct": true, "switch": true, "type": true, "var": true,
+	"true": true, "false": true, "nil": true,
+}
+
 func GoPackageName(file *onkir.File) string {
 	if file.Package == "" {
 		return "generated"
 	}
-	return strings.ToLower(file.Package[strings.LastIndex(file.Package, ".")+1:])
+	name := strings.ToLower(file.Package[strings.LastIndex(file.Package, ".")+1:])
+	if name == "" || name[0] >= '0' && name[0] <= '9' || goReservedWords[name] {
+		return "pkg_" + name
+	}
+	return name
 }
 
 func needsTimeImport(file *onkir.File) bool {

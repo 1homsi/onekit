@@ -121,3 +121,33 @@ func TestFormatNeverDeletesSchemaFiles(t *testing.T) {
 		t.Fatalf("notes content changed:\n%s", formattedNotes)
 	}
 }
+
+// TestFormatRespectsSchemaRoot ensures fmt formats the schema tree when
+// schema_root points away from onekit.toml.
+func TestFormatRespectsSchemaRoot(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "onekit.toml"), []byte("module = \"example.com/fmt\"\nschema_root = \"api\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	schema := filepath.Join(dir, "api", "svc.onk")
+	if err := os.MkdirAll(filepath.Dir(schema), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(schema, []byte("package p\nmessage R{ x: string}\n"), 0o644); err != nil {
+		t.Fatalf("write schema: %v", err)
+	}
+	var formatErr *FormatError
+	if err := Format(dir, true); !errors.As(err, &formatErr) || len(formatErr.Files) != 1 {
+		t.Fatalf("expected unformatted finding under schema_root, got %v", err)
+	}
+	if err := Format(dir, false); err != nil {
+		t.Fatalf("format: %v", err)
+	}
+	data, err := os.ReadFile(schema)
+	if err != nil {
+		t.Fatalf("read formatted schema: %v", err)
+	}
+	if !strings.Contains(string(data), "  x: string") {
+		t.Fatalf("schema under schema_root was not formatted:\n%s", data)
+	}
+}

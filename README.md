@@ -100,6 +100,24 @@ server, client, and OpenAPI route without changing generated package or import
 paths. For example, schemas under `hub/business/v1` still generate into
 `hub/business/v1`, while their routes start with `/api/hub/business/v1`.
 
+`schema_root` is optional and lets the schema tree live in a subdirectory of
+the project (the directory containing `onekit.toml`) while generator outputs
+stay anchored at the project root:
+
+```toml
+# onekit.toml at the repository root; schemas live in api/
+module = "github.com/you/yourapp/gen/go"
+schema_root = "api"
+
+[generate.go-server]
+out = "gen/go"
+```
+
+Base-path inference and cross-package import paths mirror directories under
+`schema_root`; output containment keeps being validated against the project
+directory, and the drift manifest stays at `<project>/.onekit/manifest.json`
+with `schema_files` recorded relative to the schema root.
+
 The prefix must be a canonical literal URL path such as `/api` or
 `/api/internal`: it must start with `/`, must not end with `/`, and cannot
 contain query strings, fragments, percent escapes, or path parameters.

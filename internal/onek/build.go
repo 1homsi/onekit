@@ -295,18 +295,40 @@ func loadOptionalConfig(dir string) (*Config, error) {
 	return LoadConfig(dir)
 }
 
-// Check validates the project configuration and every schema under dir
-// without generating output.
+// resolveSchemaTree returns the effective root of the .onk schema tree for
+// a project directory: the configured schema_root when onekit.toml declares
+// one, otherwise the directory itself.
+func resolveSchemaTree(dir string) (string, error) {
+	cfg, err := loadOptionalConfig(dir)
+	if err != nil && !errors.Is(err, errNoConfigFile) {
+		return "", err
+	}
+	if cfg != nil {
+		return cfg.SchemaDir(), nil
+	}
+	return dir, nil
+}
+
+// Check validates the project configuration and every schema under the
+// project's schema tree (see Config.SchemaRoot) without generating output.
 func Check(dir string) error {
-	options := onkcompile.CompileOptions{}
 	cfg, err := loadOptionalConfig(dir)
 	if err != nil && !errors.Is(err, errNoConfigFile) {
 		return err
 	}
+	root := dir
+	if cfg != nil {
+		root = cfg.SchemaDir()
+	}
+	return checkAt(root, cfg)
+}
+
+func checkAt(root string, cfg *Config) error {
+	options := onkcompile.CompileOptions{}
 	if cfg != nil {
 		options.AllowLegacyContracts = cfg.AllowLegacyContracts
 	}
-	_, err = CompileWithOptions(dir, options)
+	_, err := CompileWithOptions(root, options)
 	return err
 }
 
@@ -324,12 +346,18 @@ func Compatibility(previousDir, currentDir string) ([]onkcompat.Finding, error) 
 }
 
 func compileCompatibilityProject(dir string) (*onkir.Package, error) {
-	pkg, err := Compile(dir)
-	if err != nil {
-		return nil, err
-	}
 	cfg, err := loadOptionalConfig(dir)
 	if err != nil && !errors.Is(err, errNoConfigFile) {
+		return nil, err
+	}
+	root := dir
+	options := onkcompile.CompileOptions{}
+	if cfg != nil {
+		root = cfg.SchemaDir()
+		options.AllowLegacyContracts = cfg.AllowLegacyContracts
+	}
+	pkg, err := CompileWithOptions(root, options)
+	if err != nil {
 		return nil, err
 	}
 	if cfg != nil {
@@ -398,14 +426,14 @@ func Build(dir string) error {
 		return err
 	}
 
-	pkg, err := CompileWithOptions(cfg.dir, onkcompile.CompileOptions{
+	pkg, err := CompileWithOptions(cfg.SchemaDir(), onkcompile.CompileOptions{
 		AllowLegacyContracts: cfg.AllowLegacyContracts,
 	})
 	if err != nil {
 		return err
 	}
 	applyRoutePrefix(pkg, cfg.RoutePrefix)
-	idx, err := groupByDirectory(pkg, cfg.dir)
+	idx, err := groupByDirectory(pkg, cfg.SchemaDir())
 	if err != nil {
 		return err
 	}
@@ -449,7 +477,7 @@ type generationManifest struct {
 // generated output set. It gives CI and editor tooling a stable way to detect
 // drift without guessing which files belong to OneKit.
 func writeGenerationManifest(cfg *Config, idx *sourceIndex) error {
-	paths, err := discoverOnkFiles(cfg.dir)
+	paths, err := discoverOnkFiles(cfg.SchemaDir())
 	if err != nil {
 		return err
 	}
@@ -461,7 +489,7 @@ func writeGenerationManifest(cfg *Config, idx *sourceIndex) error {
 		if readErr != nil {
 			return fmt.Errorf("read schema for manifest %s: %w", path, readErr)
 		}
-		rel, relErr := filepath.Rel(cfg.dir, path)
+		rel, relErr := filepath.Rel(cfg.SchemaDir(), path)
 		if relErr != nil {
 			return fmt.Errorf("relativize schema %s: %w", path, relErr)
 		}
