@@ -15,6 +15,17 @@ type TargetConfig struct {
 	Out string `toml:"out"`
 }
 
+// TSClientTargetConfig extends the plain output target with opt-in frontend
+// artifacts emitted next to types.ts/client.ts: zod schemas (schemas.ts),
+// TanStack Query hooks + SSE stream hooks (query.ts), and Mock Service Worker
+// handlers (msw.ts).
+type TSClientTargetConfig struct {
+	Out        string `toml:"out"`
+	Zod        bool   `toml:"zod"`
+	ReactQuery bool   `toml:"react_query"`
+	MSW        bool   `toml:"msw"`
+}
+
 type OpenAPITargetConfig struct {
 	Out         string `toml:"out"`
 	Title       string `toml:"title"`
@@ -23,14 +34,14 @@ type OpenAPITargetConfig struct {
 }
 
 type GenerateConfig struct {
-	GoServer     *TargetConfig        `toml:"go-server"`
-	GoClient     *TargetConfig        `toml:"go-client"`
-	TSClient     *TargetConfig        `toml:"ts-client"`
-	TSServer     *TargetConfig        `toml:"ts-server"`
-	PythonClient *TargetConfig        `toml:"python-client"`
-	RustClient   *TargetConfig        `toml:"rust-client"`
-	RustServer   *TargetConfig        `toml:"rust-server"`
-	OpenAPI      *OpenAPITargetConfig `toml:"openapi"`
+	GoServer     *TargetConfig         `toml:"go-server"`
+	GoClient     *TargetConfig         `toml:"go-client"`
+	TSClient     *TSClientTargetConfig `toml:"ts-client"`
+	TSServer     *TargetConfig         `toml:"ts-server"`
+	PythonClient *TargetConfig         `toml:"python-client"`
+	RustClient   *TargetConfig         `toml:"rust-client"`
+	RustServer   *TargetConfig         `toml:"rust-server"`
+	OpenAPI      *OpenAPITargetConfig  `toml:"openapi"`
 }
 
 type Config struct {
@@ -182,7 +193,7 @@ func validateRoutePrefix(prefix string) error {
 
 func validateTargetPaths(cfg *Config) error {
 	targets := []*TargetConfig{
-		cfg.Generate.GoServer, cfg.Generate.GoClient, cfg.Generate.TSClient, cfg.Generate.TSServer, cfg.Generate.PythonClient,
+		cfg.Generate.GoServer, cfg.Generate.GoClient, cfg.Generate.TSServer, cfg.Generate.PythonClient,
 		cfg.Generate.RustClient, cfg.Generate.RustServer,
 	}
 	for _, target := range targets {
@@ -193,6 +204,14 @@ func validateTargetPaths(cfg *Config) error {
 			if err := validateContainedOutput(cfg.dir, target.Out); err != nil {
 				return err
 			}
+		}
+	}
+	if cfg.Generate.TSClient != nil {
+		if strings.TrimSpace(cfg.Generate.TSClient.Out) == "" {
+			return errors.New("generator output path must not be empty")
+		}
+		if err := validateContainedOutput(cfg.dir, cfg.Generate.TSClient.Out); err != nil {
+			return err
 		}
 	}
 	if cfg.Generate.OpenAPI != nil {

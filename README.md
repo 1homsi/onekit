@@ -42,7 +42,7 @@ Two things `.onk` does that protobuf couldn't:
 | Package | Purpose |
 | --- | --- |
 | `internal/gengo` | Go structs, validation, HTTP server (`net/http` `ServeMux`), and HTTP client |
-| `internal/gents` | TypeScript types, a `fetch`-based client, and framework-agnostic server routes (Web Fetch API) |
+| `internal/gents` | TypeScript types, a `fetch`-based client, and framework-agnostic server routes (Web Fetch API); opt-in zod schemas, TanStack Query/SSE hooks, and MSW handlers |
 | `internal/genpy` | Python `@dataclass` models, `IntEnum` enums, and a stdlib (`urllib`) client |
 | `internal/genrust` | Rust Serde models and validation, a `reqwest` client, and an Axum server/router |
 | `internal/genopenapi` | OpenAPI 3.1 documents (via `pb33f/libopenapi`) |
@@ -128,7 +128,64 @@ onek build   # parse + compile + generate everything configured in onekit.toml
 onek fmt     # canonicalize .onk files (use --check in CI)
 onek init ./my-api
 onek watch   # rebuild on schema/config changes until interrupted
+onek mock    # dev server serving schema-derived fixtures for every route
 ```
+
+## Frontend TypeScript extras
+
+The `ts-client` target accepts opt-in flags that emit companion modules next
+to `types.ts` and `client.ts`:
+
+```toml
+[generate.ts-client]
+out = "./web/client"
+zod = true         # schemas.ts  - zod mirrors of every message and validator
+react_query = true # query.ts    - TanStack Query hooks + resilient SSE hook
+msw = true         # msw.ts      - Mock Service Worker handlers per route
+```
+
+- **schemas.ts** maps each field to the zod constraint its server enforces
+  (`@email` → `.email()`, `@len(2,8)` → `.min(2).max(8)`, `?` → `.optional()`,
+  int64/timestamp/bytes wire encodings, oneof discriminated unions), so forms
+  validate against the exact API contract.
+- **query.ts** exposes `createUserServiceHooks(client)` factories: GET routes
+  become `useQuery` hooks keyed by service/method/request, body-bearing
+  routes become `useMutation` hooks that invalidate their service scope, and
+  SSE routes become a reconnecting `useXEvents(req)` hook with exponential
+  backoff and abort-safe teardown. Helpers `isApiError` and `errorMessage`
+  round out typed error handling for RPC error unions.
+
+  ```ts
+  const hooks = createUserServiceHooks(new UserServiceClient("/v1"));
+  const user = hooks.useGetUser({ id });            // useQuery
+  const create = hooks.useCreateUser();             // useMutation
+  const ticks = hooks.useWatchTicks(req);           // SSE: events/latest/error/connected
+  ```
+
+- **msw.ts** emits deterministic fixtures derived from validators
+  (`@uuid` → real UUID shape, `@in(...)` → first allowed value, encodings
+  honored) so component tests intercept fetch with contract-accurate data:
+  `worker.use(...userServiceHandlers)`.
+
+Peer dependencies are only required for enabled flags: `zod`,
+`@tanstack/react-query` (+ `react`), and `msw`.
+
+### The mock server
+
+`onek mock` compiles your schema tree and serves every route with
+schema-derived JSON - realistic values from validators, correct wire
+encodings, declared error statuses, and SSE streams that emit three frames:
+
+```bash
+onek mock --dir api --addr :8080 \
+  --seed 1 \                # deterministic errors/latency
+  --error-rate 0.1 \        # serve declared typed errors ~10% of the time
+  --latency 300ms           # inject up to 300ms jitter per request
+```
+
+Fixtures are pure functions of the schema: identical schemas produce
+byte-identical responses across runs and machines, keeping frontend
+snapshot tests stable.
 
 Go client and server targets must use the same output directory because they
 share one generated types package. Successful builds remove obsolete OneKit-

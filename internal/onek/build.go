@@ -630,6 +630,15 @@ func expectedGeneratedOutputs(cfg *Config, idx *sourceIndex) map[string]map[stri
 			root := cfg.resolve(cfg.Generate.TSClient.Out)
 			add(root, filepath.Join(rel, "types.ts"))
 			add(root, filepath.Join(rel, "client.ts"))
+			if cfg.Generate.TSClient.Zod {
+				add(root, filepath.Join(rel, "schemas.ts"))
+			}
+			if cfg.Generate.TSClient.ReactQuery {
+				add(root, filepath.Join(rel, "query.ts"))
+			}
+			if cfg.Generate.TSClient.MSW {
+				add(root, filepath.Join(rel, "msw.ts"))
+			}
 		}
 		if cfg.Generate.TSServer != nil {
 			root := cfg.resolve(cfg.Generate.TSServer.Out)
@@ -896,6 +905,21 @@ func buildTSClient(cfg *Config, idx *sourceIndex) error {
 		err = writeFile(filepath.Join(outDir, "client.ts"), gents.GenerateClientWithResolver(g.file, resolver))
 		if err != nil {
 			return err
+		}
+		if cfg.Generate.TSClient.Zod {
+			if err := writeFile(filepath.Join(outDir, "schemas.ts"), gents.GenerateZodWithResolver(g.file, resolver)); err != nil {
+				return err
+			}
+		}
+		if cfg.Generate.TSClient.ReactQuery {
+			if err := writeFile(filepath.Join(outDir, "query.ts"), gents.GenerateReactQueryWithResolver(g.file, resolver)); err != nil {
+				return err
+			}
+		}
+		if cfg.Generate.TSClient.MSW {
+			if err := writeFile(filepath.Join(outDir, "msw.ts"), gents.GenerateMSWHandlersWithResolver(g.file, resolver)); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

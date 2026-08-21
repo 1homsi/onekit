@@ -25,6 +25,7 @@ func usage(w io.Writer) {
   onek generate [--dir DIR]
   onek fmt [--check] [--dir DIR]
   onek watch [--interval DURATION] [--dir DIR]
+  onek mock [--addr ADDR] [--seed N] [--error-rate FLOAT] [--latency DURATION] [--dir DIR]
   onek init [--force] [DIR]
   onek compat [--json] PREVIOUS-DIR CURRENT-DIR
   onek version`)
@@ -67,6 +68,8 @@ func run(args []string) error {
 		return runInit(args[1:])
 	case "watch":
 		return runWatch(args[1:])
+	case "mock":
+		return runMock(args[1:])
 	case "compat":
 		return runCompat(args[1:])
 	default:
@@ -161,6 +164,36 @@ func runWatch(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return onek.Watch(ctx, *dir, *interval, os.Stdout)
+}
+
+func runMock(args []string) error {
+	fs := flag.NewFlagSet("mock", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	addr := fs.String("addr", "127.0.0.1:8080", "listen address")
+	seed := fs.Int64("seed", 1, "deterministic seed for injected errors and latency")
+	errorRate := fs.Float64("error-rate", 0, "probability [0,1] of serving a declared typed error")
+	latency := fs.Duration("latency", 0, "inject up to this much random latency per request")
+	dir := fs.String("dir", ".", "schema project directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if positional := fs.Args(); len(positional) > 1 {
+		return errors.New("mock accepts at most one directory")
+	} else if len(positional) == 1 {
+		*dir = positional[0]
+	}
+	server, err := onek.NewMockServer(*dir, onek.MockOptions{
+		Addr:      *addr,
+		Seed:      *seed,
+		ErrorRate: *errorRate,
+		Latency:   *latency,
+	})
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return server.Run(ctx, *addr, os.Stdout)
 }
 
 func runCompat(args []string) error {

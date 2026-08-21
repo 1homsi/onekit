@@ -381,3 +381,56 @@ schema_root = "api"
 		t.Fatalf("expected payload-contract finding across schema_root projects, got %+v", findings)
 	}
 }
+
+// TestBuildTSEmitsFrontendExtras pins the opt-in ts-client artifacts and
+// their presence in the drift manifest.
+func TestBuildTSEmitsFrontendExtras(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `module = "example.com/fe"
+
+[generate.ts-client]
+out = "web/client"
+zod = true
+react_query = true
+msw = true
+`)
+	writeTestFile(t, filepath.Join(dir, "svc.onk"), `package fe
+
+message Req { id: string }
+message Res { ok: bool }
+
+service Svc {
+  base_path: "/v1"
+  getThing(Req) -> Res @get("/things/{id}")
+}
+`)
+	if err := Build(dir); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	for _, name := range []string{"types.ts", "client.ts", "schemas.ts", "query.ts", "msw.ts"} {
+		data, err := os.ReadFile(filepath.Join(dir, "web", "client", name))
+		if err != nil {
+			t.Fatalf("expected generated %s: %v", name, err)
+		}
+		if len(data) == 0 {
+			t.Fatalf("%s is empty", name)
+		}
+	}
+	manifestData, err := os.ReadFile(filepath.Join(dir, ".onekit", "manifest.json"))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	var manifest generationManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatalf("decode manifest: %v", err)
+	}
+	files := map[string]bool{}
+	for _, listed := range manifest.Outputs["web/client"] {
+		files[strings.TrimPrefix(listed, "web/client/")] = true
+	}
+	for _, name := range []string{"schemas.ts", "query.ts", "msw.ts"} {
+		if !files[name] {
+			t.Fatalf("manifest does not track %s: %+v", name, files)
+		}
+	}
+}
