@@ -208,6 +208,18 @@ func (l *Lexer) lexNumber(line, col int, doc string, comments []string) (Token, 
 		}
 	}
 	text := l.src[start:l.pos]
+	if isIdentStart(l.peekByte()) {
+		// Consume the glued identifier so the reported span covers the whole
+		// malformed token (e.g. "123abc" or "0x1F") instead of failing later
+		// with a confusing parser error about a stray identifier.
+		for l.pos < len(l.src) && isIdentCont(l.peekByte()) {
+			l.advance()
+		}
+		return Token{}, &Error{Line: line, Column: col, Message: fmt.Sprintf(
+			"invalid number %q (numeric literals may not be followed by identifier characters)",
+			l.src[start:l.pos],
+		)}
+	}
 	if isFloat {
 		if _, err := strconv.ParseFloat(text, 64); err != nil {
 			return Token{}, &Error{Line: line, Column: col, Message: fmt.Sprintf("invalid number %q", text)}

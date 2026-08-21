@@ -3,6 +3,7 @@ package onkcompat
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -256,7 +257,7 @@ func methodSignature(service *onkir.Service, method *onkir.Method) string {
 			parts = append(parts, "query="+field.Name+":"+name)
 		}
 	}
-	for _, header := range append(append([]*onkir.Header{}, service.Headers...), method.Headers...) {
+	for _, header := range slices.Concat(service.Headers, method.Headers) {
 		parts = append(parts, "header="+headerSignature(header))
 	}
 	for _, errorType := range method.ErrorTypes {

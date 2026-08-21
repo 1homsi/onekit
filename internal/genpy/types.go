@@ -568,7 +568,7 @@ func writeRootUnwrapClass(p *Printer, m *onkir.Message, f *onkir.Field) {
 	p.Blank()
 
 	p.P("@staticmethod")
-	p.P("def from_dict(d: object) -> ", fmt.Sprintf("%q", m.Name), ":")
+	p.P("def from_dict(d: object) -> ", m.Name, ":")
 	p.Indent()
 	p.P("return ", m.Name, "(", f.Name, "=", p.rootUnwrapFromExpr(f), ")")
 	p.Dedent()
@@ -614,7 +614,7 @@ func writeMessage(p *Printer, m *onkir.Message) {
 	p.Blank()
 
 	p.P("@staticmethod")
-	p.P("def from_dict(d: dict) -> ", fmt.Sprintf("%q", m.Name), ":")
+	p.P("def from_dict(d: dict) -> ", m.Name, ":")
 	p.Indent()
 	p.P("return ", m.Name, "(")
 	p.Indent()
@@ -769,7 +769,7 @@ func writeErrorClass(p *Printer, m *onkir.Message) {
 	p.Blank()
 
 	p.P("@staticmethod")
-	p.P("def from_dict(d: dict) -> ", fmt.Sprintf("%q", m.Name), ":")
+	p.P("def from_dict(d: dict) -> ", m.Name, ":")
 	p.Indent()
 	p.P("return ", m.Name, "(")
 	p.Indent()

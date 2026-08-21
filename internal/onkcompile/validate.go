@@ -71,6 +71,12 @@ var (
 	messageDecorators = map[string]decoratorRule{
 		"status": {minArgs: 1, maxArgs: 1},
 	}
+	// allowedEncodeValues is the closed set of @encode(...) wire encodings.
+	allowedEncodeValues = map[string]bool{
+		"number": true, "hex": true, "base64": true, "base64_raw": true,
+		"base64url": true, "base64url_raw": true, "unix_seconds": true,
+		"unix_millis": true, "date": true,
+	}
 	fieldDecorators = map[string]decoratorRule{
 		"email": {}, "uuid": {}, "uri": {}, "required": {}, "nullable": {}, "unwrap": {},
 		"len": {minArgs: 2, maxArgs: 2}, "range": {minArgs: 2, maxArgs: 2},
@@ -247,9 +253,6 @@ func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl, 
 	if !options.AllowLegacyContracts && hasDecorator(field.Decorators, "nullable") {
 		return &Error{Path: filePath, Line: field.Line, Msg: "@nullable is unsupported; use the ? optional marker"}
 	}
-	if hasDecorator(field.Decorators, "query") && (!isScalarTypeRef(field.Type) || field.Type.IsMap) {
-		return &Error{Path: filePath, Line: field.Line, Msg: "@query requires a scalar field"}
-	}
 	if hasDecorator(field.Decorators, "query") && !isHTTPParameterTypeRef(field.Type) {
 		return &Error{Path: filePath, Line: field.Line, Msg: "@query supports string, bool, integer, and float scalar fields"}
 	}
@@ -336,12 +339,7 @@ func validateDecoratorValue(filePath string, line int, decorator onklang.Decorat
 			return &Error{Path: filePath, Line: line, Msg: "@empty must be null, omit, or preserve"}
 		}
 	case "encode":
-		allowed := map[string]bool{
-			"number": true, "hex": true, "base64": true, "base64_raw": true,
-			"base64url": true, "base64url_raw": true, "unix_seconds": true,
-			"unix_millis": true, "date": true,
-		}
-		if !allowed[value(0)] {
+		if !allowedEncodeValues[value(0)] {
 			return &Error{Path: filePath, Line: line, Msg: fmt.Sprintf("unsupported @encode value %q", value(0))}
 		}
 	}
@@ -369,16 +367,19 @@ func isScalarNamed(typ *onklang.TypeRef, name string) bool {
 	return typ != nil && !typ.IsMap && typ.Name == name
 }
 
+// scalarTypeRefNames mirrors onkir.ScalarKind source spellings; hoisted to a
+// package var so per-field validation does not rebuild the set per call.
+var scalarTypeRefNames = map[string]bool{
+	"string": true, "bool": true, "int32": true, "int64": true, "uint32": true,
+	"uint64": true, "float32": true, "float64": true, "bytes": true, "timestamp": true,
+	"json": true,
+}
+
 func isScalarTypeRef(typ *onklang.TypeRef) bool {
 	if typ == nil || typ.IsMap {
 		return false
 	}
-	ok := map[string]bool{
-		"string": true, "bool": true, "int32": true, "int64": true, "uint32": true,
-		"uint64": true, "float32": true, "float64": true, "bytes": true, "timestamp": true,
-		"json": true,
-	}[typ.Name]
-	return ok
+	return scalarTypeRefNames[typ.Name]
 }
 
 func isHTTPParameterTypeRef(typ *onklang.TypeRef) bool {
@@ -403,13 +404,16 @@ func isHTTPParameterScalar(kind onkir.ScalarKind) bool {
 	}
 }
 
+// numericTypeRefNames lists scalar spellings usable with @gt/@gte/@lt/@lte/@range.
+var numericTypeRefNames = map[string]bool{
+	"int32": true, "int64": true, "uint32": true, "uint64": true, "float32": true, "float64": true,
+}
+
 func isNumericTypeRef(typ *onklang.TypeRef) bool {
 	if typ == nil || typ.IsMap {
 		return false
 	}
-	return map[string]bool{
-		"int32": true, "int64": true, "uint32": true, "uint64": true, "float32": true, "float64": true,
-	}[typ.Name]
+	return numericTypeRefNames[typ.Name]
 }
 
 func validateServiceDecl(filePath string, service *onklang.ServiceDecl, routeScope string, seenRoutes map[string]string, options CompileOptions) error {
@@ -423,43 +427,50 @@ func validateServiceDecl(filePath string, service *onklang.ServiceDecl, routeSco
 		return err
 	}
 	seenMethods := map[string]string{}
+	serviceHeaderNames := make(map[string]bool, len(service.Headers))
+	for _, header := range service.Headers {
+		serviceHeaderNames[strings.ToLower(header.Name)] = true
+	}
 	for _, rpc := range service.RPCs {
-		if !options.AllowLegacyContracts {
-			if err := validateMemberName(filePath, rpc.Line, rpc.Name); err != nil {
-				return err
-			}
-		}
-		generated := generatedIdentifier(rpc.Name)
-		if previous, exists := seenMethods[generated]; exists {
-			return &Error{Path: filePath, Line: rpc.Line, Msg: fmt.Sprintf(
-				"RPC name %q collides with %q after target-language name conversion", rpc.Name, previous,
-			)}
-		}
-		seenMethods[generated] = rpc.Name
-		verb, route, err := validateRPC(filePath, rpc)
-		if err != nil {
+		if err := validateServiceRPC(filePath, rpc, service, routeScope, seenRoutes, seenMethods, serviceHeaderNames, options); err != nil {
 			return err
 		}
-		key := strings.ToUpper(verb) + " " + routeScope + route
-		if previous, exists := seenRoutes[key]; exists {
-			return &Error{Path: filePath, Line: rpc.Line, Msg: fmt.Sprintf(
-				"duplicate HTTP route %s (already declared by %s)", key, previous,
-			)}
-		}
-		seenRoutes[key] = service.Name + "." + rpc.Name
-		if err := validateHeaders(filePath, rpc.Headers); err != nil {
+	}
+	return nil
+}
+
+func validateServiceRPC(filePath string, rpc *onklang.RPCDecl, service *onklang.ServiceDecl, routeScope string, seenRoutes, seenMethods map[string]string, serviceHeaderNames map[string]bool, options CompileOptions) error {
+	if !options.AllowLegacyContracts {
+		if err := validateMemberName(filePath, rpc.Line, rpc.Name); err != nil {
 			return err
 		}
-		serviceHeaders := map[string]bool{}
-		for _, header := range service.Headers {
-			serviceHeaders[strings.ToLower(header.Name)] = true
-		}
-		for _, header := range rpc.Headers {
-			if serviceHeaders[strings.ToLower(header.Name)] {
-				return &Error{Path: filePath, Line: header.Line, Msg: fmt.Sprintf(
-					"RPC header %q conflicts with a service header", header.Name,
-				)}
-			}
+	}
+	generated := generatedIdentifier(rpc.Name)
+	if previous, exists := seenMethods[generated]; exists {
+		return &Error{Path: filePath, Line: rpc.Line, Msg: fmt.Sprintf(
+			"RPC name %q collides with %q after target-language name conversion", rpc.Name, previous,
+		)}
+	}
+	seenMethods[generated] = rpc.Name
+	verb, route, err := validateRPC(filePath, rpc)
+	if err != nil {
+		return err
+	}
+	key := strings.ToUpper(verb) + " " + routeScope + route
+	if previous, exists := seenRoutes[key]; exists {
+		return &Error{Path: filePath, Line: rpc.Line, Msg: fmt.Sprintf(
+			"duplicate HTTP route %s (already declared by %s)", key, previous,
+		)}
+	}
+	seenRoutes[key] = service.Name + "." + rpc.Name
+	if err := validateHeaders(filePath, rpc.Headers); err != nil {
+		return err
+	}
+	for _, header := range rpc.Headers {
+		if serviceHeaderNames[strings.ToLower(header.Name)] {
+			return &Error{Path: filePath, Line: header.Line, Msg: fmt.Sprintf(
+				"RPC header %q conflicts with a service header", header.Name,
+			)}
 		}
 	}
 	return nil
@@ -542,13 +553,13 @@ func validateRPC(path string, rpc *onklang.RPCDecl) (string, string, error) {
 		}
 	}
 	if verb == "" {
-		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "RPC must declare one HTTP verb"}
+		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "RPC must declare exactly one HTTP verb"}
 	}
 	if err := validateHTTPPath(route, false); err != nil {
 		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "invalid RPC route: " + err.Error()}
 	}
 	if body, ok := findDecorator(rpc.Decorators, "body"); ok {
-		if verb != postVerb && verb != putVerb && verb != patchVerb && verb != queryVerb {
+		if !isBodyBearingVerb(verb) {
 			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@body requires a body-bearing HTTP verb"}
 		}
 		if len(body.Args) != 1 || body.Args[0].Value == "" {
@@ -561,6 +572,10 @@ func validateRPC(path string, rpc *onklang.RPCDecl) (string, string, error) {
 	return verb, route, nil
 }
 
+// pathParameterPattern matches one `{name}` route parameter; hoisted so
+// validateHTTPPath does not recompile it on every call.
+var pathParameterPattern = regexp.MustCompile(`\{[^{}]+\}`)
+
 func validateHTTPPath(value string, allowEmpty bool) error {
 	if value == "" && allowEmpty {
 		return nil
@@ -569,21 +584,24 @@ func validateHTTPPath(value string, allowEmpty bool) error {
 		return errors.New("must start with /")
 	}
 	if strings.ContainsAny(value, "?#%") || strings.Contains(value, "//") {
-		return errors.New("must be a canonical literal URL path")
+		return errors.New("must not contain query strings, fragments, percent escapes, or empty segments")
 	}
 	for _, r := range value {
 		if r < 0x20 || r == 0x7f || r == '"' || r == '\\' {
 			return errors.New("must not contain control, quote, or backslash characters")
 		}
 	}
-	withoutParams := regexp.MustCompile(`\{[^{}]+\}`).ReplaceAllString(value, "x")
-	if path.Clean(withoutParams) != withoutParams {
-		return errors.New("must be a canonical literal URL path")
-	}
-	if strings.Count(value, "{") != strings.Count(value, "}") {
+	if open := strings.Count(value, "{"); open != strings.Count(value, "}") {
 		return errors.New("contains unbalanced path parameter braces")
 	}
+	withoutParams := pathParameterPattern.ReplaceAllString(value, "x")
+	if path.Clean(withoutParams) != withoutParams {
+		return fmt.Errorf("must be a canonical literal URL path (got %s after substituting path parameters)", withoutParams)
+	}
 	for _, name := range pathParameterNames(value) {
+		if strings.ContainsAny(name, "{}") {
+			return fmt.Errorf("path parameter %q must not contain nested braces", name)
+		}
 		if name == "" || generatedIdentifier(name) != strings.ToLower(strings.ReplaceAll(name, "_", "")) {
 			return fmt.Errorf("contains invalid path parameter %q", name)
 		}
@@ -680,6 +698,11 @@ var reservedDeclarationNames = map[string]bool{
 	"true": true, "try": true, "type": true, "var": true, "while": true, "with": true, "yield": true,
 }
 
+// pythonMemberKeywords rejects schema member names that cannot be used as
+// Python attribute names: every hard keyword (matched case-insensitively so
+// "None"/"NONE" are caught too) plus the JSON literal look-alikes. Soft
+// keywords (match/case) stay legal as attributes and are intentionally
+// absent. Keep aligned with the module-path guard in internal/onek.
 var pythonMemberKeywords = map[string]bool{
 	"and": true, "as": true, "assert": true, "async": true, "await": true, "break": true,
 	"class": true, "continue": true, "def": true, "del": true, "elif": true, "else": true,

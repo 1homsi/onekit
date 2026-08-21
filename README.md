@@ -62,7 +62,7 @@ Try the example:
 ```bash
 cd examples/onk-simple-api
 go test ./...        # exercises the already-generated code end to end
-./bin/onek compat ./previous-schema .  # reports breaking contract changes
+../../bin/onek compat ./previous-schema .  # reports breaking contract changes
 ../../bin/onek build .   # regenerates api/*.gen.go and docs/openapi.yaml from models.onk + service.onk
 ```
 

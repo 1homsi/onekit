@@ -89,14 +89,28 @@ func pythonModuleSegment(value string) string {
 	return segment
 }
 
-var pythonKeywords = map[string]bool{
-	"and": true, "as": true, "assert": true, "async": true, "await": true, "break": true,
-	"case": true, "class": true, "continue": true, "def": true, "del": true, "elif": true,
-	"else": true, "except": true, "finally": true, "for": true, "from": true, "global": true,
-	"if": true, "import": true, "in": true, "is": true, "lambda": true, "match": true,
-	"None": true, "not": true, "or": true, "pass": true, "raise": true, "return": true,
-	"True": true, "try": true, "while": true, "with": true, "yield": true,
+// pythonKeywordBase is Python's hard keyword list in canonical spelling.
+// The module-path guard below derives from it so it can never drift from the
+// language. Member-name rejection lives in internal/onkcompile
+// (pythonMemberKeywords), which matches these hard keywords
+// case-insensitively plus the JSON literal look-alikes.
+var pythonKeywordBase = []string{
+	"False", "None", "True", "and", "as", "assert", "async", "await", "break",
+	"class", "continue", "def", "del", "elif", "else", "except", "finally",
+	"for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal",
+	"not", "or", "pass", "raise", "return", "try", "while", "with", "yield",
 }
+
+// pythonKeywords guards generated module path segments, which preserve their
+// declared casing, so membership is probed with exact spelling. The soft
+// keywords are also rejected here to keep generated import lines conservative.
+var pythonKeywords = func() map[string]bool {
+	m := map[string]bool{"match": true, "case": true}
+	for _, kw := range pythonKeywordBase {
+		m[kw] = true
+	}
+	return m
+}()
 
 // pyResolver implements genpy.PackageResolver the same way tsResolver does
 // for TypeScript, using absolute dotted module paths instead of relative

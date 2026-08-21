@@ -592,7 +592,7 @@ message Request {}
 message Response {}
 service API { get(Request) -> Response }
 `)}},
-			wantErr: "RPC must declare one HTTP verb",
+			wantErr: "RPC must declare exactly one HTTP verb",
 		},
 		{
 			name: "duplicate HTTP route",

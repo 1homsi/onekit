@@ -8,11 +8,10 @@ import (
 )
 
 func GoPackageName(file *onkir.File) string {
-	parts := strings.Split(file.Package, ".")
-	if len(parts) == 0 {
+	if file.Package == "" {
 		return "generated"
 	}
-	return strings.ToLower(parts[len(parts)-1])
+	return strings.ToLower(file.Package[strings.LastIndex(file.Package, ".")+1:])
 }
 
 func needsTimeImport(file *onkir.File) bool {

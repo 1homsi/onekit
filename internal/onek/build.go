@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -94,16 +95,22 @@ func mergeFiles(pkg *onkir.Package, goPackage string) *onkir.File {
 		merged.Enums = append(merged.Enums, f.Enums...)
 		merged.Services = append(merged.Services, f.Services...)
 	}
-	for _, m := range merged.Messages {
-		m.File = merged
-	}
-	for _, e := range merged.Enums {
-		e.File = merged
-	}
-	for _, s := range merged.Services {
-		s.File = merged
-	}
+	repointFileBacklinks(merged)
 	return merged
+}
+
+// repointFileBacklinks retargets every declaration's back link onto dst after
+// its declarations have been merged into a new onkir.File.
+func repointFileBacklinks(dst *onkir.File) {
+	for _, m := range dst.Messages {
+		m.File = dst
+	}
+	for _, e := range dst.Enums {
+		e.File = dst
+	}
+	for _, s := range dst.Services {
+		s.File = dst
+	}
 }
 
 // relDirOf returns a compiled file's source directory relative to the schema
@@ -221,15 +228,7 @@ func groupByDirectory(pkg *onkir.Package, schemaRoot string) (*sourceIndex, erro
 	sort.Strings(order)
 	for _, rel := range order {
 		f := byDir[rel]
-		for _, m := range f.Messages {
-			m.File = f
-		}
-		for _, e := range f.Enums {
-			e.File = f
-		}
-		for _, s := range f.Services {
-			s.File = f
-		}
+		repointFileBacklinks(f)
 		idx.groups = append(idx.groups, &sourceGroup{relDir: rel, file: f})
 	}
 	return idx, nil
@@ -270,22 +269,35 @@ func CompileWithOptions(dir string, options onkcompile.CompileOptions) (*onkir.P
 	return pkg, nil
 }
 
+// errNoConfigFile is returned by loadOptionalConfig when the project
+// directory has no onekit.toml; callers treat it as "use defaults".
+var errNoConfigFile = errors.New("no onekit.toml in project directory")
+
+// loadOptionalConfig loads onekit.toml when present and returns
+// errNoConfigFile when the project has no config file.
+func loadOptionalConfig(dir string) (*Config, error) {
+	configPath := filepath.Join(dir, configFileName)
+	if _, statErr := os.Stat(configPath); statErr != nil {
+		if os.IsNotExist(statErr) {
+			return nil, errNoConfigFile
+		}
+		return nil, fmt.Errorf("stat %s: %w", configPath, statErr)
+	}
+	return LoadConfig(dir)
+}
+
 // Check validates the project configuration and every schema under dir
 // without generating output.
 func Check(dir string) error {
-	configPath := filepath.Join(dir, configFileName)
 	options := onkcompile.CompileOptions{}
-	if _, statErr := os.Stat(configPath); statErr == nil {
-		cfg, configErr := LoadConfig(dir)
-		if configErr != nil {
-			return configErr
-		}
-		options.AllowLegacyContracts = cfg.AllowLegacyContracts
-	} else if !os.IsNotExist(statErr) {
-		return fmt.Errorf("stat %s: %w", configPath, statErr)
+	cfg, err := loadOptionalConfig(dir)
+	if err != nil && !errors.Is(err, errNoConfigFile) {
+		return err
 	}
-
-	_, err := CompileWithOptions(dir, options)
+	if cfg != nil {
+		options.AllowLegacyContracts = cfg.AllowLegacyContracts
+	}
+	_, err = CompileWithOptions(dir, options)
 	return err
 }
 
@@ -307,15 +319,12 @@ func compileCompatibilityProject(dir string) (*onkir.Package, error) {
 	if err != nil {
 		return nil, err
 	}
-	configPath := filepath.Join(dir, configFileName)
-	if _, statErr := os.Stat(configPath); statErr == nil {
-		cfg, loadErr := LoadConfig(dir)
-		if loadErr != nil {
-			return nil, loadErr
-		}
+	cfg, err := loadOptionalConfig(dir)
+	if err != nil && !errors.Is(err, errNoConfigFile) {
+		return nil, err
+	}
+	if cfg != nil {
 		applyRoutePrefix(pkg, cfg.RoutePrefix)
-	} else if !os.IsNotExist(statErr) {
-		return nil, fmt.Errorf("stat %s: %w", configPath, statErr)
 	}
 	return pkg, nil
 }

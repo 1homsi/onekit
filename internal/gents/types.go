@@ -197,10 +197,10 @@ func writeValidateFunc(p *Printer, m *onkir.Message) {
 		}
 		if field.Type.Scalar == onkir.ScalarString {
 			if field.HasDecorator("email") {
-				p.P("if (", present, " && !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(", accessor, ")) violations.push(\"", field.Name, " must be a valid email\");")
+				p.P("if (", present, " && !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid email"), ");")
 			}
 			if field.HasDecorator("uuid") {
-				p.P("if (", present, " && !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(", accessor, ")) violations.push(\"", field.Name, " must be a valid UUID\");")
+				p.P("if (", present, " && !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid UUID"), ");")
 			}
 			if field.HasDecorator("uri") {
 				p.P("if (", present, ") { try { new URL(", accessor, "); } catch { violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid URI"), "); } }")
@@ -222,7 +222,7 @@ func writeValidateFunc(p *Printer, m *onkir.Message) {
 		}
 		if isTSNumeric(field.Type.Scalar) {
 			numericAccessor := "Number(" + accessor + ")"
-			if d, ok := field.Decorator("range"); ok {
+			if d, ok := field.Decorator("range"); ok && len(d.Args) == 2 {
 				p.P("if (", present, " && (", numericAccessor, " < ", d.Args[0].Value, " || ", numericAccessor, " > ", d.Args[1].Value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" violates @range"), ");")
 			}
 			for _, rule := range []struct{ name, op string }{{"gt", ">"}, {"gte", ">="}, {"lt", "<"}, {"lte", "<="}} {
@@ -272,6 +272,12 @@ func tsRuntimeTypeExpression(field *onkir.Field, expr string) string {
 	case onkir.KindMessage:
 		return fmt.Sprintf("typeof %s === \"object\" && %s !== null && !Array.isArray(%s)", expr, expr, expr)
 	case onkir.KindEnum:
+		// Enum fields encoded as numbers on the wire (see @encode(number))
+		// must be validated numerically; a string-array .includes() check
+		// would reject every legitimate value.
+		if needsEnumNumberEncoding(field) {
+			return fmt.Sprintf("typeof %s === \"number\" && Number.isInteger(%s) && %s >= 0", expr, expr, expr)
+		}
 		values := make([]string, 0, len(field.Type.Enum.Values))
 		for _, value := range field.Type.Enum.Values {
 			values = append(values, fmt.Sprintf("%q", value.JSONName()))

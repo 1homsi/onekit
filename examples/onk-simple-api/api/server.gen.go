@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"regexp"
@@ -66,15 +67,21 @@ func parseBool(s string) (bool, error) {
 func validHeaderFormat(value, format string) bool {
 	switch format {
 	case "uuid":
-		return regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`).MatchString(value)
+		return validHeaderUUID.MatchString(value)
 	case "email":
-		return regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`).MatchString(value)
+		return validHeaderEmail.MatchString(value)
 	case "uri":
-		return regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$`).MatchString(value)
+		return validHeaderURI.MatchString(value)
 	default:
 		return true
 	}
 }
+
+var (
+	validHeaderUUID  = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	validHeaderEmail = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
+	validHeaderURI   = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$`)
+)
 
 // RequestMetadata identifies the generated route handling a request.
 type RequestMetadata struct {
@@ -267,7 +274,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 		req := new(CreateUserRequest)
 		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
-			if err := json.NewDecoder(r.Body).Decode(req); err != nil && err.Error() != "EOF" {
+			if err := json.NewDecoder(r.Body).Decode(req); err != nil && !errors.Is(err, io.EOF) {
 				writeJSONError(w, http.StatusBadRequest, "invalid request body")
 				return
 			}
@@ -301,7 +308,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 		req := new(GetUserRequest)
 		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
-			if err := json.NewDecoder(r.Body).Decode(req); err != nil && err.Error() != "EOF" {
+			if err := json.NewDecoder(r.Body).Decode(req); err != nil && !errors.Is(err, io.EOF) {
 				writeJSONError(w, http.StatusBadRequest, "invalid request body")
 				return
 			}
@@ -335,7 +342,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 		req := new(LoginRequest)
 		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
-			if err := json.NewDecoder(r.Body).Decode(req); err != nil && err.Error() != "EOF" {
+			if err := json.NewDecoder(r.Body).Decode(req); err != nil && !errors.Is(err, io.EOF) {
 				writeJSONError(w, http.StatusBadRequest, "invalid request body")
 				return
 			}

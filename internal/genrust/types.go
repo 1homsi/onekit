@@ -1,6 +1,7 @@
 package genrust
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 
@@ -500,10 +501,9 @@ func fieldSerdeOptions(field *onkir.Field) string {
 	if field.Type != nil && field.Type.Kind == onkir.KindMap && !rootUnwrap {
 		options = append(options, `skip_serializing_if = "std::collections::HashMap::is_empty"`)
 	}
-	if prefix, ok := flattenPrefix(field); ok {
+	if _, ok := flattenPrefix(field); ok {
 		moduleName := prefixModuleName(field)
 		options = append(options, "flatten", `with = "`+moduleName+`"`)
-		_ = prefix
 	}
 	switch empty {
 	case "omit":
@@ -520,8 +520,15 @@ func fieldSerdeOptions(field *onkir.Field) string {
 	return ", " + strings.Join(options, ", ")
 }
 
+// prefixModuleName names the serde_with module for a @flatten(prefix) field.
+// It uses the fully-qualified Rust message name (like mapBytesModuleName), so
+// two nested messages sharing a bare name cannot collide on one module.
 func prefixModuleName(field *onkir.Field) string {
-	return "prefix_" + SnakeCase(field.Message.Name) + "_" + SnakeCase(field.Name)
+	owner := fallbackSerdeOwner
+	if field.Message != nil {
+		owner = RustMessageName(field.Message)
+	}
+	return "prefix_" + SnakeCase(owner) + "_" + SnakeCase(field.Name)
 }
 
 func serdeModuleForField(field *onkir.Field) string {
@@ -579,7 +586,7 @@ func mapValueIsBytes(field *onkir.Field) bool {
 }
 
 func mapBytesModuleName(field *onkir.Field) string {
-	owner := "message"
+	owner := fallbackSerdeOwner
 	if field.Message != nil {
 		owner = RustMessageName(field.Message)
 	}
@@ -613,8 +620,16 @@ func needsEnumNumberEncoding(field *onkir.Field) bool {
 		fieldEncoding(field) == rustEncodeNumber
 }
 
+// enumNumberModuleName names the serde_with module for a @encode(number)
+// enum field. It uses the fully-qualified Rust message name (like
+// mapBytesModuleName), so two nested messages sharing a bare name cannot
+// collide on one module.
 func enumNumberModuleName(field *onkir.Field) string {
-	return "serde_" + SnakeCase(field.Message.Name) + "_" + SnakeCase(field.Name) + "_enum_number"
+	owner := fallbackSerdeOwner
+	if field.Message != nil {
+		owner = RustMessageName(field.Message)
+	}
+	return "serde_" + SnakeCase(owner) + "_" + SnakeCase(field.Name) + "_enum_number"
 }
 
 func writeEnumNumberModule(p *Printer, field *onkir.Field) {
@@ -821,12 +836,14 @@ func writeOneofDeserialize(p *Printer, name string, field *onkir.Field) {
 }
 
 func writeValidation(p *Printer, message *onkir.Message) {
+	patternFuncs := messagePatternFuncs(message)
+	writePatternHelpers(p, patternFuncs)
 	p.P("impl ", RustMessageName(message), " {")
 	p.Indent()
 	p.P("pub fn validate(&self) -> Result<(), ValidationError> {")
 	p.Indent()
 	for _, field := range message.Fields {
-		writeFieldValidation(p, field)
+		writeFieldValidation(p, field, patternFuncs)
 	}
 	p.P("Ok(())")
 	p.Dedent()
@@ -836,7 +853,56 @@ func writeValidation(p *Printer, message *onkir.Message) {
 	p.Blank()
 }
 
-func writeFieldValidation(p *Printer, field *onkir.Field) {
+// messagePatternFuncs assigns a compiled-once accessor name to every distinct
+// @pattern used by the message's direct fields, in field order. Generated
+// validators call these helpers instead of recompiling the regex on every
+// validate() call.
+func messagePatternFuncs(message *onkir.Message) map[string]string {
+	funcs := map[string]string{}
+	base := RustIdent(message.Name)
+	index := 0
+	walk := func(m *onkir.Message) {
+		for _, field := range m.Fields {
+			if decorator, ok := field.Decorator("pattern"); ok {
+				if pattern, ok := decorator.Value(); ok {
+					if _, seen := funcs[pattern]; !seen {
+						funcs[pattern] = base + "_pattern_" + strconv.Itoa(index)
+						index++
+					}
+				}
+			}
+		}
+	}
+	walk(message)
+	return funcs
+}
+
+// writePatternHelpers emits one OnceLock-backed accessor per distinct
+// @pattern so each regex is compiled at most once per process instead of on
+// every validate() call.
+func writePatternHelpers(p *Printer, funcs map[string]string) {
+	if len(funcs) == 0 {
+		return
+	}
+	patterns := make([]string, 0, len(funcs))
+	for pattern := range funcs {
+		patterns = append(patterns, pattern)
+	}
+	sort.Strings(patterns)
+	for _, pattern := range patterns {
+		name := funcs[pattern]
+		p.P("#[allow(dead_code)]")
+		p.P("fn ", name, "() -> &'static regex::Regex {")
+		p.Indent()
+		p.P("static PATTERN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();")
+		p.P("PATTERN.get_or_init(|| regex::Regex::new(", strconv.Quote(pattern), ").expect(\"schema pattern was validated\"))")
+		p.Dedent()
+		p.P("}")
+		p.Blank()
+	}
+}
+
+func writeFieldValidation(p *Printer, field *onkir.Field, patternFuncs map[string]string) {
 	access := "self." + RustIdent(field.Name)
 	errorLine := func(message string) {
 		p.P("return Err(ValidationError { field: ", strconv.Quote(field.Name), ", message: ", strconv.Quote(message), ".into() });")
@@ -918,7 +984,11 @@ func writeFieldValidation(p *Printer, field *onkir.Field) {
 				p.P("}")
 			case "pattern":
 				if pattern, ok := decorator.Value(); ok {
-					p.P("if !regex::Regex::new(", strconv.Quote(pattern), ").expect(\"schema pattern was validated\").is_match(", valueExpr, ".as_str()) {")
+					if fnName, known := patternFuncs[pattern]; known {
+						p.P("if !", fnName, "().is_match(", valueExpr, ".as_str()) {")
+					} else {
+						p.P("if !regex::Regex::new(", strconv.Quote(pattern), ").expect(\"schema pattern was validated\").is_match(", valueExpr, ".as_str()) {")
+					}
 					p.Indent()
 					errorLine("does not match the required pattern")
 					p.Dedent()
@@ -930,7 +1000,7 @@ func writeFieldValidation(p *Printer, field *onkir.Field) {
 				writeMinMaxItemsValidation(p, decorator, valueExpr, true, errorLine)
 			case "max_items":
 				writeMinMaxItemsValidation(p, decorator, valueExpr, false, errorLine)
-			case "gt", "gte", "lt", "lte":
+			case decoratorGt, decoratorGte, decoratorLt, decoratorLte:
 				writeNumericValidation(p, decorator, valueExpr, errorLine)
 			case "range":
 				writeRangeValidation(p, decorator, valueExpr, errorLine)
@@ -964,7 +1034,7 @@ func fieldHasValueValidation(field *onkir.Field) bool {
 	for _, decorator := range field.Decorators {
 		switch decorator.Name {
 		case decoratorEmail, "uuid", "uri", "pattern", "len", "min_items", "max_items",
-			"gt", "gte", "lt", "lte", "range", "in":
+			decoratorGt, decoratorGte, decoratorLt, decoratorLte, "range", "in":
 			return true
 		}
 	}
@@ -1020,7 +1090,19 @@ func writeNumericValidation(p *Printer, decorator onkir.Decorator, value string,
 	if !ok {
 		return
 	}
-	operator := map[string]string{"gt": "<=", "gte": "<", "lt": ">=", "lte": ">"}[decorator.Name]
+	// The operator is the negation of the requested comparison: a violation
+	// is reported when the value FAILS the declared bound.
+	var operator string
+	switch decorator.Name {
+	case "gt":
+		operator = "<="
+	case "gte":
+		operator = "<"
+	case "lt":
+		operator = ">="
+	default:
+		operator = ">"
+	}
 	if value == validationValueVar {
 		value = "*" + value
 	}

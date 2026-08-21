@@ -2,6 +2,7 @@ package gents
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/1homsi/onekit/internal/onkir"
@@ -60,7 +61,7 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 	p.P()
 
 	writeServerRuntime(p)
-	if fileHasStreamMethods(file) {
+	if onkir.FileHasStreamMethods(file) {
 		writeSSEResponseHelper(p)
 	}
 
@@ -207,8 +208,8 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	verb, _ := m.Verb()
 	path, _ := m.Path()
 	fullPath := s.BasePath + path
-	bodyBearing := isBodyBearingVerb(verb)
-	hasPathParams := len(pathParamNames(path)) > 0
+	bodyBearing := onkir.IsBodyBearingVerb(verb)
+	hasPathParams := len(onkir.PathParamNames(path)) > 0
 
 	p.P("{")
 	p.P(fmt.Sprintf("method: %q,", strings.ToUpper(verb)))
@@ -224,7 +225,7 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	}
 
 	p.P("try {")
-	for _, header := range append(append([]*onkir.Header{}, s.Headers...), m.Headers...) {
+	for _, header := range slices.Concat(s.Headers, m.Headers) {
 		format, hasFormat := header.Format()
 		p.P("{")
 		p.P("const value = req.headers.get(", fmt.Sprintf("%q", header.Name), ");")
@@ -251,8 +252,8 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		writeServerQueryParams(p, m.Request)
 	}
 	if hasPathParams {
-		for _, paramName := range pathParamNames(path) {
-			field := findField(m.Request, paramName)
+		for _, paramName := range onkir.PathParamNames(path) {
+			field := onkir.FindField(m.Request, paramName)
 			if field == nil {
 				continue
 			}

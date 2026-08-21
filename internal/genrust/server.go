@@ -24,7 +24,7 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 	p.P("use axum::http::{HeaderMap, StatusCode};")
 	p.P("use axum::response::{IntoResponse as _, Response};")
 	p.P("use axum::{Json, Router};")
-	if fileHasStreamMethods(file) {
+	if onkir.FileHasStreamMethods(file) {
 		p.P("use axum::response::sse::{Event, Sse};")
 		p.P("use futures_util::{Stream, StreamExt as _};")
 		p.P("use std::convert::Infallible;")
@@ -141,7 +141,7 @@ func writeHandler(
 	traitName := PascalCase(service.Name)
 	requestType := p.MessageTypeName(method.Request)
 	pathFields := pathFieldNames(mustMethodPath(method))
-	bodyBearing := isBodyBearingVerb(mustMethodVerb(method))
+	bodyBearing := onkir.IsBodyBearingVerb(mustMethodVerb(method))
 
 	p.P("async fn ", handlerName(service, method), "<T: ", traitName, ">(")
 	p.Indent()
@@ -152,7 +152,7 @@ func writeHandler(
 	}
 	if bodyBearing {
 		if bodyField, ok := method.BodyField(); ok {
-			if field := findField(method.Request, bodyField); field != nil {
+			if field := onkir.FindField(method.Request, bodyField); field != nil {
 				if bodyFieldNeedsCustomWire(field) {
 					p.P("Json(body): Json<serde_json::Value>,")
 				} else {
@@ -173,7 +173,7 @@ func writeHandler(
 
 	errorName := serverErrorName(service, method)
 	if bodyField, ok := method.BodyField(); ok && bodyBearing {
-		if field := findField(method.Request, bodyField); field != nil {
+		if field := onkir.FindField(method.Request, bodyField); field != nil {
 			if bodyFieldNeedsCustomWire(field) {
 				p.P("let mut body_object = serde_json::Map::new();")
 				p.P("body_object.insert(", strconv.Quote(field.Name), ".into(), body);")
@@ -191,7 +191,7 @@ func writeHandler(
 	}
 
 	for _, name := range pathFields {
-		field := findField(method.Request, name)
+		field := onkir.FindField(method.Request, name)
 		if field == nil {
 			continue
 		}
@@ -295,9 +295,9 @@ func writeServerError(
 	p.Indent()
 	p.P("Validation(ValidationError),")
 	p.P("InvalidRequest(String),")
-	for _, errorType := range method.ErrorTypes {
-		variant := errorVariantName(errorType)
-		p.P(variant, "(", p.MessageTypeName(errorType), "),")
+	variants := ErrorVariantNames(method.ErrorTypes)
+	for i, errorType := range method.ErrorTypes {
+		p.P(variants[i], "(", p.MessageTypeName(errorType), "),")
 	}
 	p.P("Internal(String),")
 	p.Dedent()
@@ -311,9 +311,8 @@ func writeServerError(
 	p.Indent()
 	p.P("Self::Validation(error) => write!(formatter, \"request validation failed: {error}\"),")
 	p.P("Self::InvalidRequest(error) => write!(formatter, \"invalid request: {error}\"),")
-	for _, errorType := range method.ErrorTypes {
-		variant := errorVariantName(errorType)
-		p.P("Self::", variant, "(error) => write!(formatter, \"", errorType.Name, ": {error}\"),")
+	for i, errorType := range method.ErrorTypes {
+		p.P("Self::", variants[i], "(error) => write!(formatter, \"", errorType.Name, ": {error}\"),")
 	}
 	p.P("Self::Internal(error) => write!(formatter, \"internal server error: {error}\"),")
 	p.Dedent()
@@ -332,12 +331,12 @@ func writeServerError(
 	p.Indent()
 	p.P("Self::Validation(error) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ \"error\": error.to_string() }))).into_response(),")
 	p.P("Self::InvalidRequest(error) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ \"error\": error }))).into_response(),")
-	for _, errorType := range method.ErrorTypes {
+	for i, errorType := range method.ErrorTypes {
 		status := 500
 		if code, ok := errorType.StatusCode(); ok {
 			status = code
 		}
-		p.P("Self::", errorVariantName(errorType), "(error) => (StatusCode::from_u16(", status, ").unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), Json(error)).into_response(),")
+		p.P("Self::", variants[i], "(error) => (StatusCode::from_u16(", status, ").unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), Json(error)).into_response(),")
 	}
 	p.P("Self::Internal(_error) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ \"error\": \"internal server error\" }))).into_response(),")
 	p.Dedent()
@@ -354,14 +353,6 @@ func combinedHeaders(service *onkir.Service, method *onkir.Method) []*onkir.Head
 	headers = append(headers, service.Headers...)
 	headers = append(headers, method.Headers...)
 	return headers
-}
-
-func errorVariantName(message *onkir.Message) string {
-	name := PascalCase(strings.TrimSuffix(message.Name, "Error"))
-	if name == "" {
-		return PascalCase(message.Name)
-	}
-	return name
 }
 
 func serverErrorName(service *onkir.Service, method *onkir.Method) string {

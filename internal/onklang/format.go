@@ -16,25 +16,38 @@ func Format(src string) ([]byte, error) {
 	}
 	var out formatter
 	out.file(file)
-	return []byte(out.buf.String()), nil
+	return []byte(out.finish()), nil
 }
 
 type formatter struct {
-	buf    strings.Builder
-	indent int
+	buf       strings.Builder
+	indent    int
+	endsBlank bool
 }
 
 func (f *formatter) line(value string) {
 	f.buf.WriteString(strings.Repeat("  ", f.indent))
 	f.buf.WriteString(value)
 	f.buf.WriteByte('\n')
+	f.endsBlank = false
 }
 
 func (f *formatter) blank() {
-	if f.buf.Len() == 0 || strings.HasSuffix(f.buf.String(), "\n\n") {
+	if f.buf.Len() == 0 || f.endsBlank {
 		return
 	}
 	f.buf.WriteByte('\n')
+	f.endsBlank = true
+}
+
+// finish collapses any trailing blank lines into one and guarantees the
+// output ends with a single newline (or is empty).
+func (f *formatter) finish() string {
+	out := strings.TrimRight(f.buf.String(), "\n")
+	if out == "" {
+		return ""
+	}
+	return out + "\n"
 }
 
 func (f *formatter) docs(doc string) {
@@ -61,8 +74,6 @@ func (f *formatter) comments(comments []string) {
 func (f *formatter) file(file *File) {
 	if file.Package != "" {
 		f.comments(file.LeadingComments)
-	}
-	if file.Package != "" {
 		f.line("package " + file.Package)
 		f.blank()
 	}
@@ -103,14 +114,6 @@ func (f *formatter) file(file *File) {
 	if len(file.TrailingComments) > 0 {
 		f.blank()
 		f.comments(file.TrailingComments)
-	}
-	for f.buf.Len() > 0 && strings.HasSuffix(f.buf.String(), "\n\n") {
-		value := strings.TrimSuffix(f.buf.String(), "\n")
-		f.buf.Reset()
-		f.buf.WriteString(value)
-	}
-	if f.buf.Len() > 0 && !strings.HasSuffix(f.buf.String(), "\n") {
-		f.buf.WriteByte('\n')
 	}
 }
 

@@ -28,6 +28,7 @@ help:
 	@echo "  list-binaries    Show generator binary targets"
 	@echo "  test             Run full test script"
 	@echo "  test-fast        Run fast test script"
+	@echo "  vet              Run go vet"
 	@echo "  check-generated Verify committed example output is reproducible"
 	@echo "  check-schema     Verify .onk schema formatting and semantics"
 	@echo ""
@@ -101,6 +102,10 @@ fmt-schema: build
 check-schema: build
 	@./bin/onek fmt --check
 	@./bin/onek check
+
+.PHONY: vet
+vet:
+	@go vet ./...
 
 .PHONY: lint
 lint:

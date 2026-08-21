@@ -7,17 +7,6 @@ import (
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
-func fileHasStreamMethods(file *onkir.File) bool {
-	for _, service := range file.Services {
-		for _, method := range service.Methods {
-			if method.IsStream() {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // GenerateClient generates client.py treating every message/enum type as
 // local. Use GenerateClientWithResolver for a multi-package project where
 // some referenced types live in a different generated module.
@@ -38,7 +27,7 @@ func GenerateClientWithResolver(file *onkir.File, typesModule string, resolver P
 	p.P("import urllib.error")
 	p.P("import urllib.parse")
 	p.P("import urllib.request")
-	if fileHasStreamMethods(file) {
+	if onkir.FileHasStreamMethods(file) {
 		p.P("from typing import Iterator")
 	}
 	p.P()
@@ -120,8 +109,8 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.Indent()
 	p.P("if hasattr(req, \"validate\"): req.validate()")
 	p.P(fmt.Sprintf("path = %q", fullPath))
-	for _, paramName := range pathParamNames(path) {
-		field := findField(m.Request, paramName)
+	for _, paramName := range onkir.PathParamNames(path) {
+		field := onkir.FindField(m.Request, paramName)
 		if field != nil {
 			p.P(fmt.Sprintf("path = path.replace(%q, urllib.parse.quote(str(req.%s), safe=\"\"))", "{"+paramName+"}", field.Name))
 		}
@@ -144,16 +133,18 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("if not raw_line: break")
 	p.P("if len(raw_line) > self.max_sse_line_bytes: raise ValueError(\"SSE line exceeds configured limit\")")
 	p.P("line = raw_line.decode(\"utf-8\").rstrip(\"\\r\\n\")")
-	p.P("if line.startswith(\"event: \"):")
+	p.P(`if line.startswith("event:"):`)
 	p.Indent()
-	p.P("event = line[7:]")
+	p.P("event = line[6:].strip()")
 	p.P("continue")
 	p.Dedent()
-	p.P("if not line.startswith(\"data: \"):")
+	p.P(`if not line.startswith("data:"):`)
 	p.Indent()
 	p.P("continue")
 	p.Dedent()
-	p.P("payload = json.loads(line[6:])")
+	p.P("payload_text = line[5:].strip()")
+	p.P("if not payload_text: continue")
+	p.P("payload = json.loads(payload_text)")
 	p.P("if event == \"error\":")
 	p.Indent()
 	p.P("raise Exception(str(payload))")
@@ -166,16 +157,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("except urllib.error.HTTPError as e:")
 	p.Indent()
 	p.P("error_body = _read_bounded(e, self.max_response_body_bytes)")
-	for _, errType := range m.ErrorTypes {
-		status := 500
-		if code, ok := errType.StatusCode(); ok {
-			status = code
-		}
-		p.P(fmt.Sprintf("if e.code == %d:", status))
-		p.Indent()
-		p.P("raise ", p.MessageTypeName(errType), ".from_dict(json.loads(error_body)) from None")
-		p.Dedent()
-	}
+	writePyTypedErrorHandling(p, m)
 	p.P(`raise Exception(f"unexpected status {e.code}: {error_body.decode()}") from None`)
 	p.Dedent()
 	p.Dedent()
@@ -186,7 +168,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	verb, _ := m.Verb()
 	path, _ := m.Path()
 	fullPath := s.BasePath + path
-	bodyBearing := isBodyBearingVerb(verb)
+	bodyBearing := onkir.IsBodyBearingVerb(verb)
 
 	p.P("def ", SnakeCase(m.Name), "(self, req: ", p.MessageTypeName(m.Request),
 		") -> ", p.MessageTypeName(m.Response), ":")
@@ -194,8 +176,8 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("if hasattr(req, \"validate\"): req.validate()")
 
 	p.P(fmt.Sprintf("path = %q", fullPath))
-	for _, paramName := range pathParamNames(path) {
-		field := findField(m.Request, paramName)
+	for _, paramName := range onkir.PathParamNames(path) {
+		field := onkir.FindField(m.Request, paramName)
 		if field == nil {
 			continue
 		}
@@ -212,7 +194,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 	if bodyBearing {
 		if bodyField, ok := m.BodyField(); ok {
-			if field := findField(m.Request, bodyField); field != nil {
+			if field := onkir.FindField(m.Request, bodyField); field != nil {
 				p.P("body = json.dumps(", p.bodyValueExpr(field, "req."+field.Name), ").encode(\"utf-8\")")
 			} else {
 				p.P("body = json.dumps(req.to_dict()[", fmt.Sprintf("%q", bodyField), "]).encode(\"utf-8\")")
@@ -244,6 +226,18 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("except urllib.error.HTTPError as e:")
 	p.Indent()
 	p.P("error_body = _read_bounded(e, self.max_response_body_bytes)")
+	writePyTypedErrorHandling(p, m)
+	p.P(`raise Exception(f"unexpected status {e.code}: {error_body.decode()}") from None`)
+	p.Dedent()
+	p.Dedent()
+	p.Blank()
+}
+
+// writePyTypedErrorHandling emits the status-matching ladder shared by the
+// streaming and non-streaming client methods. A non-JSON error body must fall
+// through to the generic exception instead of masking the HTTPError with an
+// uncaught JSONDecodeError.
+func writePyTypedErrorHandling(p *Printer, m *onkir.Method) {
 	for _, errType := range m.ErrorTypes {
 		status := 500
 		if code, ok := errType.StatusCode(); ok {
@@ -251,13 +245,20 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		}
 		p.P(fmt.Sprintf("if e.code == %d:", status))
 		p.Indent()
-		p.P("raise ", p.MessageTypeName(errType), ".from_dict(json.loads(error_body)) from None")
+		p.P("try:")
+		p.Indent()
+		p.P("payload = json.loads(error_body)")
+		p.Dedent()
+		p.P("except ValueError:")
+		p.Indent()
+		p.P("payload = None")
+		p.Dedent()
+		p.P("if payload is not None:")
+		p.Indent()
+		p.P("raise ", p.MessageTypeName(errType), ".from_dict(payload) from None")
+		p.Dedent()
 		p.Dedent()
 	}
-	p.P(`raise Exception(f"unexpected status {e.code}: {error_body.decode()}") from None`)
-	p.Dedent()
-	p.Dedent()
-	p.Blank()
 }
 
 func writeResponseBodyRuntime(p *Printer) {
@@ -272,33 +273,6 @@ func writeResponseBodyRuntime(p *Printer) {
 	p.P("return data")
 	p.Dedent()
 	p.P()
-}
-
-func findField(msg *onkir.Message, name string) *onkir.Field {
-	for _, f := range msg.Fields {
-		if f.Name == name {
-			return f
-		}
-	}
-	return nil
-}
-
-func pathParamNames(path string) []string {
-	var names []string
-	start := -1
-	for i, c := range path {
-		if c == '{' {
-			start = i + 1
-		} else if c == '}' && start >= 0 {
-			names = append(names, path[start:i])
-			start = -1
-		}
-	}
-	return names
-}
-
-func isBodyBearingVerb(verb string) bool {
-	return verb == "post" || verb == "put" || verb == "patch" || verb == "query"
 }
 
 func writeClientQueryParams(p *Printer, req *onkir.Message) {

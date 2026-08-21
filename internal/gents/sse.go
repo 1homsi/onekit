@@ -2,21 +2,11 @@ package gents
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/1homsi/onekit/internal/onkir"
 )
-
-func fileHasStreamMethods(file *onkir.File) bool {
-	for _, s := range file.Services {
-		for _, m := range s.Methods {
-			if m.IsStream() {
-				return true
-			}
-		}
-	}
-	return false
-}
 
 // writeSSEResponseHelper turns a handler's ReadableStream<T> into an SSE HTTP
 // response. It reads the first chunk before building the Response so an error
@@ -76,7 +66,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	verb, _ := m.Verb()
 	path, _ := m.Path()
 	fullPath := s.BasePath + path
-	hasPathParams := len(pathParamNames(path)) > 0
+	hasPathParams := len(onkir.PathParamNames(path)) > 0
 
 	p.P("{")
 	p.P(fmt.Sprintf("method: %q,", strings.ToUpper(verb)))
@@ -90,7 +80,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	}
 
 	p.P("try {")
-	for _, header := range append(append([]*onkir.Header{}, s.Headers...), m.Headers...) {
+	for _, header := range slices.Concat(s.Headers, m.Headers) {
 		format, hasFormat := header.Format()
 		p.P("{")
 		p.P("const value = req.headers.get(", fmt.Sprintf("%q", header.Name), ");")
@@ -105,8 +95,8 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("const body: Record<string, unknown> = {};")
 	writeServerQueryParams(p, m.Request)
 	if hasPathParams {
-		for _, paramName := range pathParamNames(path) {
-			field := findField(m.Request, paramName)
+		for _, paramName := range onkir.PathParamNames(path) {
+			field := onkir.FindField(m.Request, paramName)
 			if field == nil {
 				continue
 			}
@@ -132,8 +122,11 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 }
 
 func writeSSEClientFetch(p *Printer, m *onkir.Method) {
+	// The compiler restricts @stream to non-body-bearing verbs, so no request
+	// body is ever attached here; the verb itself still follows the schema.
+	verb, _ := m.Verb()
 	p.P("const res = await this.request(this.baseUrl + path, {")
-	p.P(`method: "GET",`)
+	p.P(fmt.Sprintf("method: %q,", strings.ToUpper(verb)))
 	p.P(`headers: { Accept: "text/event-stream", ...this.options.defaultHeaders },`)
 	p.P("signal: opts?.signal,")
 	p.P("});")
@@ -159,7 +152,7 @@ func writeSSEClientReadLoop(p *Printer, m *onkir.Method) {
 	p.P("const { done, value } = await reader.read();")
 	p.P("if (done) break;")
 	p.P("buffer += decoder.decode(value, { stream: true });")
-	p.P(`if (!buffer.includes("\\n") && new TextEncoder().encode(buffer).byteLength > maxSSELineBytes) { await reader.cancel(); throw new Error("SSE line exceeds configured limit"); }`)
+	p.P(`if (!buffer.includes("\n") && new TextEncoder().encode(buffer).byteLength > maxSSELineBytes) { await reader.cancel(); throw new Error("SSE line exceeds configured limit"); }`)
 	p.P("let idx: number;")
 	p.P(`while ((idx = buffer.indexOf("\n")) >= 0) {`)
 	p.P(`const line = buffer.slice(0, idx).replace(/\r$/, "");`)
@@ -198,8 +191,8 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("const violations = ", validator, "(req);")
 	p.P(`if (violations.length > 0) throw new TypeError("invalid request: " + violations.join("; "));`)
 	p.P(fmt.Sprintf("let path = %q;", fullPath))
-	for _, paramName := range pathParamNames(path) {
-		field := findField(m.Request, paramName)
+	for _, paramName := range onkir.PathParamNames(path) {
+		field := onkir.FindField(m.Request, paramName)
 		if field == nil {
 			continue
 		}

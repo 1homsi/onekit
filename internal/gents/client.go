@@ -198,7 +198,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	verb, _ := m.Verb()
 	path, _ := m.Path()
 	fullPath := s.BasePath + path
-	bodyBearing := isBodyBearingVerb(verb)
+	bodyBearing := onkir.IsBodyBearingVerb(verb)
 
 	p.P("async ", CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request),
 		"): Promise<", p.MessageTypeName(m.Response), "> {")
@@ -206,8 +206,8 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("const violations = ", validator, "(req);")
 	p.P(`if (violations.length > 0) throw new TypeError("invalid request: " + violations.join("; "));`)
 	p.P(fmt.Sprintf("let path = %q;", fullPath))
-	for _, paramName := range pathParamNames(path) {
-		field := findField(m.Request, paramName)
+	for _, paramName := range onkir.PathParamNames(path) {
+		field := onkir.FindField(m.Request, paramName)
 		if field == nil {
 			continue
 		}
@@ -245,33 +245,6 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P()
 }
 
-func findField(msg *onkir.Message, name string) *onkir.Field {
-	for _, f := range msg.Fields {
-		if f.Name == name {
-			return f
-		}
-	}
-	return nil
-}
-
-func pathParamNames(path string) []string {
-	var names []string
-	start := -1
-	for i, c := range path {
-		if c == '{' {
-			start = i + 1
-		} else if c == '}' && start >= 0 {
-			names = append(names, path[start:i])
-			start = -1
-		}
-	}
-	return names
-}
-
-func isBodyBearingVerb(verb string) bool {
-	return verb == "post" || verb == "put" || verb == "patch" || verb == "query"
-}
-
 func writeClientQueryParams(p *Printer, req *onkir.Message) {
 	p.P("const query = new URLSearchParams();")
 	for _, field := range req.Fields {
@@ -306,7 +279,13 @@ func writeClientErrorHandling(p *Printer, m *onkir.Method) {
 			status = code
 		}
 		p.P(fmt.Sprintf("if (res.status === %d) {", status))
+		// A non-JSON error body must degrade to the generic ApiError instead
+		// of surfacing a raw SyntaxError from JSON.parse.
+		p.P("try {")
 		p.P("throw decode", errType.Name, "(JSON.parse(body));")
+		p.P("} catch (err) {")
+		p.P("if (!(err instanceof SyntaxError)) throw err;")
+		p.P("}")
 		p.P("}")
 	}
 	p.P(`throw new ApiError(res.status, body);`)

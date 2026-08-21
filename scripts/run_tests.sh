@@ -41,7 +41,9 @@ for arg in "$@"; do
             exit 0
             ;;
         *)
-            # Unknown option
+            echo "Unknown option: $arg" >&2
+            "$0" --help >&2
+            exit 1
             ;;
     esac
 done
@@ -280,11 +282,11 @@ cleanup_test_files() {
     
     # Remove .generated files from golden directories
     find . -name "*.generated" -type f -delete 2>/dev/null || true
-    
-    # Remove test binaries
+
+    # Remove test helper binaries (scoped patterns only; a bare "*-test" glob
+    # would also delete legitimate repository files).
     find . -name "*-golden-test" -type f -delete 2>/dev/null || true
     find . -name "*-regression-test" -type f -delete 2>/dev/null || true
-    find . -name "*-test" -type f -delete 2>/dev/null || true
     
     echo -e "${GREEN}Test cleanup completed${NC}"
 }

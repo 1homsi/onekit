@@ -29,17 +29,17 @@ func clientImportsNeeded(file *onkir.File) clientImports {
 		for _, m := range s.Methods {
 			verb, _ := m.Verb()
 			path, _ := m.Path()
-			imp.url = imp.url || len(pathParamNames(path)) > 0
+			imp.url = imp.url || len(onkir.PathParamNames(path)) > 0
 			switch {
 			case m.IsStream():
 				imp.url = true
 				imp.strconv = imp.strconv || methodNeedsStrconv(m)
 				imp.bufio = true
 				imp.strings = true
-			case isBodyBearingVerb(verb):
+			case onkir.IsBodyBearingVerb(verb):
 				imp.bytes = true
 				if bodyField, ok := m.BodyField(); ok {
-					if field := findField(m.Request, bodyField); field != nil {
+					if field := onkir.FindField(m.Request, bodyField); field != nil {
 						imp.strconv = imp.strconv || needsInt64StringEncoding(field)
 						switch bytesEncodingValue(field) {
 						case bytesEncodeHex:
@@ -53,7 +53,7 @@ func clientImportsNeeded(file *onkir.File) clientImports {
 				imp.url = true
 				imp.strconv = imp.strconv || methodNeedsStrconv(m)
 			}
-			imp.strings = imp.strings || len(pathParamNames(path)) > 0
+			imp.strings = imp.strings || len(onkir.PathParamNames(path)) > 0
 		}
 	}
 	return imp
@@ -72,7 +72,7 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	}
 
 	imp := clientImportsNeeded(file)
-	hasStream := fileHasStreamMethods(file)
+	hasStream := onkir.FileHasStreamMethods(file)
 	externalRefs := collectServiceExternalRefs(file, resolver)
 
 	p := newPrinter(resolver)
@@ -150,7 +150,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	verb, _ := m.Verb()
 	path, _ := m.Path()
 	fullPath := s.BasePath + path
-	bodyBearing := isBodyBearingVerb(verb)
+	bodyBearing := onkir.IsBodyBearingVerb(verb)
 
 	p.P("func (c *", s.Name, "Client) ", PascalCase(m.Name),
 		"(ctx context.Context, req *", p.MessageTypeName(m.Request), ") (*",
@@ -158,8 +158,8 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P(`if validator, ok := any(req).(interface{ Validate() error }); ok { if err := validator.Validate(); err != nil { return nil, fmt.Errorf("validate request: %w", err) } }`)
 
 	p.P("path := ", fmt.Sprintf("%q", fullPath))
-	for _, paramName := range pathParamNames(path) {
-		field := findField(m.Request, paramName)
+	for _, paramName := range onkir.PathParamNames(path) {
+		field := onkir.FindField(m.Request, paramName)
 		if field == nil {
 			continue
 		}
@@ -170,7 +170,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	if bodyBearing {
 		bodyExpr := "req"
 		if bodyField, ok := m.BodyField(); ok {
-			if field := findField(m.Request, bodyField); field != nil {
+			if field := onkir.FindField(m.Request, bodyField); field != nil {
 				if bodyFieldNeedsCustomJSON(field) {
 					writeBodyValue(p, field)
 					p.P("body, err := json.Marshal(bodyValue)")
@@ -331,7 +331,9 @@ func clientStringifyExpr(kind onkir.ScalarKind, expr string) string {
 		return fmt.Sprintf("strconv.FormatInt(int64(%s), 10)", expr)
 	case onkir.ScalarUint32, onkir.ScalarUint64:
 		return fmt.Sprintf("strconv.FormatUint(uint64(%s), 10)", expr)
-	case onkir.ScalarFloat32, onkir.ScalarFloat64:
+	case onkir.ScalarFloat32:
+		return fmt.Sprintf("strconv.FormatFloat(float64(%s), 'f', -1, 32)", expr)
+	case onkir.ScalarFloat64:
 		return fmt.Sprintf("strconv.FormatFloat(float64(%s), 'f', -1, 64)", expr)
 	case onkir.ScalarBytes, onkir.ScalarTimestamp:
 		return fmt.Sprintf("fmt.Sprintf(%q, %s)", "%v", expr)

@@ -92,9 +92,6 @@ func (p *Parser) parseFile() (*File, error) {
 	f := &File{}
 	if p.isIdent("package") {
 		f.LeadingComments = append([]string(nil), p.tok.LeadingComments...)
-	}
-
-	if p.isIdent("package") {
 		if err := p.next(); err != nil {
 			return nil, err
 		}
@@ -193,6 +190,9 @@ func (p *Parser) parseArgs() ([]Arg, error) {
 		if len(args) > 0 {
 			if _, err := p.expect(COMMA); err != nil {
 				return nil, err
+			}
+			if p.tok.Kind == RPAREN {
+				return nil, p.errf("trailing comma in decorator arguments")
 			}
 		}
 		if p.tok.Kind == IDENT {

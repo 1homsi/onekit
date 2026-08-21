@@ -2,20 +2,10 @@ package gengo
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/1homsi/onekit/internal/onkir"
 )
-
-func fileHasStreamMethods(file *onkir.File) bool {
-	for _, s := range file.Services {
-		for _, m := range s.Methods {
-			if m.IsStream() {
-				return true
-			}
-		}
-	}
-	return false
-}
 
 // writeSSEServerRuntime emits the shared SSESender type used by every
 // streaming method's server interface. Errors returned before the first
@@ -107,7 +97,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	path, _ := m.Path()
 	fullPath := s.BasePath + path
 
-	p.P("mux.Handle(", fmt.Sprintf("%q", upperVerb(verb)+" "+fullPath), ", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
+	p.P("mux.Handle(", fmt.Sprintf("%q", strings.ToUpper(verb)+" "+fullPath), ", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
 	p.P("req := new(", p.MessageTypeName(m.Request), ")")
 
 	writePathParamBinding(p, path, m.Request)
@@ -137,26 +127,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P(`_ = sender.SendWithEvent("error", map[string]string{"message": "internal server error"})`)
 	p.P("}")
 	p.P("}")
-	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", upperVerb(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), "}))")
-}
-
-func upperVerb(verb string) string {
-	switch verb {
-	case "get":
-		return "GET"
-	case "post":
-		return "POST"
-	case "put":
-		return "PUT"
-	case "patch":
-		return "PATCH"
-	case "delete":
-		return "DELETE"
-	case "query":
-		return "QUERY"
-	default:
-		return verb
-	}
+	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", strings.ToUpper(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), "}))")
 }
 
 // writeEventStreamRuntime emits the shared generic EventStream[T] client type
@@ -241,8 +212,8 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P(`if validator, ok := any(req).(interface{ Validate() error }); ok { if err := validator.Validate(); err != nil { return nil, fmt.Errorf("validate request: %w", err) } }`)
 
 	p.P("path := ", fmt.Sprintf("%q", fullPath))
-	for _, paramName := range pathParamNames(path) {
-		field := findField(m.Request, paramName)
+	for _, paramName := range onkir.PathParamNames(path) {
+		field := onkir.FindField(m.Request, paramName)
 		if field == nil {
 			continue
 		}
@@ -252,7 +223,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeClientQueryParams(p, m.Request)
 
 	p.P("httpReq, err := http.NewRequestWithContext(ctx, ",
-		fmt.Sprintf("%q", upperVerb(verb)), ", c.BaseURL+path, nil)")
+		fmt.Sprintf("%q", strings.ToUpper(verb)), ", c.BaseURL+path, nil)")
 	p.P("if err != nil {")
 	p.P(`return nil, fmt.Errorf("build request: %w", err)`)
 	p.P("}")

@@ -3,6 +3,7 @@ package genopenapi
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -353,28 +354,10 @@ func queryParameters(req *onkir.Message) []*v3.Parameter {
 	return params
 }
 
-func pathParamNames(path string) []string {
-	var names []string
-	start := -1
-	for i, c := range path {
-		if c == '{' {
-			start = i + 1
-		} else if c == '}' && start >= 0 {
-			names = append(names, path[start:i])
-			start = -1
-		}
-	}
-	return names
-}
-
-func isBodyBearingVerb(verb string) bool {
-	return verb == "post" || verb == "put" || verb == "patch" || verb == "query"
-}
-
 func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 	verb, _ := m.Verb()
 	path, _ := m.Path()
-	bodyBearing := isBodyBearingVerb(verb)
+	bodyBearing := onkir.IsBodyBearingVerb(verb)
 
 	op := &v3.Operation{
 		OperationId: s.Name + "_" + m.Name,
@@ -386,7 +369,7 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 	}
 
 	var params []*v3.Parameter
-	for _, name := range pathParamNames(path) {
+	for _, name := range onkir.PathParamNames(path) {
 		params = append(params, pathParameter(name, m.Request))
 	}
 	for _, h := range s.Headers {
@@ -410,7 +393,7 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 		content := orderedmap.New[string, *v3.MediaType]()
 		requestSchema := base.CreateSchemaProxyRef("#/components/schemas/" + componentName(m.Request.FullName()))
 		if bodyField, ok := m.BodyField(); ok {
-			if field := findField(m.Request, bodyField); field != nil {
+			if field := onkir.FindField(m.Request, bodyField); field != nil {
 				requestSchema = fieldSchemaProxy(field)
 			}
 		}
@@ -444,7 +427,7 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 	}
 	op.Responses = responses
 	security := orderedmap.New[string, []string]()
-	for _, header := range append(append([]*onkir.Header{}, s.Headers...), m.Headers...) {
+	for _, header := range slices.Concat(s.Headers, m.Headers) {
 		if _, ok := header.AuthType(); ok {
 			security.Set(authSchemeName(header), []string{})
 		}
@@ -454,15 +437,6 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 	}
 
 	return op
-}
-
-func findField(message *onkir.Message, name string) *onkir.Field {
-	for _, field := range message.Fields {
-		if field.Name == name {
-			return field
-		}
-	}
-	return nil
 }
 
 func authSchemeName(header *onkir.Header) string {

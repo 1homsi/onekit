@@ -14,6 +14,14 @@ const (
 	rustEncodeNumber   = "number"
 	validationValueVar = "value"
 	decoratorEmail     = "email"
+	decoratorGt        = "gt"
+	decoratorGte       = "gte"
+	decoratorLt        = "lt"
+	decoratorLte       = "lte"
+	// fallbackSerdeOwner names serde_with helper modules for fields whose
+	// message back link is missing, mirroring the zero-value guard in the
+	// module name helpers.
+	fallbackSerdeOwner = "message"
 )
 
 //nolint:gochecknoglobals // Immutable language keyword lookup shared by all naming helpers.
@@ -96,6 +104,31 @@ func RustIdent(value string) string {
 		return "r#" + ident
 	}
 	return ident
+}
+
+// ErrorVariantNames maps each of a method's error types to its Rust enum
+// variant name, positionally. The "Error" suffix is trimmed for readability
+// (NotFoundError -> NotFound), but when trimming would make two error types
+// collide (e.g. sibling declarations Foo and FooError), the full PascalCase
+// name is kept for every member of the colliding group so generated enums
+// always compile.
+func ErrorVariantNames(errorTypes []*onkir.Message) []string {
+	names := make([]string, len(errorTypes))
+	counts := map[string]int{}
+	for i, message := range errorTypes {
+		name := PascalCase(strings.TrimSuffix(message.Name, "Error"))
+		if name == "" {
+			name = PascalCase(message.Name)
+		}
+		names[i] = name
+		counts[name]++
+	}
+	for i, name := range names {
+		if counts[name] > 1 {
+			names[i] = PascalCase(errorTypes[i].Name)
+		}
+	}
+	return names
 }
 
 func PascalCase(value string) string {

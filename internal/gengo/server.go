@@ -3,29 +3,11 @@ package gengo
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/1homsi/onekit/internal/onkir"
 )
-
-var pathParamPattern = regexp.MustCompile(`\{(\w+)\}`)
-
-func pathParamNames(path string) []string {
-	var names []string
-	for _, m := range pathParamPattern.FindAllStringSubmatch(path, -1) {
-		names = append(names, m[1])
-	}
-	return names
-}
-
-func findField(msg *onkir.Message, name string) *onkir.Field {
-	for _, f := range msg.Fields {
-		if f.Name == name {
-			return f
-		}
-	}
-	return nil
-}
 
 func scalarParseCall(kind onkir.ScalarKind, strExpr string) (string, bool) {
 	switch kind {
@@ -62,7 +44,8 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 		return nil, nil
 	}
 
-	hasStream := fileHasStreamMethods(file)
+	hasStream := onkir.FileHasStreamMethods(file)
+	hasRequestBody := fileHasRequestBodyBinding(file)
 	externalRefs := collectServiceExternalRefs(file, resolver)
 
 	p := newPrinter(resolver)
@@ -76,6 +59,9 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	p.P(`"encoding/json"`)
 	p.P(`"errors"`)
 	p.P(`"fmt"`)
+	if hasRequestBody {
+		p.P(`"io"`)
+	}
 	p.P(`"math"`)
 	p.P(`"net/http"`)
 	p.P(`"regexp"`)
@@ -91,6 +77,7 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	p.P()
 
 	writeRuntimeHelpers(p)
+	writeHeaderFormatPatterns(p)
 	writeServerOptions(p)
 	if hasStream {
 		writeSSEServerRuntime(p)
@@ -109,9 +96,23 @@ func fileHasStreamPathParams(file *onkir.File) bool {
 		for _, method := range service.Methods {
 			if method.IsStream() {
 				path, _ := method.Path()
-				if len(pathParamNames(path)) > 0 {
+				if len(onkir.PathParamNames(path)) > 0 {
 					return true
 				}
+			}
+		}
+	}
+	return false
+}
+
+// fileHasRequestBodyBinding reports whether any route decodes a request body,
+// which is what pulls io.EOF handling (and therefore the io import) into the
+// generated server.
+func fileHasRequestBodyBinding(file *onkir.File) bool {
+	for _, service := range file.Services {
+		for _, method := range service.Methods {
+			if verb, ok := method.Verb(); ok && onkir.IsBodyBearingVerb(verb) {
+				return true
 			}
 		}
 	}
@@ -251,12 +252,27 @@ func writeRuntimeHelpers(p *Printer) {
 	p.P()
 	p.P(`func validHeaderFormat(value, format string) bool {`)
 	p.P(`switch format {`)
-	p.P(`case "uuid": return regexp.MustCompile(` + "`" + `^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$` + "`" + `).MatchString(value)`)
-	p.P(`case "email": return regexp.MustCompile(` + "`" + `^[^@\s]+@[^@\s]+\.[^@\s]+$` + "`" + `).MatchString(value)`)
-	p.P(`case "uri": return regexp.MustCompile(` + "`" + `^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$` + "`" + `).MatchString(value)`)
+	p.P(`case "uuid": return validHeaderUUID.MatchString(value)`)
+	p.P(`case "email": return validHeaderEmail.MatchString(value)`)
+	p.P(`case "uri": return validHeaderURI.MatchString(value)`)
 	p.P(`default: return true`)
 	p.P(`}`)
 	p.P(`}`)
+	p.P()
+}
+
+// writeHeaderFormatPatterns emits the package-level regexps backing
+// validHeaderFormat. Compiling them once instead of per request avoids a
+// regexp.MustCompile on every header validation call.
+func writeHeaderFormatPatterns(p *Printer) {
+	uuid := `^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`
+	email := `^[^@\s]+@[^@\s]+\.[^@\s]+$`
+	uri := `^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$`
+	p.P(`var (`)
+	p.P("validHeaderUUID = regexp.MustCompile(`" + uuid + "`)")
+	p.P("validHeaderEmail = regexp.MustCompile(`" + email + "`)")
+	p.P("validHeaderURI = regexp.MustCompile(`" + uri + "`)")
+	p.P(`)`)
 	p.P()
 }
 
@@ -310,15 +326,11 @@ func writeRegisterFunc(p *Printer, s *onkir.Service) {
 	p.P()
 }
 
-func isBodyBearingVerb(verb string) bool {
-	return verb == "post" || verb == "put" || verb == "patch" || verb == "query"
-}
-
 func writeBodyBinding(p *Printer, method *onkir.Method) {
 	target := "req"
 	var bodyField *onkir.Field
 	if bodyName, ok := method.BodyField(); ok {
-		if field := findField(method.Request, bodyName); field != nil {
+		if field := onkir.FindField(method.Request, bodyName); field != nil {
 			target = "&req." + PascalCase(field.Name)
 			bodyField = field
 		}
@@ -327,7 +339,7 @@ func writeBodyBinding(p *Printer, method *onkir.Method) {
 	p.P("r.Body = http.MaxBytesReader(w, r.Body, 8<<20)")
 	if bodyField != nil && bodyFieldNeedsCustomJSON(bodyField) {
 		p.P("var bodyValue json.RawMessage")
-		p.P("if err := json.NewDecoder(r.Body).Decode(&bodyValue); err != nil && err.Error() != \"EOF\" {")
+		p.P("if err := json.NewDecoder(r.Body).Decode(&bodyValue); err != nil && !errors.Is(err, io.EOF) {")
 		p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body")`)
 		p.P("return")
 		p.P("}")
@@ -340,7 +352,7 @@ func writeBodyBinding(p *Printer, method *onkir.Method) {
 		p.P("}")
 		p.P("if err := json.Unmarshal(bodyData, req); err != nil {")
 	} else {
-		p.P("if err := json.NewDecoder(r.Body).Decode(", target, "); err != nil && err.Error() != \"EOF\" {")
+		p.P("if err := json.NewDecoder(r.Body).Decode(", target, "); err != nil && !errors.Is(err, io.EOF) {")
 	}
 	p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body")`)
 	p.P("return")
@@ -349,8 +361,8 @@ func writeBodyBinding(p *Printer, method *onkir.Method) {
 }
 
 func writePathParamBinding(p *Printer, path string, req *onkir.Message) {
-	for _, paramName := range pathParamNames(path) {
-		field := findField(req, paramName)
+	for _, paramName := range onkir.PathParamNames(path) {
+		field := onkir.FindField(req, paramName)
 		if field == nil || field.Type == nil || field.Type.Kind != onkir.KindScalar {
 			continue
 		}
@@ -448,7 +460,7 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	verb, _ := m.Verb()
 	path, _ := m.Path()
 	fullPath := s.BasePath + path
-	bodyBearing := isBodyBearingVerb(verb)
+	bodyBearing := onkir.IsBodyBearingVerb(verb)
 
 	p.P("mux.Handle(", fmt.Sprintf("%q", strings.ToUpper(verb)+" "+fullPath), ", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
 	p.P("req := new(", p.MessageTypeName(m.Request), ")")
@@ -480,9 +492,13 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", strings.ToUpper(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), "}))")
 }
 
+// authSchemeNamePattern strips characters that are unsafe in generated
+// security-scheme identifiers.
+var authSchemeNamePattern = regexp.MustCompile(`[^A-Za-z0-9_.-]+`)
+
 func authSchemesLiteral(s *onkir.Service, m *onkir.Method) string {
 	var names []string
-	for _, h := range append(append([]*onkir.Header{}, s.Headers...), m.Headers...) {
+	for _, h := range slices.Concat(s.Headers, m.Headers) {
 		if _, ok := h.AuthType(); !ok {
 			continue
 		}
@@ -490,7 +506,7 @@ func authSchemesLiteral(s *onkir.Service, m *onkir.Method) string {
 			names = append(names, name)
 			continue
 		}
-		name := regexp.MustCompile(`[^A-Za-z0-9_.-]+`).ReplaceAllString(h.Name, "")
+		name := authSchemeNamePattern.ReplaceAllString(h.Name, "")
 		if name == "" {
 			name = "Header"
 		}
@@ -533,18 +549,21 @@ func writeErrorHandling(p *Printer, m *onkir.Method) {
 		p.P(`writeHandlerError(w, err)`)
 		return
 	}
-	p.P("switch e := err.(type) {")
-	for _, errType := range m.ErrorTypes {
+	// errors.As unwraps wrapped errors (fmt.Errorf("%w", ...)), so typed
+	// error responses still match when handlers wrap their error values.
+	for index, errType := range m.ErrorTypes {
 		status := 500
 		if code, ok := errType.StatusCode(); ok {
 			status = code
 		}
-		p.P("case *", p.MessageTypeName(errType), ":")
+		target := fmt.Sprintf("typedErr%d", index)
+		p.P("var ", target, " *", p.MessageTypeName(errType))
+		p.P("if errors.As(err, &", target, ") {")
 		p.P(`w.Header().Set("Content-Type", "application/json")`)
 		p.P(fmt.Sprintf("w.WriteHeader(%d)", status))
-		p.P("_ = json.NewEncoder(w).Encode(e)")
+		p.P("_ = json.NewEncoder(w).Encode(", target, ")")
+		p.P("return")
+		p.P("}")
 	}
-	p.P("default:")
 	p.P(`writeHandlerError(w, err)`)
-	p.P("}")
 }
