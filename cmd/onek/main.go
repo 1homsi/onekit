@@ -13,7 +13,11 @@ import (
 	"syscall"
 	"time"
 
+	"path/filepath"
+
 	"github.com/1homsi/onekit/internal/onek"
+	"github.com/1homsi/onekit/internal/onkimport"
+	"github.com/1homsi/onekit/internal/onklang"
 )
 
 var version = "dev"
@@ -27,6 +31,7 @@ func usage(w io.Writer) {
   onek watch [--interval DURATION] [--dir DIR]
   onek mock [--addr ADDR] [--seed N] [--error-rate FLOAT] [--latency DURATION] [--dir DIR]
   onek init [--force] [DIR]
+  onek import [--out DIR] [--package NAME] [--service NAME] OPENAPI-FILE
   onek compat [--json] PREVIOUS-DIR CURRENT-DIR
   onek version`)
 }
@@ -70,6 +75,8 @@ func run(args []string) error {
 		return runWatch(args[1:])
 	case "mock":
 		return runMock(args[1:])
+	case "import":
+		return runImport(args[1:])
 	case "compat":
 		return runCompat(args[1:])
 	default:
@@ -194,6 +201,53 @@ func runMock(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return server.Run(ctx, *addr, os.Stdout)
+}
+
+// runImport converts an OpenAPI 3.x document into .onk source, verifies it
+// parses, writes it under --out, and reports conversion warnings.
+func runImport(args []string) error {
+	fs := flag.NewFlagSet("import", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	outDir := fs.String("out", "./imported", "directory for the generated .onk file")
+	pkg := fs.String("package", "", "generated package name (default: derived from info.title)")
+	service := fs.String("service", "", "generated service name (default: package + Service)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(fs.Args()) != 1 {
+		return errors.New("import requires exactly one OpenAPI file")
+	}
+	data, err := os.ReadFile(fs.Arg(0))
+	if err != nil {
+		return fmt.Errorf("read %s: %w", fs.Arg(0), err)
+	}
+	result, err := onkimport.Import(data, onkimport.Options{Package: *pkg, Service: *service})
+	if err != nil {
+		return err
+	}
+	for _, warning := range result.Warnings {
+		fmt.Fprintln(os.Stderr, "onek import:", warning)
+	}
+	// Never write output that does not parse - a broken import is worse than
+	// a failed one.
+	if _, err := onklang.Parse(string(result.Source)); err != nil {
+		return fmt.Errorf("internal: imported schema does not parse: %w", err)
+	}
+	if err := os.MkdirAll(*outDir, 0o750); err != nil {
+		return fmt.Errorf("create %s: %w", *outDir, err)
+	}
+	// Defense in depth: package names derive from slug(info.title), but
+	// refuse anything that could escape the output directory.
+	if result.Package == "" || strings.ContainsAny(result.Package, "/\\") {
+		return fmt.Errorf("invalid generated package name %q", result.Package)
+	}
+	target := filepath.Join(*outDir, result.Package+".onk")
+	//nolint:gosec // Package is validated against [a-z0-9_]+ above and out dir is user-chosen.
+	if err := os.WriteFile(target, result.Source, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", target, err)
+	}
+	fmt.Fprintf(os.Stdout, "wrote %s (%d warnings)\n", target, len(result.Warnings))
+	return nil
 }
 
 func runCompat(args []string) error {

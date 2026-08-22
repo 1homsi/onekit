@@ -131,6 +131,33 @@ onek watch   # rebuild on schema/config changes until interrupted
 onek mock    # dev server serving schema-derived fixtures for every route
 ```
 
+## Bidirectional WebSocket streaming
+
+Alongside SSE (`@stream`), a method can be declared as a bidirectional
+WebSocket RPC. Request messages flow client-to-server and response messages
+server-to-client as JSON frames of the declared types:
+
+```onk
+service ChatService {
+  base_path: "/v1"
+
+  chat(ChatMessage) -> ChatEvent @ws("/rooms/{room}")
+}
+```
+
+- Path and query parameters bind from the connect request; header contracts
+  are checked before the upgrade.
+- Servers validate every inbound frame; protocol violations receive an
+  `{"error": ...}` frame followed by close code 1008.
+- Generated clients return a duplex handle (Go: `Send`/`Receive`/`Close`;
+  TypeScript: promise-based `receive()`; Python/Rust: `send`/`receive`)
+  instead of a one-shot response.
+
+Peer dependencies per target, only when the schema uses `@ws`: Go needs
+`github.com/coder/websocket`, Python needs `websockets>=12`, the Rust client
+needs `tokio-tungstenite`; servers reuse their existing framework sockets
+(axum / Web-standard `WebSocketPair`).
+
 ## Frontend TypeScript extras
 
 The `ts-client` target accepts opt-in flags that emit companion modules next
@@ -229,6 +256,7 @@ url = "2"            # @uri
 urlencoding = "2"    # client path parameters
 uuid = "1"           # @uuid
 validator = "0.20"   # @email
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] } # @ws clients
 ```
 
 `onek check` performs semantic validation as well as parsing: unsupported or
