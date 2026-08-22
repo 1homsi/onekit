@@ -22,6 +22,12 @@ const (
 	putVerb                     = "put"
 	patchVerb                   = "patch"
 	queryVerb                   = "query"
+	// wsDecorator binds an RPC as a bidirectional WebSocket stream; its
+	// argument is the upgrade route.
+	wsDecorator = "ws"
+	// wsTransport is the pseudo-verb recorded for WebSocket RPCs in route
+	// uniqueness checks and compatibility signatures.
+	wsTransport = "ws"
 )
 
 // validateSyntax rejects decorators and RPC declarations that the generators
@@ -548,6 +554,13 @@ func validateRPC(path string, rpc *onklang.RPCDecl) (string, string, error) {
 			continue
 		}
 		switch decorator.Name {
+		case wsDecorator:
+			// Validation happens below once conflicting decorators are known;
+			// record the route here.
+			if len(decorator.Args) != 1 || decorator.Args[0].Value == "" {
+				return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws requires one non-empty route"}
+			}
+			route = decorator.Args[0].Value
 		case "stream":
 			if len(decorator.Args) != 0 {
 				return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@stream does not take arguments"}
@@ -559,6 +572,22 @@ func validateRPC(path string, rpc *onklang.RPCDecl) (string, string, error) {
 		default:
 			return "", "", &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("unknown RPC decorator @%s", decorator.Name)}
 		}
+	}
+	if hasDecorator(rpc.Decorators, wsDecorator) {
+		if verb != "" {
+			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws cannot be combined with an HTTP verb; it replaces the transport binding"}
+		}
+		if hasDecorator(rpc.Decorators, "stream") {
+			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws is already bidirectional and cannot be combined with @stream"}
+		}
+		if bodyName, ok := findDecorator(rpc.Decorators, "body"); ok {
+			_ = bodyName
+			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws does not support @body binding; every non-path/non-query request field crosses as a message frame"}
+		}
+		if err := validateHTTPPath(route, false); err != nil {
+			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "invalid @ws route: " + err.Error()}
+		}
+		return wsTransport, route, nil
 	}
 	if verb == "" {
 		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "RPC must declare exactly one HTTP verb"}
@@ -864,7 +893,10 @@ func isRootUnwrappedMessage(message *onkir.Message) bool {
 }
 
 func validateMethodBindings(filePath string, method *onkir.Method) error {
-	route, _ := method.Path()
+	route, ok := method.WebSocketPath()
+	if !ok {
+		route, _ = method.Path()
+	}
 	seenPath := map[string]bool{}
 	for _, name := range pathParameterNames(route) {
 		if seenPath[name] {

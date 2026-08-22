@@ -123,9 +123,16 @@ func writeClient(p *Printer, service *onkir.Service) {
 	p.Dedent()
 	p.P("}")
 	p.Blank()
+	var wsMethods []*onkir.Method
 	for _, method := range service.Methods {
+		if method.IsWebSocket() {
+			wsMethods = append(wsMethods, method)
+			writeRustWSClientMethod(p, service, method)
+			continue
+		}
 		writeClientMethod(p, service, method)
 	}
+	writeRustWSDuplexTypes(p, service, wsMethods)
 	p.Dedent()
 	p.P("}")
 	p.Blank()

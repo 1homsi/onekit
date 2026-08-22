@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
 )
@@ -77,6 +79,13 @@ func NewMockServer(dir string, opts MockOptions) (*MockServer, error) {
 	for _, file := range pkg.Files {
 		for _, service := range file.Services {
 			for _, method := range service.Methods {
+				if method.IsWebSocket() {
+					wsPath, _ := method.WebSocketPath()
+					pattern := "GET " + service.BasePath + wsPath
+					server.mux.HandleFunc(pattern, server.handleWebSocket(method))
+					server.routes++
+					continue
+				}
 				verb, _ := method.Verb()
 				path, _ := method.Path()
 				pattern := strings.ToUpper(verb) + " " + service.BasePath + path
@@ -185,6 +194,35 @@ func (m *MockServer) stream(w http.ResponseWriter, r *http.Request, method *onki
 		_, _ = fmt.Fprintf(w, "%sdata: %s\n\n", eventName, data)
 		flusher.Flush()
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// handleWebSocket accepts the upgrade, streams three fixture frames, then
+// holds the connection open discarding inbound frames until the peer closes.
+func (m *MockServer) handleWebSocket(method *onkir.Method) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+		ctx := r.Context()
+		go func() { <-ctx.Done(); _ = conn.CloseNow() }()
+		for range 3 {
+			body, err := json.Marshal(mockMessage(method.Response, 0))
+			if err != nil {
+				return
+			}
+			if err := conn.Write(ctx, websocket.MessageText, body); err != nil {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		for {
+			if _, _, err := conn.Read(ctx); err != nil {
+				return
+			}
+		}
 	}
 }
 

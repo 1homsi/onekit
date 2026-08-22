@@ -29,6 +29,13 @@ func clientImportsNeeded(file *onkir.File) clientImports {
 		for _, m := range s.Methods {
 			verb, _ := m.Verb()
 			path, _ := m.Path()
+			if m.IsWebSocket() {
+				// WebSocket dialing needs URL building (path params + query)
+				// plus scheme rewriting.
+				imp.url = true
+				imp.strings = true
+				continue
+			}
 			imp.url = imp.url || len(onkir.PathParamNames(path)) > 0
 			switch {
 			case m.IsStream():
@@ -73,6 +80,7 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 
 	imp := clientImportsNeeded(file)
 	hasStream := onkir.FileHasStreamMethods(file)
+	hasWS := onkir.FileHasWSMethods(file)
 	externalRefs := collectServiceExternalRefs(file, resolver)
 
 	p := newPrinter(resolver)
@@ -106,6 +114,9 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	if imp.strings {
 		p.P(`"strings"`)
 	}
+	if hasWS {
+		p.P(`"github.com/coder/websocket"`)
+	}
 	for _, ref := range externalRefs {
 		p.P(ref.Alias, " ", fmt.Sprintf("%q", ref.ImportPath))
 	}
@@ -120,9 +131,17 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	for _, s := range file.Services {
 		writeClientType(p, s)
 		for _, m := range s.Methods {
-			if m.IsStream() {
+			if m.IsWebSocket() {
+				writeWSDuplexType(p, p.MessageTypeName(m.Request), p.MessageTypeName(m.Response))
+			}
+		}
+		for _, m := range s.Methods {
+			switch {
+			case m.IsWebSocket():
+				writeWSClientMethod(p, s, m)
+			case m.IsStream():
 				writeSSEClientMethod(p, s, m)
-			} else {
+			default:
 				writeClientMethod(p, s, m)
 			}
 		}

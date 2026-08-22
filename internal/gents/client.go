@@ -183,9 +183,17 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 	p.P()
 
 	for _, m := range s.Methods {
-		if m.IsStream() {
+		if m.IsWebSocket() {
+			writeTSDuplexClass(p, m)
+		}
+	}
+	for _, m := range s.Methods {
+		switch {
+		case m.IsWebSocket():
+			writeTSWSClientMethod(p, s, m)
+		case m.IsStream():
 			writeSSEClientMethod(p, s, m)
-		} else {
+		default:
 			writeClientMethod(p, s, m)
 		}
 	}

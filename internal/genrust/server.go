@@ -85,13 +85,20 @@ func writeServerService(p *Printer, service *onkir.Service) {
 		requestType := p.MessageTypeName(method.Request)
 		responseType := p.MessageTypeName(method.Response)
 		errorType := serverErrorName(service, method)
-		if method.IsStream() {
+		switch {
+		case method.IsWebSocket():
+			p.P(
+				"fn ", RustIdent(method.Name), "(&self, context: RequestContext, req: ", requestType,
+				", out: WsSink<", responseType,
+				">) -> impl std::future::Future<Output = Result<(), ", errorType, ">> + Send;",
+			)
+		case method.IsStream():
 			p.P(
 				"fn ", RustIdent(method.Name), "(&self, context: RequestContext, req: ", requestType,
 				") -> impl std::future::Future<Output = Result<Pin<Box<dyn Stream<Item = Result<",
 				responseType, ", ", errorType, ">> + Send>>, ", errorType, ">> + Send;",
 			)
-		} else {
+		default:
 			p.P(
 				"fn ", RustIdent(method.Name), "(&self, context: RequestContext, req: ", requestType,
 				") -> impl std::future::Future<Output = Result<", responseType, ", ", errorType,
@@ -103,8 +110,22 @@ func writeServerService(p *Printer, service *onkir.Service) {
 	p.P("}")
 	p.Blank()
 
+	hasWS := false
+	for _, m := range service.Methods {
+		if m.IsWebSocket() {
+			hasWS = true
+			break
+		}
+	}
+	if hasWS {
+		WriteWSServerRuntime(p)
+	}
 	writeRouter(p, service)
 	for _, method := range service.Methods {
+		if method.IsWebSocket() {
+			writeWSUpgradeHandler(p, service, method)
+			continue
+		}
 		writeHandler(p, service, method)
 		writeServerError(p, service, method)
 	}
@@ -117,6 +138,10 @@ func writeRouter(p *Printer, service *onkir.Service) {
 	p.P("Router::new()")
 	p.Indent()
 	for _, method := range service.Methods {
+		if method.IsWebSocket() {
+			writeWSRouterEntry(p, service, method)
+			continue
+		}
 		verb, _ := method.Verb()
 		path, _ := method.Path()
 		fullPath := service.BasePath + path

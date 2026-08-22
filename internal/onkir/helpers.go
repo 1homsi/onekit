@@ -175,6 +175,23 @@ func (m *Method) IsStream() bool {
 	return m.HasDecorator("stream")
 }
 
+// WebSocketPath returns the route from the method's @ws decorator. WebSocket
+// methods are bidirectional: request messages flow client-to-server, response
+// messages server-to-client, both as JSON frames of the declared types.
+func (m *Method) WebSocketPath() (string, bool) {
+	d, ok := m.Decorator("ws")
+	if !ok {
+		return "", false
+	}
+	return d.Value()
+}
+
+// IsWebSocket reports whether the method is a bidirectional @ws RPC.
+func (m *Method) IsWebSocket() bool {
+	_, ok := m.WebSocketPath()
+	return ok
+}
+
 // HasDecorator reports whether the method carries the named decorator.
 func (m *Method) HasDecorator(name string) bool {
 	return HasDecorator(m.Decorators, name)
@@ -300,6 +317,19 @@ func FileHasStreamMethods(file *File) bool {
 	for _, s := range file.Services {
 		for _, m := range s.Methods {
 			if m.IsStream() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// FileHasWSMethods reports whether any service in the file declares a
+// bidirectional WebSocket RPC.
+func FileHasWSMethods(file *File) bool {
+	for _, s := range file.Services {
+		for _, m := range s.Methods {
+			if m.IsWebSocket() {
 				return true
 			}
 		}

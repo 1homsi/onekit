@@ -232,6 +232,10 @@ func routes(pkg *onkir.Package) map[string]string {
 	for _, file := range pkg.Files {
 		for _, service := range file.Services {
 			for _, method := range service.Methods {
+				if wsPath, ok := method.WebSocketPath(); ok {
+					out[routeKey(file.Package, service.Name, "ws", service.BasePath+wsPath)] = methodSignature(service, method)
+					continue
+				}
 				verb, verbOK := method.Verb()
 				methodPath, pathOK := method.Path()
 				if verbOK && pathOK {

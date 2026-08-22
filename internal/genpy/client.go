@@ -40,6 +40,9 @@ func GenerateClientWithResolver(file *onkir.File, typesModule string, resolver P
 	p.P()
 
 	writeResponseBodyRuntime(p)
+	if onkir.FileHasWSMethods(file) {
+		writePyWSRuntime(p)
+	}
 
 	for _, s := range file.Services {
 		writeClientClass(p, s)
@@ -91,9 +94,12 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 	p.Blank()
 
 	for _, m := range s.Methods {
-		if m.IsStream() {
+		switch {
+		case m.IsWebSocket():
+			writePyWSClientMethod(p, s, m)
+		case m.IsStream():
 			writeSSEClientMethod(p, s, m)
-		} else {
+		default:
 			writeClientMethod(p, s, m)
 		}
 	}

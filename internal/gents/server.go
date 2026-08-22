@@ -61,6 +61,10 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 	p.P()
 
 	writeServerRuntime(p)
+	hasWS := onkir.FileHasWSMethods(file)
+	if hasWS {
+		WriteTSWSServerRuntime(p)
+	}
 	if onkir.FileHasStreamMethods(file) {
 		writeSSEResponseHelper(p)
 	}
@@ -68,6 +72,9 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 	for _, s := range file.Services {
 		writeHandlerInterface(p, s)
 		writeRouteFactory(p, s)
+		if hasWS {
+			writeTSSocketFactory(p, s)
+		}
 	}
 
 	return p.Bytes()
@@ -177,9 +184,13 @@ func writeServerRuntime(p *Printer) {
 func writeHandlerInterface(p *Printer, s *onkir.Service) {
 	p.P("export interface ", s.Name, "Handler {")
 	for _, m := range s.Methods {
-		if m.IsStream() {
+		switch {
+		case m.IsWebSocket():
+			p.P(CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request),
+				", out: WSOut<", p.MessageTypeName(m.Response), ">): void | Promise<void>;")
+		case m.IsStream():
 			writeSSEHandlerMethod(p, m)
-		} else {
+		default:
 			p.P(CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request),
 				", context: RequestContext): Promise<", p.MessageTypeName(m.Response), ">;")
 		}

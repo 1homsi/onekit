@@ -45,6 +45,7 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	}
 
 	hasStream := onkir.FileHasStreamMethods(file)
+	hasWS := onkir.FileHasWSMethods(file)
 	hasRequestBody := fileHasRequestBodyBinding(file)
 	externalRefs := collectServiceExternalRefs(file, resolver)
 
@@ -67,6 +68,9 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	p.P(`"regexp"`)
 	p.P(`"strconv"`)
 	p.P(`"time"`)
+	if hasWS {
+		p.P(`"github.com/coder/websocket"`)
+	}
 	if hasStream && fileHasStreamPathParams(file) {
 		p.P(`"net/url"`)
 	}
@@ -79,6 +83,9 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	writeRuntimeHelpers(p)
 	writeHeaderFormatPatterns(p)
 	writeServerOptions(p)
+	if hasWS {
+		writeWSOutType(p)
+	}
 	if hasStream {
 		writeSSEServerRuntime(p)
 	}
@@ -279,10 +286,15 @@ func writeHeaderFormatPatterns(p *Printer) {
 func writeServiceInterface(p *Printer, s *onkir.Service) {
 	p.P("type ", s.Name, "Server interface {")
 	for _, m := range s.Methods {
-		if m.IsStream() {
+		switch {
+		case m.IsWebSocket():
+			p.P(PascalCase(m.Name), "(ctx context.Context, req *",
+				p.MessageTypeName(m.Request), ", out WSOut[",
+				p.MessageTypeName(m.Response), "]) error")
+		case m.IsStream():
 			p.P(PascalCase(m.Name), "(ctx context.Context, req *",
 				p.MessageTypeName(m.Request), ", sender SSESender) error")
-		} else {
+		default:
 			p.P(PascalCase(m.Name), "(ctx context.Context, req *", p.MessageTypeName(m.Request),
 				") (*", p.MessageTypeName(m.Response), ", error)")
 		}
@@ -315,9 +327,12 @@ func writeRegisterFunc(p *Printer, s *onkir.Service) {
 	p.P("if o.mux == nil { return fmt.Errorf(\"Register", s.Name, "Server: mux is required\") }")
 	p.P("mux := o.mux")
 	for _, m := range s.Methods {
-		if m.IsStream() {
+		switch {
+		case m.IsWebSocket():
+			writeWSRoute(p, s, m)
+		case m.IsStream():
 			writeSSERoute(p, s, m)
-		} else {
+		default:
 			writeRoute(p, s, m)
 		}
 	}
