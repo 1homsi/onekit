@@ -248,7 +248,16 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeClientErrorHandling(p, m)
 	p.P("}")
 	p.P()
-	p.P("return decode", m.Response.Name, "(JSON.parse(await readResponseText(res, this.options.maxResponseBodyBytes)));")
+	// A success with no body must not reach JSON.parse. A 204 has none by
+	// definition, and an empty 200 is equally legal, but JSON.parse("") throws
+	// SyntaxError("Unexpected end of JSON input") - which a caller sees as an
+	// opaque failure for an operation that actually succeeded.
+	//
+	// writeClientErrorHandling already guards this same hazard on the error
+	// path; this is the success path catching up. Emptiness is tested rather
+	// than the status code, so it covers 204 and an empty 200 alike.
+	p.P("const text = await readResponseText(res, this.options.maxResponseBodyBytes);")
+	p.P("return decode", m.Response.Name, `(text.trim() === "" ? {} : JSON.parse(text));`)
 	p.P("}")
 	p.P()
 }
