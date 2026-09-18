@@ -128,7 +128,7 @@ func TestBuildInfersBasePathAndSplitsPackagesByDirectory(t *testing.T) {
 		{"TypeScript client", filepath.Join(dir, "gen", "ts", "hub", "business", "v1", "client.ts")},
 		{"TypeScript server", filepath.Join(dir, "gen", "ts-server", "hub", "business", "v1", "server.ts")},
 		{"Python client", filepath.Join(dir, "gen", "python", "hub", "business", "v1", "client.py")},
-		{"OpenAPI", filepath.Join(dir, "gen", "openapi", "openapi.yaml")},
+		{"OpenAPI", filepath.Join(dir, "gen", "openapi", "hub", "business", "v1", "openapi.yaml")},
 	}
 	for _, generated := range generatedRoutes {
 		data, readErr := os.ReadFile(generated.path)

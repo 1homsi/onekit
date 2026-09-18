@@ -95,8 +95,12 @@ title = "Your API"
 version = "1.0.0"
 ```
 
-The OpenAPI target writes both `openapi.yaml` and `openapi.json` to its output
-directory. Both files describe the same combined OpenAPI 3.1 API.
+The OpenAPI target writes one YAML/JSON pair per service, mirroring the schema
+directory structure: `api/hub/business/v1` produces
+`docs/hub/business/v1/openapi.yaml` and `openapi.json`. Each document includes
+only that service and its transitive schema dependencies, including shared types.
+Directories containing multiple services use `<ServiceName>.openapi.yaml` and
+`<ServiceName>.openapi.json`. Model-only directories do not emit documents.
 
 `route_prefix` is optional. It prepends a public HTTP prefix to every generated
 server, client, and OpenAPI route without changing generated package or import

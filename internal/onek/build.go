@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/1homsi/onekit/internal/gengo"
-	"github.com/1homsi/onekit/internal/genopenapi"
 	"github.com/1homsi/onekit/internal/genpy"
 	"github.com/1homsi/onekit/internal/genrust"
 	"github.com/1homsi/onekit/internal/gents"
@@ -447,7 +446,7 @@ func Build(dir string) error {
 		{cfg.Generate.TSServer != nil, func() error { return buildTSServer(cfg, idx) }},
 		{cfg.Generate.PythonClient != nil, func() error { return buildPythonClient(cfg, idx) }},
 		{cfg.Generate.RustClient != nil || cfg.Generate.RustServer != nil, func() error { return buildRust(cfg, idx) }},
-		{cfg.Generate.OpenAPI != nil, func() error { return buildOpenAPI(cfg, pkg) }},
+		{cfg.Generate.OpenAPI != nil, func() error { return buildOpenAPI(cfg, idx) }},
 	}
 	for _, step := range steps {
 		if !step.enabled {
@@ -689,8 +688,17 @@ func expectedGeneratedOutputs(cfg *Config, idx *sourceIndex) map[string]map[stri
 		addRustExpected(cfg.Generate.RustServer, false, true)
 	}
 	if cfg.Generate.OpenAPI != nil {
-		add(cfg.resolve(cfg.Generate.OpenAPI.Out), "openapi.yaml")
-		add(cfg.resolve(cfg.Generate.OpenAPI.Out), "openapi.json")
+		root := filepath.Clean(cfg.resolve(cfg.Generate.OpenAPI.Out))
+		if roots[root] == nil {
+			roots[root] = map[string]bool{}
+		}
+		for _, group := range idx.groups {
+			for _, service := range group.file.Services {
+				base := openAPIBasePath(group, service)
+				add(cfg.resolve(cfg.Generate.OpenAPI.Out), base+".yaml")
+				add(cfg.resolve(cfg.Generate.OpenAPI.Out), base+".json")
+			}
+		}
 	}
 	return roots
 }
@@ -1102,29 +1110,4 @@ func rustPathSegments(relDir string) []string {
 		return nil
 	}
 	return strings.Split(filepath.ToSlash(relDir), "/")
-}
-
-// buildOpenAPI stays a single combined document across the whole schema
-// tree - one API surface, not one document per service - so it keeps using
-// mergeFiles instead of the per-directory sourceIndex.
-func buildOpenAPI(cfg *Config, pkg *onkir.Package) error {
-	outDir := cfg.resolve(cfg.Generate.OpenAPI.Out)
-	merged := mergeFiles(pkg, "")
-	opts := genopenapi.Options{
-		Title:       cfg.Generate.OpenAPI.Title,
-		Version:     cfg.Generate.OpenAPI.Version,
-		Description: cfg.Generate.OpenAPI.Description,
-	}
-	data, err := genopenapi.Generate(merged, opts)
-	if err != nil {
-		return fmt.Errorf("generate openapi: %w", err)
-	}
-	jsonData, err := genopenapi.GenerateJSON(merged, opts)
-	if err != nil {
-		return fmt.Errorf("generate openapi json: %w", err)
-	}
-	if err := writeFile(filepath.Join(outDir, "openapi.yaml"), data); err != nil {
-		return err
-	}
-	return writeFile(filepath.Join(outDir, "openapi.json"), jsonData)
 }
