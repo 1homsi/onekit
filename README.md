@@ -63,7 +63,7 @@ Try the example:
 cd examples/onk-simple-api
 go test ./...        # exercises the already-generated code end to end
 ../../bin/onek compat ./previous-schema .  # reports breaking contract changes
-../../bin/onek build .   # regenerates api/*.gen.go and docs/openapi.yaml from models.onk + service.onk
+../../bin/onek build .   # regenerates api/*.gen.go and docs/openapi.{yaml,json} from models.onk + service.onk
 ```
 
 ## The `onek` CLI
@@ -94,6 +94,9 @@ out = "./docs"
 title = "Your API"
 version = "1.0.0"
 ```
+
+The OpenAPI target writes both `openapi.yaml` and `openapi.json` to its output
+directory. Both files describe the same combined OpenAPI 3.1 API.
 
 `route_prefix` is optional. It prepends a public HTTP prefix to every generated
 server, client, and OpenAPI route without changing generated package or import

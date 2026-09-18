@@ -690,6 +690,7 @@ func expectedGeneratedOutputs(cfg *Config, idx *sourceIndex) map[string]map[stri
 	}
 	if cfg.Generate.OpenAPI != nil {
 		add(cfg.resolve(cfg.Generate.OpenAPI.Out), "openapi.yaml")
+		add(cfg.resolve(cfg.Generate.OpenAPI.Out), "openapi.json")
 	}
 	return roots
 }
@@ -1118,5 +1119,12 @@ func buildOpenAPI(cfg *Config, pkg *onkir.Package) error {
 	if err != nil {
 		return fmt.Errorf("generate openapi: %w", err)
 	}
-	return writeFile(filepath.Join(outDir, "openapi.yaml"), data)
+	jsonData, err := genopenapi.GenerateJSON(merged, opts)
+	if err != nil {
+		return fmt.Errorf("generate openapi json: %w", err)
+	}
+	if err := writeFile(filepath.Join(outDir, "openapi.yaml"), data); err != nil {
+		return err
+	}
+	return writeFile(filepath.Join(outDir, "openapi.json"), jsonData)
 }
