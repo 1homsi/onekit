@@ -35,7 +35,13 @@ type Decorator struct {
 	Line int
 }
 
+// Span uses one-based byte columns, matching lexer diagnostics. End is exclusive.
+type Span struct {
+	Line, Col, EndLine, EndCol int
+}
+
 type TypeRef struct {
+	Span   Span
 	Name   string
 	IsMap  bool
 	MapKey string
@@ -122,6 +128,9 @@ type RPCDecl struct {
 	Name            string
 	Doc             string
 	LeadingComments []string
+	RequestSpan     Span
+	ResponseSpan    Span
+	ErrorSpans      []Span
 	RequestType     string
 	ResponseType    string
 	ErrorTypes      []string

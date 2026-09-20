@@ -303,3 +303,12 @@ the required pre-release compatibility workflow.
 This is a young project that has completed its migration from the earlier protobuf-based design. It supports messages (scalars including arbitrary `json`, repeated, optional, maps, nested types), enums, discriminated oneofs, field validation (`@email`, `@uuid`, `@uri`, `@pattern`, `@len`, `@range`, `@in`, `@required`, item counts), HTTP path/query/body binding, typed headers and error unions, SSE clients in Go, TypeScript, Python, and Rust, and Go/TypeScript/Python/Rust/OpenAPI generators.
 
 JSON mapping is supported through `@flatten`, root-level `@unwrap`, and `@encode(...)` for safe integer, enum, timestamp, and byte representations. Map-value messages must not use `@unwrap`; `onek check` rejects that shape consistently instead of allowing generators to diverge. Generated clients validate requests before sending, generated servers validate decoded requests, and nested validation is emitted consistently across targets. Generated Go servers also provide functional registration options for mux selection, middleware, request IDs, authorization, route metadata, and lifecycle observation.
+
+## AI agents and language servers
+
+`onek mcp` exposes compiler-backed validation, symbols, definitions, references,
+and hover information to Codex and Claude Code. `onek lsp` offers the same
+navigation plus diagnostics for unsaved editor buffers. Repository-local MCP
+configuration and a Claude Code LSP plugin are included; see
+[AI tooling setup](docs/AI_TOOLING.md) for installation, project selection, and
+supported capabilities.

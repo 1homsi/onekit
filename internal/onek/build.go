@@ -82,22 +82,6 @@ func parseSources(paths []string) ([]onkcompile.Source, error) {
 	return sources, nil
 }
 
-// mergeFiles combines every compiled onkir.File in a package into a single
-// File, regardless of source directory. Used for OpenAPI generation, which
-// stays one combined document across the whole schema tree (a single API
-// surface, not one document per service) rather than following the
-// per-directory split used for Go/TS/Python output - see sourceIndex.
-func mergeFiles(pkg *onkir.Package, goPackage string) *onkir.File {
-	merged := &onkir.File{Package: goPackage}
-	for _, f := range pkg.Files {
-		merged.Messages = append(merged.Messages, f.Messages...)
-		merged.Enums = append(merged.Enums, f.Enums...)
-		merged.Services = append(merged.Services, f.Services...)
-	}
-	repointFileBacklinks(merged)
-	return merged
-}
-
 // repointFileBacklinks retargets every declaration's back link onto dst after
 // its declarations have been merged into a new onkir.File.
 func repointFileBacklinks(dst *onkir.File) {
