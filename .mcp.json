@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "onekit": {
+      "type": "stdio",
+      "command": "go",
+      "args": ["run", "./cmd/onek", "mcp", "--dir", "."]
+    }
+  }
+}

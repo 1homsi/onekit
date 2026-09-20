@@ -1,0 +1,5 @@
+# Launch Codex from the repository root. Requires the Go version in go.mod.
+[mcp_servers.onekit]
+command = "go"
+args = ["run", "./cmd/onek", "mcp", "--dir", "."]
+startup_timeout_sec = 120

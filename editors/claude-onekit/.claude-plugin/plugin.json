@@ -1,0 +1,8 @@
+{
+  "name": "onekit",
+  "version": "0.1.0",
+  "description": "Compiler-backed language intelligence for OneKit .onk schemas. Requires onek on PATH.",
+  "author": {
+    "name": "1homsi"
+  }
+}

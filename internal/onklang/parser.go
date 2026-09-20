@@ -275,11 +275,12 @@ func (p *Parser) parseType() (*TypeRef, error) {
 		}
 		return &TypeRef{IsMap: true, MapKey: key.Text, MapVal: val}, nil
 	}
+	start := p.tok
 	name, err := p.parseDottedName()
 	if err != nil {
 		return nil, err
 	}
-	return &TypeRef{Name: name}, nil
+	return &TypeRef{Name: name, Span: tokenSpan(start, p.prev)}, nil
 }
 
 func (p *Parser) parseOneofVariant() (OneofVariant, error) {
@@ -387,12 +388,11 @@ func (p *Parser) parseMessage() (*MessageDecl, error) {
 	if err := p.expectIdentText("message"); err != nil {
 		return nil, err
 	}
-	line := p.prev.Line
 	name, err := p.expect(IDENT)
 	if err != nil {
 		return nil, err
 	}
-	m := &MessageDecl{Name: name.Text, Doc: doc, LeadingComments: append([]string(nil), p.prev.LeadingComments...), Line: line, Col: name.Col}
+	m := &MessageDecl{Name: name.Text, Doc: doc, LeadingComments: append([]string(nil), p.prev.LeadingComments...), Line: name.Line, Col: name.Col}
 
 	decorators, err := p.parseDecorators()
 	if err != nil {
@@ -439,12 +439,11 @@ func (p *Parser) parseEnum() (*EnumDecl, error) {
 	if err := p.expectIdentText("enum"); err != nil {
 		return nil, err
 	}
-	line := p.prev.Line
 	name, err := p.expect(IDENT)
 	if err != nil {
 		return nil, err
 	}
-	e := &EnumDecl{Name: name.Text, Doc: doc, LeadingComments: append([]string(nil), p.prev.LeadingComments...), Line: line, Col: name.Col}
+	e := &EnumDecl{Name: name.Text, Doc: doc, LeadingComments: append([]string(nil), p.prev.LeadingComments...), Line: name.Line, Col: name.Col}
 
 	if _, err := p.expect(LBRACE); err != nil {
 		return nil, err
@@ -518,32 +517,38 @@ func (p *Parser) parseRPC() (*RPCDecl, error) {
 	if _, err := p.expect(LPAREN); err != nil {
 		return nil, err
 	}
+	start := p.tok
 	req, err := p.parseDottedName()
 	if err != nil {
 		return nil, err
 	}
 	r.RequestType = req
+	r.RequestSpan = tokenSpan(start, p.prev)
 	if _, err := p.expect(RPAREN); err != nil {
 		return nil, err
 	}
 	if _, err := p.expect(ARROW); err != nil {
 		return nil, err
 	}
+	start = p.tok
 	resp, err := p.parseDottedName()
 	if err != nil {
 		return nil, err
 	}
 	r.ResponseType = resp
+	r.ResponseSpan = tokenSpan(start, p.prev)
 
 	for p.tok.Kind == PIPE {
 		if err := p.next(); err != nil {
 			return nil, err
 		}
+		start = p.tok
 		errType, err := p.parseDottedName()
 		if err != nil {
 			return nil, err
 		}
 		r.ErrorTypes = append(r.ErrorTypes, errType)
+		r.ErrorSpans = append(r.ErrorSpans, tokenSpan(start, p.prev))
 	}
 
 	decorators, err := p.parseDecorators()
@@ -582,12 +587,11 @@ func (p *Parser) parseService() (*ServiceDecl, error) {
 	if err := p.expectIdentText("service"); err != nil {
 		return nil, err
 	}
-	line := p.prev.Line
 	name, err := p.expect(IDENT)
 	if err != nil {
 		return nil, err
 	}
-	s := &ServiceDecl{Name: name.Text, Doc: doc, LeadingComments: append([]string(nil), p.prev.LeadingComments...), Line: line, Col: name.Col}
+	s := &ServiceDecl{Name: name.Text, Doc: doc, LeadingComments: append([]string(nil), p.prev.LeadingComments...), Line: name.Line, Col: name.Col}
 
 	if _, err := p.expect(LBRACE); err != nil {
 		return nil, err
@@ -628,4 +632,8 @@ func (p *Parser) parseService() (*ServiceDecl, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+func tokenSpan(start, end Token) Span {
+	return Span{Line: start.Line, Col: start.Col, EndLine: end.Line, EndCol: end.Col + len(end.Text)}
 }

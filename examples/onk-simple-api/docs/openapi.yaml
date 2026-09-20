@@ -93,6 +93,16 @@ paths:
                                 $ref: '#/components/schemas/examples.onksimpleapi.models.LoginResponse'
 components:
     schemas:
+        examples.onksimpleapi.models.CreateUserRequest:
+            type: object
+            properties:
+                name:
+                    type: string
+                    maxLength: 100
+                    minLength: 2
+                email:
+                    type: string
+                    format: email
         examples.onksimpleapi.models.User:
             type: object
             properties:
@@ -110,22 +120,46 @@ components:
                     type: string
                     format: int64
             description: A system user.
-        examples.onksimpleapi.models.CreateUserRequest:
-            type: object
-            properties:
-                name:
-                    type: string
-                    maxLength: 100
-                    minLength: 2
-                email:
-                    type: string
-                    format: email
         examples.onksimpleapi.models.GetUserRequest:
             type: object
             properties:
                 id:
                     type: string
                     format: uuid
+        examples.onksimpleapi.models.LoginRequest:
+            type: object
+            properties:
+                device_id:
+                    type: string
+                ip_address:
+                    type: string
+                retry_count:
+                    type: integer
+                    format: int32
+                user_agent:
+                    type: string
+                auth_method:
+                    oneOf:
+                        - $ref: '#/components/schemas/examples.onksimpleapi.models.EmailAuth'
+                        - $ref: '#/components/schemas/examples.onksimpleapi.models.TokenAuth'
+                        - $ref: '#/components/schemas/examples.onksimpleapi.models.SocialAuth'
+                    discriminator:
+                        propertyName: auth_type
+                        mapping:
+                            email: '#/components/schemas/examples.onksimpleapi.models.EmailAuth'
+                            token: '#/components/schemas/examples.onksimpleapi.models.TokenAuth'
+                            social: '#/components/schemas/examples.onksimpleapi.models.SocialAuth'
+                remember_me:
+                    type: boolean
+                session_id:
+                    type: string
+                timestamp:
+                    type: string
+                    format: int64
+                scopes:
+                    type: array
+                    items:
+                        type: string
         examples.onksimpleapi.models.EmailAuth:
             type: object
             properties:
@@ -171,40 +205,6 @@ components:
                 state:
                     type: string
                 permissions:
-                    type: array
-                    items:
-                        type: string
-        examples.onksimpleapi.models.LoginRequest:
-            type: object
-            properties:
-                device_id:
-                    type: string
-                ip_address:
-                    type: string
-                retry_count:
-                    type: integer
-                    format: int32
-                user_agent:
-                    type: string
-                auth_method:
-                    oneOf:
-                        - $ref: '#/components/schemas/examples.onksimpleapi.models.EmailAuth'
-                        - $ref: '#/components/schemas/examples.onksimpleapi.models.TokenAuth'
-                        - $ref: '#/components/schemas/examples.onksimpleapi.models.SocialAuth'
-                    discriminator:
-                        propertyName: auth_type
-                        mapping:
-                            email: '#/components/schemas/examples.onksimpleapi.models.EmailAuth'
-                            token: '#/components/schemas/examples.onksimpleapi.models.TokenAuth'
-                            social: '#/components/schemas/examples.onksimpleapi.models.SocialAuth'
-                remember_me:
-                    type: boolean
-                session_id:
-                    type: string
-                timestamp:
-                    type: string
-                    format: int64
-                scopes:
                     type: array
                     items:
                         type: string

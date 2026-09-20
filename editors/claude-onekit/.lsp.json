@@ -1,0 +1,7 @@
+{
+  "onekit": {
+    "command": "onek",
+    "args": ["lsp"],
+    "extensionToLanguage": {".onk": "onekit"}
+  }
+}

@@ -15,6 +15,8 @@ import (
 
 	"path/filepath"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/1homsi/onekit/internal/onek"
 	"github.com/1homsi/onekit/internal/onkimport"
 	"github.com/1homsi/onekit/internal/onklang"
@@ -33,6 +35,8 @@ func usage(w io.Writer) {
   onek init [--force] [DIR]
   onek import [--out DIR] [--package NAME] [--service NAME] OPENAPI-FILE
   onek compat [--json] PREVIOUS-DIR CURRENT-DIR
+  onek mcp [--dir DIR]
+  onek lsp [--dir DIR]
   onek version`)
 }
 
@@ -63,6 +67,8 @@ func run(args []string) error {
 	}
 
 	switch args[0] {
+	case "mcp", "lsp":
+		return runLanguageServer(args[0], args[1:])
 	case "version":
 		return runVersion(args[1:])
 	case "build", "generate", "check":
@@ -297,3 +303,28 @@ type jsonDiagnosticsExitError struct {
 func (e *jsonDiagnosticsExitError) Error() string { return e.err.Error() }
 
 func (*jsonDiagnosticsExitError) ExitCode() int { return 1 }
+
+func runLanguageServer(command string, args []string) error {
+	fs := flag.NewFlagSet(command, flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	dir := fs.String("dir", "", "project directory (LSP defaults to client workspace; MCP defaults to cwd)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("%s accepts only --dir DIR", command)
+	}
+	if command == "lsp" {
+		return onek.RunLSP(os.Stdin, os.Stdout, *dir)
+	}
+	if *dir == "" {
+		*dir = "."
+	}
+	server, err := onek.NewLanguageMCPServer(*dir, version)
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return server.Run(ctx, &mcp.StdioTransport{})
+}
