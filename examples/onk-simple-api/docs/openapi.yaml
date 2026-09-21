@@ -103,6 +103,9 @@ components:
                 email:
                     type: string
                     format: email
+            required:
+                - name
+                - email
         examples.onksimpleapi.models.User:
             type: object
             properties:
@@ -119,6 +122,11 @@ components:
                 created_at:
                     type: string
                     format: int64
+            required:
+                - id
+                - name
+                - email
+                - created_at
             description: A system user.
         examples.onksimpleapi.models.GetUserRequest:
             type: object
@@ -126,6 +134,8 @@ components:
                 id:
                     type: string
                     format: uuid
+            required:
+                - id
         examples.onksimpleapi.models.LoginRequest:
             type: object
             properties:
@@ -160,6 +170,16 @@ components:
                     type: array
                     items:
                         type: string
+            required:
+                - device_id
+                - ip_address
+                - retry_count
+                - user_agent
+                - auth_method
+                - remember_me
+                - session_id
+                - timestamp
+                - scopes
         examples.onksimpleapi.models.EmailAuth:
             type: object
             properties:
@@ -174,6 +194,11 @@ components:
                     type: boolean
                 two_factor_code:
                     type: string
+            required:
+                - email
+                - password
+                - use_two_factor
+                - two_factor_code
         examples.onksimpleapi.models.TokenAuth:
             type: object
             properties:
@@ -186,6 +211,10 @@ components:
                 issued_at:
                     type: string
                     format: int64
+            required:
+                - token
+                - token_type
+                - issued_at
         examples.onksimpleapi.models.SocialAuth:
             type: object
             properties:
@@ -208,6 +237,12 @@ components:
                     type: array
                     items:
                         type: string
+            required:
+                - provider
+                - access_token
+                - redirect_uri
+                - state
+                - permissions
         examples.onksimpleapi.models.LoginResponse:
             type: object
             properties:
@@ -221,3 +256,8 @@ components:
                 user:
                     allOf:
                         - $ref: '#/components/schemas/examples.onksimpleapi.models.User'
+            required:
+                - access_token
+                - refresh_token
+                - expires_in
+                - user

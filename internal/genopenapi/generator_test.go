@@ -250,3 +250,89 @@ service API {
 		t.Fatalf("auth header should be represented by a security scheme, not a duplicate parameter:\n%s", spec)
 	}
 }
+
+// requiredSet returns the schema-level required field names OneKit published
+// for one component, so presence can be asserted the way a consumer reads it.
+func requiredSet(t *testing.T, out []byte, component string) map[string]bool {
+	t.Helper()
+	doc, err := libopenapi.NewDocument(out)
+	if err != nil {
+		t.Fatalf("libopenapi.NewDocument error: %v\n%s", err, out)
+	}
+	model, err := doc.BuildV3Model()
+	if err != nil {
+		t.Fatalf("BuildV3Model error: %v\n%s", err, out)
+	}
+	proxy, ok := model.Model.Components.Schemas.Get(component)
+	if !ok {
+		t.Fatalf("expected %s schema in components", component)
+	}
+	schema := proxy.Schema()
+	if schema == nil {
+		t.Fatalf("expected resolvable %s schema", component)
+	}
+	required := map[string]bool{}
+	for _, field := range schema.Required {
+		required[field] = true
+	}
+	return required
+}
+
+func TestSchemaRequiredFollowsOptionalMarker(t *testing.T) {
+	file := compileFixture(t)
+	out, err := Generate(file, Options{Title: "Test API", Version: "1.0.0"})
+	if err != nil {
+		t.Fatalf("Generate error: %v", err)
+	}
+
+	required := requiredSet(t, out, "app.User")
+	for _, name := range []string{"id", "name", "email", "tags", "labels", "home_address"} {
+		if !required[name] {
+			t.Errorf("field %q has no ? marker and must be required, got %v", name, required)
+		}
+	}
+	if required["bio"] {
+		t.Errorf("bio is declared optional with ? and must not be required, got %v", required)
+	}
+}
+
+func TestSchemaRequiredHonoursLegacyRequiredDecorator(t *testing.T) {
+	const src = `
+package legacy
+
+message Doc {
+  slug: string? @required
+  note: string?
+}
+
+message Req {
+  id: string
+}
+
+service DocService {
+  base_path: "/v1"
+
+  get(Req) -> Doc @post("/docs")
+}
+`
+	ast, err := onklang.Parse(src)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "legacy.onk", AST: ast}})
+	if err != nil {
+		t.Fatalf("compile error: %v", err)
+	}
+	out, err := Generate(pkg.Files[0], Options{Title: "Legacy", Version: "1.0.0"})
+	if err != nil {
+		t.Fatalf("Generate error: %v", err)
+	}
+
+	required := requiredSet(t, out, "legacy.Doc")
+	if !required["slug"] {
+		t.Errorf("@required must still win over the ? marker, got %v", required)
+	}
+	if required["note"] {
+		t.Errorf("note is optional and carries no @required, got %v", required)
+	}
+}
