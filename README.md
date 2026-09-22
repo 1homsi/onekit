@@ -283,9 +283,6 @@ Install the CLI:
 go install github.com/1homsi/onekit/cmd/onek@latest
 ```
 
-See [`COMPATIBILITY.md`](COMPATIBILITY.md) for the schema-change policy and
-the required pre-release compatibility workflow.
-
 ## Repository layout
 
 | Path | Contents |
