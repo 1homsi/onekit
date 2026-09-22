@@ -75,9 +75,15 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 		writeSSEResponseHelper(p)
 	}
 
+	if fileHasHTTPRoutes(file) {
+		writeTSNodeHTTPRuntime(p)
+	}
 	for _, s := range file.Services {
 		writeHandlerInterface(p, s)
 		writeRouteFactory(p, s)
+		if serviceHasHTTPRoutes(s) {
+			writeTSNodeRouteFactory(p, s)
+		}
 		if hasWS {
 			writeTSSocketFactory(p, s)
 			writeTSNodeSocketFactory(p, s)
@@ -332,4 +338,125 @@ func writeServerQueryParams(p *Printer, req *onkir.Message) {
 
 func queryScalarConvert(kind onkir.ScalarKind, expr, name string) string {
 	return fmt.Sprintf("parseScalar(%s, %q, %q)", expr, kind.String(), name)
+}
+
+func serviceHasHTTPRoutes(s *onkir.Service) bool {
+	for _, m := range s.Methods {
+		if !m.IsWebSocket() {
+			return true
+		}
+	}
+	return false
+}
+
+func fileHasHTTPRoutes(file *onkir.File) bool {
+	for _, s := range file.Services {
+		if serviceHasHTTPRoutes(s) {
+			return true
+		}
+	}
+	return false
+}
+
+func writeTSNodeHTTPRuntime(p *Printer) {
+	p.P("export type NodeRequestLike = AsyncIterable<Uint8Array | string> & {")
+	p.P("method?: string | undefined;")
+	p.P("url?: string | undefined;")
+	p.P("headers: Record<string, string | string[] | undefined>;")
+	p.P("};")
+	p.P()
+	p.P("export type NodeResponseLike = {")
+	p.P("statusCode: number;")
+	p.P("headersSent: boolean;")
+	p.P("setHeader(name: string, value: string | string[]): unknown;")
+	p.P("write(chunk: Uint8Array): unknown;")
+	p.P("end(chunk?: Uint8Array | string): unknown;")
+	p.P("};")
+	p.P()
+	p.P("export type NodeServerLike = {")
+	p.P(`on(event: "request", listener: (req: NodeRequestLike, res: NodeResponseLike) => void): unknown;`)
+	p.P("listenerCount(event: string): number;")
+	p.P("};")
+	p.P()
+	p.P("export type NodeRequestHandler = (req: NodeRequestLike, res: NodeResponseLike) => boolean;")
+	p.P()
+	p.P("function nodeToFetchRequest(req: NodeRequestLike, url: URL): Request {")
+	p.P("const headers = new Headers();")
+	p.P("for (const [name, value] of Object.entries(req.headers)) {")
+	p.P("if (Array.isArray(value)) { for (const v of value) headers.append(name, v); }")
+	p.P("else if (value !== undefined) headers.set(name, value);")
+	p.P("}")
+	p.P(`const method = req.method ?? "GET";`)
+	p.P(`if (method === "GET" || method === "HEAD") return new Request(url, { method, headers });`)
+	p.P("const chunks = req[Symbol.asyncIterator]();")
+	p.P("const body = new ReadableStream<Uint8Array>({")
+	p.P("async pull(controller) {")
+	p.P("const next = await chunks.next();")
+	p.P("if (next.done) { controller.close(); return; }")
+	p.P(`controller.enqueue(typeof next.value === "string" ? new TextEncoder().encode(next.value) : next.value);`)
+	p.P("},")
+	p.P("async cancel() { await chunks.return?.(); },")
+	p.P("});")
+	p.P(`return new Request(url, { method, headers, body, duplex: "half" } as RequestInit);`)
+	p.P("}")
+	p.P()
+	p.P("async function writeFetchResponse(response: Response, res: NodeResponseLike): Promise<void> {")
+	p.P("res.statusCode = response.status;")
+	p.P(`const cookies = typeof response.headers.getSetCookie === "function" ? response.headers.getSetCookie() : [];`)
+	p.P(`response.headers.forEach((value, name) => { if (name !== "set-cookie") res.setHeader(name, value); });`)
+	p.P(`if (cookies.length > 0) res.setHeader("set-cookie", cookies);`)
+	p.P("if (!response.body) { res.end(); return; }")
+	p.P("const reader = response.body.getReader();")
+	p.P("for (;;) {")
+	p.P("const { done, value } = await reader.read();")
+	p.P("if (done) break;")
+	p.P("res.write(value);")
+	p.P("}")
+	p.P("res.end();")
+	p.P("}")
+	p.P()
+	p.P("function nodeRouteHandler(routes: RouteDescriptor[]): NodeRequestHandler {")
+	p.P("return (req, res) => {")
+	p.P("const host = req.headers.host;")
+	p.P(`const url = new URL(req.url ?? "/", "http://" + (typeof host === "string" ? host : "localhost"));`)
+	p.P(`const method = req.method ?? "GET";`)
+	p.P("const route = routes.find((r) => r.method === method && matchPath(r.path, url.pathname) !== null);")
+	p.P("if (!route) return false;")
+	p.P("route.handler(nodeToFetchRequest(req, url))")
+	p.P(".then((response) => writeFetchResponse(response, res))")
+	p.P(".catch(() => {")
+	p.P("if (!res.headersSent) res.statusCode = 500;")
+	p.P("res.end();")
+	p.P("});")
+	p.P("return true;")
+	p.P("};")
+	p.P("}")
+	p.P()
+	p.P(`const nodeRequestRoutesKey = Symbol.for("onekit.nodeRequestRoutes");`)
+	p.P()
+	p.P("function registerNodeRequestHandler(httpServer: NodeServerLike, route: NodeRequestHandler): void {")
+	p.P("const holder = httpServer as unknown as Record<symbol, NodeRequestHandler[] | undefined>;")
+	p.P("const existing = holder[nodeRequestRoutesKey];")
+	p.P("if (existing) { existing.push(route); return; }")
+	p.P("const routes: NodeRequestHandler[] = [route];")
+	p.P("holder[nodeRequestRoutesKey] = routes;")
+	p.P(`httpServer.on("request", (req, res) => {`)
+	p.P("for (const r of routes) if (r(req, res)) return;")
+	p.P(`if (httpServer.listenerCount("request") > 1) return;`)
+	p.P("res.statusCode = 404;")
+	p.P("res.end();")
+	p.P("});")
+	p.P("}")
+	p.P()
+}
+
+func writeTSNodeRouteFactory(p *Printer, s *onkir.Service) {
+	p.P("export function create", s.Name, "NodeHandler(handler: ", s.Name, "Handler): NodeRequestHandler {")
+	p.P("return nodeRouteHandler(create", s.Name, "Routes(handler));")
+	p.P("}")
+	p.P()
+	p.P("export function attach", s.Name, "NodeHandlers(httpServer: NodeServerLike, handler: ", s.Name, "Handler): void {")
+	p.P("registerNodeRequestHandler(httpServer, create", s.Name, "NodeHandler(handler));")
+	p.P("}")
+	p.P()
 }

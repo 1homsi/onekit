@@ -42,7 +42,7 @@ func TestGenerateRustWS(t *testing.T) {
 		"fn chat(&self, context: RequestContext, req: ChatMessage, out: WsSink<ChatEvent>) -> impl std::future::Future<Output = Result<(), ChatServiceChatServerError>> + Send;",
 		`axum::routing::get(chat_service_chat_ws_handler::<T>)`,
 		"axum::extract::ws::WebSocketUpgrade",
-		"while let Some(message) = stream.next().await {",
+		"message = stream.next() => Some(message),",
 		"service.chat(context.clone(), frame, out.clone()).await",
 	} {
 		if !strings.Contains(string(server), want) {
@@ -218,10 +218,18 @@ fn fail(message: String) -> ! {
 
 struct Impl;
 
+static WATCHED_CLOSE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 impl Runtime for Impl {
     fn execute(&self, _context: RequestContext, req: Frame, out: WsCallSink<String, Frame, Frame>) -> impl std::future::Future<Output = Result<(), RuntimeExecuteServerError>> + Send {
         async move {
             match req.payload {
+                Some(FramePayload::Run(run)) if run.code == "watch" => {
+                    tokio::spawn(async move {
+                        out.closed().await;
+                        if out.is_closed() { WATCHED_CLOSE.fetch_add(1, std::sync::atomic::Ordering::SeqCst); }
+                    });
+                }
                 Some(FramePayload::Run(run)) if run.code == "boom" => {
                     return Err(RuntimeExecuteServerError::Internal("boom".into()));
                 }
@@ -288,6 +296,14 @@ async fn until_run_result(socket: &WsCallSocket<String, Frame, Frame>) -> (Vec<S
         }
     }
     fail("connection closed before RunResult".to_string())
+}
+
+async fn wait_for_watched(count: usize) {
+    for _ in 0..100 {
+        if WATCHED_CLOSE.load(std::sync::atomic::Ordering::SeqCst) >= count { return; }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    fail(format!("out.closed() never fired for connection {count}"));
 }
 
 // raw_close sends text on a fresh connection and returns the close code and
@@ -359,6 +375,37 @@ async fn main() {
             if invalid != Some((1007, "invalid JSON frame".to_string())) { fail(format!("invalid frame: {invalid:?}")); }
             let boom = raw_close(addr, r#"{"payload":{"type":"run","run":{"code":"boom"}}}"#).await;
             if boom != Some((1011, "internal server error: boom".to_string())) { fail(format!("handler error: {boom:?}")); }
+        })
+        .await,
+        Err(elapsed) => Err(elapsed),
+    };
+
+    let outcome = match outcome {
+        Ok(()) => tokio::time::timeout(Duration::from_secs(10), async {
+            let fast_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+            let fast = fast_listener.local_addr().expect("local addr");
+            let options = WsServerOptions { ping_interval: Some(Duration::from_millis(50)), ..Default::default() };
+            tokio::spawn(async move {
+                axum::serve(fast_listener, runtime_router_with_ws_options(Arc::new(Impl), options)).await.expect("serve");
+            });
+
+            let pinged = RuntimeClient::new(format!("http://{fast}")).execute(&run("x")).await.expect("connect");
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            pinged.send(&run("x")).await.expect("send run after pings");
+            let (seen, _) = until_run_result(&pinged).await;
+            if seen != ["host_call:call-1"] { fail(format!("round trip after server pings: {seen:?}")); }
+
+            let watched = RuntimeClient::new(format!("http://{fast}")).execute(&run("x")).await.expect("connect");
+            watched.send(&run("watch")).await.expect("send watch");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            watched.close().await;
+            wait_for_watched(1).await;
+
+            use futures_util::SinkExt;
+            let (mut silent, _) = tokio_tungstenite::connect_async(format!("ws://{fast}/v1/execute")).await.expect("raw connect");
+            silent.send(tokio_tungstenite::tungstenite::Message::text(r#"{"payload":{"type":"run","run":{"code":"watch"}}}"#)).await.expect("raw send");
+            wait_for_watched(2).await;
+            drop(silent);
         })
         .await,
         Err(elapsed) => Err(elapsed),

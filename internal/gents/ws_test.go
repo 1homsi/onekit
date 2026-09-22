@@ -302,7 +302,7 @@ httpServer.listen(0, "127.0.0.1", () => {
 `
 
 func TestGeneratedTSWSNodeAdapterRuntimeRoutesMultipleVariants(t *testing.T) {
-	dir := buildTSNodeServer(t)
+	dir := buildTSNodeServer(t, wsCorrelatedFixture, nil)
 	runNodeHarness(t, dir, tsNodeRuntimeHarness)
 }
 
@@ -475,7 +475,7 @@ function oversizedFrameCloseCode(addr) {
 // Also pins that an oversized frame closes only that connection: the Node
 // adapter used to leave ws's 'error' event unhandled, crashing the process.
 func TestGeneratedTSWSNodeCallCancellationAndLimits(t *testing.T) {
-	dir := buildTSNodeServer(t)
+	dir := buildTSNodeServer(t, wsCorrelatedFixture, nil)
 	runNodeHarness(t, dir, tsNodeCancelHarness)
 }
 
@@ -583,30 +583,33 @@ httpServer.listen(0, "127.0.0.1", async () => {
 `
 
 func TestGeneratedTSWSNodeReplyDirectionErrorsBackpressure(t *testing.T) {
-	dir := buildTSNodeServer(t)
+	dir := buildTSNodeServer(t, wsCorrelatedFixture, nil)
 	runNodeHarness(t, dir, tsNodeProtocolHarness)
 }
 
 func TestGeneratedTSWSNodeAdapterLifecycle(t *testing.T) {
-	dir := buildTSNodeServer(t)
+	dir := buildTSNodeServer(t, wsCorrelatedFixture, nil)
 	runNodeHarness(t, dir, tsNodeLifecycleHarness)
 }
 
-// buildTSNodeServer generates types.ts/server.ts/client.ts for wsCorrelatedFixture into a temp dir,
+// buildTSNodeServer generates types.ts/server.ts/client.ts for fixture, plus any extra files, into a temp dir,
 // installs the Node adapter's peer dependencies, and compiles them to
 // CommonJS so a plain-JS harness can require("./server.js").
-func buildTSNodeServer(t *testing.T) string {
+func buildTSNodeServer(t *testing.T, fixture string, extra map[string]string) string {
 	t.Helper()
 	for _, tool := range []string{"tsc", "npm", "node"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Skip(tool + " not available")
 		}
 	}
-	file, err := compileForTest(wsCorrelatedFixture)
+	file, err := compileForTest(fixture)
 	if err != nil {
 		t.Fatalf("fixture: %v", err)
 	}
 	dir := t.TempDir()
+	for name, content := range extra {
+		writeFile(t, filepath.Join(dir, name), content)
+	}
 	writeFile(t, filepath.Join(dir, "types.ts"), string(GenerateTypes(file)))
 	writeFile(t, filepath.Join(dir, "server.ts"), string(GenerateServerWithResolver(file, nil)))
 	writeFile(t, filepath.Join(dir, "client.ts"), string(GenerateClientWithResolver(file, nil)))
@@ -648,4 +651,127 @@ func runNodeHarness(t *testing.T, dir, harness string) {
 	if got := strings.TrimSpace(string(out)); got != "OK" {
 		t.Fatalf("expected OK, got %q", got)
 	}
+}
+
+const nodeHTTPFixture = `
+package nodehttp
+
+message GetReq { id: string }
+message Item { id: string
+name: string }
+message CreateReq { name: string }
+
+service Items {
+  base_path: "/v1"
+
+  get(GetReq) -> Item @get("/items/{id}")
+  create(CreateReq) -> Item @post("/items")
+}
+`
+
+const nodeHTTPTypeCheck = `
+import * as http from "node:http";
+import { attachItemsNodeHandlers, createItemsNodeHandler, type ItemsHandler } from "./server.js";
+
+declare const handler: ItemsHandler;
+attachItemsNodeHandlers(http.createServer(), handler);
+const api = createItemsNodeHandler(handler);
+http.createServer((req, res) => { if (!api(req, res)) { res.statusCode = 404; res.end(); } });
+`
+
+const tsNodeHTTPHarness = `
+"use strict";
+const http = require("node:http");
+const { attachItemsNodeHandlers } = require("./server.js");
+
+function fail(...args) { console.error(...args); process.exit(1); }
+setTimeout(() => fail("TIMEOUT"), 10000).unref();
+
+const handler = {
+  async get(req) { return { id: req.id, name: "stored" }; },
+  async create(req) { return { id: "new", name: req.name }; },
+};
+
+const server = http.createServer();
+attachItemsNodeHandlers(server, handler);
+server.listen(0, "127.0.0.1", async () => {
+  const base = "http://127.0.0.1:" + server.address().port;
+  const got = await fetch(base + "/v1/items/abc");
+  const gotBody = await got.json();
+  if (got.status !== 200 || gotBody.id !== "abc" || gotBody.name !== "stored") fail("GET:", got.status, JSON.stringify(gotBody));
+  const created = await fetch(base + "/v1/items", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "widget" }) });
+  const createdBody = await created.json();
+  if (created.status !== 200 || createdBody.name !== "widget") fail("POST:", created.status, JSON.stringify(createdBody));
+  const missing = await fetch(base + "/v1/nope");
+  if (missing.status !== 404) fail("unmatched path:", missing.status);
+  console.log("OK");
+  process.exit(0);
+});
+`
+
+func TestGeneratedTSNodeHTTPAdapter(t *testing.T) {
+	dir := buildTSNodeServer(t, nodeHTTPFixture, map[string]string{"typecheck.ts": nodeHTTPTypeCheck})
+	runNodeHarness(t, dir, tsNodeHTTPHarness)
+}
+
+const tsNodeSignalKeepAliveHarness = `
+"use strict";
+const http = require("node:http");
+const WebSocket = require("ws");
+const server = require("./server.js");
+const client = require("./client.js");
+
+function fail(...args) { console.error(...args); process.exit(1); }
+setTimeout(() => fail("TIMEOUT"), 15000).unref();
+
+let aborted = null;
+const handler = {
+  async execute(req, out) {
+    if (!req.payload || req.payload.type !== "run") return;
+    out.signal.addEventListener("abort", () => { aborted = out.signal.reason; });
+  },
+};
+
+function listen(options) {
+  const httpServer = http.createServer();
+  server.attachRuntimeNodeSocketHandlers(httpServer, handler, options);
+  return new Promise((resolve) => httpServer.listen(0, "127.0.0.1", () => resolve("127.0.0.1:" + httpServer.address().port)));
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+(async () => {
+  const addr = await listen();
+  const a = new WebSocket("ws://" + addr + "/v1/execute");
+  await new Promise((r) => a.on("open", r));
+  a.send(JSON.stringify({ payload: { type: "run", run: { code: "x" } } }));
+  await sleep(100);
+  a.close(4000, "bye");
+  await sleep(200);
+  if (!(aborted instanceof server.WSClosedError) || aborted.code !== 4000) fail("out.signal:", aborted);
+
+  const fast = await listen({ pingIntervalMs: 100 });
+  const b = new WebSocket("ws://" + fast + "/v1/execute", { autoPong: false });
+  const dropped = new Promise((r) => b.on("close", () => r(true)));
+  const result = await Promise.race([dropped, sleep(3000).then(() => false)]);
+  if (!result) fail("a peer that never answers pings was never dropped");
+
+  const raw = new WebSocket.WebSocketServer({ port: 0, host: "127.0.0.1" });
+  await new Promise((r) => raw.on("listening", r));
+  raw.on("connection", (ws) => ws.send("not json"));
+  const socket = await new client.RuntimeClient("http://127.0.0.1:" + raw.address().port).execute({ payload: { type: "run", run: { code: "x" } } });
+  try {
+    await socket.call("c-1", { payload: { type: "host_call", hostCall: { id: "c-1", method: "x" } } }, { timeoutMs: 5000 });
+    fail("call resolved on an undecodable frame");
+  } catch (err) {
+    if (!(err instanceof client.WSClosedError) || err.code !== 1007) fail("undecodable frame:", err);
+  }
+  console.log("OK");
+  process.exit(0);
+})().catch((err) => fail("HARNESS_ERROR", err));
+`
+
+func TestGeneratedTSWSNodeSignalKeepAliveAndDecodeFailure(t *testing.T) {
+	dir := buildTSNodeServer(t, wsCorrelatedFixture, nil)
+	runNodeHarness(t, dir, tsNodeSignalKeepAliveHarness)
 }
