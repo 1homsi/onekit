@@ -172,7 +172,45 @@ service ChatService {
 Peer dependencies per target, only when the schema uses `@ws`: Go needs
 `github.com/coder/websocket`, Python needs `websockets>=12`, the Rust client
 needs `tokio-tungstenite`; servers reuse their existing framework sockets
-(axum / Web-standard `WebSocketPair`).
+(axum / Web-standard `WebSocketPair`), except the TypeScript Node adapter
+below, which needs the `ws` package.
+
+### Deploying a generated TypeScript `@ws` server
+
+`ts-server` emits two entry points per service with `@ws` methods, so the
+same generated output runs on either family of server runtime:
+
+```ts
+// Workers / Deno / Bun - built on the Web-standard WebSocketPair. The
+// consumer's own fetch handler matches `path` and calls `handle`.
+import { createChatServiceRoutes, createChatServiceSocketRoutes } from "./server";
+
+const socketRoutes = createChatServiceSocketRoutes(handlerImpl);
+export default {
+  fetch(req: Request) {
+    const { pathname } = new URL(req.url);
+    const route = socketRoutes.find((r) => r.path === pathname);
+    if (route) return route.handle(req, {});
+    // ...dispatch createChatServiceRoutes() the same way for regular routes
+  },
+};
+```
+
+```ts
+// Plain Node - no WebSocketPair there at all, so this is a separate path
+// built on the `ws` package instead, attached directly to an http.Server.
+import * as http from "node:http";
+import { attachChatServiceNodeSocketHandlers } from "./server";
+
+const server = http.createServer(/* your regular-route handler */);
+attachChatServiceNodeSocketHandlers(server, handlerImpl);
+server.listen(8080);
+```
+
+Regular (non-`@ws`) routes already run on Node as-is (`createXRoutes`'s
+`RouteDescriptor.handler` is built on the Fetch API `Request`/`Response`,
+which Node 18+ implements natively) - only `@ws` routes needed a Node-specific
+path, since `WebSocketPair` has no Node equivalent at all.
 
 ### Multiplexed correlated calls with `@ws_id`
 
