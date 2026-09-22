@@ -198,6 +198,13 @@ func writeWSDuplexType(p *Printer, inName, outName string, idField *onkir.Field,
 		return
 	}
 
+	writeWSCorrelatedDuplexMethods(p, name, inName, outName, idField, respMessage)
+}
+
+// writeWSCorrelatedDuplexMethods emits the ensureReader/readLoop/Receive/Call
+// methods for a @ws_id-using duplex type, split out of writeWSDuplexType to
+// keep both functions under the linter's statement-count limit.
+func writeWSCorrelatedDuplexMethods(p *Printer, name, inName, outName string, idField *onkir.Field, respMessage *onkir.Message) {
 	idType := p.GoFieldType(idField.Type)
 
 	p.P("func (d *", name, ") ensureReader() {")

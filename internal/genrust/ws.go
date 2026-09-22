@@ -316,6 +316,12 @@ func WriteWSClientRuntime(p *Printer, hasWSCorrelation bool) {
 	if !hasWSCorrelation {
 		return
 	}
+	writeWSCallSocketType(p)
+}
+
+// writeWSCallSocketType emits WsCallSocket, split out of WriteWSClientRuntime
+// to keep both functions under the linter's statement-count limit.
+func writeWSCallSocketType(p *Printer) {
 	writeWSPendingType(p)
 	p.P("pub struct WsCallSocket<K, In, Out> {")
 	p.P("socket: WsFrameSocket<In, Out>,")

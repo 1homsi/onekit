@@ -994,7 +994,7 @@ func validateWSCorrelation(filePath string, method *onkir.Method) error {
 	if err != nil {
 		return err
 	}
-	all := append(requestFields, responseFields...)
+	all := append(append([]*onkir.Field{}, requestFields...), responseFields...)
 	if len(all) == 0 {
 		return nil
 	}

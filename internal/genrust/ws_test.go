@@ -203,12 +203,12 @@ func runRustWSCompileCheck(t *testing.T, src, crateName string) {
 	}
 	cargoToml := strings.Replace(rustWSCargoToml, "onekit-rust-ws-fixture", crateName, 1)
 	files := map[string]string{
-		"Cargo.toml":                cargoToml,
-		"src/main.rs":               "mod generated;\nfn main() {}\n",
-		"src/generated/mod.rs":      "pub mod types;\npub mod server;\npub mod client;\n",
-		"src/generated/types.rs":    string(types),
-		"src/generated/server.rs":   string(server),
-		"src/generated/client.rs":   string(client),
+		"Cargo.toml":              cargoToml,
+		"src/main.rs":             "mod generated;\nfn main() {}\n",
+		"src/generated/mod.rs":    "pub mod types;\npub mod server;\npub mod client;\n",
+		"src/generated/types.rs":  string(types),
+		"src/generated/server.rs": string(server),
+		"src/generated/client.rs": string(client),
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
