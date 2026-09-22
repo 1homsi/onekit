@@ -195,6 +195,47 @@ func TestMethodHelpers(t *testing.T) {
 	}
 }
 
+func TestWSIDField(t *testing.T) {
+	idField := &Field{Name: "id", Type: &Type{Kind: KindScalar, Scalar: ScalarString}, Decorators: []Decorator{{Name: "ws_id"}}}
+	hostCall := &Message{Name: "HostCall", Fields: []*Field{idField, {Name: "method", Type: &Type{Kind: KindScalar, Scalar: ScalarString}}}}
+	runRequest := &Message{Name: "RunRequest", Fields: []*Field{{Name: "code", Type: &Type{Kind: KindScalar, Scalar: ScalarString}}}}
+
+	payloadOneof := &Oneof{}
+	payload := &Field{Name: "payload", Oneof: payloadOneof}
+	payloadOneof.Field = payload
+	payloadOneof.Variants = []*OneofVariant{
+		{Name: "run", Type: &Type{Kind: KindMessage, Message: runRequest}},
+		{Name: "host_call", Type: &Type{Kind: KindMessage, Message: hostCall}},
+	}
+	frame := &Message{Name: "Frame", Fields: []*Field{payload}}
+
+	found, ok := WSIDField(frame)
+	if !ok || found != idField {
+		t.Fatalf("expected to find @ws_id field within oneof variant, got %+v ok=%v", found, ok)
+	}
+
+	plain := &Message{Name: "Plain", Fields: []*Field{{Name: "x", Type: &Type{Kind: KindScalar, Scalar: ScalarString}}}}
+	if _, ok := WSIDField(plain); ok {
+		t.Fatalf("expected no @ws_id field on a message without one")
+	}
+
+	method := &Method{Name: "execute", Decorators: []Decorator{{Name: "ws", Args: []Arg{{Value: "/execute"}}}}, Request: frame, Response: plain}
+	if f, ok := method.WSIDField(); !ok || f != idField {
+		t.Fatalf("expected method.WSIDField() to find the request's ws_id field, got %+v ok=%v", f, ok)
+	}
+
+	file := &File{Services: []*Service{{Name: "Runtime", Methods: []*Method{method}}}}
+	if !FileHasWSCorrelation(file) {
+		t.Fatalf("expected FileHasWSCorrelation to be true")
+	}
+
+	plainMethod := &Method{Name: "ping", Decorators: []Decorator{{Name: "ws", Args: []Arg{{Value: "/ping"}}}}, Request: plain, Response: plain}
+	plainFile := &File{Services: []*Service{{Name: "Runtime", Methods: []*Method{plainMethod}}}}
+	if FileHasWSCorrelation(plainFile) {
+		t.Fatalf("expected FileHasWSCorrelation to be false when no method uses @ws_id")
+	}
+}
+
 func TestMessageIsErrorAndStatusCode(t *testing.T) {
 	errMsg := &Message{
 		Name:       "NotFoundError",

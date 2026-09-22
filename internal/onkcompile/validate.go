@@ -28,6 +28,11 @@ const (
 	// wsTransport is the pseudo-verb recorded for WebSocket RPCs in route
 	// uniqueness checks and compatibility signatures.
 	wsTransport = "ws"
+	// wsIDDecorator marks a field as the correlation key for matching an
+	// outbound @ws frame (or oneof variant of one) to its eventual inbound
+	// reply on the same connection, so generators can emit a pending-call
+	// map instead of leaving multiplexing to hand-rolled application code.
+	wsIDDecorator = "ws_id"
 )
 
 // validateSyntax rejects decorators and RPC declarations that the generators
@@ -92,6 +97,7 @@ var (
 		"min_items": {minArgs: 1, maxArgs: 1}, "max_items": {minArgs: 1, maxArgs: 1},
 		flattenDecorator: {minArgs: 0, maxArgs: 1}, "encode": {minArgs: 1, maxArgs: 1},
 		"empty": {minArgs: 1, maxArgs: 1}, "query": {minArgs: 0, maxArgs: 1},
+		wsIDDecorator: {},
 	}
 	headerDecorators = map[string]decoratorRule{
 		"required": {}, "format": {minArgs: 1, maxArgs: 1}, "example": {minArgs: 1, maxArgs: 1},
@@ -276,6 +282,10 @@ func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl, 
 			if !field.Repeated {
 				return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@%s requires a repeated field", decorator.Name)}
 			}
+		case wsIDDecorator:
+			if !isWSIDTypeRef(field.Type) || field.Repeated {
+				return &Error{Path: filePath, Line: field.Line, Msg: "@ws_id requires a non-repeated string or integer field"}
+			}
 		case flattenDecorator, "empty":
 			if field.Repeated || field.Type.IsMap || isScalarTypeRef(field.Type) {
 				return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@%s requires a non-repeated message field", decorator.Name)}
@@ -428,6 +438,19 @@ func isNumericTypeRef(typ *onklang.TypeRef) bool {
 		return false
 	}
 	return numericTypeRefNames[typ.Name]
+}
+
+// wsIDTypeRefNames lists scalar spellings usable as an @ws_id correlation
+// key: hashable, discrete values only - no float/bool/bytes/timestamp/json.
+var wsIDTypeRefNames = map[string]bool{
+	"string": true, "int32": true, "int64": true, "uint32": true, "uint64": true,
+}
+
+func isWSIDTypeRef(typ *onklang.TypeRef) bool {
+	if typ == nil || typ.IsMap {
+		return false
+	}
+	return wsIDTypeRefNames[typ.Name]
 }
 
 func validateServiceDecl(filePath string, service *onklang.ServiceDecl, routeScope string, seenRoutes map[string]string, options CompileOptions) error {
@@ -945,11 +968,94 @@ func validateMethodBindings(filePath string, method *onkir.Method) error {
 			return &Error{Path: filePath, Msg: fmt.Sprintf("request field %q cannot be both a query and body binding", field.Name)}
 		}
 	}
+	if method.IsWebSocket() {
+		if err := validateWSCorrelation(filePath, method); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func isBodyBearingVerb(verb string) bool {
 	return verb == postVerb || verb == putVerb || verb == patchVerb || verb == queryVerb
+}
+
+// validateWSCorrelation enforces that @ws_id, if used at all on a @ws
+// method's request/response (directly or within a oneof variant's own
+// message), appears at most once per scope and shares one scalar type
+// across every scope it appears in - generators emit a single generic
+// pending-call map per method and need one consistent key type to key it on.
+func validateWSCorrelation(filePath string, method *onkir.Method) error {
+	requestFields, err := collectWSIDFields(filePath, method.Name, "request", method.Request)
+	if err != nil {
+		return err
+	}
+	responseFields, err := collectWSIDFields(filePath, method.Name, "response", method.Response)
+	if err != nil {
+		return err
+	}
+	all := append(requestFields, responseFields...)
+	if len(all) == 0 {
+		return nil
+	}
+	kind := all[0].Type.Scalar
+	for _, field := range all[1:] {
+		if field.Type == nil || field.Type.Kind != onkir.KindScalar || field.Type.Scalar != kind {
+			return &Error{Path: filePath, Msg: fmt.Sprintf(
+				"@ws_id fields on RPC %s must share one scalar type; found both %s and %s",
+				method.Name, kind, field.Type.Scalar,
+			)}
+		}
+	}
+	return nil
+}
+
+// collectWSIDFields walks a @ws method's request or response message,
+// gathering every @ws_id field found directly on it or on any oneof
+// variant's own message, and rejects more than one per scope along the way.
+func collectWSIDFields(filePath, methodName, direction string, message *onkir.Message) ([]*onkir.Field, error) {
+	var found []*onkir.Field
+	field, err := wsIDFieldInScope(filePath, methodName, direction+" message", message.Fields)
+	if err != nil {
+		return nil, err
+	}
+	if field != nil {
+		found = append(found, field)
+	}
+	for _, f := range message.Fields {
+		if f.Oneof == nil {
+			continue
+		}
+		for _, variant := range f.Oneof.Variants {
+			if variant.Type == nil || variant.Type.Kind != onkir.KindMessage || variant.Type.Message == nil {
+				continue
+			}
+			variantField, err := wsIDFieldInScope(filePath, methodName, direction+" oneof variant "+variant.Name, variant.Type.Message.Fields)
+			if err != nil {
+				return nil, err
+			}
+			if variantField != nil {
+				found = append(found, variantField)
+			}
+		}
+	}
+	return found, nil
+}
+
+// wsIDFieldInScope returns the single @ws_id field among fields, or an error
+// if more than one carries the decorator.
+func wsIDFieldInScope(filePath, methodName, scope string, fields []*onkir.Field) (*onkir.Field, error) {
+	var found *onkir.Field
+	for _, field := range fields {
+		if !field.HasDecorator(wsIDDecorator) {
+			continue
+		}
+		if found != nil {
+			return nil, &Error{Path: filePath, Msg: fmt.Sprintf("%s on RPC %s has more than one @ws_id field", scope, methodName)}
+		}
+		found = field
+	}
+	return found, nil
 }
 
 func methodField(message *onkir.Message, name string) *onkir.Field {
