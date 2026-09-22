@@ -85,7 +85,7 @@ func writeWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeClientQueryParams(p, m.Request)
 
 	// http(s) base URLs upgrade to ws(s).
-	p.P(`socketURL := path`)
+	p.P(`socketURL := c.BaseURL + path`)
 	p.P(`if strings.HasPrefix(socketURL, "https://") { socketURL = "wss://" + strings.TrimPrefix(socketURL, "https://") } else if strings.HasPrefix(socketURL, "http://") { socketURL = "ws://" + strings.TrimPrefix(socketURL, "http://") }`)
 	p.P("header := http.Header{}")
 	p.P("for key, value := range c.Headers { header.Set(key, value) }")
