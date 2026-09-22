@@ -74,8 +74,12 @@ type OneofDecl struct {
 	LeadingComments []string
 	Args            []Arg
 	Variants        []OneofVariant
-	Line            int
-	Col             int
+	// TrailingComments are the comments written just before the closing
+	// brace, after the last member; the same field on the other block
+	// declarations below means the same thing.
+	TrailingComments []string
+	Line             int
+	Col              int
 }
 
 type MessageMember interface{ isMessageMember() }
@@ -85,16 +89,17 @@ func (*MessageDecl) isMessageMember() {}
 func (*EnumDecl) isMessageMember()    {}
 
 type MessageDecl struct {
-	Name            string
-	Doc             string
-	LeadingComments []string
-	Decorators      []Decorator
-	Fields          []*FieldDecl
-	Nested          []*MessageDecl
-	NestedEn        []*EnumDecl
-	Line            int
-	Col             int
-	Members         []MessageMember
+	Name             string
+	Doc              string
+	LeadingComments  []string
+	Decorators       []Decorator
+	Fields           []*FieldDecl
+	Nested           []*MessageDecl
+	NestedEn         []*EnumDecl
+	Line             int
+	Col              int
+	Members          []MessageMember
+	TrailingComments []string
 }
 
 type EnumValueDecl struct {
@@ -107,12 +112,13 @@ type EnumValueDecl struct {
 }
 
 type EnumDecl struct {
-	Name            string
-	Doc             string
-	LeadingComments []string
-	Values          []EnumValueDecl
-	Line            int
-	Col             int
+	Name             string
+	Doc              string
+	LeadingComments  []string
+	Values           []EnumValueDecl
+	Line             int
+	Col              int
+	TrailingComments []string
 }
 
 type HeaderDecl struct {
@@ -125,31 +131,36 @@ type HeaderDecl struct {
 }
 
 type RPCDecl struct {
-	Name            string
-	Doc             string
-	LeadingComments []string
-	RequestSpan     Span
-	ResponseSpan    Span
-	ErrorSpans      []Span
-	RequestType     string
-	ResponseType    string
-	ErrorTypes      []string
-	Decorators      []Decorator
-	HeadersComments []string
-	Headers         []HeaderDecl
-	Line            int
-	Col             int
+	Name                    string
+	Doc                     string
+	LeadingComments         []string
+	RequestSpan             Span
+	ResponseSpan            Span
+	ErrorSpans              []Span
+	RequestType             string
+	ResponseType            string
+	ErrorTypes              []string
+	Decorators              []Decorator
+	HeadersComments         []string
+	Headers                 []HeaderDecl
+	HeadersTrailingComments []string
+	// TrailingComments are the comments before the rpc body's closing brace.
+	TrailingComments []string
+	Line             int
+	Col              int
 }
 
 type ServiceDecl struct {
-	Name             string
-	Doc              string
-	LeadingComments  []string
-	BasePath         string
-	BasePathComments []string
-	HeadersComments  []string
-	Headers          []HeaderDecl
-	RPCs             []*RPCDecl
-	Line             int
-	Col              int
+	Name                    string
+	Doc                     string
+	LeadingComments         []string
+	BasePath                string
+	BasePathComments        []string
+	HeadersComments         []string
+	Headers                 []HeaderDecl
+	HeadersTrailingComments []string
+	RPCs                    []*RPCDecl
+	Line                    int
+	Col                     int
+	TrailingComments        []string
 }

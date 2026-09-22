@@ -27,6 +27,7 @@ import "./common.onk"
 /// User docs
 message User @status(400) {
   // implementation note
+  /// id docs
   id: string?
 
   message: oneof(discriminator: "type") {
@@ -152,5 +153,96 @@ service S {
 	}
 	if string(again) != out {
 		t.Errorf("Format is not idempotent\n--- first ---\n%s\n--- second ---\n%s", out, again)
+	}
+}
+
+// Comments that no declaration follows - before a closing brace or EOF - have
+// nothing to attach to as leading comments, and used to be dropped.
+func TestFormatPreservesCommentsBeforeClosingBraces(t *testing.T) {
+	src := `package app
+
+message Health {
+  status: string
+  // keep this last - ordering matters to the mobile client
+}
+
+enum Color {
+  RED
+  // more colors later
+}
+
+message Frame {
+  payload: oneof(discriminator: "type") {
+    a: Health
+    // reserved: b
+  }
+}
+
+service S {
+  base_path: "/v1"
+  headers: {
+    "X-A": string
+    // "X-B" retired
+  }
+
+  get(Health) -> Health @post("/h") {
+    headers: {
+      "X-C": string
+      // rpc header note
+    }
+    // rpc body note
+  }
+  // service tail note
+}
+
+// final note
+/// dangling doc at EOF
+`
+	formatted, err := Format(src)
+	if err != nil {
+		t.Fatalf("Format error: %v", err)
+	}
+	if string(formatted) != src {
+		t.Fatalf("formatting changed the schema\n--- want ---\n%s\n--- got ---\n%s", src, formatted)
+	}
+}
+
+// A plain comment between a /// block and its declaration used to discard
+// the doc, dropping the description from every generated target. Both are
+// kept; the plain comment moves above the doc so the doc stays adjacent.
+func TestFormatKeepsDocBlockFollowedByPlainComment(t *testing.T) {
+	src := `package app
+
+/// Bravo doc line.
+// plain note between doc and decl
+message Bravo {
+  b: string
+}
+`
+	file, err := Parse(src)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if got := file.Messages[0].Doc; got != "Bravo doc line." {
+		t.Fatalf("message doc = %q, want %q", got, "Bravo doc line.")
+	}
+	formatted, err := Format(src)
+	if err != nil {
+		t.Fatalf("Format error: %v", err)
+	}
+	want := `package app
+
+// plain note between doc and decl
+/// Bravo doc line.
+message Bravo {
+  b: string
+}
+`
+	if string(formatted) != want {
+		t.Fatalf("--- want ---\n%s\n--- got ---\n%s", want, formatted)
+	}
+	again, err := Format(want)
+	if err != nil || string(again) != want {
+		t.Fatalf("Format is not idempotent: %v\n%s", err, again)
 	}
 }

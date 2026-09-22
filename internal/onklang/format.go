@@ -150,6 +150,7 @@ func (f *formatter) message(message *MessageDecl) {
 			f.enum(member)
 		}
 	}
+	f.comments(message.TrailingComments)
 	f.indent--
 	f.line("}")
 }
@@ -169,6 +170,7 @@ func (f *formatter) field(field *FieldDecl) {
 			f.comments(variant.LeadingComments)
 			f.line(variant.Name + ": " + formatType(variant.Type) + formatDecorators(variant.Decorators))
 		}
+		f.comments(field.Oneof.TrailingComments)
 		f.indent--
 		f.line("}")
 		return
@@ -195,6 +197,7 @@ func (f *formatter) enum(enum *EnumDecl) {
 		f.docs(value.Doc)
 		f.line(value.Name + formatDecorators(value.Decorators))
 	}
+	f.comments(enum.TrailingComments)
 	f.indent--
 	f.line("}")
 }
@@ -208,9 +211,9 @@ func (f *formatter) service(service *ServiceDecl) {
 		f.comments(service.BasePathComments)
 		f.line("base_path: " + strconv.Quote(service.BasePath))
 	}
-	if len(service.Headers) > 0 {
+	if len(service.Headers) > 0 || len(service.HeadersTrailingComments) > 0 {
 		f.comments(service.HeadersComments)
-		f.headers(service.Headers)
+		f.headers(service.Headers, service.HeadersTrailingComments)
 	}
 	if service.BasePath != "" && len(service.RPCs) > 0 {
 		f.blank()
@@ -221,6 +224,7 @@ func (f *formatter) service(service *ServiceDecl) {
 		}
 		f.rpc(rpc)
 	}
+	f.comments(service.TrailingComments)
 	f.indent--
 	f.line("}")
 }
@@ -239,19 +243,22 @@ func (f *formatter) rpc(rpc *RPCDecl) {
 		value.WriteString(errType)
 	}
 	value.WriteString(formatDecorators(rpc.Decorators))
-	if len(rpc.Headers) == 0 {
+	if len(rpc.Headers) == 0 && len(rpc.HeadersTrailingComments) == 0 && len(rpc.TrailingComments) == 0 {
 		f.line(value.String())
 		return
 	}
 	f.line(value.String() + " {")
 	f.indent++
-	f.comments(rpc.HeadersComments)
-	f.headers(rpc.Headers)
+	if len(rpc.Headers) > 0 || len(rpc.HeadersTrailingComments) > 0 {
+		f.comments(rpc.HeadersComments)
+		f.headers(rpc.Headers, rpc.HeadersTrailingComments)
+	}
+	f.comments(rpc.TrailingComments)
 	f.indent--
 	f.line("}")
 }
 
-func (f *formatter) headers(headers []HeaderDecl) {
+func (f *formatter) headers(headers []HeaderDecl, trailing []string) {
 	f.line("headers: {")
 	f.indent++
 	for i, header := range headers {
@@ -261,6 +268,7 @@ func (f *formatter) headers(headers []HeaderDecl) {
 		f.comments(header.LeadingComments)
 		f.line(strconv.Quote(header.Name) + ": " + header.Type + formatDecorators(header.Decorators))
 	}
+	f.comments(trailing)
 	f.indent--
 	f.line("}")
 }

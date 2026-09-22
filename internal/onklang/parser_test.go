@@ -490,10 +490,13 @@ message M {
 	}
 }
 
-func TestParseDocCommentResetByPlainComment(t *testing.T) {
+// A plain comment between a doc block and its declaration does not detach
+// the doc (as in Rust): resetting it lost the description from every
+// generated target, and onek fmt then deleted the /// lines outright.
+func TestParseDocCommentSurvivesPlainComment(t *testing.T) {
 	src := `
 /// Real doc.
-// plain comment breaks the doc block
+// plain comment between doc and declaration
 message M {
   x: string
 }
@@ -502,8 +505,11 @@ message M {
 	if err != nil {
 		t.Fatalf("Parse error: %v", err)
 	}
-	if f.Messages[0].Doc != "" {
-		t.Fatalf("expected doc to be reset by plain comment, got %q", f.Messages[0].Doc)
+	if f.Messages[0].Doc != "Real doc." {
+		t.Fatalf("expected doc %q, got %q", "Real doc.", f.Messages[0].Doc)
+	}
+	if got := f.Messages[0].LeadingComments; len(got) != 1 || got[0] != "// plain comment between doc and declaration" {
+		t.Fatalf("expected the plain comment as a leading comment, got %q", got)
 	}
 }
 
