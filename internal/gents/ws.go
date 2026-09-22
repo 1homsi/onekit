@@ -3,6 +3,7 @@ package gents
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/1homsi/onekit/internal/onkir"
 )
@@ -19,6 +20,13 @@ func WriteTSWSServerRuntime(p *Printer) {
 	p.P("send(value: E): void | Promise<void>;")
 	p.P("}")
 	p.P()
+	writeTSWSPendingType(p)
+	p.P("// WSCallOut extends WSOut with Call: send a correlated frame and await")
+	p.P("// the reply carrying the matching @ws_id, resolved by the read loop.")
+	p.P("export interface WSCallOut<K, E, R> extends WSOut<E> {")
+	p.P("call(id: K, value: E): Promise<R>;")
+	p.P("}")
+	p.P()
 	p.P("export interface SocketRouteDescriptor {")
 	p.P("path: string;")
 	p.P("handle: (req: Request, params: Record<string, string>) => Promise<Response> | Response;")
@@ -33,6 +41,82 @@ func WriteTSWSServerRuntime(p *Printer) {
 	p.P(`addEventListener(type: "message" | "close", listener: (event: any) => void): void;`)
 	p.P("}")
 	p.P()
+}
+
+// writeTSWSPendingType emits the correlation-map runtime shared by every
+// @ws_id-using handler and duplex class in the file: register(id) hands back
+// a promise that resolve(id, value) fulfills exactly once, so a concurrent
+// call can await a specific reply among many interleaved frames. TS modules
+// are file-scoped, so - unlike the Go backend - client and server can share
+// this one name even when generated into the same directory.
+func writeTSWSPendingType(p *Printer) {
+	p.P("// WSPending tracks in-flight correlated WebSocket calls, keyed by an")
+	p.P("// application-supplied @ws_id value, so multiple calls can be")
+	p.P("// outstanding at once on a single connection and resolved out of order.")
+	p.P("export class WSPending<K, T> {")
+	p.P("private waiters = new Map<K, { resolve: (value: T) => void; reject: (err: unknown) => void }>();")
+	p.P()
+	p.P("register(id: K): Promise<T> {")
+	p.P("return new Promise((resolve, reject) => { this.waiters.set(id, { resolve, reject }); });")
+	p.P("}")
+	p.P()
+	p.P("resolve(id: K, value: T): boolean {")
+	p.P("const waiter = this.waiters.get(id);")
+	p.P("if (!waiter) return false;")
+	p.P("this.waiters.delete(id);")
+	p.P("waiter.resolve(value);")
+	p.P("return true;")
+	p.P("}")
+	p.P()
+	p.P("cancel(id: K): void { this.waiters.delete(id); }")
+	p.P()
+	p.P("rejectAll(err: unknown): void {")
+	p.P("for (const waiter of this.waiters.values()) waiter.reject(err);")
+	p.P("this.waiters.clear();")
+	p.P("}")
+	p.P("}")
+	p.P()
+}
+
+// tsWSIDExpression returns a TS IIFE expression evaluating to the @ws_id
+// value found within frameExpr (typed as message, already decoded), or
+// undefined - checking direct fields first, then each oneof variant's own
+// message, mirroring decodeOneofExpr's wire shape (types.go) for both the
+// flattened and nested-under-variant-key cases.
+func tsWSIDExpression(p *Printer, frameExpr string, message *onkir.Message, idField *onkir.Field) string {
+	idType := p.TSFieldType(idField.Type)
+	var b strings.Builder
+	fmt.Fprintf(&b, "((): %s | undefined => {\n", idType)
+	for _, f := range message.Fields {
+		if f.Oneof != nil {
+			disc := oneofDiscriminatorKey(f)
+			flatten := f.Oneof.Flatten()
+			fieldAccess := frameExpr + "." + CamelCase(f.Name)
+			for _, variant := range f.Oneof.Variants {
+				if variant.Type == nil || variant.Type.Kind != onkir.KindMessage || variant.Type.Message == nil {
+					continue
+				}
+				vf, ok := onkir.WSIDField(variant.Type.Message)
+				if !ok || vf != idField {
+					continue
+				}
+				variantProp := fieldAccess
+				if !flatten {
+					variantProp = fieldAccess + "." + CamelCase(variant.Name)
+				}
+				fmt.Fprintf(&b, "if (%s && %s.%s === %q) return %s.%s;\n",
+					fieldAccess, fieldAccess, disc, variant.Tag(), variantProp, CamelCase(idField.Name))
+			}
+			continue
+		}
+		if f != idField {
+			continue
+		}
+		fmt.Fprintf(&b, "return %s.%s;\n", frameExpr, CamelCase(idField.Name))
+	}
+	b.WriteString("return undefined;\n")
+	b.WriteString("})()")
+	return b.String()
 }
 
 func WriteTSWSSocketRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
@@ -82,9 +166,20 @@ func WriteTSWSSocketRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("const pair = new (globalThis as any).WebSocketPair();")
 	p.P("const server: PairServerSocket = pair.server;")
 	p.P("server.accept();")
-	p.P("const out: WSOut<", p.MessageTypeName(m.Response), "> = {")
-	p.P("send: (value) => { server.send(JSON.stringify(value)); },")
-	p.P("};")
+	idField, correlated := m.WSIDField()
+	if correlated {
+		idType := p.TSFieldType(idField.Type)
+		p.P("const pending = new WSPending<", idType, ", ", p.MessageTypeName(m.Request), ">();")
+		p.P("const out: WSCallOut<", idType, ", ", p.MessageTypeName(m.Response), ", ", p.MessageTypeName(m.Request), "> = {")
+		p.P("send: (value) => { server.send(JSON.stringify(value)); },")
+		p.P("call: (id, value) => { const reply = pending.register(id); server.send(JSON.stringify(value)); return reply; },")
+		p.P("};")
+		p.P(`server.addEventListener("close", () => { pending.rejectAll(new Error("websocket closed")); });`)
+	} else {
+		p.P("const out: WSOut<", p.MessageTypeName(m.Response), "> = {")
+		p.P("send: (value) => { server.send(JSON.stringify(value)); },")
+		p.P("};")
+	}
 	p.P("server.addEventListener(\"message\", async (event: any) => {")
 	p.P("try {")
 	p.P("const frame = decode", m.Request.Name, "(JSON.parse(String(event.data)));")
@@ -94,6 +189,10 @@ func WriteTSWSSocketRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("server.close(1008, \"invalid frame\");")
 	p.P("return;")
 	p.P("}")
+	if correlated {
+		p.P("const replyId = ", tsWSIDExpression(p, "frame", m.Request, idField), ";")
+		p.P("if (replyId !== undefined && pending.resolve(replyId, frame)) return;")
+	}
 	p.P("await handler.", CamelCase(m.Name), "(frame, out);")
 	p.P("} catch (err) {")
 	p.P(`server.send(JSON.stringify({ error: String(err) }));`)
@@ -125,12 +224,26 @@ func writeTSSocketFactory(p *Printer, s *onkir.Service) {
 // --- client ---------------------------------------------------------------
 
 // writeTSDuplexClass emits the browser-side duplex wrapper for one ws method
-// pair: validated sends, promise-based receives, clean close.
+// pair: validated sends, clean close, and either the original one-shot
+// promise-based receive() (no @ws_id in play) or - when the method's request
+// or response carries @ws_id - a persistent listener that routes correlated
+// replies to call() and everything else to receive(), so both can be used
+// concurrently without racing on the socket's message event.
 func writeTSDuplexClass(p *Printer, m *onkir.Method) {
 	name := tsDuplexName(m)
 	reqRef := p.MessageTypeName(m.Request)
 	resRef := p.MessageTypeName(m.Response)
+	idField, correlated := m.WSIDField()
+
 	p.P("export class ", name, " {")
+	if correlated {
+		idType := p.TSFieldType(idField.Type)
+		p.P("private pending = new WSPending<", idType, ", ", resRef, ">();")
+		p.P("private inboxQueue: ", resRef, "[] = [];")
+		p.P("private inboxWaiters: Array<{ resolve: (value: ", resRef, ") => void; reject: (err: unknown) => void }> = [];")
+		p.P("private closedWith: unknown = undefined;")
+		p.P("private listening = false;")
+	}
 	p.P("constructor(private ws: WebSocket) {}")
 	p.P()
 	p.P("send(value: ", reqRef, "): void {")
@@ -140,14 +253,65 @@ func writeTSDuplexClass(p *Printer, m *onkir.Method) {
 	p.P("this.ws.send(JSON.stringify(frame));")
 	p.P("}")
 	p.P()
-	p.P("receive(): Promise<", resRef, "> {")
-	p.P("return new Promise((resolve, reject) => {")
-	p.P("const onMessage = (event: MessageEvent) => { cleanup(); try { resolve(decode", m.Response.Name, "(JSON.parse(String(event.data)))); } catch (err) { reject(err); } };")
-	p.P(`const onClose = () => { cleanup(); reject(new Error("websocket closed")); };`)
-	p.P("const cleanup = () => { this.ws.removeEventListener(\"message\", onMessage); this.ws.removeEventListener(\"close\", onClose); };")
-	p.P("this.ws.addEventListener(\"message\", onMessage);")
-	p.P("this.ws.addEventListener(\"close\", onClose);")
+
+	if !correlated {
+		p.P("receive(): Promise<", resRef, "> {")
+		p.P("return new Promise((resolve, reject) => {")
+		p.P("const onMessage = (event: MessageEvent) => { cleanup(); try { resolve(decode", m.Response.Name, "(JSON.parse(String(event.data)))); } catch (err) { reject(err); } };")
+		p.P(`const onClose = () => { cleanup(); reject(new Error("websocket closed")); };`)
+		p.P("const cleanup = () => { this.ws.removeEventListener(\"message\", onMessage); this.ws.removeEventListener(\"close\", onClose); };")
+		p.P("this.ws.addEventListener(\"message\", onMessage);")
+		p.P("this.ws.addEventListener(\"close\", onClose);")
+		p.P("});")
+		p.P("}")
+		p.P()
+		p.P("close(): void { this.ws.close(); }")
+		p.P("}")
+		p.P()
+		return
+	}
+
+	p.P("private ensureListening(): void {")
+	p.P("if (this.listening) return;")
+	p.P("this.listening = true;")
+	p.P("this.ws.addEventListener(\"message\", (event: MessageEvent) => {")
+	p.P("let frame: ", resRef, ";")
+	p.P("try { frame = decode", m.Response.Name, "(JSON.parse(String(event.data))); } catch { return; }")
+	p.P("const replyId = ", tsWSIDExpression(p, "frame", m.Response, idField), ";")
+	p.P("if (replyId !== undefined && this.pending.resolve(replyId, frame)) return;")
+	p.P("const waiter = this.inboxWaiters.shift();")
+	p.P("if (waiter) { waiter.resolve(frame); return; }")
+	p.P("this.inboxQueue.push(frame);")
 	p.P("});")
+	p.P(`this.ws.addEventListener("close", () => {`)
+	p.P(`this.closedWith = new Error("websocket closed");`)
+	p.P("this.pending.rejectAll(this.closedWith);")
+	p.P("for (const waiter of this.inboxWaiters.splice(0)) waiter.reject(this.closedWith);")
+	p.P("});")
+	p.P("}")
+	p.P()
+	p.P("receive(): Promise<", resRef, "> {")
+	p.P("this.ensureListening();")
+	p.P("const queued = this.inboxQueue.shift();")
+	p.P("if (queued !== undefined) return Promise.resolve(queued);")
+	p.P("if (this.closedWith !== undefined) return Promise.reject(this.closedWith);")
+	p.P("return new Promise((resolve, reject) => { this.inboxWaiters.push({ resolve, reject }); });")
+	p.P("}")
+	p.P()
+	p.P("// call sends value, then resolves once a response-direction frame")
+	p.P("// carrying the matching @ws_id arrives, or rejects if the connection")
+	p.P("// closes first. Safe alongside receive(): the persistent listener")
+	p.P("// routes correlated replies here and everything else to it.")
+	p.P("call(id: ", p.TSFieldType(idField.Type), ", value: ", reqRef, "): Promise<", resRef, "> {")
+	p.P("this.ensureListening();")
+	p.P("const reply = this.pending.register(id);")
+	p.P("try {")
+	p.P("this.send(value);")
+	p.P("} catch (err) {")
+	p.P("this.pending.cancel(id);")
+	p.P("return Promise.reject(err);")
+	p.P("}")
+	p.P("return reply;")
 	p.P("}")
 	p.P()
 	p.P("close(): void { this.ws.close(); }")
