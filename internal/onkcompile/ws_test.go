@@ -158,3 +158,72 @@ func TestWSRejectsConflicts(t *testing.T) {
 		}
 	}
 }
+
+func TestWSCancelVariant(t *testing.T) {
+	const valid = `package w
+message Call { id: string @ws_id }
+message Cancel { id: string @ws_id }
+message Frame {
+  payload: oneof(discriminator: "type") {
+    call: Call @tag("call")
+    cancel: Cancel @tag("cancel") @ws_cancel
+  }
+}
+service S { f(Frame) -> Frame @ws("/y") }`
+	ast, err := parseSrc(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Compile([]Source{{Path: "w.onk", AST: ast}}); err != nil {
+		t.Fatalf("expected a @ws_cancel variant carrying @ws_id to compile, got: %v", err)
+	}
+
+	cases := []struct{ src, want string }{
+		{
+			`message Call { id: string @ws_id }
+message Stop { reason: string }
+message Frame {
+  payload: oneof(discriminator: "type") {
+    call: Call @tag("call")
+    stop: Stop @ws_cancel
+  }
+}
+service S { f(Frame) -> Frame @ws("/y") }`,
+			"@ws_cancel variant stop on RPC f must be a message with a @ws_id field",
+		},
+		{
+			`message Call { id: string @ws_id }
+message A { id: string @ws_id }
+message B { id: string @ws_id }
+message Frame {
+  payload: oneof(discriminator: "type") {
+    call: Call @tag("call")
+    a: A @ws_cancel
+    b: B @ws_cancel
+  }
+}
+service S { f(Frame) -> Frame @ws("/y") }`,
+			"has more than one @ws_cancel variant (a and b)",
+		},
+		{
+			`message Call { id: string @ws_id }
+message Frame {
+  payload: oneof(discriminator: "type") {
+    call: Call @ws_cancel("x")
+  }
+}
+service S { f(Frame) -> Frame @ws("/y") }`,
+			"ws_cancel",
+		},
+	}
+	for _, tc := range cases {
+		ast, err := parseSrc("package w\n" + tc.src)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		_, err = Compile([]Source{{Path: "w.onk", AST: ast}})
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("want error containing %q, got %v", tc.want, err)
+		}
+	}
+}

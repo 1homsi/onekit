@@ -22,6 +22,9 @@ func writeWSCorrelatedImpls(p *Printer, file *onkir.File) {
 	p.P("pub trait WsCorrelated<K> {")
 	p.Indent()
 	p.P("fn ws_id(&self) -> Option<K>;")
+	p.P("// ws_cancel builds the schema's @ws_cancel frame for id, if it declares one:")
+	p.P("// what an abandoned call() sends so the peer can stop working on id.")
+	p.P("fn ws_cancel(id: K) -> Option<Self> where Self: Sized;")
 	p.Dedent()
 	p.P("}")
 	p.Blank()
@@ -61,9 +64,32 @@ func writeWSCorrelatedImpl(p *Printer, message *onkir.Message, kType string, idF
 	}
 	p.Dedent()
 	p.P("}")
+	p.Blank()
+	writeWSCancelFn(p, message, kType)
 	p.Dedent()
 	p.P("}")
 	p.Blank()
+}
+
+func writeWSCancelFn(p *Printer, message *onkir.Message, kType string) {
+	oneofField, variant, idField, ok := onkir.WSCancelVariant(message)
+	if !ok {
+		p.P("fn ws_cancel(_id: ", kType, ") -> Option<Self> { None }")
+		return
+	}
+	idValue := "id"
+	if idField.Optional {
+		idValue = "Some(id)"
+	}
+	p.P("#[allow(clippy::needless_update)]")
+	p.P("fn ws_cancel(id: ", kType, ") -> Option<Self> {")
+	p.Indent()
+	p.P(
+		"Some(Self { ", RustIdent(oneofField.Name), ": Some(", OneofTypeName(message, oneofField), "::", PascalCase(variant.Name),
+		"(", PascalCase(variant.Type.Message.Name), " { ", RustIdent(idField.Name), ": ", idValue, ", ..Default::default() })), ..Default::default() })",
+	)
+	p.Dedent()
+	p.P("}")
 }
 
 // writeWSIDMatchBody emits statements returning Some(id) for whichever
@@ -87,7 +113,8 @@ func writeWSIDMatchBody(p *Printer, message *onkir.Message) {
 	for _, f := range message.Fields {
 		if f.Oneof != nil {
 			for _, variant := range f.Oneof.Variants {
-				if variant.Type == nil || variant.Type.Kind != onkir.KindMessage || variant.Type.Message == nil {
+				// A cancel is never a reply: it goes to the handler/receive().
+				if variant.IsWSCancel() || variant.Type == nil || variant.Type.Kind != onkir.KindMessage || variant.Type.Message == nil {
 					continue
 				}
 				vf, ok := onkir.WSIDField(variant.Type.Message)

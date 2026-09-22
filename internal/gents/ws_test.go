@@ -30,7 +30,7 @@ func TestGenerateTSWSServer(t *testing.T) {
 		`export interface WSOut<E> {`,
 		"export interface SocketRouteDescriptor {",
 		"chat(req: ChatMessage, out: WSOut<ChatEvent>): void | Promise<void>;",
-		`export function createChatServiceSocketRoutes(handler: ChatServiceHandler): SocketRouteDescriptor[] {`,
+		`export function createChatServiceSocketRoutes(handler: ChatServiceHandler, options: WSServerOptions = {}): SocketRouteDescriptor[] {`,
 		`upgrade") || "").toLowerCase() !== "websocket"`,
 		"(globalThis as any).WebSocketPair()",
 		// Node adapter: no built-in WebSocketPair, so it's an independent
@@ -38,7 +38,7 @@ func TestGenerateTSWSServer(t *testing.T) {
 		// handler-dispatch body as the Workers-style route above.
 		`import { WebSocketServer } from "ws";`,
 		`import type { Server as HttpServer, IncomingHttpHeaders, IncomingMessage } from "node:http";`,
-		"export function attachChatServiceNodeSocketHandlers(httpServer: HttpServer, handler: ChatServiceHandler): void {",
+		"export function attachChatServiceNodeSocketHandlers(httpServer: HttpServer, handler: ChatServiceHandler, options: WSServerOptions = {}): void {",
 		`const match = matchPath("/v1/rooms/{room}", url.pathname);`,
 		"wss.handleUpgrade(req, socket, head, (ws) => {",
 		// Outgoing frames are encoded to the wire shape on both paths, like
@@ -84,6 +84,7 @@ message HostCall { id: string @ws_id
 method: string }
 message HostResult { id: string @ws_id
 value: string }
+message Cancel { id: string @ws_id }
 
 message Frame {
   payload: oneof(discriminator: "type") {
@@ -91,6 +92,7 @@ message Frame {
     host_call: HostCall @tag("host_call")
     host_result: HostResult @tag("host_result")
     run_result: RunResult @tag("run_result")
+    cancel: Cancel @tag("cancel") @ws_cancel
   }
 }
 
@@ -112,7 +114,7 @@ func TestGenerateTSWSServerCorrelated(t *testing.T) {
 		"export interface WSCallOut<K, E, R> extends WSOut<E> {",
 		"execute(req: Frame, out: WSCallOut<string, Frame, Frame>): void | Promise<void>;",
 		"const pending = new WSPending<string, Frame>();",
-		`if (server.readyState !== 1) pending.rejectAll(new Error("websocket closed"));`,
+		"if (server.readyState !== 1) pending.rejectAll(new WSClosedError());",
 		"if (!pending.closed) server.send(JSON.stringify(encodeFrame(value)));",
 		"if (replyId !== undefined && pending.resolve(replyId, frame)) return;",
 		// Both oneof variants carrying @ws_id must get extraction code, not
@@ -121,7 +123,7 @@ func TestGenerateTSWSServerCorrelated(t *testing.T) {
 		`if (frame.payload && frame.payload.type === "host_result") return frame.payload.hostResult.id;`,
 		// Node adapter gets the same correlated out/call shape, reusing the
 		// identical shared body (just socketVar "ws" instead of "server").
-		"export function attachRuntimeNodeSocketHandlers(httpServer: HttpServer, handler: RuntimeHandler): void {",
+		"export function attachRuntimeNodeSocketHandlers(httpServer: HttpServer, handler: RuntimeHandler, options: WSServerOptions = {}): void {",
 		"if (!pending.closed) ws.send(JSON.stringify(encodeFrame(value)));",
 		"if (this.isClosed) return Promise.reject(this.closedWith);",
 	} {
@@ -141,7 +143,7 @@ func TestGenerateTSWSClientCorrelated(t *testing.T) {
 		"export class WSPending<K, T> {",
 		"export class ExecuteSocket {",
 		"private pending = new WSPending<string, Frame>();",
-		"call(id: string, value: Frame): Promise<Frame> {",
+		"call(id: string, value: Frame, options: WSCallOptions = {}): Promise<Frame> {",
 		"private ensureListening(): void {",
 		`if (frame.payload && frame.payload.type === "host_call") return frame.payload.hostCall.id;`,
 		`if (frame.payload && frame.payload.type === "host_result") return frame.payload.hostResult.id;`,
@@ -363,12 +365,126 @@ httpServer.listen(0, "127.0.0.1", async () => {
 });
 `
 
+// tsNodeCancelHarness covers call() bounds end to end: a server call()
+// with timeoutMs rejects with WSTimeoutError and sends the peer the schema's
+// @ws_cancel frame; an aborted signal does the same with WSCancelledError; the
+// generated TS client's call() does both in the other direction; and a frame
+// over maxFrameBytes closes the connection with 1009.
+const tsNodeCancelHarness = `
+"use strict";
+const http = require("node:http");
+const WebSocket = require("ws");
+const server = require("./server.js");
+const client = require("./client.js");
+
+function fail(...args) { console.error(...args); process.exit(1); }
+setTimeout(() => fail("TIMEOUT"), 15000).unref();
+
+const hostCall = (id) => ({ payload: { type: "host_call", hostCall: { id, method: "slow" } } });
+const serverFrames = [];
+let serverFramesChanged = () => {};
+
+const handler = {
+  async execute(req, out) {
+    // The connect-time call carries the (empty) upgrade request.
+    if (!req.payload) return;
+    if (req.payload.type !== "run") {
+      serverFrames.push(req);
+      serverFramesChanged();
+      return;
+    }
+    if (req.payload.run.code !== "server-calls") return;
+    try {
+      await out.call("slow-1", hostCall("slow-1"), { timeoutMs: 150 });
+      fail("timeoutMs call resolved");
+    } catch (err) {
+      if (!(err instanceof server.WSTimeoutError)) fail("want WSTimeoutError, got", err);
+    }
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 50);
+    try {
+      await out.call("ab-1", hostCall("ab-1"), { signal: controller.signal });
+      fail("aborted call resolved");
+    } catch (err) {
+      if (!(err instanceof server.WSCancelledError)) fail("want WSCancelledError, got", err);
+    }
+    out.send({ payload: { type: "run_result", runResult: { exitCode: 7 } } });
+  },
+};
+
+function listen(options) {
+  const httpServer = http.createServer((req, res) => { res.writeHead(404); res.end(); });
+  server.attachRuntimeNodeSocketHandlers(httpServer, handler, options);
+  return new Promise((resolve) => httpServer.listen(0, "127.0.0.1", () => resolve("127.0.0.1:" + httpServer.address().port)));
+}
+
+function serverCallsCancel(addr) {
+  return new Promise((resolve) => {
+    const ws = new WebSocket("ws://" + addr + "/v1/execute");
+    const seen = [];
+    ws.on("open", () => ws.send(JSON.stringify({ payload: { type: "run", run: { code: "server-calls" } } })));
+    ws.on("message", (data) => {
+      const p = JSON.parse(String(data)).payload;
+      seen.push(p.type + ":" + (p.host_call || p.cancel || {}).id);
+      if (p.type === "run_result") { ws.close(); resolve(seen.join(",")); }
+    });
+  });
+}
+
+async function clientCallCancels(addr) {
+  const socket = await new client.RuntimeClient("http://" + addr).execute({ payload: { type: "run", run: { code: "idle" } } });
+  try {
+    await socket.call("c-1", hostCall("c-1"), { timeoutMs: 100 });
+    fail("client timeoutMs call resolved");
+  } catch (err) {
+    if (!(err instanceof client.WSTimeoutError)) fail("want client WSTimeoutError, got", err);
+  }
+  await new Promise((resolve) => {
+    serverFramesChanged = () => { if (serverFrames.length >= 2) resolve(); };
+    serverFramesChanged();
+  });
+  socket.close();
+  return serverFrames.map((f) => f.payload.type + ":" + (f.payload.hostCall || f.payload.cancel).id).join(",");
+}
+
+function oversizedFrameCloseCode(addr) {
+  return new Promise((resolve) => {
+    const ws = new WebSocket("ws://" + addr + "/v1/execute");
+    ws.on("open", () => ws.send(JSON.stringify({ payload: { type: "run", run: { code: "x".repeat(4096) } } })));
+    ws.on("close", (code) => resolve(code));
+  });
+}
+
+(async () => {
+  const addr = await listen();
+  const seen = await serverCallsCancel(addr);
+  if (seen !== "host_call:slow-1,cancel:slow-1,host_call:ab-1,cancel:ab-1,run_result:undefined") fail("server-side frames:", seen);
+
+  const handled = await clientCallCancels(addr);
+  if (handled !== "host_call:c-1,cancel:c-1") fail("client-side frames:", handled);
+
+  const small = await listen({ maxFrameBytes: 1024 });
+  const code = await oversizedFrameCloseCode(small);
+  if (code !== 1009) fail("oversized frame close code:", code);
+
+  console.log("OK");
+  process.exit(0);
+})().catch((err) => fail("HARNESS_ERROR", err));
+`
+
+// Also pins that an oversized frame closes only that connection: the Node
+// adapter used to leave ws's 'error' event unhandled, crashing the process.
+func TestGeneratedTSWSNodeCallCancellationAndLimits(t *testing.T) {
+	dir := buildTSNodeServer(t, wsCorrelatedFixture)
+	runNodeHarness(t, dir, tsNodeCancelHarness)
+}
+
 func TestGeneratedTSWSNodeAdapterLifecycle(t *testing.T) {
 	dir := buildTSNodeServer(t, wsCorrelatedFixture)
 	runNodeHarness(t, dir, tsNodeLifecycleHarness)
 }
 
-// buildTSNodeServer generates types.ts/server.ts for fixture into a temp dir,
+// buildTSNodeServer generates types.ts/server.ts/client.ts for fixture into a temp dir,
 // installs the Node adapter's peer dependencies, and compiles them to
 // CommonJS so a plain-JS harness can require("./server.js").
 func buildTSNodeServer(t *testing.T, fixture string) string {
@@ -385,6 +501,7 @@ func buildTSNodeServer(t *testing.T, fixture string) string {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "types.ts"), string(GenerateTypes(file)))
 	writeFile(t, filepath.Join(dir, "server.ts"), string(GenerateServerWithResolver(file, nil)))
+	writeFile(t, filepath.Join(dir, "client.ts"), string(GenerateClientWithResolver(file, nil)))
 	writeFile(t, filepath.Join(dir, "package.json"), `{"name": "ws-node-runtime", "private": true}`)
 	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
   "compilerOptions": {
@@ -393,7 +510,8 @@ func buildTSNodeServer(t *testing.T, fixture string) string {
     "moduleResolution": "node16",
     "esModuleInterop": true,
     "strict": true,
-    "types": ["node", "ws"]
+    "types": ["node", "ws"],
+    "lib": ["ES2022", "DOM"]
   }
 }
 `)

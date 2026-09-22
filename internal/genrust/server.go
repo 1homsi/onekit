@@ -130,7 +130,18 @@ func writeServerService(p *Printer, service *onkir.Service) {
 
 func writeRouter(p *Printer, service *onkir.Service) {
 	traitName := PascalCase(service.Name)
-	p.P("pub fn ", SnakeCase(service.Name), "_router<T: ", traitName, ">(service: Arc<T>) -> Router {")
+	hasWS := serviceHasWS(service)
+	if hasWS {
+		p.P("pub fn ", SnakeCase(service.Name), "_router<T: ", traitName, ">(service: Arc<T>) -> Router {")
+		p.Indent()
+		p.P(SnakeCase(service.Name), "_router_with_ws_options(service, WsServerOptions::default())")
+		p.Dedent()
+		p.P("}")
+		p.Blank()
+		p.P("pub fn ", SnakeCase(service.Name), "_router_with_ws_options<T: ", traitName, ">(service: Arc<T>, ws_options: WsServerOptions) -> Router {")
+	} else {
+		p.P("pub fn ", SnakeCase(service.Name), "_router<T: ", traitName, ">(service: Arc<T>) -> Router {")
+	}
 	p.Indent()
 	p.P("Router::new()")
 	p.Indent()
@@ -156,10 +167,22 @@ func writeRouter(p *Printer, service *onkir.Service) {
 		)
 	}
 	p.P(".with_state(service)")
+	if hasWS {
+		p.P(".layer(axum::Extension(ws_options))")
+	}
 	p.Dedent()
 	p.Dedent()
 	p.P("}")
 	p.Blank()
+}
+
+func serviceHasWS(service *onkir.Service) bool {
+	for _, method := range service.Methods {
+		if method.IsWebSocket() {
+			return true
+		}
+	}
+	return false
 }
 
 //nolint:nestif // Extractor and response branches directly mirror the schema HTTP binding matrix.

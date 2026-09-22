@@ -53,7 +53,7 @@ func TestGenerateRustWS(t *testing.T) {
 	client := GenerateClient(file)
 	for _, want := range []string{
 		"pub struct WsFrameSocket<In, Out> {",
-		"tokio_tungstenite::connect_async(url)",
+		"tokio_tungstenite::connect_async_with_config(url, Some(config), false)",
 		"pub async fn chat(&self, req: &ChatMessage) -> Result<WsFrameSocket<ChatMessage, ChatEvent>, ChatServiceChatError> {",
 		"Ok(WsFrameSocket::<ChatMessage, ChatEvent>::new(stream))",
 	} {
@@ -72,6 +72,7 @@ message HostCall { id: string @ws_id
 method: string }
 message HostResult { id: string @ws_id
 value: string }
+message Cancel { id: string @ws_id }
 
 message Frame {
   payload: oneof(discriminator: "type") {
@@ -79,6 +80,7 @@ message Frame {
     host_call: HostCall @tag("host_call")
     host_result: HostResult @tag("host_result")
     run_result: RunResult @tag("run_result")
+    cancel: Cancel @tag("cancel") @ws_cancel
   }
 }
 
@@ -139,7 +141,7 @@ func TestGenerateRustWSCorrelated(t *testing.T) {
 		"pub struct WsPending<K, T> {",
 		"pub struct WsCallSocket<K, In, Out> {",
 		"pub async fn execute(&self, req: &Frame) -> Result<WsCallSocket<String, Frame, Frame>, RuntimeExecuteError> {",
-		"pub async fn call(&self, id: K, value: &In) -> Result<Out, String> {",
+		"pub async fn call(&self, id: K, value: &In) -> Result<Out, WsCallError> {",
 	} {
 		if !strings.Contains(string(client), want) {
 			t.Fatalf("generated correlated rust client missing %q:\n%s", want, client)
@@ -185,7 +187,8 @@ const rustBuildOnlyMain = "mod generated;\nfn main() {}\n"
 
 // rustWSCorrelatedRuntimeMain drives a generated axum server and the generated
 // client against each other through the multi-variant correlated round trip
-// the Go and TS runtime tests use: the server answers "run" by call()ing a
+// the Go and TS runtime tests use, then call_timeout plus the @ws_cancel frame
+// in each direction: the server answers "run" by call()ing a
 // HostCall and awaiting the matching HostResult (a different oneof variant)
 // before sending RunResult. It also pins a client-side bug this test was
 // written to catch: the background reader used to drop any inbound frame that
@@ -194,7 +197,7 @@ const rustBuildOnlyMain = "mod generated;\nfn main() {}\n"
 const rustWSCorrelatedRuntimeMain = `#![allow(dead_code)]
 mod generated;
 
-use generated::client::*;
+use generated::client::{RuntimeClient, WsCallSocket};
 use generated::server::*;
 use generated::types::*;
 use std::sync::Arc;
@@ -204,29 +207,70 @@ fn frame(payload: FramePayload) -> Frame {
     Frame { payload: Some(payload) }
 }
 
+fn host_call(id: &str) -> Frame {
+    frame(FramePayload::HostCall(HostCall { id: id.into(), method: "doThing".into() }))
+}
+
+fn fail(message: String) -> ! {
+    eprintln!("{message}");
+    std::process::exit(1);
+}
+
 struct Impl;
 
 impl Runtime for Impl {
     fn execute(&self, _context: RequestContext, req: Frame, out: WsCallSink<String, Frame, Frame>) -> impl std::future::Future<Output = Result<(), RuntimeExecuteServerError>> + Send {
         async move {
-            if !matches!(req.payload, Some(FramePayload::Run(_))) {
-                return Ok(());
-            }
-            tokio::spawn(async move {
-                let call = frame(FramePayload::HostCall(HostCall { id: "call-1".into(), method: "doThing".into() }));
-                match out.call("call-1".to_string(), call).await {
-                    Ok(Frame { payload: Some(FramePayload::HostResult(result)) }) if result.id == "call-1" && result.value == "answer" => {
-                        let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 0 }))).await;
-                    }
-                    other => {
-                        eprintln!("UNEXPECTED_REPLY {other:?}");
-                        std::process::exit(1);
-                    }
+            match req.payload {
+                Some(FramePayload::Run(run)) if run.code == "timeout" => {
+                    tokio::spawn(async move {
+                        match out.call_timeout("slow-1".to_string(), host_call("slow-1"), Duration::from_millis(200)).await {
+                            Err(generated::server::WsCallError::TimedOut) => {
+                                let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 7 }))).await;
+                            }
+                            other => fail(format!("server call_timeout: want TimedOut, got {other:?}")),
+                        }
+                    });
                 }
-            });
+                Some(FramePayload::Run(_)) => {
+                    tokio::spawn(async move {
+                        match out.call("call-1".to_string(), host_call("call-1")).await {
+                            Ok(Frame { payload: Some(FramePayload::HostResult(result)) }) if result.id == "call-1" && result.value == "answer" => {
+                                let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 0 }))).await;
+                            }
+                            other => fail(format!("UNEXPECTED_REPLY {other:?}")),
+                        }
+                    });
+                }
+                // The client's abandoned call reached the handler as a cancel.
+                Some(FramePayload::Cancel(cancel)) if cancel.id == "c-1" => {
+                    let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 9 }))).await;
+                }
+                _ => {}
+            }
             Ok(())
         }
     }
+}
+
+// next_frames collects frames until a RunResult, answering HostCall("call-1").
+async fn until_run_result(socket: &WsCallSocket<String, Frame, Frame>) -> (Vec<String>, i32) {
+    let mut seen = Vec::new();
+    while let Some(received) = socket.receive().await {
+        match received.payload {
+            Some(FramePayload::HostCall(call)) => {
+                seen.push(format!("host_call:{}", call.id));
+                if call.id == "call-1" {
+                    let reply = frame(FramePayload::HostResult(HostResult { id: call.id, value: "answer".into() }));
+                    socket.send(&reply).await.expect("send host result");
+                }
+            }
+            Some(FramePayload::Cancel(cancel)) => seen.push(format!("cancel:{}", cancel.id)),
+            Some(FramePayload::RunResult(result)) => return (seen, result.exit_code),
+            other => fail(format!("unexpected frame {other:?}")),
+        }
+    }
+    fail("connection closed before RunResult".to_string())
 }
 
 #[tokio::main]
@@ -238,35 +282,33 @@ async fn main() {
     });
 
     let client = RuntimeClient::new(format!("http://{addr}"));
-    let run = frame(FramePayload::Run(RunRequest { code: "x".into() }));
-    let socket = client.execute(&run).await.expect("connect");
-    socket.send(&run).await.expect("send run");
+    let run = |code: &str| frame(FramePayload::Run(RunRequest { code: code.into() }));
+    let socket = client.execute(&run("x")).await.expect("connect");
 
     let outcome = tokio::time::timeout(Duration::from_secs(10), async {
-        while let Some(received) = socket.receive().await {
-            match received.payload {
-                Some(FramePayload::HostCall(call)) => {
-                    let reply = frame(FramePayload::HostResult(HostResult { id: call.id, value: "answer".into() }));
-                    socket.send(&reply).await.expect("send host result");
-                }
-                Some(FramePayload::RunResult(_)) => return Ok(()),
-                other => return Err(format!("unexpected frame {other:?}")),
-            }
+        // Multi-variant round trip: a server call answered by a different variant.
+        socket.send(&run("x")).await.expect("send run");
+        let (seen, _) = until_run_result(&socket).await;
+        if seen != ["host_call:call-1"] { fail(format!("round trip frames: {seen:?}")); }
+
+        // A server call_timeout gives up with TimedOut and sends the cancel frame.
+        socket.send(&run("timeout")).await.expect("send run");
+        let (seen, code) = until_run_result(&socket).await;
+        if seen != ["host_call:slow-1", "cancel:slow-1"] || code != 7 { fail(format!("server timeout frames: {seen:?} {code}")); }
+
+        // A client call_timeout does the same in the other direction.
+        match socket.call_timeout("c-1".to_string(), &host_call("c-1"), Duration::from_millis(100)).await {
+            Err(generated::client::WsCallError::TimedOut) => {}
+            other => fail(format!("client call_timeout: want TimedOut, got {other:?}")),
         }
-        Err("connection closed before RunResult".to_string())
+        let (_, code) = until_run_result(&socket).await;
+        if code != 9 { fail(format!("server never saw the client's cancel: {code}")); }
     })
     .await;
 
     match outcome {
-        Ok(Ok(())) => println!("OK"),
-        Ok(Err(error)) => {
-            eprintln!("{error}");
-            std::process::exit(1);
-        }
-        Err(_) => {
-            eprintln!("TIMEOUT - a server-pushed HostCall never reached receive(), or Call() never got its HostResult");
-            std::process::exit(1);
-        }
+        Ok(()) => println!("OK"),
+        Err(_) => fail("TIMEOUT - a frame never arrived".to_string()),
     }
 }
 `

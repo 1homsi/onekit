@@ -69,6 +69,9 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	p.P(`"regexp"`)
 	p.P(`"strconv"`)
 	p.P(`"time"`)
+	if hasWSCorrelation {
+		p.P(`"net"`)
+	}
 	if hasWS {
 		p.P(`"sync"`)
 	}
@@ -86,12 +89,12 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 
 	writeRuntimeHelpers(p)
 	writeHeaderFormatPatterns(p)
-	writeServerOptions(p)
+	writeServerOptions(p, hasWS)
 	if hasWS {
 		writeWSOutType(p)
 	}
 	if hasWSCorrelation {
-		writeWSPendingType(p, wsServerPendingType, wsServerPendingConstructor)
+		writeWSPendingType(p, wsServerPendingType, wsServerPendingConstructor, wsServerClosedError)
 	}
 	if hasStream {
 		writeSSEServerRuntime(p)
@@ -141,8 +144,35 @@ func fileHasRequestBodyBinding(file *onkir.File) bool {
 	return false
 }
 
+func writeServerContextAccessors(p *Printer) {
+	p.P(`func RequestMetadataFromContext(ctx context.Context) (RequestMetadata, bool) {`)
+	p.P(`metadata, ok := ctx.Value(requestMetadataContextKey{}).(RequestMetadata)`)
+	p.P(`return metadata, ok`)
+	p.P(`}`)
+	p.P()
+	p.P(`func RequestIDFromContext(ctx context.Context) (string, bool) {`)
+	p.P(`requestID, ok := ctx.Value(requestIDContextKey{}).(string)`)
+	p.P(`return requestID, ok && requestID != ""`)
+	p.P(`}`)
+	p.P()
+}
+
+func writeWSServerOption(p *Printer) {
+	p.P()
+	p.P(`// WithMaxWSFrameBytes caps one inbound WebSocket message (default 16 MiB).`)
+	p.P(`// A larger message closes the connection with status 1009 (message too`)
+	p.P(`// big). A negative limit disables the check.`)
+	p.P(`func WithMaxWSFrameBytes(limit int64) ServerOption { return func(o *serverOptions) { o.maxWSFrameBytes = limit } }`)
+	p.P()
+	p.P(`func wsServerReadLimit(limit int64) int64 {`)
+	p.P(`if limit == 0 { return `, defaultMaxWSFrameBytes, ` }`)
+	p.P(`if limit < 0 { return -1 }`)
+	p.P(`return limit`)
+	p.P(`}`)
+}
+
 // writeServerOptions emits runtime hooks shared by every generated server.
-func writeServerOptions(p *Printer) {
+func writeServerOptions(p *Printer, hasWS bool) {
 	p.P(`// RequestMetadata identifies the generated route handling a request.`)
 	p.P(`type RequestMetadata struct {`)
 	p.P(`Service string`)
@@ -155,16 +185,7 @@ func writeServerOptions(p *Printer) {
 	p.P(`type requestMetadataContextKey struct{}`)
 	p.P(`type requestIDContextKey struct{}`)
 	p.P()
-	p.P(`func RequestMetadataFromContext(ctx context.Context) (RequestMetadata, bool) {`)
-	p.P(`metadata, ok := ctx.Value(requestMetadataContextKey{}).(RequestMetadata)`)
-	p.P(`return metadata, ok`)
-	p.P(`}`)
-	p.P()
-	p.P(`func RequestIDFromContext(ctx context.Context) (string, bool) {`)
-	p.P(`requestID, ok := ctx.Value(requestIDContextKey{}).(string)`)
-	p.P(`return requestID, ok && requestID != ""`)
-	p.P(`}`)
-	p.P()
+	writeServerContextAccessors(p)
 	p.P(`type Middleware func(http.Handler) http.Handler`)
 	p.P(`type RequestIDGenerator func() string`)
 	p.P(`type Authorizer func(context.Context, RequestMetadata, *http.Request) error`)
@@ -183,6 +204,9 @@ func writeServerOptions(p *Printer) {
 	p.P(`requestIDGenerator RequestIDGenerator`)
 	p.P(`authorizer Authorizer`)
 	p.P(`observer RequestObserver`)
+	if hasWS {
+		p.P(`maxWSFrameBytes int64`)
+	}
 	p.P(`}`)
 	p.P()
 	p.P(`// WithMux supports the options-first registration form.`)
@@ -202,6 +226,9 @@ func writeServerOptions(p *Printer) {
 	p.P()
 	p.P(`func WithAuthorizer(authorizer Authorizer) ServerOption { return func(o *serverOptions) { o.authorizer = authorizer } }`)
 	p.P(`func WithRequestObserver(observer RequestObserver) ServerOption { return func(o *serverOptions) { o.observer = observer } }`)
+	if hasWS {
+		writeWSServerOption(p)
+	}
 	p.P()
 	p.P(`func defaultRequestIDGenerator() string {`)
 	p.P(`var value [16]byte`)

@@ -82,17 +82,25 @@ func writeClient(p *Printer, service *onkir.Service) {
 	p.P("headers: reqwest::header::HeaderMap,")
 	p.P("max_response_body_bytes: usize,")
 	p.P("max_sse_frame_bytes: usize,")
+	if serviceHasWS(service) {
+		p.P("max_ws_frame_bytes: usize,")
+	}
 	p.Dedent()
 	p.P("}")
 	p.Blank()
 	p.P("impl ", name, "Client {")
 	p.Indent()
+	wsFrameInit := ""
+	if serviceHasWS(service) {
+		wsFrameInit = ", max_ws_frame_bytes: DEFAULT_MAX_WS_FRAME_BYTES"
+	}
 	p.P("pub fn new(base_url: impl Into<String>) -> Self {")
 	p.Indent()
 	p.P(
 		"Self { base_url: base_url.into().trim_end_matches('/').to_owned(), ",
 		"http: reqwest::Client::new(), headers: reqwest::header::HeaderMap::new(), ",
-		"max_response_body_bytes: DEFAULT_MAX_RESPONSE_BODY_BYTES, max_sse_frame_bytes: DEFAULT_MAX_SSE_FRAME_BYTES }",
+		"max_response_body_bytes: DEFAULT_MAX_RESPONSE_BODY_BYTES, max_sse_frame_bytes: DEFAULT_MAX_SSE_FRAME_BYTES",
+		wsFrameInit, " }",
 	)
 	p.Dedent()
 	p.P("}")
@@ -128,6 +136,16 @@ func writeClient(p *Printer, service *onkir.Service) {
 	p.Dedent()
 	p.P("}")
 	p.Blank()
+	if serviceHasWS(service) {
+		p.P("// Cap on one inbound WebSocket message; a larger one ends the connection.")
+		p.P("pub fn with_max_ws_frame_bytes(mut self, limit: usize) -> Self {")
+		p.Indent()
+		p.P("self.max_ws_frame_bytes = if limit == 0 { DEFAULT_MAX_WS_FRAME_BYTES } else { limit };")
+		p.P("self")
+		p.Dedent()
+		p.P("}")
+		p.Blank()
+	}
 	for _, method := range service.Methods {
 		if method.IsWebSocket() {
 			writeRustWSClientMethod(p, service, method)

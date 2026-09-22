@@ -91,6 +91,9 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) []by
 
 	writeResponseBodyRuntime(p)
 	writeAPIError(p)
+	if onkir.FileHasWSMethods(file) {
+		writeTSWSSharedRuntime(p)
+	}
 	if onkir.FileHasWSCorrelation(file) {
 		writeTSWSPendingType(p)
 	}
@@ -176,6 +179,14 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 	p.P("defaultHeaders?: Record<string, string>;")
 	p.P("maxResponseBodyBytes?: number;")
 	p.P("maxSSELineBytes?: number;")
+	for _, m := range s.Methods {
+		if m.IsWebSocket() {
+			p.P("// Cap on one inbound WebSocket message (default DEFAULT_MAX_WS_FRAME_BYTES);")
+			p.P("// a larger one closes the socket with 1009. Negative disables it.")
+			p.P("maxFrameBytes?: number;")
+			break
+		}
+	}
 	p.P("}")
 	p.P()
 
