@@ -95,6 +95,9 @@ jobs:
           - go-version: '1.26'
             os: macos-latest
             test-args: --fast
+          - go-version: '1.26'
+            os: windows-latest
+            test-args: --fast
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -117,6 +120,15 @@ jobs:
 
       - name: Install TypeScript compiler
         run: npm install --global --ignore-scripts typescript@7.0.2
+
+      # windows-latest runners have Chocolatey but not GNU Make; the
+      # Makefile's own recipes are POSIX-shell (mkdir -p, rm -rf, a
+      # $(shell find ...) call) and run fine once installed, since Git for
+      # Windows' sh.exe/find/mkdir/rm are already on PATH on these runners
+      # and GNU Make auto-detects sh.exe as its recipe shell when present.
+      - name: Install make (Windows)
+        if: runner.os == 'Windows'
+        run: choco install make -y
 
       - name: Build binaries
         run: make build
