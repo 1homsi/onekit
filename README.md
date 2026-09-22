@@ -406,3 +406,7 @@ navigation plus diagnostics for unsaved editor buffers. Repository-local MCP
 configuration and a Claude Code LSP plugin are included; see
 [AI tooling setup](docs/AI_TOOLING.md) for installation, project selection, and
 supported capabilities.
+
+## License
+
+onekit is released under the [MIT License](LICENSE).
