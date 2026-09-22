@@ -244,6 +244,9 @@ func zodFieldSchema(p *Printer, f *onkir.Field) string {
 // zodValueSchema maps one (non-repeated) field value to its Zod expression,
 // honoring field-level @encode choices before delegating to the bare type.
 func zodValueSchema(p *Printer, f *onkir.Field) string {
+	if isRawBytes(f) {
+		return "z.instanceof(Uint8Array)"
+	}
 	switch {
 	case f.Oneof != nil:
 		return OneofTypeName(f.Message, f) + "Schema"

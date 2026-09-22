@@ -152,10 +152,13 @@ type typesImports struct {
 	base64  bool
 	strconv bool
 	strings bool
+	binary  bool
+	errors  bool
+	unsafe  bool
 }
 
 func (imp typesImports) any() bool {
-	return imp.time || imp.fmt || imp.json || imp.hex || imp.base64 || imp.strconv || imp.strings
+	return imp.time || imp.fmt || imp.json || imp.hex || imp.base64 || imp.strconv || imp.strings || imp.binary || imp.errors || imp.unsafe
 }
 
 func computeTypesImports(file *onkir.File) typesImports {
@@ -215,6 +218,9 @@ func writeTypesImports(p *Printer, imp typesImports, externalRefs []PackageRef) 
 		return
 	}
 	p.P("import (")
+	if imp.binary {
+		p.P(`"encoding/binary"`)
+	}
 	if imp.hex {
 		p.P(`"encoding/hex"`)
 	}
@@ -223,6 +229,9 @@ func writeTypesImports(p *Printer, imp typesImports, externalRefs []PackageRef) 
 	}
 	if imp.base64 {
 		p.P(`"encoding/base64"`)
+	}
+	if imp.errors {
+		p.P(`"errors"`)
 	}
 	if imp.fmt {
 		p.P(`"fmt"`)
@@ -235,6 +244,9 @@ func writeTypesImports(p *Printer, imp typesImports, externalRefs []PackageRef) 
 	}
 	if imp.time {
 		p.P(`"time"`)
+	}
+	if imp.unsafe {
+		p.P(`"unsafe"`)
 	}
 	for _, ref := range externalRefs {
 		p.P(ref.Alias, " ", fmt.Sprintf("%q", ref.ImportPath))
@@ -256,13 +268,28 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) ([]by
 	p.P("package ", GoPackageName(file))
 	p.P()
 
-	writeTypesImports(p, computeTypesImports(file), collectExternalRefs(file, resolver))
+	imp := computeTypesImports(file)
+	hasWS := onkir.FileHasWSMethods(file)
+	hasRaw := hasWS && fileHasWSRaw(p, file)
+	imp.json = imp.json || hasWS
+	imp.binary, imp.errors, imp.unsafe = hasRaw, hasRaw, hasRaw
+	writeTypesImports(p, imp, collectExternalRefs(file, resolver))
 
 	for _, e := range file.Enums {
 		writeEnum(p, e)
 	}
 	for _, m := range file.Messages {
 		writeMessage(p, m)
+	}
+	if hasWS {
+		writeWSCodecRuntime(p, hasRaw)
+	}
+	if hasRaw {
+		for _, m := range fileMessagesDeep(file) {
+			if onkir.MessageHasRaw(m, p.isExternal) {
+				writeRawMethods(p, m)
+			}
+		}
 	}
 
 	return p.Format()

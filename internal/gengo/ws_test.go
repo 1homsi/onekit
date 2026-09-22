@@ -832,3 +832,185 @@ func TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants(t *testing.T) {
 		}
 	}
 }
+
+const wsRawFixtureSrc = `
+package wsr
+
+message RunRequest { code: string @raw }
+message Chunk {
+  index: int32
+  data: bytes @raw
+}
+message RunResult {
+  exit_code: int32
+  result_json: string @raw
+  chunks: Chunk[]
+}
+
+message Frame {
+  payload: oneof(discriminator: "type") {
+    run: RunRequest @tag("run")
+    run_result: RunResult @tag("run_result")
+  }
+}
+
+service Runtime {
+  base_path: "/v1"
+
+  execute(Frame) -> Frame @ws("/execute")
+}
+`
+
+const wsRawHarness = `
+package wsr
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/coder/websocket"
+)
+
+var bigResult = strings.Repeat("{\"k\":\"v\\n\"},", 40*1024)
+
+type rawImpl struct{}
+
+func (rawImpl) Execute(ctx context.Context, req *Frame, out WSOut[Frame]) error {
+	run := req.GetRun()
+	if run == nil {
+		return nil
+	}
+	result := &RunResult{ExitCode: int32(len(run.Code)), ResultJson: bigResult, Chunks: []*Chunk{{Index: 1, Data: []byte{0, 1, 2}}, {Index: 2}, {Index: 3, Data: bytes.Repeat([]byte{0xff}, 1000)}}}
+	if run.Code == "small" {
+		result = &RunResult{ExitCode: 5}
+	}
+	return out.Send(ctx, &Frame{Payload: &FramePayloadRunResult{RunResult: result}})
+}
+
+func serve(t *testing.T) string {
+	mux := http.NewServeMux()
+	if err := RegisterRuntimeServer(mux, rawImpl{}); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+func TestRuntimeRawRoundTrip(t *testing.T) {
+	url := serve(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	socket, err := NewRuntimeClient(url).Execute(ctx, &Frame{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer socket.Close()
+	code := strings.Repeat("x", 300*1024)
+	if err := socket.Send(ctx, &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: code}}}); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := socket.Receive(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := frame.GetRunResult()
+	if result == nil || result.ExitCode != int32(len(code)) || result.ResultJson != bigResult {
+		t.Fatalf("raw string did not round trip: exit %v, %d bytes", result.GetExitCode(), len(result.GetResultJson()))
+	}
+	if len(result.Chunks) != 3 || !bytes.Equal(result.Chunks[0].Data, []byte{0, 1, 2}) || len(result.Chunks[1].Data) != 0 || len(result.Chunks[2].Data) != 1000 || result.Chunks[2].Index != 3 {
+		t.Fatalf("raw bytes did not round trip: %+v", result.Chunks)
+	}
+}
+
+func TestRuntimeRawWireFormat(t *testing.T) {
+	url := serve(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(url, "http")+"/v1/execute", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+	conn.SetReadLimit(-1)
+	_ = conn.Write(ctx, websocket.MessageText, []byte("{\"payload\":{\"type\":\"run\",\"run\":{\"code\":\"abc\"}}}"))
+	typ, data, err := conn.Read(ctx)
+	if err != nil || typ != websocket.MessageBinary {
+		t.Fatalf("want a binary frame, got %v (%v)", typ, err)
+	}
+	header, raw, err := wsDecodeRawFrame(data)
+	if err != nil || len(raw) != 4 || string(raw[0]) != bigResult || len(header) > 200 {
+		t.Fatalf("unexpected layout: %d segments, %d-byte header, %v", len(raw), len(header), err)
+	}
+	var generic map[string]any
+	if err := json.Unmarshal(header, &generic); err != nil {
+		t.Fatalf("header is not JSON: %v", err)
+	}
+
+	_ = conn.Write(ctx, websocket.MessageText, []byte("{\"payload\":{\"type\":\"run\",\"run\":{\"code\":\"small\"}}}"))
+	if typ, _, err := conn.Read(ctx); err != nil || typ != websocket.MessageText {
+		t.Fatalf("a frame with empty raw fields should stay text, got %v (%v)", typ, err)
+	}
+
+	_ = conn.Write(ctx, websocket.MessageBinary, []byte{0, 0, 0, 99, 1})
+	_, _, err = conn.Read(ctx)
+	if websocket.CloseStatus(err) != websocket.StatusInvalidFramePayloadData {
+		t.Fatalf("want 1007 for a malformed binary frame, got %v", err)
+	}
+}
+`
+
+func TestGeneratedWSRawFrames(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	ast, err := onklang.Parse(wsRawFixtureSrc)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "wsr.onk", AST: ast}})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	file := pkg.Files[0]
+	dir := t.TempDir()
+	files := map[string]string{
+		"go.mod":          "module wsr\n\ngo 1.24\n\nrequire github.com/coder/websocket v1.8.15\n",
+		"harness_test.go": wsRawHarness,
+	}
+	for name, generate := range map[string]func(*onkir.File) ([]byte, error){
+		"server.go": GenerateServer, "client.go": GenerateClient, "types.gen.go": GenerateTypes, "validate.gen.go": GenerateValidation,
+	} {
+		src, err := generate(file)
+		if err != nil {
+			t.Fatalf("generate %s: %v", name, err)
+		}
+		files[name] = string(src)
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	for _, args := range [][]string{{"mod", "tidy"}, {"test", "-run", "TestRuntime", "-v", "-timeout", "120s", "."}} {
+		cmd := exec.Command("go", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("go %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		if args[0] == "test" {
+			for _, want := range []string{"--- PASS: TestRuntimeRawRoundTrip", "--- PASS: TestRuntimeRawWireFormat"} {
+				if !strings.Contains(string(out), want) {
+					t.Fatalf("expected %q in harness output:\n%s", want, out)
+				}
+			}
+		}
+	}
+}

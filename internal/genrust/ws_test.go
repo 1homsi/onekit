@@ -66,8 +66,16 @@ func TestGenerateRustWS(t *testing.T) {
 const rustWSCorrelatedFixture = `
 package rwc
 
-message RunRequest { code: string }
-message RunResult { exit_code: int32 }
+message RunRequest { code: string @raw }
+message Chunk {
+  index: int32
+  data: bytes @raw
+}
+message RunResult {
+  exit_code: int32
+  result_json: string @raw
+  chunks: Chunk[]
+}
 message HostCall { id: string @ws_id
 method: string }
 message HostResult { id: string @ws_id
@@ -157,6 +165,7 @@ edition = "2024"
 
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
+base64 = "0.22"
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
@@ -224,6 +233,14 @@ impl Runtime for Impl {
     fn execute(&self, _context: RequestContext, req: Frame, out: WsCallSink<String, Frame, Frame>) -> impl std::future::Future<Output = Result<(), RuntimeExecuteServerError>> + Send {
         async move {
             match req.payload {
+                Some(FramePayload::Run(run)) if run.code.len() > 1000 => {
+                    let result = RunResult {
+                        exit_code: 7,
+                        result_json: format!("R:{}", run.code),
+                        chunks: vec![Chunk { index: 1, data: vec![0, 1, 2] }, Chunk { index: 2, data: vec![] }, Chunk { index: 3, data: vec![0xff; 1000] }],
+                    };
+                    let _ = out.send(frame(FramePayload::RunResult(result))).await;
+                }
                 Some(FramePayload::Run(run)) if run.code == "watch" => {
                     tokio::spawn(async move {
                         out.closed().await;
@@ -240,7 +257,7 @@ impl Runtime for Impl {
                     tokio::spawn(async move {
                         match out.call("dup-1".to_string(), host_call("dup-1")).await {
                             Ok(Frame { payload: Some(FramePayload::HostResult(_)) }) => {
-                                let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 12 }))).await;
+                                let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 12, ..Default::default() }))).await;
                             }
                             other => fail(format!("colliding call: want HostResult, got {other:?}")),
                         }
@@ -248,13 +265,13 @@ impl Runtime for Impl {
                 }
                 // The client's own call under the in-flight id reached the handler.
                 Some(FramePayload::HostCall(call)) if call.id == "dup-1" && call.method == "client" => {
-                    let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 11 }))).await;
+                    let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 11, ..Default::default() }))).await;
                 }
                 Some(FramePayload::Run(run)) if run.code == "timeout" => {
                     tokio::spawn(async move {
                         match out.call_timeout("slow-1".to_string(), host_call("slow-1"), Duration::from_millis(200)).await {
                             Err(generated::server::WsCallError::TimedOut) => {
-                                let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 7 }))).await;
+                                let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 7, ..Default::default() }))).await;
                             }
                             other => fail(format!("server call_timeout: want TimedOut, got {other:?}")),
                         }
@@ -264,7 +281,7 @@ impl Runtime for Impl {
                     tokio::spawn(async move {
                         match out.call("call-1".to_string(), host_call("call-1")).await {
                             Ok(Frame { payload: Some(FramePayload::HostResult(result)) }) if result.id == "call-1" && result.value == "answer" => {
-                                let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 0 }))).await;
+                                let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 0, ..Default::default() }))).await;
                             }
                             other => fail(format!("UNEXPECTED_REPLY {other:?}")),
                         }
@@ -272,7 +289,7 @@ impl Runtime for Impl {
                 }
                 // The client's abandoned call reached the handler as a cancel.
                 Some(FramePayload::Cancel(cancel)) if cancel.id == "c-1" => {
-                    let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 9 }))).await;
+                    let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 9, ..Default::default() }))).await;
                 }
                 _ => {}
             }
@@ -378,6 +395,26 @@ async fn main() {
             if invalid != Some((1007, "invalid JSON frame".to_string())) { fail(format!("invalid frame: {invalid:?}")); }
             let boom = raw_close(addr, r#"{"payload":{"type":"run","run":{"code":"boom"}}}"#).await;
             if boom != Some((1011, "internal server error: boom".to_string())) { fail(format!("handler error: {boom:?}")); }
+            let big = "{\"k\":\"v\\n\"},".repeat(30 * 1024);
+            socket.send(&run(&big)).await.expect("send raw run");
+            match socket.receive().await.and_then(|f| f.payload) {
+                Some(FramePayload::RunResult(result)) => {
+                    let chunks_ok = result.chunks.len() == 3 && result.chunks[0].data == vec![0, 1, 2] && result.chunks[1].data.is_empty() && result.chunks[2].data == vec![0xff; 1000];
+                    if result.exit_code != 7 || result.result_json != format!("R:{big}") || !chunks_ok { fail(format!("raw round trip: exit {} len {}", result.exit_code, result.result_json.len())); }
+                }
+                other => fail(format!("want raw run_result, got {other:?}")),
+            }
+            {
+                use futures_util::{SinkExt, StreamExt};
+                use tokio_tungstenite::tungstenite::Message;
+                let (mut raw_ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/v1/execute")).await.expect("raw connect");
+                let text = serde_json::json!({"payload": {"type": "run", "run": {"code": big}}}).to_string();
+                raw_ws.send(Message::text(text)).await.expect("raw send");
+                match raw_ws.next().await {
+                    Some(Ok(Message::Binary(_))) => {}
+                    other => fail(format!("want a binary raw frame, got {other:?}")),
+                }
+            }
             let closed = raw_close(addr, r#"{"payload":{"type":"run","run":{"code":"close"}}}"#).await;
             if closed != Some((4002, "idle".to_string())) { fail(format!("out.close: {closed:?}")); }
         })

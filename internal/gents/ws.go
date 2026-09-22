@@ -63,7 +63,7 @@ func WriteTSWSServerRuntime(p *Printer) {
 	p.P("readyState: number;")
 	p.P("bufferedAmount?: number;")
 	p.P("accept(): void;")
-	p.P("send(data: string): void;")
+	p.P("send(data: string | ArrayBufferView | ArrayBuffer): void;")
 	p.P("close(code?: number, reason?: string): void;")
 	p.P(`addEventListener(type: "message" | "close", listener: (event: any) => void): void;`)
 	p.P("}")
@@ -428,7 +428,9 @@ func writeTSWSSocketBody(p *Printer, m *onkir.Method, socketVar string) {
 	// send() does, so the wire carries the schema's own keys (host_call,
 	// exit_code) rather than the decoded camelCase TS shape - a Go or Rust
 	// peer decoding a camelCase frame sees the oneof tag but a nil body.
-	sendFrame := socketVar + ".send(JSON.stringify(" + p.MessageCodecName(m.Response, "encode") + "(value)))"
+	respSplit, _ := p.wsRawCodecArgs(m.Response)
+	_, reqJoin := p.wsRawCodecArgs(m.Request)
+	sendFrame := socketVar + ".send(wsEncodeMessage(value, " + p.MessageCodecName(m.Response, "encode") + ", " + respSplit + "))"
 	// send resolves once the socket's buffer is back under the high-water
 	// mark, so a producer that awaits it is paced by the peer.
 	sendDrained := "send: (value) => { " + sendFrame + "; return wsDrained(" + socketVar + ", highWaterMark); },"
@@ -484,7 +486,7 @@ func writeTSWSSocketBody(p *Printer, m *onkir.Method, socketVar string) {
 	// decode or validate, 1011 for a handler error - the same as Go and Rust.
 	p.P("let frame: ", p.MessageTypeName(m.Request), ";")
 	p.P("try {")
-	p.P("frame = ", p.MessageCodecName(m.Request, "decode"), "(JSON.parse(String(event.data)));")
+	p.P("frame = wsDecodeMessage(event.data, ", p.MessageCodecName(m.Request, "decode"), ", ", reqJoin, ");")
 	p.P("} catch {")
 	p.P(socketVar, `.close(1007, "invalid JSON frame");`)
 	p.P("return;")
@@ -670,7 +672,8 @@ func writeTSDuplexClass(p *Printer, m *onkir.Method) {
 	p.P("}")
 	p.P("let frame: ", resRef, ";")
 	p.P("try {")
-	p.P("frame = decode", m.Response.Name, "(JSON.parse(String(event.data)));")
+	_, respJoin := p.wsRawCodecArgs(m.Response)
+	p.P("frame = wsDecodeMessage(event.data, ", p.MessageCodecName(m.Response, "decode"), ", ", respJoin, ");")
 	p.P("} catch {")
 	p.P(`this.failLocally(1007, "invalid frame");`)
 	p.P("return;")
@@ -756,6 +759,7 @@ func writeTSWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P(`socketURL = socketURL.replace(/^https:/, "wss:").replace(/^http:/, "ws:");`)
 	p.P("return new Promise((resolve, reject) => {")
 	p.P("const ws = new WebSocket(socketURL);")
+	p.P(`ws.binaryType = "arraybuffer";`)
 	p.P(`ws.onopen = () => resolve(new `, tsDuplexName(m), "(ws, this.options.maxFrameBytes ?? DEFAULT_MAX_WS_FRAME_BYTES, this.options.highWaterMarkBytes ?? DEFAULT_WS_HIGH_WATER_MARK_BYTES));")
 	p.P(`ws.onerror = () => reject(new Error("websocket connection failed"));`)
 	p.P("});")
@@ -769,10 +773,10 @@ func writeTSDuplexSend(p *Printer, m *onkir.Method, reqRef string) {
 	p.P("// send throws on an invalid frame, and otherwise resolves once the")
 	p.P("// socket's buffer is back under the high-water mark (backpressure).")
 	p.P("send(value: ", reqRef, "): Promise<void> {")
-	p.P("const frame = encode", m.Request.Name, "(value);")
-	p.P("const violations = validate", m.Request.Name, "(frame);")
+	reqSplit, _ := p.wsRawCodecArgs(m.Request)
+	p.P("const violations = ", p.MessageCodecName(m.Request, "validate"), "(value);")
 	p.P(`if (violations.length > 0) throw new TypeError("invalid frame: " + violations.join("; "));`)
-	p.P("this.ws.send(JSON.stringify(frame));")
+	p.P("this.ws.send(wsEncodeMessage(value, ", p.MessageCodecName(m.Request, "encode"), ", ", reqSplit, "));")
 	p.P("return wsDrained(this.ws, this.highWaterMark);")
 	p.P("}")
 	p.P()
@@ -788,7 +792,8 @@ func writeTSDuplexReceive(p *Printer, m *onkir.Method, resRef string) {
 	p.P(`reject(new WSClosedError(1009, "message too big"));`)
 	p.P("return;")
 	p.P("}")
-	p.P("try { resolve(decode", m.Response.Name, "(JSON.parse(String(event.data)))); } catch (err) { reject(err); }")
+	_, respJoin := p.wsRawCodecArgs(m.Response)
+	p.P("try { resolve(wsDecodeMessage(event.data, ", p.MessageCodecName(m.Response, "decode"), ", ", respJoin, ")); } catch (err) { reject(err); }")
 	p.P("};")
 	p.P("const onClose = (event: CloseEvent) => { cleanup(); reject(new WSClosedError(event.code, event.reason)); };")
 	p.P("const cleanup = () => { this.ws.removeEventListener(\"message\", onMessage); this.ws.removeEventListener(\"close\", onClose); };")

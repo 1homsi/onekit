@@ -227,3 +227,28 @@ service S { f(Frame) -> Frame @ws("/y") }`,
 		}
 	}
 }
+
+func TestRawFieldValidation(t *testing.T) {
+	ok := "package w\nmessage M { a: string @raw\nb: bytes @raw }\n"
+	ast, err := parseSrc(ok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Compile([]Source{{Path: "w.onk", AST: ast}}); err != nil {
+		t.Fatalf("expected @raw string and bytes fields to compile, got %v", err)
+	}
+	for _, src := range []string{
+		"message M { n: int32 @raw }",
+		"message M { s: string? @raw }",
+		"message M { s: string[] @raw }",
+	} {
+		ast, err := parseSrc("package w\n" + src + "\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = Compile([]Source{{Path: "w.onk", AST: ast}})
+		if err == nil || !strings.Contains(err.Error(), "@raw requires a non-repeated, non-optional string or bytes field") {
+			t.Fatalf("%s: want @raw rejection, got %v", src, err)
+		}
+	}
+}

@@ -335,6 +335,40 @@ Rust (`None` disables). A client that receives a frame it can't decode fails
 the socket (a 1007 `WSClosedError` in TypeScript, the decode error in Go)
 rather than skipping it.
 
+### Large payloads with `@raw`
+
+Mark a non-repeated, non-optional `string` or `bytes` field `@raw` to carry it
+outside the JSON:
+
+```onk
+message RunResult {
+  exit_code: int32
+  result_json: string @raw
+}
+```
+
+A frame whose raw fields hold data is sent as one binary WebSocket message:
+a 4-byte big-endian header length, the frame's JSON with every raw field
+emptied, a 4-byte segment count, one 4-byte length per segment, then the raw
+bytes appended untouched. The segments follow a depth-first walk of the schema
+in declaration order (direct fields, message fields, repeated messages, and
+the set oneof variant), so no paths travel on the wire. The receiver parses
+only the small header. Go gets each raw field as a slice of the message
+buffer, with no scanning, unescaping or copying. Frames whose raw fields are
+all empty stay plain JSON text, and every receiver still accepts JSON text,
+so older peers keep working. In TypeScript a raw `bytes` field is a
+`Uint8Array`.
+
+A 400 KB `result_json` (Apple M-series, Go 1.26, Node 26):
+
+| | JSON | `@raw` |
+| --- | --- | --- |
+| Go encode | 2252 µs (v0.16), 635 µs now | 24.6 µs |
+| Go decode | 3470 µs (v0.16), 1642 µs now | 0.6 µs |
+| Node encode | 665 µs | 52 µs |
+| Node decode | 667 µs | 25 µs |
+| Go client ↔ Go server round trip | 3347 µs | 160 µs |
+
 ### Frame size limit
 
 Every target caps one inbound message at 16 MiB by default and closes the
