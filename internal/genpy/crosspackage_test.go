@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
@@ -148,7 +149,7 @@ func TestCrossPackagePythonGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("python run failed: %v\n%s", err, out)
 	}
-	if got := string(out); got != "OK\n" {
+	if got := strings.TrimRight(string(out), "\r\n"); got != "OK" {
 		t.Fatalf("unexpected program output: %q", got)
 	}
 }

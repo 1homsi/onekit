@@ -1,0 +1,8 @@
+# Normalize line endings to LF for every text file, regardless of the
+# checking-out OS or a contributor's core.autocrlf setting. Without this,
+# a Windows checkout (git's default core.autocrlf=true) normalizes tracked
+# generated Go/TS/Rust/OpenAPI output to CRLF, while `onek build` always
+# writes LF (os.WriteFile has no line-ending awareness) - `make
+# check-generated`'s `git diff --exit-code` would then see a spurious
+# full-file diff on every generated file on every Windows checkout.
+* text=auto eol=lf

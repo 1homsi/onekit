@@ -139,6 +139,11 @@ message LegacyRequest {
 }
 
 func TestLoadConfigRejectsUnknownAndInvalidConfiguration(t *testing.T) {
+	// filepath.IsAbs requires a drive letter or UNC prefix on Windows, so a
+	// bare "/etc"-style literal isn't absolute there - build one that's
+	// actually absolute on whichever OS the test runs on.
+	absoluteSchemaRoot := filepath.ToSlash(t.TempDir())
+
 	tests := []struct {
 		name, config, want string
 	}{
@@ -148,7 +153,7 @@ func TestLoadConfigRejectsUnknownAndInvalidConfiguration(t *testing.T) {
 		{"route prefix without slash", "module = \"example.com/api\"\nroute_prefix = \"api\"\n", "route_prefix must start with /"},
 		{"route prefix with trailing slash", "module = \"example.com/api\"\nroute_prefix = \"/api/\"\n", "route_prefix must not end with /"},
 		{"route prefix with space", "module = \"example.com/api\"\nroute_prefix = \"/my api\"\n", "not allowed in a URL path"},
-		{"schema root absolute", "module = \"example.com/api\"\nschema_root = \"/etc\"\n", "schema_root must be relative"},
+		{"schema root absolute", "module = \"example.com/api\"\nschema_root = \"" + absoluteSchemaRoot + "\"\n", "schema_root must be relative"},
 		{"schema root escapes project", "module = \"example.com/api\"\nschema_root = \"../elsewhere\"\n", "must stay inside the project directory"},
 	}
 	for _, tt := range tests {

@@ -66,6 +66,15 @@ go test ./...        # exercises the already-generated code end to end
 ../../bin/onek build .   # regenerates api/*.gen.go and docs/openapi.{yaml,json} from models.onk + service.onk
 ```
 
+**On Windows**, the released `onek.exe` binary works standalone with no extra
+setup. Building the repo itself (`make build`, `make check-generated`,
+`scripts/run_tests.sh`) needs GNU Make and a POSIX-ish shell, neither of
+which ship with Windows by default. CI runs this on `windows-latest` via
+Chocolatey's `make` package plus the `sh`/`bash`/coreutils that come with Git
+for Windows (already on `PATH` if you have Git installed); the same setup
+(`choco install make`, and Git for Windows for `git`) works locally. WSL or
+a Git Bash terminal is the simplest way to get all of it at once.
+
 ## The `onek` CLI
 
 A project is a directory with an `onekit.toml` and one or more `.onk` files:
