@@ -105,3 +105,52 @@ func TestFormatPreservesPackageLessCommentFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatPreservesCommentsAboveDeclarations(t *testing.T) {
+	src := `package app
+
+// Ownership: platform team.
+// Do not add fields without an ADR.
+message Health {
+  status: string
+}
+
+/*
+  Frozen for v1.
+*/
+enum Level {
+  LOW
+}
+
+// service-level note
+service S {
+  base_path: "/v1"
+
+  get(Health) -> Health @post("/h")
+}
+`
+	formatted, err := Format(src)
+	if err != nil {
+		t.Fatalf("Format error: %v", err)
+	}
+	out := string(formatted)
+
+	for _, want := range []string{
+		"// Ownership: platform team.",
+		"// Do not add fields without an ADR.",
+		"Frozen for v1.",
+		"// service-level note",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("formatting dropped %q\n--- got ---\n%s", want, out)
+		}
+	}
+
+	again, err := Format(out)
+	if err != nil {
+		t.Fatalf("Format error on second pass: %v", err)
+	}
+	if string(again) != out {
+		t.Errorf("Format is not idempotent\n--- first ---\n%s\n--- second ---\n%s", out, again)
+	}
+}
