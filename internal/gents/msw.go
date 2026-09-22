@@ -36,6 +36,11 @@ func GenerateMSWHandlersWithResolver(file *onkir.File, resolver PackageResolver)
 func writeMSWService(p *Printer, s *onkir.Service) {
 	p.P("export const ", s.Name, "Handlers = [")
 	for _, m := range s.Methods {
+		// msw's http handlers can't serve a WebSocket, and emitting one used to
+		// produce http.(...) (no verb) - a syntax error in the whole module.
+		if m.IsWebSocket() {
+			continue
+		}
 		writeMSWHandler(p, s, m)
 	}
 	p.P("];")

@@ -183,7 +183,7 @@ same generated output runs on either family of server runtime:
 ```ts
 // Workers / Deno / Bun - built on the Web-standard WebSocketPair. The
 // consumer's own fetch handler matches `path` and calls `handle`.
-import { createChatServiceRoutes, createChatServiceSocketRoutes } from "./server";
+import { createChatServiceRoutes, createChatServiceSocketRoutes } from "./server.js";
 
 const socketRoutes = createChatServiceSocketRoutes(handlerImpl);
 export default {
@@ -200,7 +200,7 @@ export default {
 // Plain Node - no WebSocketPair there at all, so this is a separate path
 // built on the `ws` package instead, attached directly to an http.Server.
 import * as http from "node:http";
-import { attachChatServiceNodeSocketHandlers } from "./server";
+import { attachChatServiceNodeSocketHandlers } from "./server.js";
 
 const server = http.createServer(/* your regular-route handler */);
 attachChatServiceNodeSocketHandlers(server, handlerImpl);

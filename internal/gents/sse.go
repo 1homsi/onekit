@@ -101,9 +101,9 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 				continue
 			}
 			if field.Type != nil && field.Type.Kind == onkir.KindScalar {
-				p.P("body.", field.Name, " = parseScalar(match.", paramName, ", ", fmt.Sprintf("%q", field.Type.Scalar.String()), ", ", fmt.Sprintf("%q", "path parameter "+paramName), ");")
+				p.P("body.", field.Name, " = parseScalar(match[", fmt.Sprintf("%q", paramName), "] ?? \"\", ", fmt.Sprintf("%q", field.Type.Scalar.String()), ", ", fmt.Sprintf("%q", "path parameter "+paramName), ");")
 			} else {
-				p.P("body.", field.Name, " = match.", paramName, ";")
+				p.P("body.", field.Name, " = match[", fmt.Sprintf("%q", paramName), "] ?? \"\";")
 			}
 		}
 	}

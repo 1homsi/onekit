@@ -321,7 +321,7 @@ func TestGeneratedServerRuntimeBehavior(t *testing.T) {
 	// See the matching comment in sse_test.go: Node's native TS execution
 	// (used only here, not by real bundler-based consumers) needs an
 	// explicit extension on this generated file's own "./types" import.
-	serverSrcForNode := strings.ReplaceAll(string(serverSrc), `from "./types"`, `from "./types.ts"`)
+	serverSrcForNode := strings.ReplaceAll(string(serverSrc), `from "./types.js"`, `from "./types.ts"`)
 	writeFile(t, filepath.Join(dir, "server.ts"), serverSrcForNode)
 	writeFile(t, filepath.Join(dir, "main.ts"), serverHarness)
 

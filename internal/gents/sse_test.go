@@ -214,9 +214,9 @@ func TestSSEStreamingRuntimeBehavior(t *testing.T) {
 	// by *this* runtime test needs an explicit extension, same as this
 	// harness's own imports below already use - so patch just the copy
 	// written to disk here, not the generator's real output.
-	clientSrcForNode := strings.ReplaceAll(string(clientSrc), `from "./types"`, `from "./types.ts"`)
+	clientSrcForNode := strings.ReplaceAll(string(clientSrc), `from "./types.js"`, `from "./types.ts"`)
 	writeFile(t, filepath.Join(dir, "client.ts"), clientSrcForNode)
-	serverSrcForNode := strings.ReplaceAll(string(serverSrc), `from "./types"`, `from "./types.ts"`)
+	serverSrcForNode := strings.ReplaceAll(string(serverSrc), `from "./types.js"`, `from "./types.ts"`)
 	writeFile(t, filepath.Join(dir, "server.ts"), serverSrcForNode)
 	writeFile(t, filepath.Join(dir, "main.ts"), sseHarness)
 

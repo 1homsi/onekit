@@ -10,7 +10,7 @@ import (
 // cross-package type reference needs to import.
 type PackageRef struct {
 	Alias      string // TS namespace identifier used for the import and as the qualifier prefix
-	ImportPath string // import specifier, e.g. "../../common/types" (no extension)
+	ImportPath string // import specifier, e.g. "../../common/types.js" (Node ESM needs the extension)
 }
 
 // PackageResolver tells the generator whether a message/enum belongs to a

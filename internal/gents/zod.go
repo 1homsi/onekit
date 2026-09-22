@@ -29,14 +29,80 @@ func GenerateZodWithResolver(file *onkir.File, resolver PackageResolver) []byte 
 	}
 	p.P()
 
+	var messages []*onkir.Message
+	var collect func(ms []*onkir.Message)
+	collect = func(ms []*onkir.Message) {
+		for _, m := range ms {
+			messages = append(messages, m)
+			collect(m.Nested)
+		}
+	}
+	collect(file.Messages)
+
 	for _, e := range file.Enums {
 		writeZodEnum(p, e)
 	}
-	for _, m := range file.Messages {
+	for _, m := range messages {
+		for _, e := range m.NestedEnums {
+			writeZodEnum(p, e)
+		}
+	}
+
+	local := map[*onkir.Message]bool{}
+	for _, m := range messages {
+		local[m] = true
+	}
+	p.zodEmitted = map[*onkir.Message]bool{}
+	p.zodLazy = map[*onkir.Message]bool{}
+	visiting := map[*onkir.Message]bool{}
+	var visit func(m *onkir.Message)
+	visit = func(m *onkir.Message) {
+		if p.zodEmitted[m] || visiting[m] {
+			return
+		}
+		visiting[m] = true
+		for _, dep := range zodMessageDeps(m) {
+			if local[dep] {
+				visit(dep)
+			}
+		}
+		delete(visiting, m)
 		writeZodMessage(p, m)
+		p.zodEmitted[m] = true
+	}
+	for _, m := range messages {
+		visit(m)
 	}
 
 	return p.Bytes()
+}
+
+func zodMessageDeps(m *onkir.Message) []*onkir.Message {
+	var deps []*onkir.Message
+	var fromType func(t *onkir.Type)
+	fromType = func(t *onkir.Type) {
+		if t == nil {
+			return
+		}
+		switch t.Kind {
+		case onkir.KindMessage:
+			if t.Message != nil {
+				deps = append(deps, t.Message)
+			}
+		case onkir.KindMap:
+			fromType(t.MapValue)
+		}
+	}
+	for _, f := range m.Fields {
+		if f.Oneof != nil {
+			for _, v := range f.Oneof.Variants {
+				fromType(v.Type)
+			}
+			continue
+		}
+		fromType(f.Type)
+	}
+	return deps
 }
 
 // zodSchemaRef references another message's exported schema, qualifying it
@@ -47,7 +113,18 @@ func (p *Printer) zodSchemaRef(m *onkir.Message) string {
 			return ref.Alias + "." + m.Name + "Schema"
 		}
 	}
+	if p.zodEmitted != nil && !p.zodEmitted[m] {
+		p.zodLazy[m] = true
+		return "z.lazy(() => " + m.Name + "Schema)"
+	}
 	return m.Name + "Schema"
+}
+
+func (p *Printer) zodDeclaration(m *onkir.Message) string {
+	if p.zodLazy[m] {
+		return "export const " + m.Name + "Schema: z.ZodTypeAny = "
+	}
+	return "export const " + m.Name + "Schema = "
 }
 
 // zodEnumRef is zodSchemaRef's counterpart for enums.
@@ -76,39 +153,31 @@ func writeZodEnum(p *Printer, e *onkir.Enum) {
 }
 
 func writeZodMessage(p *Printer, m *onkir.Message) {
-	if field := rootUnwrapField(m); field != nil {
-		expr := zodValueSchema(p, field)
-		if field.Repeated {
-			expr = "z.array(" + expr + ")"
-		}
-		p.P("export const ", m.Name, "Schema = ", expr, ";")
-		p.P()
-		writeZodNested(p, m)
-		return
-	}
-
-	p.P("export const ", m.Name, "Schema = z.object({")
-	for _, plan := range collectCodecFields(m, "") {
-		p.P(plan.ts, ": ", zodFieldSchema(p, plan.field), ",")
-	}
-	p.P("});")
-	p.P()
-
 	for _, f := range m.Fields {
 		if f.Oneof != nil {
 			writeZodOneof(p, m, f)
 		}
 	}
-	writeZodNested(p, m)
-}
+	if field := rootUnwrapField(m); field != nil {
+		expr := zodValueSchema(p, field)
+		if field.Repeated {
+			expr = "z.array(" + expr + ")"
+		}
+		p.P(p.zodDeclaration(m), expr, ";")
+		p.P()
+		return
+	}
 
-func writeZodNested(p *Printer, m *onkir.Message) {
-	for _, nested := range m.Nested {
-		writeZodMessage(p, nested)
+	var props []string
+	for _, plan := range collectCodecFields(m, "") {
+		props = append(props, plan.ts+": "+zodFieldSchema(p, plan.field)+",")
 	}
-	for _, nested := range m.NestedEnums {
-		writeZodEnum(p, nested)
+	p.P(p.zodDeclaration(m), "z.object({")
+	for _, prop := range props {
+		p.P(prop)
 	}
+	p.P("});")
+	p.P()
 }
 
 // writeZodOneof mirrors the wire shape produced by writeOneof: a
@@ -136,7 +205,7 @@ func writeZodOneof(p *Printer, m *onkir.Message, f *onkir.Field) {
 	joined := strings.Join(variants, ", ")
 	name := OneofTypeName(m, f)
 	if discriminator != "" {
-		p.P("export const ", name, "Schema = z.discriminatedUnion(", strconv.Quote(discriminator), ", ", joined, ");")
+		p.P("export const ", name, "Schema = z.discriminatedUnion(", strconv.Quote(discriminator), ", [", joined, "]);")
 	} else {
 		p.P("export const ", name, "Schema = z.union([", joined, "]);")
 	}
@@ -306,7 +375,7 @@ func collectZodExternalRefs(file *onkir.File, resolver PackageResolver) []Packag
 	}
 	refs := c.sorted()
 	for i := range refs {
-		refs[i].ImportPath = strings.TrimSuffix(refs[i].ImportPath, "/types") + "/schemas"
+		refs[i].ImportPath = strings.TrimSuffix(refs[i].ImportPath, "/types.js") + "/schemas.js"
 	}
 	return refs
 }

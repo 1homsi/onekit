@@ -29,11 +29,11 @@ func GenerateReactQueryWithResolver(file *onkir.File, resolver PackageResolver) 
 		p.P(`import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";`)
 	}
 	if names := referencedTypeNames(file, resolver); len(names) > 0 {
-		p.P(`import type { `, strings.Join(names, ", "), ` } from "./types";`)
+		p.P(`import type { `, strings.Join(names, ", "), ` } from "./types.js";`)
 	}
-	p.P(`import { ApiError } from "./client";`)
+	p.P(`import { ApiError } from "./client.js";`)
 	for _, s := range file.Services {
-		p.P(`import { `, s.Name, `Client } from "./client";`)
+		p.P(`import { `, s.Name, `Client } from "./client.js";`)
 	}
 	p.P()
 	writeStreamStateHelpers(p)
@@ -47,7 +47,7 @@ func GenerateReactQueryWithResolver(file *onkir.File, resolver PackageResolver) 
 func fileHasUnaryMethods(file *onkir.File) bool {
 	for _, s := range file.Services {
 		for _, m := range s.Methods {
-			if !m.IsStream() {
+			if !m.IsStream() && !m.IsWebSocket() {
 				return true
 			}
 		}
@@ -132,6 +132,9 @@ func writeServiceHooks(p *Printer, s *onkir.Service) {
 	p.P("export function ", factory, "(client: ", s.Name, "Client) {")
 	p.P("return {")
 	for _, m := range s.Methods {
+		if m.IsWebSocket() {
+			continue
+		}
 		hookName := "use" + PascalCase(m.Name)
 		reqType := p.MessageTypeName(m.Request)
 		resType := p.MessageTypeName(m.Response)
@@ -159,7 +162,7 @@ func writeServiceHooks(p *Printer, s *onkir.Service) {
 			p.P("return useQuery({")
 			p.P(`queryKey: [`, fmt.Sprintf("%q", s.Name), `, `, fmt.Sprintf("%q", m.Name), `, req],`)
 			p.P("queryFn: () => client.", CamelCase(m.Name), "(req),")
-			p.P("enabled: opts?.enabled,")
+			p.P("enabled: opts?.enabled ?? true,")
 			p.P("});")
 			p.P("},")
 		}
