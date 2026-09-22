@@ -165,6 +165,56 @@ Peer dependencies per target, only when the schema uses `@ws`: Go needs
 needs `tokio-tungstenite`; servers reuse their existing framework sockets
 (axum / Web-standard `WebSocketPair`).
 
+### Multiplexed correlated calls with `@ws_id`
+
+A single `@ws` connection can carry many independent, concurrent exchanges -
+for example a server that pushes an arbitrary number of asynchronous
+`HostCall` frames while handling one long-running request, each of which the
+client must answer with a matching `HostResult` before the server continues,
+all interleaved and resolved out of order. Model the frame as a `oneof` and
+mark whichever field carries the correlation key with `@ws_id`:
+
+```onk
+message HostCall { id: string @ws_id
+method: string }
+message HostResult { id: string @ws_id
+value: string }
+
+message Frame {
+  payload: oneof(discriminator: "type") {
+    run: RunRequest @tag("run")
+    host_call: HostCall @tag("host_call")
+    host_result: HostResult @tag("host_result")
+    run_result: RunResult @tag("run_result")
+  }
+}
+
+service Runtime {
+  base_path: "/v1"
+
+  execute(Frame) -> Frame @ws("/execute")
+}
+```
+
+`@ws_id` is a plain field-level decorator (like `@required`): put it on a
+non-repeated `string`/`int32`/`int64`/`uint32`/`uint64` field, either directly
+on a `@ws` method's request/response message or inside one of its oneof
+variants. Every `@ws_id` field a single method touches (across both
+directions) must resolve to the same scalar type - `onek check` rejects a
+mix, and rejects more than one `@ws_id` field in the same message or variant.
+
+Once declared, every generated backend gives both the server handler's `out`
+and the client's duplex handle a `call(id, value)` (Go/Rust) / `.call(id, value)`
+(TypeScript) method: it registers a pending waiter keyed by `id`, sends
+`value`, and resolves with whichever frame the other side answers under that
+same `id` - regardless of how many other calls are in flight or what order
+replies arrive in. Plain `Send`/`Receive` keep working for frames that were
+never routed to a pending call. This also closes a correctness gap that
+otherwise applies to `@ws` even without correlation: every send is now
+serialized (Go: `sync.Mutex`; TypeScript: single event listener; Rust:
+`tokio::sync::Mutex`), so concurrent senders on one connection can't corrupt
+the wire.
+
 ## Frontend TypeScript extras
 
 The `ts-client` target accepts opt-in flags that emit companion modules next
