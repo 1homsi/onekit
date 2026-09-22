@@ -121,7 +121,10 @@ func messageSchema(m *onkir.Message) *base.Schema {
 			continue
 		}
 		props.Set(f.Name, fieldSchemaProxy(f))
-		if f.HasDecorator("required") {
+		// Presence is declared with the "?" marker; @required is the legacy
+		// scalar form. Mirror queryParameters so one field yields one answer
+		// wherever it is rendered.
+		if !f.Optional || f.HasDecorator("required") {
 			required = append(required, f.Name)
 		}
 	}
