@@ -370,6 +370,54 @@ func WSIDField(message *Message) (*Field, bool) {
 	return nil, false
 }
 
+// wsCancelDecorator marks the oneof variant a caller sends to tell its peer it
+// stopped waiting on a correlated call (a context cancel, AbortSignal, or
+// timeout). Its message carries the abandoned call's @ws_id.
+const wsCancelDecorator = "ws_cancel"
+
+// IsWSCancel reports whether v is its oneof's @ws_cancel variant. Generators
+// never treat such a frame as a reply: it always reaches the ordinary
+// handler/receive path, where the peer that received the call can stop work.
+func (v *OneofVariant) IsWSCancel() bool {
+	_, ok := v.Decorator(wsCancelDecorator)
+	return ok
+}
+
+// WSCancelVariant returns the @ws_cancel variant among message's direct
+// oneof fields, with the oneof field that owns it and the variant message's
+// @ws_id field. onkcompile guarantees at most one per message and that its
+// message carries @ws_id directly.
+func WSCancelVariant(message *Message) (*Field, *OneofVariant, *Field, bool) {
+	if message == nil {
+		return nil, nil, nil, false
+	}
+	for _, f := range message.Fields {
+		if f.Oneof == nil {
+			continue
+		}
+		for _, variant := range f.Oneof.Variants {
+			if !variant.IsWSCancel() || variant.Type == nil || variant.Type.Message == nil {
+				continue
+			}
+			if vf := FindWSIDDirect(variant.Type.Message); vf != nil {
+				return f, variant, vf, true
+			}
+		}
+	}
+	return nil, nil, nil, false
+}
+
+// FindWSIDDirect returns message's own @ws_id field, ignoring oneof
+// variants, or nil.
+func FindWSIDDirect(message *Message) *Field {
+	for _, f := range message.Fields {
+		if f.Oneof == nil && f.HasDecorator(wsIDDecorator) {
+			return f
+		}
+	}
+	return nil
+}
+
 // WSIDField returns the @ws_id field a @ws method correlates replies with,
 // checking the request then the response (and each's oneof variants).
 func (m *Method) WSIDField() (*Field, bool) {

@@ -26,7 +26,9 @@ import (
 
 // runtimeSchema is the multiplexing reference case: the server answers a Run
 // frame by call()ing a HostCall and awaiting the matching HostResult (a
-// different oneof variant) before sending RunResult. Every variant name is
+// different oneof variant) before sending RunResult. The client then abandons
+// a call of its own on a timeout; the server answers the resulting @ws_cancel
+// frame with RunResult 9, proving the cancel crossed the language boundary. Every variant name is
 // multi-word so a camelCase/snake_case mismatch on the wire can't hide.
 const runtimeSchema = `
 package wsc
@@ -37,6 +39,7 @@ message HostCall { id: string @ws_id
 method: string }
 message HostResult { id: string @ws_id
 value: string }
+message Cancel { id: string @ws_id }
 
 message Frame {
   payload: oneof(discriminator: "type") {
@@ -44,6 +47,7 @@ message Frame {
     host_call: HostCall @tag("host_call")
     host_result: HostResult @tag("host_result")
     run_result: RunResult @tag("run_result")
+    cancel: Cancel @tag("cancel") @ws_cancel
   }
 }
 
@@ -64,6 +68,7 @@ const goHarnessMain = `package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -76,6 +81,9 @@ import (
 type runtimeImpl struct{}
 
 func (runtimeImpl) Execute(ctx context.Context, req *wsc.Frame, out *wsc.RuntimeExecuteOut) error {
+	if c := req.GetCancel(); c != nil && c.Id == "c-1" {
+		return out.Send(ctx, &wsc.Frame{Payload: &wsc.FramePayloadRunResult{RunResult: &wsc.RunResult{ExitCode: 9}}})
+	}
 	if req.GetRun() == nil {
 		return nil
 	}
@@ -141,11 +149,25 @@ func client(baseURL string) {
 			if result.ExitCode != 7 {
 				fail("run_result body did not decode:", fmt.Sprintf("%+v", result))
 			}
-			fmt.Println("OK")
-			return
+			break
 		}
 		fail("unexpected frame:", fmt.Sprintf("%+v", frame))
 	}
+
+	callCtx, cancelCall := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancelCall()
+	_, err = socket.Call(callCtx, "c-1", &wsc.Frame{Payload: &wsc.FramePayloadHostCall{HostCall: &wsc.HostCall{Id: "c-1", Method: "slow"}}})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		fail("abandoned call: want context.DeadlineExceeded, got", err)
+	}
+	frame, err := socket.Receive(ctx)
+	if err != nil {
+		fail("receive after cancel:", err)
+	}
+	if result := frame.GetRunResult(); result == nil || result.ExitCode != 9 {
+		fail("server never saw the cancel:", fmt.Sprintf("%+v", frame))
+	}
+	fmt.Println("OK")
 }
 
 func fail(args ...any) {
@@ -173,6 +195,10 @@ const { attachRuntimeNodeSocketHandlers } = require("./server.js");
 
 const handler = {
   async execute(req, out) {
+    if (req.payload && req.payload.type === "cancel" && req.payload.cancel.id === "c-1") {
+      out.send({ payload: { type: "run_result", runResult: { exitCode: 9 } } });
+      return;
+    }
     if (!req.payload || req.payload.type !== "run") return;
     try {
       const reply = await out.call("call-1", { payload: { type: "host_call", hostCall: { id: "call-1", method: "doThing" } } });
@@ -196,7 +222,7 @@ httpServer.listen(0, "127.0.0.1", () => console.log("PORT=" + httpServer.address
 // tsClientHarness drives the generated TS client (on Node's global
 // WebSocket) against the server at argv[2].
 const tsClientHarness = `"use strict";
-const { RuntimeClient } = require("./client.js");
+const { RuntimeClient, WSTimeoutError } = require("./client.js");
 
 function fail(...args) { console.error(...args); process.exit(1); }
 setTimeout(() => fail("TIMEOUT - no run_result"), 10000).unref();
@@ -219,12 +245,24 @@ setTimeout(() => fail("TIMEOUT - no run_result"), 10000).unref();
       if (!payload.runResult || payload.runResult.exitCode !== 7) {
         fail("run_result body did not decode:", JSON.stringify(frame));
       }
-      console.log("OK");
-      socket.close();
-      process.exit(0);
+      break;
     }
     fail("unexpected frame:", JSON.stringify(frame));
   }
+
+  try {
+    await socket.call("c-1", { payload: { type: "host_call", hostCall: { id: "c-1", method: "slow" } } }, { timeoutMs: 100 });
+    fail("abandoned call resolved");
+  } catch (err) {
+    if (!(err instanceof WSTimeoutError)) fail("abandoned call: want WSTimeoutError, got", err);
+  }
+  const after = await socket.receive();
+  if (!after.payload || after.payload.type !== "run_result" || after.payload.runResult.exitCode !== 9) {
+    fail("server never saw the cancel:", JSON.stringify(after));
+  }
+  console.log("OK");
+  socket.close();
+  process.exit(0);
 })().catch((err) => fail("CLIENT_ERROR", err));
 `
 

@@ -22,11 +22,18 @@ func WriteTSWSServerRuntime(p *Printer) {
 	p.P("send(value: E): void | Promise<void>;")
 	p.P("}")
 	p.P()
+	writeTSWSSharedRuntime(p)
 	writeTSWSPendingType(p)
 	p.P("// WSCallOut extends WSOut with Call: send a correlated frame and await")
 	p.P("// the reply carrying the matching @ws_id, resolved by the read loop.")
 	p.P("export interface WSCallOut<K, E, R> extends WSOut<E> {")
-	p.P("call(id: K, value: E): Promise<R>;")
+	p.P("call(id: K, value: E, options?: WSCallOptions): Promise<R>;")
+	p.P("}")
+	p.P()
+	p.P("export interface WSServerOptions {")
+	p.P("// Cap on one inbound message (default DEFAULT_MAX_WS_FRAME_BYTES); a")
+	p.P("// larger one closes the connection with 1009. Negative disables it.")
+	p.P("maxFrameBytes?: number;")
 	p.P("}")
 	p.P()
 	p.P("export interface SocketRouteDescriptor {")
@@ -85,6 +92,82 @@ func WriteTSWSNodeServerRuntime(p *Printer) {
 	p.P()
 }
 
+// writeTSWSSharedRuntime emits what both generated WS sides use: typed
+// errors a caller can branch on with instanceof, per-call options, and the
+// inbound frame-size check (Workers and browsers have no built-in cap).
+func writeTSWSSharedRuntime(p *Printer) {
+	p.P("// WSClosedError: the connection is gone. code/reason come from the close")
+	p.P("// frame when there was one (1009 means a frame exceeded maxFrameBytes).")
+	p.P("export class WSClosedError extends Error {")
+	p.P("constructor(readonly code?: number, readonly closeReason?: string) {")
+	p.P(`super(code === undefined ? "websocket closed" : "websocket closed (" + code + (closeReason ? ": " + closeReason : "") + ")");`)
+	p.P(`this.name = "WSClosedError";`)
+	p.P("}")
+	p.P("}")
+	p.P()
+	p.P("// WSTimeoutError: call() gave up after timeoutMs, or its signal was")
+	p.P("// aborted with a TimeoutError (AbortSignal.timeout).")
+	p.P("export class WSTimeoutError extends Error {")
+	p.P(`constructor() { super("websocket call timed out"); this.name = "WSTimeoutError"; }`)
+	p.P("}")
+	p.P()
+	p.P("// WSCancelledError: call()'s signal was aborted.")
+	p.P("export class WSCancelledError extends Error {")
+	p.P(`constructor() { super("websocket call cancelled"); this.name = "WSCancelledError"; }`)
+	p.P("}")
+	p.P()
+	p.P("// WSCallOptions bound one correlated call. When either fires, the call")
+	p.P("// rejects and - if the schema declares a @ws_cancel variant - the peer is")
+	p.P("// sent a cancel frame carrying the call's @ws_id.")
+	p.P("export interface WSCallOptions {")
+	p.P("signal?: AbortSignal;")
+	p.P("timeoutMs?: number;")
+	p.P("}")
+	p.P()
+	p.P("// Inbound message cap applied unless maxFrameBytes says otherwise; the")
+	p.P("// same default every onekit target uses. A negative limit disables it.")
+	p.P("export const DEFAULT_MAX_WS_FRAME_BYTES = 16 * 1024 * 1024;")
+	p.P()
+	p.P("function wsAbortError(signal: AbortSignal): Error {")
+	p.P("const reason: unknown = signal.reason;")
+	p.P(`const isTimeout = typeof reason === "object" && reason !== null && (reason as { name?: unknown }).name === "TimeoutError";`)
+	p.P("return isTimeout ? new WSTimeoutError() : new WSCancelledError();")
+	p.P("}")
+	p.P()
+	p.P("function wsFrameTooLarge(data: unknown, limit: number): boolean {")
+	p.P("if (limit < 0) return false;")
+	p.P(`if (typeof data === "string") {`)
+	p.P("// UTF-8 needs at least one byte per UTF-16 unit and at most three, so")
+	p.P("// only encode when the length alone can't decide.")
+	p.P("if (data.length > limit) return true;")
+	p.P("if (data.length * 3 <= limit) return false;")
+	p.P("return new TextEncoder().encode(data).byteLength > limit;")
+	p.P("}")
+	p.P("const sized = data as { byteLength?: number; size?: number } | null;")
+	p.P("return (sized?.byteLength ?? sized?.size ?? 0) > limit;")
+	p.P("}")
+	p.P()
+}
+
+// tsWSCancelFrame builds the serialized @ws_cancel frame of message carrying
+// idExpr, if the schema declares one. The literal names only the oneof and
+// the id, so it goes through `as unknown as` rather than requiring every
+// other field of the frame to be spelled out.
+func tsWSCancelFrame(p *Printer, message *onkir.Message, idExpr string) (string, bool) {
+	f, variant, idField, ok := onkir.WSCancelVariant(message)
+	if !ok {
+		return "", false
+	}
+	disc := oneofDiscriminatorKey(f)
+	idProp := CamelCase(idField.Name) + ": " + idExpr
+	payload := fmt.Sprintf("{ %s: %q, %s: { %s } }", disc, variant.Tag(), CamelCase(variant.Name), idProp)
+	if f.Oneof.Flatten() {
+		payload = fmt.Sprintf("{ %s: %q, %s }", disc, variant.Tag(), idProp)
+	}
+	return "JSON.stringify(" + p.MessageCodecName(message, "encode") + "({ " + CamelCase(f.Name) + ": " + payload +
+		" } as unknown as " + p.MessageTypeName(message) + "))", true
+}
+
 // writeTSWSPendingType emits the correlation-map runtime shared by every
 // @ws_id-using handler and duplex class in the file: register(id) hands back
 // a promise that resolve(id, value) fulfills exactly once, so a concurrent
@@ -104,9 +187,34 @@ func writeTSWSPendingType(p *Printer) {
 	p.P("// rejects immediately instead of waiting on a reply that can never come.")
 	p.P("get closed(): boolean { return this.isClosed; }")
 	p.P()
-	p.P("register(id: K): Promise<T> {")
+	p.P("// register returns a promise for id's reply. options.timeoutMs and")
+	p.P("// options.signal abandon the wait (WSTimeoutError/WSCancelledError), and")
+	p.P("// onAbandon then runs so the caller can tell the peer.")
+	p.P("register(id: K, options: WSCallOptions = {}, onAbandon?: () => void): Promise<T> {")
 	p.P("if (this.isClosed) return Promise.reject(this.closedWith);")
-	p.P("return new Promise((resolve, reject) => { this.waiters.set(id, { resolve, reject }); });")
+	p.P("const signal = options.signal;")
+	p.P("if (signal?.aborted) return Promise.reject(wsAbortError(signal));")
+	p.P("return new Promise<T>((resolve, reject) => {")
+	p.P("let timer: ReturnType<typeof setTimeout> | undefined;")
+	p.P("const settle = () => {")
+	p.P("if (timer !== undefined) clearTimeout(timer);")
+	p.P(`signal?.removeEventListener("abort", onAbort);`)
+	p.P("};")
+	p.P("const entry = {")
+	p.P("resolve: (value: T) => { settle(); resolve(value); },")
+	p.P("reject: (err: unknown) => { settle(); reject(err); },")
+	p.P("};")
+	p.P("const abandon = (err: unknown) => {")
+	p.P("if (this.waiters.get(id) !== entry) return;")
+	p.P("this.waiters.delete(id);")
+	p.P("entry.reject(err);")
+	p.P("onAbandon?.();")
+	p.P("};")
+	p.P("const onAbort = () => { if (signal) abandon(wsAbortError(signal)); };")
+	p.P("this.waiters.set(id, entry);")
+	p.P("if (options.timeoutMs !== undefined) timer = setTimeout(() => abandon(new WSTimeoutError()), options.timeoutMs);")
+	p.P(`signal?.addEventListener("abort", onAbort, { once: true });`)
+	p.P("});")
 	p.P("}")
 	p.P()
 	p.P("resolve(id: K, value: T): boolean {")
@@ -117,7 +225,13 @@ func writeTSWSPendingType(p *Printer) {
 	p.P("return true;")
 	p.P("}")
 	p.P()
-	p.P("cancel(id: K): void { this.waiters.delete(id); }")
+	p.P("// fail rejects id's call with err, e.g. when sending it threw.")
+	p.P("fail(id: K, err: unknown): void {")
+	p.P("const waiter = this.waiters.get(id);")
+	p.P("if (!waiter) return;")
+	p.P("this.waiters.delete(id);")
+	p.P("waiter.reject(err);")
+	p.P("}")
 	p.P()
 	p.P("rejectAll(err: unknown): void {")
 	p.P("this.isClosed = true;")
@@ -150,7 +264,8 @@ func tsWSIDExpression(p *Printer, frameExpr string, message *onkir.Message, idFi
 			flatten := f.Oneof.Flatten()
 			fieldAccess := frameExpr + "." + CamelCase(f.Name)
 			for _, variant := range f.Oneof.Variants {
-				if variant.Type == nil || variant.Type.Kind != onkir.KindMessage || variant.Type.Message == nil {
+				// A cancel is never a reply: it goes to the handler/receive().
+				if variant.IsWSCancel() || variant.Type == nil || variant.Type.Kind != onkir.KindMessage || variant.Type.Message == nil {
 					continue
 				}
 				vf, ok := onkir.WSIDField(variant.Type.Message)
@@ -255,20 +370,29 @@ func writeTSWSSocketBody(p *Printer, m *onkir.Method, socketVar string) {
 		p.P("send: (value) => { ", sendFrame, "; },")
 		// A socket that's closing or closed silently drops sends, so without
 		// this a call() made after the peer left would never settle.
-		p.P("call: (id, value) => {")
-		p.P("if (", socketVar, `.readyState !== 1) pending.rejectAll(new Error("websocket closed"));`)
-		p.P("const reply = pending.register(id);")
+		p.P("call: (id, value, options = {}) => {")
+		p.P("if (", socketVar, ".readyState !== 1) pending.rejectAll(new WSClosedError());")
+		p.P("if (options.signal?.aborted) return Promise.reject(wsAbortError(options.signal));")
+		if cancelFrame, ok := tsWSCancelFrame(p, m.Response, "id"); ok {
+			p.P("const reply = pending.register(id, options, () => { if (", socketVar, ".readyState === 1) ", socketVar, ".send(", cancelFrame, "); });")
+		} else {
+			p.P("const reply = pending.register(id, options);")
+		}
 		p.P("if (!pending.closed) ", sendFrame, ";")
 		p.P("return reply;")
 		p.P("},")
 		p.P("};")
-		p.P(socketVar, `.addEventListener("close", () => { pending.rejectAll(new Error("websocket closed")); });`)
+		p.P(socketVar, `.addEventListener("close", (event: any) => { pending.rejectAll(new WSClosedError(event?.code, event?.reason)); });`)
 	} else {
 		p.P("const out: WSOut<", p.MessageTypeName(m.Response), "> = {")
 		p.P("send: (value) => { ", sendFrame, "; },")
 		p.P("};")
 	}
 	p.P(socketVar, ".addEventListener(\"message\", async (event: any) => {")
+	p.P("if (wsFrameTooLarge(event.data, maxFrameBytes)) {")
+	p.P(socketVar, `.close(1009, "message too big");`)
+	p.P("return;")
+	p.P("}")
 	p.P("try {")
 	p.P("const frame = ", p.MessageCodecName(m.Request, "decode"), "(JSON.parse(String(event.data)));")
 	p.P("const violations = ", p.MessageCodecName(m.Request, "validate"), "(frame);")
@@ -291,7 +415,8 @@ func writeTSWSSocketBody(p *Printer, m *onkir.Method, socketVar string) {
 
 func writeTSSocketFactory(p *Printer, s *onkir.Service) {
 	factory := "create" + s.Name + "SocketRoutes"
-	p.P("export function ", factory, "(handler: ", s.Name, "Handler): SocketRouteDescriptor[] {")
+	p.P("export function ", factory, "(handler: ", s.Name, "Handler, options: WSServerOptions = {}): SocketRouteDescriptor[] {")
+	p.P("const maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_WS_FRAME_BYTES;")
 	p.P("return [")
 	for _, m := range s.Methods {
 		if m.IsWebSocket() {
@@ -311,8 +436,10 @@ func writeTSSocketFactory(p *Printer, s *onkir.Service) {
 // for a consumer to dispatch on the way SocketRouteDescriptor[] assumes.
 func writeTSNodeSocketFactory(p *Printer, s *onkir.Service) {
 	factory := "attach" + s.Name + "NodeSocketHandlers"
-	p.P("export function ", factory, "(httpServer: HttpServer, handler: ", s.Name, "Handler): void {")
-	p.P("const wss = new WebSocketServer({ noServer: true });")
+	p.P("export function ", factory, "(httpServer: HttpServer, handler: ", s.Name, "Handler, options: WSServerOptions = {}): void {")
+	p.P("const maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_WS_FRAME_BYTES;")
+	p.P("// ws enforces the cap itself (closing with 1009); 0 means unlimited there.")
+	p.P("const wss = new WebSocketServer({ noServer: true, maxPayload: maxFrameBytes < 0 ? 0 : maxFrameBytes });")
 	p.P("registerNodeSocketRoute(httpServer, (req, socket, head, url) => {")
 	for _, m := range s.Methods {
 		if m.IsWebSocket() {
@@ -376,6 +503,9 @@ func WriteTSWSNodeSocketRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("return true;")
 	p.P("}")
 	p.P("wss.handleUpgrade(req, socket, head, (ws) => {")
+	p.P("// ws reports protocol violations (an oversized or malformed frame) as")
+	p.P("// an 'error' event before closing; unhandled, that would crash the process.")
+	p.P(`ws.on("error", () => {});`)
 	writeTSWSSocketBody(p, m, "ws")
 	p.P("});")
 	p.P("} catch (err) {")
@@ -411,7 +541,7 @@ func writeTSDuplexClass(p *Printer, m *onkir.Method) {
 		p.P("private closedWith: unknown = undefined;")
 		p.P("private listening = false;")
 	}
-	p.P("constructor(private ws: WebSocket) {}")
+	p.P("constructor(private ws: WebSocket, private maxFrameBytes: number = DEFAULT_MAX_WS_FRAME_BYTES) {}")
 	p.P()
 	p.P("send(value: ", reqRef, "): void {")
 	p.P("const frame = encode", m.Request.Name, "(value);")
@@ -424,8 +554,16 @@ func writeTSDuplexClass(p *Printer, m *onkir.Method) {
 	if !correlated {
 		p.P("receive(): Promise<", resRef, "> {")
 		p.P("return new Promise((resolve, reject) => {")
-		p.P("const onMessage = (event: MessageEvent) => { cleanup(); try { resolve(decode", m.Response.Name, "(JSON.parse(String(event.data)))); } catch (err) { reject(err); } };")
-		p.P(`const onClose = () => { cleanup(); reject(new Error("websocket closed")); };`)
+		p.P("const onMessage = (event: MessageEvent) => {")
+		p.P("cleanup();")
+		p.P("if (wsFrameTooLarge(event.data, this.maxFrameBytes)) {")
+		p.P(`this.ws.close(1009, "message too big");`)
+		p.P(`reject(new WSClosedError(1009, "message too big"));`)
+		p.P("return;")
+		p.P("}")
+		p.P("try { resolve(decode", m.Response.Name, "(JSON.parse(String(event.data)))); } catch (err) { reject(err); }")
+		p.P("};")
+		p.P("const onClose = (event: CloseEvent) => { cleanup(); reject(new WSClosedError(event.code, event.reason)); };")
 		p.P("const cleanup = () => { this.ws.removeEventListener(\"message\", onMessage); this.ws.removeEventListener(\"close\", onClose); };")
 		p.P("this.ws.addEventListener(\"message\", onMessage);")
 		p.P("this.ws.addEventListener(\"close\", onClose);")
@@ -442,6 +580,10 @@ func writeTSDuplexClass(p *Printer, m *onkir.Method) {
 	p.P("if (this.listening) return;")
 	p.P("this.listening = true;")
 	p.P("this.ws.addEventListener(\"message\", (event: MessageEvent) => {")
+	p.P("if (wsFrameTooLarge(event.data, this.maxFrameBytes)) {")
+	p.P(`this.ws.close(1009, "message too big");`)
+	p.P("return;")
+	p.P("}")
 	p.P("let frame: ", resRef, ";")
 	p.P("try { frame = decode", m.Response.Name, "(JSON.parse(String(event.data))); } catch { return; }")
 	p.P("const replyId = ", tsWSIDExpression(p, "frame", m.Response, idField), ";")
@@ -450,8 +592,8 @@ func writeTSDuplexClass(p *Printer, m *onkir.Method) {
 	p.P("if (waiter) { waiter.resolve(frame); return; }")
 	p.P("this.inboxQueue.push(frame);")
 	p.P("});")
-	p.P(`this.ws.addEventListener("close", () => {`)
-	p.P(`this.closedWith = new Error("websocket closed");`)
+	p.P(`this.ws.addEventListener("close", (event: CloseEvent) => {`)
+	p.P("this.closedWith = new WSClosedError(event.code, event.reason);")
 	p.P("this.pending.rejectAll(this.closedWith);")
 	p.P("for (const waiter of this.inboxWaiters.splice(0)) waiter.reject(this.closedWith);")
 	p.P("});")
@@ -466,22 +608,27 @@ func writeTSDuplexClass(p *Printer, m *onkir.Method) {
 	p.P("}")
 	p.P()
 	p.P("// call sends value, then resolves once a response-direction frame")
-	p.P("// carrying the matching @ws_id arrives, or rejects if the connection")
-	p.P("// closes first. Safe alongside receive(): the persistent listener")
-	p.P("// routes correlated replies here and everything else to it.")
-	p.P("call(id: ", p.TSFieldType(idField.Type), ", value: ", reqRef, "): Promise<", resRef, "> {")
+	p.P("// carrying the matching @ws_id arrives. It rejects with WSClosedError if")
+	p.P("// the connection closes first, or WSTimeoutError/WSCancelledError per")
+	p.P("// options. Safe alongside receive(): the persistent listener routes")
+	p.P("// correlated replies here and everything else to it.")
+	p.P("call(id: ", p.TSFieldType(idField.Type), ", value: ", reqRef, ", options: WSCallOptions = {}): Promise<", resRef, "> {")
 	p.P("this.ensureListening();")
 	// The close listener only exists once ensureListening() has run, so a
 	// socket that closed before the first call() never marked pending closed;
 	// check readyState directly rather than sending into a dead socket.
-	p.P(`if (this.ws.readyState !== 1) this.pending.rejectAll(this.closedWith ?? new Error("websocket closed"));`)
-	p.P("const reply = this.pending.register(id);")
+	p.P("if (this.ws.readyState !== 1) this.pending.rejectAll(this.closedWith ?? new WSClosedError());")
+	p.P("if (options.signal?.aborted) return Promise.reject(wsAbortError(options.signal));")
+	if cancelFrame, ok := tsWSCancelFrame(p, m.Request, "id"); ok {
+		p.P("const reply = this.pending.register(id, options, () => { if (this.ws.readyState === 1) this.ws.send(", cancelFrame, "); });")
+	} else {
+		p.P("const reply = this.pending.register(id, options);")
+	}
 	p.P("if (this.pending.closed) return reply;")
 	p.P("try {")
 	p.P("this.send(value);")
 	p.P("} catch (err) {")
-	p.P("this.pending.cancel(id);")
-	p.P("return Promise.reject(err);")
+	p.P("this.pending.fail(id, err);")
 	p.P("}")
 	p.P("return reply;")
 	p.P("}")
@@ -520,7 +667,7 @@ func writeTSWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P(`socketURL = socketURL.replace(/^https:/, "wss:").replace(/^http:/, "ws:");`)
 	p.P("return new Promise((resolve, reject) => {")
 	p.P("const ws = new WebSocket(socketURL);")
-	p.P(`ws.onopen = () => resolve(new `, tsDuplexName(m), "(ws));")
+	p.P(`ws.onopen = () => resolve(new `, tsDuplexName(m), "(ws, this.options.maxFrameBytes ?? DEFAULT_MAX_WS_FRAME_BYTES));")
 	p.P(`ws.onerror = () => reject(new Error("websocket connection failed"));`)
 	p.P("});")
 	p.P("}")

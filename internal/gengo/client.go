@@ -115,8 +115,14 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	if imp.strings {
 		p.P(`"strings"`)
 	}
+	if hasWSCorrelation {
+		p.P(`"net"`)
+	}
 	if hasWS {
 		p.P(`"sync"`)
+	}
+	if fileHasWSCancel(file, func(m *onkir.Method) *onkir.Message { return m.Request }) {
+		p.P(`"time"`)
 	}
 	if hasWS {
 		p.P(`"github.com/coder/websocket"`)
@@ -131,8 +137,16 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 		writeEventStreamRuntime(p)
 	}
 	writeResponseBodyRuntime(p)
+	if hasWS {
+		p.P("func wsReadLimit(limit int64) int64 {")
+		p.P("if limit == 0 { return ", defaultMaxWSFrameBytes, " }")
+		p.P("if limit < 0 { return -1 }")
+		p.P("return limit")
+		p.P("}")
+		p.P()
+	}
 	if hasWSCorrelation {
-		writeWSPendingType(p, wsClientPendingType, wsClientPendingConstructor)
+		writeWSPendingType(p, wsClientPendingType, wsClientPendingConstructor, wsClientClosedError)
 	}
 
 	for _, s := range file.Services {
@@ -140,7 +154,7 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 		for _, m := range s.Methods {
 			if m.IsWebSocket() {
 				idField, _ := m.WSIDField()
-				writeWSDuplexType(p, p.MessageTypeName(m.Request), p.MessageTypeName(m.Response), idField, m.Response)
+				writeWSDuplexType(p, p.MessageTypeName(m.Request), p.MessageTypeName(m.Response), idField, m.Request, m.Response)
 			}
 		}
 		for _, m := range s.Methods {
@@ -165,6 +179,12 @@ func writeClientType(p *Printer, s *onkir.Service) {
 	p.P("Headers map[string]string")
 	p.P("MaxResponseBodyBytes int64")
 	p.P("MaxSSELineBytes int")
+	if serviceHasWS(s) {
+		p.P("// MaxWSFrameBytes caps one inbound WebSocket message; 0 means the")
+		p.P("// 16 MiB default and a negative value disables the check. A larger")
+		p.P("// message closes the connection with status 1009 (message too big).")
+		p.P("MaxWSFrameBytes int64")
+	}
 	p.P("}")
 	p.P()
 	p.P("func New", s.Name, "Client(baseURL string) *", s.Name, "Client {")
@@ -387,4 +407,30 @@ func writeClientErrorHandling(p *Printer, m *onkir.Method) {
 	}
 	p.P(`return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))`)
 	p.P("}")
+}
+
+func serviceHasWS(s *onkir.Service) bool {
+	for _, m := range s.Methods {
+		if m.IsWebSocket() {
+			return true
+		}
+	}
+	return false
+}
+
+// fileHasWSCancel reports whether any @ws method's frames in the direction
+// sent picks out declare a @ws_cancel variant - the only case where a
+// generated Call needs a timer to send one.
+func fileHasWSCancel(file *onkir.File, sent func(*onkir.Method) *onkir.Message) bool {
+	for _, s := range file.Services {
+		for _, m := range s.Methods {
+			if !m.IsWebSocket() {
+				continue
+			}
+			if _, _, _, ok := onkir.WSCancelVariant(sent(m)); ok {
+				return true
+			}
+		}
+	}
+	return false
 }

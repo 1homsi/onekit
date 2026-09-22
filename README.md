@@ -262,6 +262,53 @@ serialized (Go: `sync.Mutex`; TypeScript: single event listener; Rust:
 `tokio::sync::Mutex`), so concurrent senders on one connection can't corrupt
 the wire.
 
+### Cancellation, timeouts, and typed errors
+
+A call can be abandoned before its reply arrives:
+
+| Target | Bound a call | Error when it gives up |
+| --- | --- | --- |
+| Go | `ctx` (cancel or deadline) | `errors.Is(err, context.Canceled)` / `context.DeadlineExceeded` |
+| TypeScript | `call(id, value, { signal, timeoutMs })` | `WSCancelledError` / `WSTimeoutError` |
+| Rust | `call_timeout(id, value, duration)`, or drop the future | `WsCallError::TimedOut` |
+
+A call on a connection that is gone (or goes away while waiting) fails
+immediately with `errors.Is(err, net.ErrClosed)` in Go (`errors.As` reaches
+the underlying `websocket.CloseError`), `WSClosedError` (with `code`/
+`closeReason`) in TypeScript, and `WsCallError::Closed` in Rust.
+
+To tell the peer as well, so it can stop working on an abandoned call, mark
+one oneof variant with `@ws_cancel`. Its message must carry the `@ws_id`:
+
+```onk
+message Cancel { id: string @ws_id }
+
+message Frame {
+  payload: oneof(discriminator: "type") {
+    # ...
+    cancel: Cancel @tag("cancel") @ws_cancel
+  }
+}
+```
+
+Every backend then sends `{"type": "cancel", "cancel": {"id": ...}}` when a
+call is abandoned. A cancel frame is never treated as a reply: it arrives at
+the peer's handler (server) or `receive()` (client) like any other frame, and
+the peer decides what stopping means.
+
+### Frame size limit
+
+Every target caps one inbound message at 16 MiB by default and closes the
+connection when a peer exceeds it (status 1009 in Go and TypeScript):
+
+- Go: `RegisterXServer(mux, impl, WithMaxWSFrameBytes(n))`, and the client
+  field `MaxWSFrameBytes`. Negative disables the check.
+- TypeScript: `createXSocketRoutes(handler, { maxFrameBytes })`,
+  `attachXNodeSocketHandlers(server, handler, { maxFrameBytes })`, and the
+  client option `maxFrameBytes`. Negative disables the check.
+- Rust: `x_router_with_ws_options(service, WsServerOptions { max_frame_bytes })`
+  and `XClient::with_max_ws_frame_bytes(n)`.
+
 ## Frontend TypeScript extras
 
 The `ts-client` target accepts opt-in flags that emit companion modules next

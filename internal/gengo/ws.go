@@ -46,30 +46,47 @@ func writeWSOutType(p *Printer) {
 // examples/onk-simple-api/api): the client and server sides each emit their
 // own copy under distinct names so the two files never collide, even though
 // every other detail of the type is identical.
-func writeWSPendingType(p *Printer, typeName, constructorName string) {
+func writeWSPendingType(p *Printer, typeName, constructorName, closedErrName string) {
+	p.P("// ", closedErrName, " is what a correlated Call returns once the connection is")
+	p.P("// gone. It matches errors.Is(err, net.ErrClosed), and errors.As reaches the")
+	p.P("// underlying read error (e.g. a websocket.CloseError carrying")
+	p.P("// StatusMessageTooBig) when there is one.")
+	p.P("type ", closedErrName, " struct{ cause error }")
+	p.P()
+	p.P("func (e *", closedErrName, ") Error() string {")
+	p.P(`if e.cause == nil { return "websocket closed" }`)
+	p.P(`return "websocket closed: " + e.cause.Error()`)
+	p.P("}")
+	p.P()
+	p.P("func (e *", closedErrName, ") Unwrap() []error {")
+	p.P("if e.cause == nil { return []error{net.ErrClosed} }")
+	p.P("return []error{net.ErrClosed, e.cause}")
+	p.P("}")
+	p.P()
 	p.P("// ", typeName, " tracks in-flight correlated WebSocket calls, keyed by an")
 	p.P("// application-supplied @ws_id value, so multiple calls can be")
 	p.P("// outstanding at once on a single connection and resolved out of order.")
 	p.P("type ", typeName, "[K comparable, T any] struct {")
 	p.P("mu sync.Mutex")
 	p.P("waiters map[K]chan T")
-	p.P("closed bool")
+	p.P("// err is set once, by closeAll, and is sticky.")
+	p.P("err error")
 	p.P("}")
 	p.P()
 	p.P("func ", constructorName, "[K comparable, T any]() *", typeName, "[K, T] {")
 	p.P("return &", typeName, "[K, T]{waiters: make(map[K]chan T)}")
 	p.P("}")
 	p.P()
-	p.P("// register reports false once closeAll has run, so a Call made after the")
+	p.P("// register fails once closeAll has run, so a Call made after the")
 	p.P("// connection is gone fails immediately rather than waiting on a reply the")
 	p.P("// read loop will never deliver.")
-	p.P("func (p *", typeName, "[K, T]) register(id K) (chan T, bool) {")
+	p.P("func (p *", typeName, "[K, T]) register(id K) (chan T, error) {")
 	p.P("p.mu.Lock()")
 	p.P("defer p.mu.Unlock()")
-	p.P("if p.closed { return nil, false }")
+	p.P("if p.err != nil { return nil, p.err }")
 	p.P("ch := make(chan T, 1)")
 	p.P("p.waiters[id] = ch")
-	p.P("return ch, true")
+	p.P("return ch, nil")
 	p.P("}")
 	p.P()
 	p.P("func (p *", typeName, "[K, T]) resolve(id K, value T) bool {")
@@ -87,11 +104,20 @@ func writeWSPendingType(p *Printer, typeName, constructorName string) {
 	p.P("p.mu.Unlock()")
 	p.P("}")
 	p.P()
-	p.P("func (p *", typeName, "[K, T]) closeAll() {")
+	p.P("func (p *", typeName, "[K, T]) closedErr() error {")
 	p.P("p.mu.Lock()")
+	p.P("defer p.mu.Unlock()")
+	p.P("return p.err")
+	p.P("}")
+	p.P()
+	p.P("// closeAll fails every in-flight call with cause; only the first call's")
+	p.P("// cause is kept.")
+	p.P("func (p *", typeName, "[K, T]) closeAll(cause error) {")
+	p.P("p.mu.Lock()")
+	p.P("if p.err != nil { p.mu.Unlock(); return }")
+	p.P("p.err = &", closedErrName, "{cause: cause}")
 	p.P("waiters := p.waiters")
 	p.P("p.waiters = make(map[K]chan T)")
-	p.P("p.closed = true")
 	p.P("p.mu.Unlock()")
 	p.P("for _, ch := range waiters { close(ch) }")
 	p.P("}")
@@ -103,9 +129,53 @@ func writeWSPendingType(p *Printer, typeName, constructorName string) {
 const (
 	wsClientPendingType        = "wsPending"
 	wsClientPendingConstructor = "newWSPending"
+	wsClientClosedError        = "wsClosedError"
 	wsServerPendingType        = "wsServerPending"
 	wsServerPendingConstructor = "newWSServerPending"
+	wsServerClosedError        = "wsServerClosedError"
 )
+
+// defaultMaxWSFrameBytes is the inbound message cap every target applies
+// unless configured otherwise (Go's websocket library alone would default to
+// 32 KiB, TS's ws to 100 MiB, Rust's tungstenite to 64 MiB).
+const defaultMaxWSFrameBytes = "16 << 20"
+
+// writeWSCallAwait emits the tail of a correlated Call: wait for the reply,
+// the connection closing, or ctx. On ctx, the waiter is dropped and - when the
+// schema declares a @ws_cancel variant for the frames this side sends - the
+// peer is told, so it can stop working on id.
+func writeWSCallAwait(p *Printer, recv string, sent *onkir.Message) {
+	p.P("select {")
+	p.P("case result, ok := <-ch:")
+	p.P("if !ok { return nil, ", recv, ".pending.closedErr() }")
+	p.P("return result, nil")
+	p.P("case <-ctx.Done():")
+	p.P(recv, ".pending.cancel(id)")
+	if frame, ok := goWSCancelFrame(p, sent, "id"); ok {
+		p.P("// Best effort, on a fresh deadline: ctx is already done.")
+		p.P("cancelCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)")
+		p.P("_ = ", recv, ".Send(cancelCtx, ", frame, ")")
+		p.P("stop()")
+	}
+	p.P("return nil, ctx.Err()")
+	p.P("}")
+}
+
+// goWSCancelFrame builds the Go expression for message's @ws_cancel frame
+// carrying idVar, if the schema declares one.
+func goWSCancelFrame(p *Printer, message *onkir.Message, idVar string) (string, bool) {
+	oneofField, variant, idField, ok := onkir.WSCancelVariant(message)
+	if !ok {
+		return "", false
+	}
+	idValue := idVar
+	if idField.Optional {
+		idValue = "&" + idVar
+	}
+	return "&" + p.MessageTypeName(message) + "{" + PascalCase(oneofField.Name) + ": &" +
+		OneofVariantTypeName(message, oneofField, variant) + "{" + PascalCase(variant.Name) + ": &" +
+		p.MessageTypeName(variant.Type.Message) + "{" + PascalCase(idField.Name) + ": " + idValue + "}}}", true
+}
 
 // wsOutName returns the per-method concrete out type name generated for a
 // @ws method that uses @ws_id, in place of the shared WSOut[E] interface.
@@ -140,22 +210,17 @@ func writeWSCorrelatedOutType(p *Printer, s *onkir.Service, m *onkir.Method, idF
 	p.P()
 	p.P("// Call sends value, then blocks until a request-direction frame")
 	p.P("// carrying the matching @ws_id arrives (resolved by the read loop),")
-	p.P("// ctx is done, or the connection closes.")
+	p.P("// ctx is done, or the connection closes. Errors match")
+	p.P("// errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded)")
+	p.P("// or errors.Is(err, net.ErrClosed) respectively.")
 	p.P("func (o *", name, ") Call(ctx context.Context, id ", idType, ", value *", resRef, ") (*", reqRef, ", error) {")
-	p.P("ch, ok := o.pending.register(id)")
-	p.P("if !ok { return nil, fmt.Errorf(\"websocket closed\") }")
+	p.P("ch, err := o.pending.register(id)")
+	p.P("if err != nil { return nil, err }")
 	p.P("if err := o.Send(ctx, value); err != nil {")
 	p.P("o.pending.cancel(id)")
 	p.P("return nil, err")
 	p.P("}")
-	p.P("select {")
-	p.P("case result, ok := <-ch:")
-	p.P("if !ok { return nil, fmt.Errorf(\"websocket closed while awaiting reply\") }")
-	p.P("return result, nil")
-	p.P("case <-ctx.Done():")
-	p.P("o.pending.cancel(id)")
-	p.P("return nil, ctx.Err()")
-	p.P("}")
+	writeWSCallAwait(p, "o", m.Response)
 	p.P("}")
 	p.P()
 }
@@ -166,7 +231,7 @@ func writeWSCorrelatedOutType(p *Printer, s *onkir.Service, m *onkir.Method, idF
 // reader is started lazily so Call (awaiting one correlated reply) and
 // Receive (reading every other inbound frame) can be used concurrently
 // without racing on the same connection.
-func writeWSDuplexType(p *Printer, inName, outName string, idField *onkir.Field, respMessage *onkir.Message) {
+func writeWSDuplexType(p *Printer, inName, outName string, idField *onkir.Field, reqMessage, respMessage *onkir.Message) {
 	name := wsDuplexName(inName, outName)
 	p.P("// ", name, " is a bidirectional WebSocket connection:")
 	p.P("type ", name, " struct {")
@@ -205,13 +270,13 @@ func writeWSDuplexType(p *Printer, inName, outName string, idField *onkir.Field,
 		return
 	}
 
-	writeWSCorrelatedDuplexMethods(p, name, inName, outName, idField, respMessage)
+	writeWSCorrelatedDuplexMethods(p, name, inName, outName, idField, reqMessage, respMessage)
 }
 
 // writeWSCorrelatedDuplexMethods emits the ensureReader/readLoop/Receive/Call
 // methods for a @ws_id-using duplex type, split out of writeWSDuplexType to
 // keep both functions under the linter's statement-count limit.
-func writeWSCorrelatedDuplexMethods(p *Printer, name, inName, outName string, idField *onkir.Field, respMessage *onkir.Message) {
+func writeWSCorrelatedDuplexMethods(p *Printer, name, inName, outName string, idField *onkir.Field, reqMessage, respMessage *onkir.Message) {
 	idType := p.GoFieldType(idField.Type)
 
 	p.P("func (d *", name, ") ensureReader() {")
@@ -227,7 +292,7 @@ func writeWSCorrelatedDuplexMethods(p *Printer, name, inName, outName string, id
 	p.P("for {")
 	p.P("_, data, err := d.conn.Read(context.Background())")
 	p.P("if err != nil {")
-	p.P("d.pending.closeAll()")
+	p.P("d.pending.closeAll(err)")
 	p.P("d.readErr <- err")
 	p.P("close(d.inbox)")
 	p.P("return")
@@ -262,22 +327,17 @@ func writeWSCorrelatedDuplexMethods(p *Printer, name, inName, outName string, id
 	p.P("// carrying the matching @ws_id arrives, ctx is done, or the")
 	p.P("// connection closes. Safe to use alongside Receive: the background")
 	p.P("// reader routes correlated replies here and everything else to it.")
+	p.P("// Errors match errors.Is(err, context.Canceled),")
+	p.P("// errors.Is(err, context.DeadlineExceeded) or errors.Is(err, net.ErrClosed).")
 	p.P("func (d *", name, ") Call(ctx context.Context, id ", idType, ", value *", inName, ") (*", outName, ", error) {")
 	p.P("d.ensureReader()")
-	p.P("ch, ok := d.pending.register(id)")
-	p.P("if !ok { return nil, fmt.Errorf(\"websocket closed\") }")
+	p.P("ch, err := d.pending.register(id)")
+	p.P("if err != nil { return nil, err }")
 	p.P("if err := d.Send(ctx, value); err != nil {")
 	p.P("d.pending.cancel(id)")
 	p.P("return nil, err")
 	p.P("}")
-	p.P("select {")
-	p.P("case result, ok := <-ch:")
-	p.P("if !ok { return nil, fmt.Errorf(\"websocket closed while awaiting reply\") }")
-	p.P("return result, nil")
-	p.P("case <-ctx.Done():")
-	p.P("d.pending.cancel(id)")
-	p.P("return nil, ctx.Err()")
-	p.P("}")
+	writeWSCallAwait(p, "d", reqMessage)
 	p.P("}")
 	p.P()
 	p.P("func (d *", name, ") Close() error { return d.conn.Close(websocket.StatusNormalClosure, \"\") }")
@@ -313,7 +373,8 @@ func writeWSIDExtraction(p *Printer, frameVar string, message *onkir.Message, id
 	for _, f := range message.Fields {
 		if f.Oneof != nil {
 			for _, variant := range f.Oneof.Variants {
-				if variant.Type == nil || variant.Type.Kind != onkir.KindMessage || variant.Type.Message == nil {
+				// A cancel is never a reply: it goes to the handler/Receive.
+				if variant.IsWSCancel() || variant.Type == nil || variant.Type.Kind != onkir.KindMessage || variant.Type.Message == nil {
 					continue
 				}
 				vf, ok := onkir.WSIDField(variant.Type.Message)
@@ -370,6 +431,7 @@ func writeWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("for key, value := range c.Headers { header.Set(key, value) }")
 	p.P("conn, _, err := websocket.Dial(ctx, socketURL, &websocket.DialOptions{ HTTPClient: c.HTTPClient, HTTPHeader: header })")
 	p.P("if err != nil { return nil, fmt.Errorf(\"dial websocket: %w\", err) }")
+	p.P("conn.SetReadLimit(wsReadLimit(c.MaxWSFrameBytes))")
 	p.P("return &", wsDuplexName(reqRef, resRef), "{conn: conn}, nil")
 	p.P("}")
 	p.P()
@@ -400,11 +462,12 @@ func writeWSRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("conn, err := websocket.Accept(w, r, nil)")
 	p.P("if err != nil { return }")
 	p.P("defer conn.CloseNow()")
+	p.P("conn.SetReadLimit(wsServerReadLimit(o.maxWSFrameBytes))")
 	p.P("ctx := r.Context()")
 	if correlated {
 		idType := p.GoFieldType(idField.Type)
 		p.P("out := &", wsOutName(s, m), "{conn: conn, pending: ", wsServerPendingConstructor, "[", idType, ", *", p.MessageTypeName(m.Request), "]()}")
-		p.P("defer out.pending.closeAll()")
+		p.P("defer out.pending.closeAll(nil)")
 	} else {
 		p.P("out := &wsConnOut[", resRef, "]{conn: conn}")
 	}
@@ -414,7 +477,11 @@ func writeWSRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("}")
 	p.P("for {")
 	p.P("_, data, err := conn.Read(ctx)")
-	p.P("if err != nil { return }")
+	if correlated {
+		p.P("if err != nil { out.pending.closeAll(err); return }")
+	} else {
+		p.P("if err != nil { return }")
+	}
 	p.P("frame := new(", p.MessageTypeName(m.Request), ")")
 	p.P("if err := json.Unmarshal(data, frame); err != nil {")
 	p.P(`sendProtocolError("invalid JSON frame")`)

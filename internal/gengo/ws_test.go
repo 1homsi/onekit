@@ -47,6 +47,7 @@ message HostCall { id: string @ws_id
 method: string }
 message HostResult { id: string @ws_id
 value: string }
+message Cancel { id: string @ws_id }
 
 message Frame {
   payload: oneof(discriminator: "type") {
@@ -54,6 +55,7 @@ message Frame {
     host_call: HostCall @tag("host_call")
     host_result: HostResult @tag("host_result")
     run_result: RunResult @tag("run_result")
+    cancel: Cancel @tag("cancel") @ws_cancel
   }
 }
 
@@ -290,10 +292,15 @@ package ` + wsCorrelatedRuntimeHarnessPkg + `
 
 import (
 	"context"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 type runtimeImpl struct{}
@@ -396,11 +403,124 @@ func TestRuntimeLateCallAfterClose(t *testing.T) {
 
 	select {
 	case err := <-impl.result:
-		if err == nil {
-			t.Fatal("Call after the peer closed returned no error")
+		if !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("Call after the peer closed: want net.ErrClosed, got %v", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Call after the peer closed never returned")
+	}
+}
+
+func dialRuntime(t *testing.T, srv RuntimeServer, opts ...any) *FrameToFrameSocket {
+	t.Helper()
+	mux := http.NewServeMux()
+	if err := RegisterRuntimeServer(mux, append([]any{srv}, opts...)...); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	socket, err := NewRuntimeClient(server.URL).Execute(context.Background(), &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: "x"}}})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(func() { _ = socket.Close() })
+	return socket
+}
+
+type timeoutCallImpl struct{ result chan error }
+
+func (h *timeoutCallImpl) Execute(ctx context.Context, req *Frame, out *RuntimeExecuteOut) error {
+	if req.GetRun() == nil {
+		return nil
+	}
+	go func() {
+		callCtx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		_, err := out.Call(callCtx, "slow-1", &Frame{Payload: &FramePayloadHostCall{HostCall: &HostCall{Id: "slow-1", Method: "slow"}}})
+		h.result <- err
+	}()
+	return nil
+}
+
+// A server Call that times out reports context.DeadlineExceeded and tells
+// the client with the schema's @ws_cancel frame.
+func TestRuntimeServerCallTimeoutSendsCancel(t *testing.T) {
+	impl := &timeoutCallImpl{result: make(chan error, 1)}
+	socket := dialRuntime(t, impl)
+	if err := socket.Send(context.Background(), &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: "x"}}}); err != nil {
+		t.Fatalf("send run: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	first, err := socket.Receive(ctx)
+	if err != nil || first.GetHostCall() == nil {
+		t.Fatalf("want host_call, got %+v (%v)", first, err)
+	}
+	second, err := socket.Receive(ctx)
+	if err != nil {
+		t.Fatalf("receive cancel: %v", err)
+	}
+	if c := second.GetCancel(); c == nil || c.Id != "slow-1" {
+		t.Fatalf("want cancel for slow-1, got %+v", second)
+	}
+	if err := <-impl.result; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want context.DeadlineExceeded, got %v", err)
+	}
+}
+
+type recordingImpl struct{ frames chan *Frame }
+
+func (h *recordingImpl) Execute(ctx context.Context, req *Frame, out *RuntimeExecuteOut) error {
+	h.frames <- req
+	return nil
+}
+
+// A client Call whose ctx is cancelled reports context.Canceled and sends the
+// @ws_cancel frame, which reaches the server handler rather than being taken
+// for a reply.
+func TestRuntimeClientCallCancelNotifiesServer(t *testing.T) {
+	impl := &recordingImpl{frames: make(chan *Frame, 8)}
+	socket := dialRuntime(t, impl)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(100 * time.Millisecond); cancel() }()
+	_, err := socket.Call(ctx, "c-1", &Frame{Payload: &FramePayloadHostCall{HostCall: &HostCall{Id: "c-1", Method: "work"}}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	var got []*Frame
+	for len(got) < 2 {
+		select {
+		case frame := <-impl.frames:
+			got = append(got, frame)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("server saw %d of 2 frames", len(got))
+		}
+	}
+	if got[0].GetHostCall() == nil {
+		t.Fatalf("want host_call first, got %+v", got[0])
+	}
+	if c := got[1].GetCancel(); c == nil || c.Id != "c-1" {
+		t.Fatalf("want cancel for c-1, got %+v", got[1])
+	}
+}
+
+// Frames above the server's limit close the connection with 1009; an
+// in-flight client Call fails with net.ErrClosed and exposes the close code.
+func TestRuntimeMaxFrameBytes(t *testing.T) {
+	impl := &recordingImpl{frames: make(chan *Frame, 8)}
+	socket := dialRuntime(t, impl, WithMaxWSFrameBytes(1024))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	big := &Frame{Payload: &FramePayloadHostCall{HostCall: &HostCall{Id: "big-1", Method: strings.Repeat("x", 4096)}}}
+	_, err := socket.Call(ctx, "big-1", big)
+	if !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("want net.ErrClosed, got %v", err)
+	}
+	var closeErr websocket.CloseError
+	if !errors.As(err, &closeErr) || closeErr.Code != websocket.StatusMessageTooBig {
+		t.Fatalf("want close status 1009, got %v", err)
 	}
 }
 `
@@ -449,13 +569,19 @@ func TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants(t *testing.T) {
 	if out, err := tidy.CombinedOutput(); err != nil {
 		t.Fatalf("go mod tidy: %v\n%s", err, out)
 	}
-	run := exec.Command("go", "test", "-run", "TestRuntime", "-v", ".")
+	run := exec.Command("go", "test", "-run", "TestRuntime", "-v", "-timeout", "120s", ".")
 	run.Dir = dir
 	out, err := run.CombinedOutput()
 	if err != nil {
 		t.Fatalf("runtime harness failed: %v\n%s", err, out)
 	}
-	for _, want := range []string{"--- PASS: TestRuntimeHarness", "--- PASS: TestRuntimeLateCallAfterClose"} {
+	for _, want := range []string{
+		"--- PASS: TestRuntimeHarness",
+		"--- PASS: TestRuntimeLateCallAfterClose",
+		"--- PASS: TestRuntimeServerCallTimeoutSendsCancel",
+		"--- PASS: TestRuntimeClientCallCancelNotifiesServer",
+		"--- PASS: TestRuntimeMaxFrameBytes",
+	} {
 		if !strings.Contains(string(out), want) {
 			t.Fatalf("expected %q in harness output:\n%s", want, out)
 		}

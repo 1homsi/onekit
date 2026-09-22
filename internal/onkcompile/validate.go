@@ -33,6 +33,9 @@ const (
 	// reply on the same connection, so generators can emit a pending-call
 	// map instead of leaving multiplexing to hand-rolled application code.
 	wsIDDecorator = "ws_id"
+	// wsCancelDecorator marks the oneof variant sent to abandon a correlated
+	// call; its message must carry the call's @ws_id.
+	wsCancelDecorator = "ws_cancel"
 )
 
 // validateSyntax rejects decorators and RPC declarations that the generators
@@ -104,7 +107,7 @@ var (
 		"deprecated": {maxArgs: 1}, "auth": {minArgs: 1, maxArgs: 1}, "auth_scheme_name": {minArgs: 1, maxArgs: 1},
 	}
 	enumValueDecorators = map[string]decoratorRule{"json": {minArgs: 1, maxArgs: 1}}
-	variantDecorators   = map[string]decoratorRule{"tag": {minArgs: 1, maxArgs: 1}, "json": {minArgs: 1, maxArgs: 1}}
+	variantDecorators   = map[string]decoratorRule{"tag": {minArgs: 1, maxArgs: 1}, "json": {minArgs: 1, maxArgs: 1}, wsCancelDecorator: {}}
 )
 
 func validateMessageDecl(path string, message *onklang.MessageDecl, options CompileOptions) error {
@@ -994,6 +997,14 @@ func validateWSCorrelation(filePath string, method *onkir.Method) error {
 	if err != nil {
 		return err
 	}
+	for _, frame := range []struct {
+		direction string
+		message   *onkir.Message
+	}{{"request", method.Request}, {"response", method.Response}} {
+		if err := validateWSCancelVariants(filePath, method.Name, frame.direction, frame.message); err != nil {
+			return err
+		}
+	}
 	all := append(append([]*onkir.Field{}, requestFields...), responseFields...)
 	if len(all) == 0 {
 		return nil
@@ -1040,6 +1051,37 @@ func collectWSIDFields(filePath, methodName, direction string, message *onkir.Me
 		}
 	}
 	return found, nil
+}
+
+// validateWSCancelVariants allows at most one @ws_cancel variant per frame
+// message and requires its message to carry @ws_id directly: generated code
+// builds the cancel frame from nothing but the abandoned call's id.
+func validateWSCancelVariants(filePath, methodName, direction string, message *onkir.Message) error {
+	var found *onkir.OneofVariant
+	for _, f := range message.Fields {
+		if f.Oneof == nil {
+			continue
+		}
+		for _, variant := range f.Oneof.Variants {
+			if !variant.IsWSCancel() {
+				continue
+			}
+			if found != nil {
+				return &Error{Path: filePath, Msg: fmt.Sprintf(
+					"%s message on RPC %s has more than one @ws_cancel variant (%s and %s)",
+					direction, methodName, found.Name, variant.Name,
+				)}
+			}
+			found = variant
+			if variant.Type == nil || variant.Type.Kind != onkir.KindMessage || variant.Type.Message == nil || onkir.FindWSIDDirect(variant.Type.Message) == nil {
+				return &Error{Path: filePath, Msg: fmt.Sprintf(
+					"@ws_cancel variant %s on RPC %s must be a message with a @ws_id field",
+					variant.Name, methodName,
+				)}
+			}
+		}
+	}
+	return nil
 }
 
 // wsIDFieldInScope returns the single @ws_id field among fields, or an error
