@@ -112,7 +112,7 @@ func TestCrossPackageTypeScript(t *testing.T) {
 	// orders/v1 is two levels below the schema root, common is one level
 	// below it - so the import path from orders/v1 back to common is "../../common/types".
 	packages := map[string]PackageRef{
-		"common": {Alias: "common", ImportPath: "../../common/types"},
+		"common": {Alias: "common", ImportPath: "../../common/types.js"},
 	}
 
 	commonResolver := &tsDirResolver{currentDir: "common", dirByMessage: dirByMessage, packages: packages}
@@ -123,7 +123,7 @@ func TestCrossPackageTypeScript(t *testing.T) {
 	ordersClient := GenerateClientWithResolver(ordersFile, ordersResolver)
 	ordersServer := GenerateServerWithResolver(ordersFile, ordersResolver)
 
-	if !containsString(string(ordersTypes), `import * as common from "../../common/types";`) {
+	if !containsString(string(ordersTypes), `import * as common from "../../common/types.js";`) {
 		t.Fatalf("expected orders/v1/types.ts to import the common package, got:\n%s", ordersTypes)
 	}
 	if !containsString(string(ordersTypes), "common.Money") {
@@ -142,11 +142,11 @@ func TestCrossPackageTypeScript(t *testing.T) {
 	// execution (used only here, not by real bundler-based consumers) needs
 	// explicit extensions on these generated files' own relative imports.
 	ordersTypesForNode := strings.ReplaceAll(
-		string(ordersTypes), `from "../../common/types"`, `from "../../common/types.ts"`,
+		string(ordersTypes), `from "../../common/types.js"`, `from "../../common/types.ts"`,
 	)
 	writeFile(t, filepath.Join(dir, "orders", "v1", "types.ts"), ordersTypesForNode)
 	writeFile(t, filepath.Join(dir, "orders", "v1", "client.ts"), string(ordersClient))
-	ordersServerForNode := strings.ReplaceAll(string(ordersServer), `from "./types"`, `from "./types.ts"`)
+	ordersServerForNode := strings.ReplaceAll(string(ordersServer), `from "./types.js"`, `from "./types.ts"`)
 	writeFile(t, filepath.Join(dir, "orders", "v1", "server.ts"), ordersServerForNode)
 	writeFile(t, filepath.Join(dir, "main.ts"), tsCrossPackageHarness)
 

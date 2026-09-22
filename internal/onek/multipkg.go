@@ -24,7 +24,7 @@ func tsImportPath(fromRelDir, toRelDir string) string {
 	if !strings.HasPrefix(rel, ".") {
 		rel = "./" + rel
 	}
-	return rel + "/types"
+	return rel + "/types.js"
 }
 
 // tsResolver implements gents.PackageResolver by looking up which schema

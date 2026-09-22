@@ -131,11 +131,11 @@ func TestGenerateZodCrossPackageImportsSchemasModule(t *testing.T) {
 		currentDir:   "orders/v1",
 		dirByMessage: dirByMessage,
 		packages: map[string]PackageRef{
-			"common": {Alias: "common", ImportPath: "../../../common/types"},
+			"common": {Alias: "common", ImportPath: "../../../common/types.js"},
 		},
 	}
 	text := string(GenerateZodWithResolver(ordersFile, resolver))
-	if !strings.Contains(text, `import * as common from "../../../common/schemas";`) {
+	if !strings.Contains(text, `import * as common from "../../../common/schemas.js";`) {
 		t.Fatalf("expected schemas-module import:\n%s", text)
 	}
 	if !strings.Contains(text, "price: common.MoneySchema,") {

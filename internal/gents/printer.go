@@ -8,8 +8,10 @@ import (
 )
 
 type Printer struct {
-	b        strings.Builder
-	resolver PackageResolver
+	b          strings.Builder
+	resolver   PackageResolver
+	zodEmitted map[*onkir.Message]bool
+	zodLazy    map[*onkir.Message]bool
 }
 
 func newPrinter(resolver PackageResolver) *Printer {

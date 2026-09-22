@@ -45,7 +45,7 @@ func WriteTSWSServerRuntime(p *Printer) {
 	p.P("const bytes = new TextEncoder().encode(message);")
 	p.P("if (bytes.byteLength <= 123) return message;")
 	p.P("let cut = 123;")
-	p.P("while (cut > 0 && (bytes[cut] & 0xc0) === 0x80) cut--;")
+	p.P("while (cut > 0 && ((bytes[cut] ?? 0) & 0xc0) === 0x80) cut--;")
 	p.P("return new TextDecoder().decode(bytes.subarray(0, cut));")
 	p.P("}")
 	p.P()
@@ -389,9 +389,9 @@ func WriteTSWSSocketRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 				continue
 			}
 			if field.Type != nil && field.Type.Kind == onkir.KindScalar {
-				p.P("body.", field.Name, " = parseScalar(params.", paramName, ", ", fmt.Sprintf("%q", field.Type.Scalar.String()), ", ", fmt.Sprintf("%q", "path parameter "+paramName), ");")
+				p.P("body.", field.Name, " = parseScalar(params[", fmt.Sprintf("%q", paramName), "] ?? \"\", ", fmt.Sprintf("%q", field.Type.Scalar.String()), ", ", fmt.Sprintf("%q", "path parameter "+paramName), ");")
 			} else {
-				p.P("body.", field.Name, " = params.", paramName, ";")
+				p.P("body.", field.Name, " = params[", fmt.Sprintf("%q", paramName), "] ?? \"\";")
 			}
 		}
 	}
@@ -568,9 +568,9 @@ func WriteTSWSNodeSocketRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 				continue
 			}
 			if field.Type != nil && field.Type.Kind == onkir.KindScalar {
-				p.P("body.", field.Name, " = parseScalar(match.", paramName, ", ", fmt.Sprintf("%q", field.Type.Scalar.String()), ", ", fmt.Sprintf("%q", "path parameter "+paramName), ");")
+				p.P("body.", field.Name, " = parseScalar(match[", fmt.Sprintf("%q", paramName), "] ?? \"\", ", fmt.Sprintf("%q", field.Type.Scalar.String()), ", ", fmt.Sprintf("%q", "path parameter "+paramName), ");")
 			} else {
-				p.P("body.", field.Name, " = match.", paramName, ";")
+				p.P("body.", field.Name, " = match[", fmt.Sprintf("%q", paramName), "] ?? \"\";")
 			}
 		}
 	}

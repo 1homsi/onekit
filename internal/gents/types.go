@@ -327,12 +327,12 @@ func tsRuntimeTypeExpression(field *onkir.Field, expr string) string {
 // "billingStreet"). Its wire key is the same prefix+field, just left in
 // snake_case.
 func writeField(p *Printer, m *onkir.Message, f *onkir.Field, wirePrefix string) {
-	separator := "?: "
+	separator, orUndefined := "?: ", " | undefined"
 	if f.HasDecorator("required") {
-		separator = ": "
+		separator, orUndefined = ": ", ""
 	}
 	if f.Oneof != nil {
-		p.P(CamelCase(wirePrefix+f.Name), separator, OneofTypeName(m, f), ";")
+		p.P(CamelCase(wirePrefix+f.Name), separator, OneofTypeName(m, f), orUndefined, ";")
 		return
 	}
 	if prefix, ok := flattenPrefix(f); ok {
@@ -347,7 +347,7 @@ func writeField(p *Printer, m *onkir.Message, f *onkir.Field, wirePrefix string)
 	if emptyBehaviorValue(f) == emptyBehaviorNull {
 		tsType += " | null"
 	}
-	p.P(CamelCase(wirePrefix+f.Name), separator, tsType, ";")
+	p.P(CamelCase(wirePrefix+f.Name), separator, tsType, orUndefined, ";")
 }
 
 func writeFlattenedFields(p *Printer, child *onkir.Message, wirePrefix string) {
