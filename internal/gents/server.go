@@ -55,15 +55,20 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 	if fns := serverCodecNames(file, resolver); len(fns) > 0 {
 		p.P(`import { `, strings.Join(fns, ", "), ` } from "./types";`)
 	}
+	hasWS := onkir.FileHasWSMethods(file)
+	if hasWS {
+		p.P(`import { WebSocketServer } from "ws";`)
+		p.P(`import type { Server as HttpServer, IncomingHttpHeaders } from "node:http";`)
+	}
 	for _, ref := range collectServiceExternalRefs(file, resolver) {
 		p.P(`import * as `, ref.Alias, ` from "`, ref.ImportPath, `";`)
 	}
 	p.P()
 
 	writeServerRuntime(p)
-	hasWS := onkir.FileHasWSMethods(file)
 	if hasWS {
 		WriteTSWSServerRuntime(p)
+		WriteTSWSNodeServerRuntime(p)
 	}
 	if onkir.FileHasStreamMethods(file) {
 		writeSSEResponseHelper(p)
@@ -74,6 +79,7 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 		writeRouteFactory(p, s)
 		if hasWS {
 			writeTSSocketFactory(p, s)
+			writeTSNodeSocketFactory(p, s)
 		}
 	}
 

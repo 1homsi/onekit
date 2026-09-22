@@ -13,8 +13,10 @@ import (
 // WriteTSWSServerRuntime emits the shared WebSocket-server scaffolding: the
 // WSOut sender interface, an upgrade helper built on the Web-standard
 // WebSocketPair (Cloudflare Workers / Deno / Bun), and a socket route
-// descriptor type. Node runtimes need a small adapter bridging 'ws' sockets
-// onto the same handle function.
+// descriptor type. Plain Node has no WebSocketPair at all - see
+// WriteTSWSNodeServerRuntime/writeTSNodeSocketFactory for the adapter built
+// on the `ws` package that bridges the same handler/out/correlation shape
+// onto a real Node http.Server's 'upgrade' event.
 func WriteTSWSServerRuntime(p *Printer) {
 	p.P("export interface WSOut<E> {")
 	p.P("send(value: E): void | Promise<void>;")
@@ -39,6 +41,20 @@ func WriteTSWSServerRuntime(p *Printer) {
 	p.P("send(data: string): void;")
 	p.P("close(code?: number, reason?: string): void;")
 	p.P(`addEventListener(type: "message" | "close", listener: (event: any) => void): void;`)
+	p.P("}")
+	p.P()
+}
+
+// WriteTSWSNodeServerRuntime emits the one helper the Node adapter needs
+// beyond what WriteTSWSServerRuntime already provides (WSOut/WSCallOut/
+// WSPending and the rest are already platform-agnostic): a header reader
+// matching req.headers.get()'s shape against Node's IncomingHttpHeaders,
+// which lower-cases header names and can return string | string[].
+func WriteTSWSNodeServerRuntime(p *Printer) {
+	p.P("function nodeHeaderValue(headers: IncomingHttpHeaders, name: string): string | null {")
+	p.P("const value = headers[name.toLowerCase()];")
+	p.P("if (Array.isArray(value)) return value[0] ?? null;")
+	p.P("return value ?? null;")
 	p.P("}")
 	p.P()
 }
@@ -155,6 +171,7 @@ func WriteTSWSSocketRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		}
 		p.P("}")
 	}
+	p.P("const url = new URL(req.url);")
 	p.P("let body: Record<string, unknown> = {};")
 	writeServerQueryParams(p, m.Request)
 	if hasPathParams {
@@ -177,27 +194,45 @@ func WriteTSWSSocketRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("const pair = new (globalThis as any).WebSocketPair();")
 	p.P("const server: PairServerSocket = pair.server;")
 	p.P("server.accept();")
+	writeTSWSSocketBody(p, m, "server")
+	p.P("return new Response(null, { status: 101, webSocket: pair.client } as any);")
+	p.P("} catch (err) {")
+	p.P("return errorResponse(err);")
+	p.P("}")
+	p.P("},")
+	p.P("},")
+}
+
+// writeTSWSSocketBody emits the platform-independent core of a @ws server
+// handler: out/pending construction, the inbound-message handler,
+// correlation extraction, and the initial connect-time handler call. It's
+// shared between the Workers-style route (socketVar "server", typed
+// PairServerSocket) and the Node adapter (socketVar "ws", typed by the real
+// `ws` package via inference) since neither WSOut/WSCallOut/WSPending nor
+// this body touches any Workers-specific API - only the surrounding
+// request/upgrade plumbing differs per platform.
+func writeTSWSSocketBody(p *Printer, m *onkir.Method, socketVar string) {
 	idField, correlated := m.WSIDField()
 	if correlated {
 		idType := p.TSFieldType(idField.Type)
 		p.P("const pending = new WSPending<", idType, ", ", p.MessageTypeName(m.Request), ">();")
 		p.P("const out: WSCallOut<", idType, ", ", p.MessageTypeName(m.Response), ", ", p.MessageTypeName(m.Request), "> = {")
-		p.P("send: (value) => { server.send(JSON.stringify(value)); },")
-		p.P("call: (id, value) => { const reply = pending.register(id); server.send(JSON.stringify(value)); return reply; },")
+		p.P("send: (value) => { ", socketVar, ".send(JSON.stringify(value)); },")
+		p.P("call: (id, value) => { const reply = pending.register(id); ", socketVar, ".send(JSON.stringify(value)); return reply; },")
 		p.P("};")
-		p.P(`server.addEventListener("close", () => { pending.rejectAll(new Error("websocket closed")); });`)
+		p.P(socketVar, `.addEventListener("close", () => { pending.rejectAll(new Error("websocket closed")); });`)
 	} else {
 		p.P("const out: WSOut<", p.MessageTypeName(m.Response), "> = {")
-		p.P("send: (value) => { server.send(JSON.stringify(value)); },")
+		p.P("send: (value) => { ", socketVar, ".send(JSON.stringify(value)); },")
 		p.P("};")
 	}
-	p.P("server.addEventListener(\"message\", async (event: any) => {")
+	p.P(socketVar, ".addEventListener(\"message\", async (event: any) => {")
 	p.P("try {")
 	p.P("const frame = decode", m.Request.Name, "(JSON.parse(String(event.data)));")
 	p.P("const violations = validate", m.Request.Name, "(frame);")
 	p.P("if (violations.length > 0) {")
-	p.P(`server.send(JSON.stringify({ error: violations.join("; ") }));`)
-	p.P("server.close(1008, \"invalid frame\");")
+	p.P(socketVar, `.send(JSON.stringify({ error: violations.join("; ") }));`)
+	p.P(socketVar, ".close(1008, \"invalid frame\");")
 	p.P("return;")
 	p.P("}")
 	if correlated {
@@ -206,16 +241,10 @@ func WriteTSWSSocketRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	}
 	p.P("await handler.", CamelCase(m.Name), "(frame, out);")
 	p.P("} catch (err) {")
-	p.P(`server.send(JSON.stringify({ error: String(err) }));`)
+	p.P(socketVar, `.send(JSON.stringify({ error: String(err) }));`)
 	p.P("}")
 	p.P("});")
 	p.P("void handler.", CamelCase(m.Name), "(connection, out);")
-	p.P("return new Response(null, { status: 101, webSocket: pair.client } as any);")
-	p.P("} catch (err) {")
-	p.P("return errorResponse(err);")
-	p.P("}")
-	p.P("},")
-	p.P("},")
 }
 
 func writeTSSocketFactory(p *Printer, s *onkir.Service) {
@@ -230,6 +259,91 @@ func writeTSSocketFactory(p *Printer, s *onkir.Service) {
 	p.P("];")
 	p.P("}")
 	p.P()
+}
+
+// writeTSNodeSocketFactory emits attach<Service>NodeSocketHandlers, the
+// Node counterpart to create<Service>SocketRoutes: safe to call once per
+// service on the same http.Server (Node allows multiple 'upgrade'
+// listeners; each checks its own paths via matchPath and only acts on a
+// match), since a single 'upgrade' event has no per-request return value
+// for a consumer to dispatch on the way SocketRouteDescriptor[] assumes.
+func writeTSNodeSocketFactory(p *Printer, s *onkir.Service) {
+	factory := "attach" + s.Name + "NodeSocketHandlers"
+	p.P("export function ", factory, "(httpServer: HttpServer, handler: ", s.Name, "Handler): void {")
+	p.P("const wss = new WebSocketServer({ noServer: true });")
+	p.P(`httpServer.on("upgrade", (req, socket, head) => {`)
+	p.P(`const url = new URL(req.url ?? "/", "http://" + (req.headers.host ?? "localhost"));`)
+	for _, m := range s.Methods {
+		if m.IsWebSocket() {
+			WriteTSWSNodeSocketRoute(p, s, m)
+		}
+	}
+	p.P("});")
+	p.P("}")
+	p.P()
+}
+
+// WriteTSWSNodeSocketRoute emits one path-matched block inside the shared
+// 'upgrade' listener writeTSNodeSocketFactory builds. Everything from
+// connection decode onward reuses writeTSWSSocketBody - identical to the
+// Workers-style route - since only the surrounding request/upgrade
+// mechanics differ: Node's http.IncomingMessage headers instead of a Fetch
+// Request, matchPath against a raw net.Socket instead of a router-supplied
+// params object, and wss.handleUpgrade instead of returning a Response.
+func WriteTSWSNodeSocketRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
+	wsPath, _ := m.WebSocketPath()
+	fullPath := s.BasePath + wsPath
+	hasPathParams := len(onkir.PathParamNames(wsPath)) > 0
+
+	p.P("{")
+	p.P("const match = matchPath(", fmt.Sprintf("%q", fullPath), ", url.pathname);")
+	p.P("if (match) {")
+	p.P("try {")
+	for _, header := range slices.Concat(s.Headers, m.Headers) {
+		format, hasFormat := header.Format()
+		p.P("{")
+		p.P("const value = nodeHeaderValue(req.headers, ", fmt.Sprintf("%q", header.Name), ");")
+		if header.Required() {
+			p.P("if (!value) throw new HttpError(400, { message: ", fmt.Sprintf("%q", "missing required header: "+header.Name), " });")
+		}
+		if hasFormat {
+			p.P("if (value && !validHeaderFormat(value, ", fmt.Sprintf("%q", format), ")) throw new HttpError(400, { message: ", fmt.Sprintf("%q", "invalid header "+header.Name+": expected "+format), " });")
+		}
+		p.P("}")
+	}
+	p.P("let body: Record<string, unknown> = {};")
+	writeServerQueryParams(p, m.Request)
+	if hasPathParams {
+		for _, paramName := range onkir.PathParamNames(wsPath) {
+			field := onkir.FindField(m.Request, paramName)
+			if field == nil {
+				continue
+			}
+			if field.Type != nil && field.Type.Kind == onkir.KindScalar {
+				p.P("body.", field.Name, " = parseScalar(match.", paramName, ", ", fmt.Sprintf("%q", field.Type.Scalar.String()), ", ", fmt.Sprintf("%q", "path parameter "+paramName), ");")
+			} else {
+				p.P("body.", field.Name, " = match.", paramName, ";")
+			}
+		}
+	}
+	p.P("const connection = decode", m.Request.Name, "(body);")
+	p.P("const connectionViolations = validate", m.Request.Name, "(connection);")
+	p.P("if (connectionViolations.length > 0) {")
+	p.P(`socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");`)
+	p.P("socket.destroy();")
+	p.P("return;")
+	p.P("}")
+	p.P("wss.handleUpgrade(req, socket, head, (ws) => {")
+	writeTSWSSocketBody(p, m, "ws")
+	p.P("});")
+	p.P("} catch (err) {")
+	p.P("const status = err instanceof HttpError ? err.status : 400;")
+	p.P(`socket.write("HTTP/1.1 " + status + " Bad Request\r\nConnection: close\r\n\r\n");`)
+	p.P("socket.destroy();")
+	p.P("}")
+	p.P("return;")
+	p.P("}")
+	p.P("}")
 }
 
 // --- client ---------------------------------------------------------------
