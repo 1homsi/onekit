@@ -110,7 +110,10 @@ func TestGenerateRustWSCorrelated(t *testing.T) {
 	for _, want := range []string{
 		"pub trait WsCorrelated<K> {",
 		"impl WsCorrelated<String> for Frame {",
+		// Both oneof variants carrying @ws_id must get a match arm, not
+		// just whichever one happens to be first by declaration order.
 		`if let Some(FramePayload::HostCall(value)) = &self.payload {`,
+		`if let Some(FramePayload::HostResult(value)) = &self.payload {`,
 	} {
 		if !strings.Contains(string(types), want) {
 			t.Fatalf("generated rust types missing %q:\n%s", want, types)

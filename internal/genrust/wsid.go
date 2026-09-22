@@ -57,7 +57,7 @@ func writeWSCorrelatedImpl(p *Printer, message *onkir.Message, kType string, idF
 	if idField == nil {
 		p.P("None")
 	} else {
-		writeWSIDMatchBody(p, message, idField)
+		writeWSIDMatchBody(p, message)
 	}
 	p.Dedent()
 	p.P("}")
@@ -66,12 +66,19 @@ func writeWSCorrelatedImpl(p *Printer, message *onkir.Message, kType string, idF
 	p.Blank()
 }
 
-// writeWSIDMatchBody emits statements returning Some(id) as soon as idField
-// is found - directly on message, or within whichever oneof variant's own
-// message carries it - falling through to a final `None`.
-func writeWSIDMatchBody(p *Printer, message *onkir.Message, idField *onkir.Field) {
-	returnFound := func(accessor string) {
-		if idField.Optional && idField.Type.Kind != onkir.KindMessage {
+// writeWSIDMatchBody emits statements returning Some(id) for whichever
+// field of message actually carries @ws_id - a direct field, or
+// (independently, per variant) any oneof variant whose own message carries
+// one - falling through to a final `None`. Each variant has its own
+// distinct field (e.g. HostCall.id vs HostResult.id) with its own name and
+// optionality, found fresh per variant rather than filtered against a
+// single reference field: comparing against one shared field's identity
+// only ever matched whichever field onkir.WSIDField(message) happened to
+// return first (declaration order), silently emitting no match arm at all
+// for every other variant's @ws_id field.
+func writeWSIDMatchBody(p *Printer, message *onkir.Message) {
+	returnFound := func(field *onkir.Field, accessor string) {
+		if field.Optional && field.Type.Kind != onkir.KindMessage {
 			p.P("return ", accessor, ".clone();")
 			return
 		}
@@ -84,22 +91,22 @@ func writeWSIDMatchBody(p *Printer, message *onkir.Message, idField *onkir.Field
 					continue
 				}
 				vf, ok := onkir.WSIDField(variant.Type.Message)
-				if !ok || vf != idField {
+				if !ok {
 					continue
 				}
 				oneofType := OneofTypeName(message, f)
 				p.P("if let Some(", oneofType, "::", PascalCase(variant.Name), "(value)) = &self.", RustIdent(f.Name), " {")
 				p.Indent()
-				returnFound("value." + RustIdent(idField.Name))
+				returnFound(vf, "value."+RustIdent(vf.Name))
 				p.Dedent()
 				p.P("}")
 			}
 			continue
 		}
-		if f != idField {
+		if !f.HasDecorator("ws_id") {
 			continue
 		}
-		returnFound("self." + RustIdent(idField.Name))
+		returnFound(f, "self."+RustIdent(f.Name))
 	}
 	p.P("None")
 }

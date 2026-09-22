@@ -277,8 +277,17 @@ func writeWSCorrelatedDuplexMethods(p *Printer, name, inName, outName string, id
 }
 
 // writeWSIDExtraction emits statements declaring idVar/okVar and setting
-// them from frameVar (a *message) when message carries idField either
-// directly or within one of its oneof variants' own messages.
+// them from frameVar (a *message) from whichever field of message actually
+// carries @ws_id - a direct field, or (independently, per variant) any
+// oneof variant whose own message carries one. idField only supplies the
+// shared Go type for idVar: onkcompile guarantees every @ws_id field a
+// method touches shares one scalar type, but each oneof variant has its
+// own distinct field (e.g. HostCall.Id vs HostResult.Id) with its own name
+// and optionality, so - unlike an earlier version of this function - it
+// must not filter variants by comparing against idField's identity: doing
+// so only ever matched whichever single field onkir.WSIDField(message)
+// happened to return first (declaration order), silently generating no
+// extraction code at all for every other variant's @ws_id field.
 func writeWSIDExtraction(p *Printer, frameVar string, message *onkir.Message, idField *onkir.Field, idVar, okVar string) {
 	idType := p.GoFieldType(idField.Type)
 	p.P("var ", idVar, " ", idType)
@@ -286,11 +295,12 @@ func writeWSIDExtraction(p *Printer, frameVar string, message *onkir.Message, id
 	if message == nil {
 		return
 	}
-	directAccess := func(accessor string) (string, bool) {
-		if idField.Optional && idField.Type.Kind != onkir.KindMessage {
-			return accessor, true
+	emitReturn := func(field *onkir.Field, accessor string) {
+		if field.Optional && field.Type.Kind != onkir.KindMessage {
+			p.P("if ", accessor, " != nil { ", idVar, ", ", okVar, " = *", accessor, ", true }")
+			return
 		}
-		return accessor, false
+		p.P(idVar, ", ", okVar, " = ", accessor, ", true")
 	}
 	for _, f := range message.Fields {
 		if f.Oneof != nil {
@@ -299,31 +309,22 @@ func writeWSIDExtraction(p *Printer, frameVar string, message *onkir.Message, id
 					continue
 				}
 				vf, ok := onkir.WSIDField(variant.Type.Message)
-				if !ok || vf != idField {
+				if !ok {
 					continue
 				}
 				typeName := OneofVariantTypeName(message, f, variant)
 				variantAccessor := "v." + PascalCase(variant.Name)
-				fieldAccessor := variantAccessor + "." + PascalCase(idField.Name)
+				fieldAccessor := variantAccessor + "." + PascalCase(vf.Name)
 				p.P("if v, ok := ", frameVar, ".Get", PascalCase(f.Name), "().(*", typeName, "); ok && v != nil && ", variantAccessor, " != nil {")
-				if accessor, optional := directAccess(fieldAccessor); optional {
-					p.P("if ", accessor, " != nil { ", idVar, ", ", okVar, " = *", accessor, ", true }")
-				} else {
-					p.P(idVar, ", ", okVar, " = ", accessor, ", true")
-				}
+				emitReturn(vf, fieldAccessor)
 				p.P("}")
 			}
 			continue
 		}
-		if f != idField {
+		if !f.HasDecorator("ws_id") {
 			continue
 		}
-		accessor := frameVar + "." + PascalCase(idField.Name)
-		if accessor2, optional := directAccess(accessor); optional {
-			p.P("if ", accessor2, " != nil { ", idVar, ", ", okVar, " = *", accessor2, ", true }")
-		} else {
-			p.P(idVar, ", ", okVar, " = ", accessor2, ", true")
-		}
+		emitReturn(f, frameVar+"."+PascalCase(f.Name))
 	}
 }
 
