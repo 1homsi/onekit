@@ -37,11 +37,19 @@ func TestGenerateTSWSServer(t *testing.T) {
 		// path built on the `ws` package instead, sharing the same out/
 		// handler-dispatch body as the Workers-style route above.
 		`import { WebSocketServer } from "ws";`,
-		`import type { Server as HttpServer, IncomingHttpHeaders } from "node:http";`,
+		`import type { Server as HttpServer, IncomingHttpHeaders, IncomingMessage } from "node:http";`,
 		"export function attachChatServiceNodeSocketHandlers(httpServer: HttpServer, handler: ChatServiceHandler): void {",
 		`const match = matchPath("/v1/rooms/{room}", url.pathname);`,
 		"wss.handleUpgrade(req, socket, head, (ws) => {",
-		"ws.send(JSON.stringify(value)); },",
+		// Outgoing frames are encoded to the wire shape on both paths, like
+		// the TS client's send(); JSON.stringify(value) alone leaks camelCase.
+		"send: (value) => { server.send(JSON.stringify(encodeChatEvent(value))); },",
+		"send: (value) => { ws.send(JSON.stringify(encodeChatEvent(value))); },",
+		// One shared 'upgrade' listener per http.Server rejects paths no
+		// route claims instead of leaking the socket until TCP timeout.
+		`const nodeSocketRoutesKey = Symbol.for("onekit.nodeSocketRoutes");`,
+		"registerNodeSocketRoute(httpServer, (req, socket, head, url) => {",
+		`socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("generated ts server missing %q:\n%s", want, text)
@@ -104,7 +112,8 @@ func TestGenerateTSWSServerCorrelated(t *testing.T) {
 		"export interface WSCallOut<K, E, R> extends WSOut<E> {",
 		"execute(req: Frame, out: WSCallOut<string, Frame, Frame>): void | Promise<void>;",
 		"const pending = new WSPending<string, Frame>();",
-		"call: (id, value) => { const reply = pending.register(id); server.send(JSON.stringify(value)); return reply; },",
+		`if (server.readyState !== 1) pending.rejectAll(new Error("websocket closed"));`,
+		"if (!pending.closed) server.send(JSON.stringify(encodeFrame(value)));",
 		"if (replyId !== undefined && pending.resolve(replyId, frame)) return;",
 		// Both oneof variants carrying @ws_id must get extraction code, not
 		// just whichever one happens to be first by declaration order.
@@ -113,7 +122,8 @@ func TestGenerateTSWSServerCorrelated(t *testing.T) {
 		// Node adapter gets the same correlated out/call shape, reusing the
 		// identical shared body (just socketVar "ws" instead of "server").
 		"export function attachRuntimeNodeSocketHandlers(httpServer: HttpServer, handler: RuntimeHandler): void {",
-		"call: (id, value) => { const reply = pending.register(id); ws.send(JSON.stringify(value)); return reply; },",
+		"if (!pending.closed) ws.send(JSON.stringify(encodeFrame(value)));",
+		"if (this.isClosed) return Promise.reject(this.closedWith);",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("generated correlated ts server missing %q:\n%s", want, text)
@@ -142,10 +152,6 @@ func TestGenerateTSWSClientCorrelated(t *testing.T) {
 	}
 }
 
-// TestGeneratedTSWSCorrelatedTypeChecks pins that a @ws_id-using server AND
-// client type-check together against a real tsc - this generics/listener
-// code is exactly the shape substring assertions above are weakest at
-// catching.
 // TestGeneratedTSWSTypeChecks covers the plain (no @ws_id) fixture. There
 // was previously no tsc check for @ws server output at all - the general
 // TestGeneratedTypeScriptTypeChecks fixture has no @ws methods - so this
@@ -230,24 +236,21 @@ const http = require("node:http");
 const WebSocket = require("ws");
 const { attachRuntimeNodeSocketHandlers } = require("./server.js");
 
-// Frame values passed to out.call()/out.send() are JSON.stringify()'d
-// directly (see writeTSWSSocketBody) with no encode<Response> step - the
-// caller must already supply wire-shaped keys (the raw variant name, e.g.
-// "host_call", not the decoded camelCase "hostCall" a *received* frame
-// exposes after decodeFrame()). Pre-existing behavior, unrelated to the
-// Node adapter - this harness gets it right on both sides to prove the
-// adapter's own routing, not to relitigate that ergonomic wrinkle.
+// out.call()/out.send() take the typed TS Frame shape (camelCase variant
+// keys) and encode it to the wire, the same as the generated TS client's
+// send(); the raw client side of this harness speaks wire JSON (snake_case)
+// directly, so a server that forgot to encode would be caught here too.
 const handler = {
   async execute(req, out) {
     if (!req.payload || req.payload.type !== "run") return;
     try {
-      const reply = await out.call("call-1", { payload: { type: "host_call", host_call: { id: "call-1", method: "doThing" } } });
+      const reply = await out.call("call-1", { payload: { type: "host_call", hostCall: { id: "call-1", method: "doThing" } } });
       const result = reply.payload && reply.payload.type === "host_result" ? reply.payload.hostResult : null;
       if (!result || result.id !== "call-1" || result.value !== "answer") {
         console.error("UNEXPECTED_REPLY", JSON.stringify(reply));
         process.exit(1);
       }
-      await out.send({ payload: { type: "run_result", run_result: { exit_code: 0 } } });
+      await out.send({ payload: { type: "run_result", runResult: { exitCode: 0 } } });
     } catch (err) {
       console.error("CALL_ERROR", err);
       process.exit(1);
@@ -272,10 +275,18 @@ httpServer.listen(0, "127.0.0.1", () => {
   ws.on("message", (data) => {
     const frame = JSON.parse(String(data));
     if (frame.payload && frame.payload.type === "host_call") {
+      if (!frame.payload.host_call || frame.payload.host_call.method !== "doThing") {
+        console.error("SERVER_SENT_UNENCODED_FRAME", JSON.stringify(frame));
+        process.exit(1);
+      }
       ws.send(JSON.stringify({ payload: { type: "host_result", host_result: { id: frame.payload.host_call.id, value: "answer" } } }));
       return;
     }
     if (frame.payload && frame.payload.type === "run_result") {
+      if (!frame.payload.run_result || frame.payload.run_result.exit_code !== 0) {
+        console.error("SERVER_SENT_UNENCODED_FRAME", JSON.stringify(frame));
+        process.exit(1);
+      }
       clearTimeout(timer);
       console.log("OK");
       process.exit(0);
@@ -289,26 +300,91 @@ httpServer.listen(0, "127.0.0.1", () => {
 `
 
 func TestGeneratedTSWSNodeAdapterRuntimeRoutesMultipleVariants(t *testing.T) {
-	if _, err := exec.LookPath("tsc"); err != nil {
-		t.Skip("tsc not available")
+	dir := buildTSNodeServer(t, wsCorrelatedFixture)
+	runNodeHarness(t, dir, tsNodeRuntimeHarness)
+}
+
+// tsNodeLifecycleHarness pins two connection-lifecycle bugs in the Node
+// adapter: an upgrade to a path no route claims used to be left hanging until
+// TCP timeout (no listener ever destroyed the socket), and a call() made after
+// the peer closed used to register a waiter and "send" into a dead socket,
+// never settling.
+const tsNodeLifecycleHarness = `
+"use strict";
+const http = require("node:http");
+const WebSocket = require("ws");
+const { attachRuntimeNodeSocketHandlers } = require("./server.js");
+
+function fail(message) { console.error(message); process.exit(1); }
+const timer = setTimeout(() => fail("TIMEOUT"), 10000);
+
+let settleCall;
+const callOutcome = new Promise((resolve) => { settleCall = resolve; });
+
+const handler = {
+  async execute(req, out) {
+    if (!req.payload || req.payload.type !== "run") return;
+    // Let the peer's close land first - the reported repro.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    try {
+      await out.call("late-1", { payload: { type: "host_call", hostCall: { id: "late-1", method: "late" } } });
+      settleCall("RESOLVED");
+    } catch {
+      settleCall("REJECTED");
+    }
+  },
+};
+
+const httpServer = http.createServer((req, res) => { res.writeHead(404); res.end(); });
+attachRuntimeNodeSocketHandlers(httpServer, handler);
+
+httpServer.listen(0, "127.0.0.1", async () => {
+  const base = "ws://127.0.0.1:" + httpServer.address().port;
+
+  const unmatched = await new Promise((resolve) => {
+    const ws = new WebSocket(base + "/v1/nope");
+    ws.on("unexpected-response", (_req, res) => resolve("status " + res.statusCode));
+    ws.on("open", () => resolve("opened"));
+    ws.on("error", (err) => resolve("error " + err.message));
+  });
+  if (unmatched !== "status 404") fail("UNMATCHED_PATH: " + unmatched);
+
+  const ws = new WebSocket(base + "/v1/execute");
+  ws.on("open", () => {
+    ws.send(JSON.stringify({ payload: { type: "run", run: { code: "x" } } }));
+    setTimeout(() => ws.close(), 50);
+  });
+  const outcome = await callOutcome;
+  if (outcome !== "REJECTED") fail("LATE_CALL: " + outcome);
+
+  clearTimeout(timer);
+  console.log("OK");
+  process.exit(0);
+});
+`
+
+func TestGeneratedTSWSNodeAdapterLifecycle(t *testing.T) {
+	dir := buildTSNodeServer(t, wsCorrelatedFixture)
+	runNodeHarness(t, dir, tsNodeLifecycleHarness)
+}
+
+// buildTSNodeServer generates types.ts/server.ts for fixture into a temp dir,
+// installs the Node adapter's peer dependencies, and compiles them to
+// CommonJS so a plain-JS harness can require("./server.js").
+func buildTSNodeServer(t *testing.T, fixture string) string {
+	t.Helper()
+	for _, tool := range []string{"tsc", "npm", "node"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not available")
+		}
 	}
-	if _, err := exec.LookPath("npm"); err != nil {
-		t.Skip("npm not available")
-	}
-	if _, err := exec.LookPath("node"); err != nil {
-		t.Skip("node not available")
-	}
-	file, err := compileForTest(wsCorrelatedFixture)
+	file, err := compileForTest(fixture)
 	if err != nil {
 		t.Fatalf("fixture: %v", err)
 	}
-	typesSrc := GenerateTypes(file)
-	serverSrc := GenerateServerWithResolver(file, nil)
-
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "types.ts"), string(typesSrc))
-	writeFile(t, filepath.Join(dir, "server.ts"), string(serverSrc))
-	writeFile(t, filepath.Join(dir, "harness.js"), tsNodeRuntimeHarness)
+	writeFile(t, filepath.Join(dir, "types.ts"), string(GenerateTypes(file)))
+	writeFile(t, filepath.Join(dir, "server.ts"), string(GenerateServerWithResolver(file, nil)))
 	writeFile(t, filepath.Join(dir, "package.json"), `{"name": "ws-node-runtime", "private": true}`)
 	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
   "compilerOptions": {
@@ -321,26 +397,29 @@ func TestGeneratedTSWSNodeAdapterRuntimeRoutesMultipleVariants(t *testing.T) {
   }
 }
 `)
-
 	install := exec.Command("npm", "install", "--no-audit", "--no-fund", "ws", "@types/node", "@types/ws")
 	install.Dir = dir
 	if out, err := install.CombinedOutput(); err != nil {
 		t.Fatalf("npm install: %v\n%s", err, out)
 	}
-
 	build := exec.Command("tsc", "-p", "tsconfig.json")
 	build.Dir = dir
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("tsc build failed: %v\n%s", err, out)
 	}
+	return dir
+}
 
+func runNodeHarness(t *testing.T, dir, harness string) {
+	t.Helper()
+	writeFile(t, filepath.Join(dir, "harness.js"), harness)
 	run := exec.Command("node", "harness.js")
 	run.Dir = dir
 	out, err := run.CombinedOutput()
 	if err != nil {
-		t.Fatalf("node runtime harness failed: %v\n%s", err, out)
+		t.Fatalf("node harness failed: %v\n%s", err, out)
 	}
-	if got := strings.TrimRight(string(out), "\n"); got != "OK" {
+	if got := strings.TrimSpace(string(out)); got != "OK" {
 		t.Fatalf("expected OK, got %q", got)
 	}
 }
