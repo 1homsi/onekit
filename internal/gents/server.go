@@ -52,7 +52,8 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 	if names := referencedTypeNames(file, resolver); len(names) > 0 {
 		p.P(`import type { `, strings.Join(names, ", "), ` } from "./types.js";`)
 	}
-	if fns := serverCodecNames(file, resolver); len(fns) > 0 {
+	fns := append(serverCodecNames(file, resolver), wsRawImportNames(p, file, func(m *onkir.Method) []*onkir.Message { return []*onkir.Message{m.Request, m.Response} })...)
+	if len(fns) > 0 {
 		p.P(`import { `, strings.Join(fns, ", "), ` } from "./types.js";`)
 	}
 	hasWS := onkir.FileHasWSMethods(file)

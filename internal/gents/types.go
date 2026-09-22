@@ -28,6 +28,17 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) []byt
 	for _, m := range file.Messages {
 		writeMessage(p, m)
 	}
+	if fileHasRawBytes(file) {
+		writeTSBase64Helpers(p)
+	}
+	if onkir.FileHasWSMethods(file) {
+		writeTSWSCodecRuntime(p)
+		for _, m := range fileMessagesDeep(file) {
+			if onkir.MessageHasRaw(m, p.isExternalMessage) {
+				writeTSRawFuncs(p, m)
+			}
+		}
+	}
 
 	return p.Bytes()
 }
@@ -65,6 +76,9 @@ func (p *Printer) fieldWireTSType(f *onkir.Field) string {
 }
 
 func (p *Printer) scalarWireTSType(f *onkir.Field) string {
+	if isRawBytes(f) {
+		return "Uint8Array"
+	}
 	switch f.Type.Scalar {
 	case onkir.ScalarInt64, onkir.ScalarUint64:
 		if needsInt64NumberEncoding(f) {
@@ -284,6 +298,9 @@ func tsRuntimeTypeExpression(field *onkir.Field, expr string) string {
 		}
 		return fmt.Sprintf("[%s].includes(%s as any)", strings.Join(values, ", "), expr)
 	case onkir.KindScalar:
+		if isRawBytes(field) {
+			return fmt.Sprintf("%s instanceof Uint8Array", expr)
+		}
 		switch field.Type.Scalar {
 		case onkir.ScalarString, onkir.ScalarBytes:
 			return fmt.Sprintf("typeof %s === \"string\"", expr)
@@ -488,6 +505,9 @@ func decodeExpr(p *Printer, f *onkir.Field, expr string) string {
 		}
 		return expr
 	case onkir.KindScalar, onkir.KindEnum:
+		if isRawBytes(f) {
+			return fmt.Sprintf("(typeof %s === \"string\" ? wsBase64Decode(%s) : undefined)", expr, expr)
+		}
 		return expr
 	default:
 		return expr
@@ -519,6 +539,9 @@ func encodeExpr(p *Printer, f *onkir.Field, expr string) string {
 		}
 		return expr
 	case onkir.KindScalar, onkir.KindEnum:
+		if isRawBytes(f) {
+			return fmt.Sprintf("(%s instanceof Uint8Array ? wsBase64Encode(%s) : %s)", expr, expr, expr)
+		}
 		return expr
 	default:
 		return expr

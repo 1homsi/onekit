@@ -99,7 +99,9 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 		p.P(`"bytes"`)
 	}
 	p.P(`"context"`)
-	p.P(`"encoding/json"`)
+	if fileHasNonWSMethods(file) {
+		p.P(`"encoding/json"`)
+	}
 	if hasWS {
 		p.P(`"errors"`)
 	}
@@ -441,6 +443,17 @@ func fileHasWSCancel(file *onkir.File, sent func(*onkir.Method) *onkir.Message) 
 				continue
 			}
 			if _, _, _, ok := onkir.WSCancelVariant(sent(m)); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func fileHasNonWSMethods(file *onkir.File) bool {
+	for _, s := range file.Services {
+		for _, m := range s.Methods {
+			if !m.IsWebSocket() {
 				return true
 			}
 		}

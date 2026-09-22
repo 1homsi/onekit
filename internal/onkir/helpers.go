@@ -444,3 +444,63 @@ func FileHasWSCorrelation(file *File) bool {
 	}
 	return false
 }
+
+func (f *Field) IsRaw() bool {
+	return f.HasDecorator("raw")
+}
+
+type RawStep struct {
+	Field   *Field
+	Variant *OneofVariant
+	Child   *Message
+}
+
+func MessageHasRaw(m *Message, external func(*Message) bool) bool {
+	return messageHasRaw(m, external, map[*Message]bool{})
+}
+
+func messageHasRaw(m *Message, external func(*Message) bool, seen map[*Message]bool) bool {
+	if m == nil || seen[m] || (external != nil && external(m)) {
+		return false
+	}
+	seen[m] = true
+	for _, f := range m.Fields {
+		if f.Oneof != nil {
+			for _, v := range f.Oneof.Variants {
+				if v.Type != nil && v.Type.Kind == KindMessage && messageHasRaw(v.Type.Message, external, seen) {
+					return true
+				}
+			}
+			continue
+		}
+		if f.IsRaw() {
+			return true
+		}
+		if f.Type != nil && f.Type.Kind == KindMessage && messageHasRaw(f.Type.Message, external, seen) {
+			return true
+		}
+	}
+	return false
+}
+
+func RawSteps(m *Message, external func(*Message) bool) []RawStep {
+	var steps []RawStep
+	for _, f := range m.Fields {
+		if f.Oneof != nil {
+			for _, v := range f.Oneof.Variants {
+				if v.Type != nil && v.Type.Kind == KindMessage && MessageHasRaw(v.Type.Message, external) {
+					steps = append(steps, RawStep{Field: f, Variant: v, Child: v.Type.Message})
+				}
+			}
+			continue
+		}
+		if f.IsRaw() {
+			steps = append(steps, RawStep{Field: f})
+			continue
+		}
+		if f.Type != nil && f.Type.Kind == KindMessage && MessageHasRaw(f.Type.Message, external) {
+			steps = append(steps, RawStep{Field: f, Child: f.Type.Message})
+		}
+	}
+	return steps
+}

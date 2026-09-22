@@ -100,7 +100,7 @@ var (
 		"min_items": {minArgs: 1, maxArgs: 1}, "max_items": {minArgs: 1, maxArgs: 1},
 		flattenDecorator: {minArgs: 0, maxArgs: 1}, "encode": {minArgs: 1, maxArgs: 1},
 		"empty": {minArgs: 1, maxArgs: 1}, "query": {minArgs: 0, maxArgs: 1},
-		wsIDDecorator: {},
+		wsIDDecorator: {}, "raw": {},
 	}
 	headerDecorators = map[string]decoratorRule{
 		"required": {}, "format": {minArgs: 1, maxArgs: 1}, "example": {minArgs: 1, maxArgs: 1},
@@ -284,6 +284,10 @@ func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl, 
 		case "min_items", "max_items":
 			if !field.Repeated {
 				return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@%s requires a repeated field", decorator.Name)}
+			}
+		case "raw":
+			if field.Repeated || field.Optional || !(isScalarNamed(field.Type, "string") || isScalarNamed(field.Type, "bytes")) {
+				return &Error{Path: filePath, Line: field.Line, Msg: "@raw requires a non-repeated, non-optional string or bytes field"}
 			}
 		case wsIDDecorator:
 			if !isWSIDTypeRef(field.Type) || field.Repeated {

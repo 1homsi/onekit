@@ -46,6 +46,7 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) []byt
 		writeMessageTree(p, message)
 	}
 	writeWSCorrelatedImpls(p, file)
+	writeWSRawImpls(p, file)
 	return p.Bytes()
 }
 

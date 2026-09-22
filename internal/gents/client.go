@@ -81,7 +81,8 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) []by
 	if names := referencedTypeNames(file, resolver); len(names) > 0 {
 		p.P(`import type { `, strings.Join(names, ", "), ` } from "./types.js";`)
 	}
-	if fns := referencedCodecNames(file, resolver); len(fns) > 0 {
+	fns := append(referencedCodecNames(file, resolver), wsRawImportNames(p, file, func(m *onkir.Method) []*onkir.Message { return []*onkir.Message{m.Request, m.Response} })...)
+	if len(fns) > 0 {
 		p.P(`import { `, strings.Join(fns, ", "), ` } from "./types.js";`)
 	}
 	for _, ref := range collectServiceExternalRefs(file, resolver) {

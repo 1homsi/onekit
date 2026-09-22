@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/1homsi/onekit/internal/gengo"
+	"github.com/1homsi/onekit/internal/genrust"
 	"github.com/1homsi/onekit/internal/gents"
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
@@ -33,8 +34,16 @@ import (
 const runtimeSchema = `
 package wsc
 
-message RunRequest { code: string }
-message RunResult { exit_code: int32 }
+message RunRequest { code: string @raw }
+message Chunk {
+  index: int32
+  data: bytes @raw
+}
+message RunResult {
+  exit_code: int32
+  result_json: string @raw
+  chunks: Chunk[]
+}
 message HostCall { id: string @ws_id
 method: string }
 message HostResult { id: string @ws_id
@@ -67,9 +76,11 @@ service Runtime {
 const goHarnessMain = `package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"net"
 	"net/http"
 	"os"
@@ -100,9 +111,27 @@ func (runtimeImpl) Execute(ctx context.Context, req *wsc.Frame, out *wsc.Runtime
 			fmt.Fprintf(os.Stderr, "UNEXPECTED_REPLY %+v\n", reply)
 			return
 		}
-		_ = out.Send(ctx, &wsc.Frame{Payload: &wsc.FramePayloadRunResult{RunResult: &wsc.RunResult{ExitCode: 7}}})
+		_ = out.Send(ctx, &wsc.Frame{Payload: &wsc.FramePayloadRunResult{RunResult: runResult(req.GetRun().Code)}})
 	}()
 	return nil
+}
+
+func runResult(code string) *wsc.RunResult {
+	return &wsc.RunResult{ExitCode: 7, ResultJson: "R:" + code, Chunks: []*wsc.Chunk{{Index: 1, Data: []byte{0, 1, 2}}, {Index: 2}, {Index: 3, Data: bytes.Repeat([]byte{0xff}, 1000)}}}
+}
+
+var bigCode = strings.Repeat("{\"k\":\"v\\n\"},", 30*1024)
+
+func checkResult(result *wsc.RunResult) {
+	if result.ExitCode != 7 {
+		fail("run_result body did not decode:", fmt.Sprintf("%+v", result))
+	}
+	if result.ResultJson != "R:"+bigCode {
+		fail("raw string did not round trip:", len(result.ResultJson))
+	}
+	if len(result.Chunks) != 3 || !bytes.Equal(result.Chunks[0].Data, []byte{0, 1, 2}) || len(result.Chunks[1].Data) != 0 || len(result.Chunks[2].Data) != 1000 || result.Chunks[2].Data[999] != 0xff {
+		fail("raw bytes did not round trip:", fmt.Sprintf("%+v", result.Chunks))
+	}
 }
 
 func serve() {
@@ -121,7 +150,7 @@ func serve() {
 func client(baseURL string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	run := &wsc.Frame{Payload: &wsc.FramePayloadRun{Run: &wsc.RunRequest{Code: "print(1)"}}}
+	run := &wsc.Frame{Payload: &wsc.FramePayloadRun{Run: &wsc.RunRequest{Code: bigCode}}}
 	socket, err := wsc.NewRuntimeClient(baseURL).Execute(ctx, run)
 	if err != nil {
 		fail("connect:", err)
@@ -146,9 +175,7 @@ func client(baseURL string) {
 			continue
 		}
 		if result := frame.GetRunResult(); result != nil {
-			if result.ExitCode != 7 {
-				fail("run_result body did not decode:", fmt.Sprintf("%+v", result))
-			}
+			checkResult(result)
 			break
 		}
 		fail("unexpected frame:", fmt.Sprintf("%+v", frame))
@@ -193,6 +220,10 @@ const tsServerHarness = `"use strict";
 const http = require("node:http");
 const { attachRuntimeNodeSocketHandlers } = require("./server.js");
 
+function runResult(code) {
+  return { exitCode: 7, resultJson: "R:" + code, chunks: [{ index: 1, data: new Uint8Array([0, 1, 2]) }, { index: 2 }, { index: 3, data: new Uint8Array(1000).fill(0xff) }] };
+}
+
 const handler = {
   async execute(req, out) {
     if (req.payload && req.payload.type === "cancel" && req.payload.cancel.id === "c-1") {
@@ -207,7 +238,7 @@ const handler = {
         console.error("UNEXPECTED_REPLY", JSON.stringify(reply));
         return;
       }
-      out.send({ payload: { type: "run_result", runResult: { exitCode: 7 } } });
+      out.send({ payload: { type: "run_result", runResult: runResult(req.payload.run.code) } });
     } catch (err) {
       console.error("CALL_ERROR", err);
     }
@@ -227,8 +258,18 @@ const { RuntimeClient, WSTimeoutError } = require("./client.js");
 function fail(...args) { console.error(...args); process.exit(1); }
 setTimeout(() => fail("TIMEOUT - no run_result"), 10000).unref();
 
+const bigCode = '{"k":"v\\n"},'.repeat(30 * 1024);
+
+function checkResult(r) {
+  if (!r || r.exitCode !== 7) fail("run_result body did not decode:", JSON.stringify(r));
+  if (r.resultJson !== "R:" + bigCode) fail("raw string did not round trip:", r.resultJson && r.resultJson.length);
+  const c = r.chunks || [];
+  const ok = c.length === 3 && c[0].data instanceof Uint8Array && c[0].data.join(",") === "0,1,2" && c[1].data.length === 0 && c[2].data.length === 1000 && c[2].data[999] === 0xff;
+  if (!ok) fail("raw bytes did not round trip:", JSON.stringify(c.map((x) => [x.index, x.data && x.data.length])));
+}
+
 (async () => {
-  const run = { payload: { type: "run", run: { code: "print(1)" } } };
+  const run = { payload: { type: "run", run: { code: bigCode } } };
   const socket = await new RuntimeClient(process.argv[2]).execute(run);
   socket.send(run);
   for (;;) {
@@ -242,9 +283,7 @@ setTimeout(() => fail("TIMEOUT - no run_result"), 10000).unref();
       continue;
     }
     if (payload && payload.type === "run_result") {
-      if (!payload.runResult || payload.runResult.exitCode !== 7) {
-        fail("run_result body did not decode:", JSON.stringify(frame));
-      }
+      checkResult(payload.runResult);
       break;
     }
     fail("unexpected frame:", JSON.stringify(frame));
@@ -441,4 +480,174 @@ func writeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
+}
+
+const rustCargoToml = `[package]
+name = "interop"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = { version = "0.8", features = ["ws"] }
+base64 = "0.22"
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+urlencoding = "2"
+validator = { version = "0.20", features = ["derive"] }
+`
+
+const rustHarnessMain = `#![allow(dead_code)]
+mod generated;
+
+use generated::client::RuntimeClient;
+use generated::server::*;
+use generated::types::*;
+use std::sync::Arc;
+use std::time::Duration;
+
+fn fail(message: String) -> ! {
+    eprintln!("{message}");
+    std::process::exit(1);
+}
+
+fn frame(payload: FramePayload) -> Frame {
+    Frame { payload: Some(payload) }
+}
+
+fn big_code() -> String {
+    "{\"k\":\"v\\n\"},".repeat(30 * 1024)
+}
+
+fn run_result(code: &str) -> RunResult {
+    RunResult {
+        exit_code: 7,
+        result_json: format!("R:{code}"),
+        chunks: vec![Chunk { index: 1, data: vec![0, 1, 2] }, Chunk { index: 2, data: vec![] }, Chunk { index: 3, data: vec![0xff; 1000] }],
+    }
+}
+
+fn check_result(result: &RunResult) {
+    let chunks_ok = result.chunks.len() == 3 && result.chunks[0].data == vec![0, 1, 2] && result.chunks[1].data.is_empty() && result.chunks[2].data == vec![0xff; 1000];
+    if result.exit_code != 7 || result.result_json != format!("R:{}", big_code()) || !chunks_ok {
+        fail(format!("raw round trip failed: exit {} len {}", result.exit_code, result.result_json.len()));
+    }
+}
+
+struct Impl;
+
+impl Runtime for Impl {
+    fn execute(&self, _context: RequestContext, req: Frame, out: WsCallSink<String, Frame, Frame>) -> impl std::future::Future<Output = Result<(), RuntimeExecuteServerError>> + Send {
+        async move {
+            match req.payload {
+                Some(FramePayload::Cancel(cancel)) if cancel.id == "c-1" => {
+                    let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 9, ..Default::default() }))).await;
+                }
+                Some(FramePayload::Run(run)) => {
+                    tokio::spawn(async move {
+                        let call = frame(FramePayload::HostCall(HostCall { id: "call-1".into(), method: "doThing".into() }));
+                        match out.call("call-1".to_string(), call).await {
+                            Ok(Frame { payload: Some(FramePayload::HostResult(result)) }) if result.value == "answer" => {
+                                let _ = out.send(frame(FramePayload::RunResult(run_result(&run.code)))).await;
+                            }
+                            other => eprintln!("UNEXPECTED_REPLY {other:?}"),
+                        }
+                    });
+                }
+                _ => {}
+            }
+            Ok(())
+        }
+    }
+}
+
+async fn serve() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    println!("PORT={}", listener.local_addr().expect("addr").port());
+    axum::serve(listener, runtime_router(Arc::new(Impl))).await.expect("serve");
+}
+
+async fn client(base: String) {
+    let outcome = tokio::time::timeout(Duration::from_secs(10), async {
+        let run = frame(FramePayload::Run(RunRequest { code: big_code() }));
+        let socket = RuntimeClient::new(base).execute(&run).await.expect("connect");
+        socket.send(&run).await.expect("send run");
+        loop {
+            match socket.receive().await.and_then(|f| f.payload) {
+                Some(FramePayload::HostCall(call)) => {
+                    if call.method != "doThing" { fail(format!("host_call body did not decode: {call:?}")); }
+                    let reply = frame(FramePayload::HostResult(HostResult { id: call.id, value: "answer".into() }));
+                    socket.send(&reply).await.expect("send host result");
+                }
+                Some(FramePayload::RunResult(result)) => {
+                    check_result(&result);
+                    break;
+                }
+                other => fail(format!("unexpected frame {other:?}")),
+            }
+        }
+        let call = frame(FramePayload::HostCall(HostCall { id: "c-1".into(), method: "slow".into() }));
+        match socket.call_timeout("c-1".to_string(), &call, Duration::from_millis(100)).await {
+            Err(generated::client::WsCallError::TimedOut) => {}
+            other => fail(format!("abandoned call: want TimedOut, got {other:?}")),
+        }
+        match socket.receive().await.and_then(|f| f.payload) {
+            Some(FramePayload::RunResult(result)) if result.exit_code == 9 => {}
+            other => fail(format!("server never saw the cancel: {other:?}")),
+        }
+    })
+    .await;
+    if outcome.is_err() {
+        fail("TIMEOUT".to_string());
+    }
+    println!("OK");
+}
+
+#[tokio::main]
+async fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    match args.get(1).map(String::as_str) {
+        Some("server") => serve().await,
+        Some("client") => client(args.get(2).cloned().expect("base url")).await,
+        _ => fail("usage: interop server | interop client <base>".to_string()),
+    }
+}
+`
+
+func TestWSGoClientRustServer(t *testing.T) {
+	goBin := buildGoHarness(t)
+	rustBin := buildRustHarness(t)
+	port := startServer(t, "", rustBin, "server")
+	expectOK(t, "", goBin, "client", "http://127.0.0.1:"+port)
+}
+
+func TestWSRustClientGoServer(t *testing.T) {
+	goBin := buildGoHarness(t)
+	rustBin := buildRustHarness(t)
+	port := startServer(t, "", goBin, "server")
+	expectOK(t, "", rustBin, "client", "http://127.0.0.1:"+port)
+}
+
+func buildRustHarness(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("cargo"); err != nil {
+		t.Skip("cargo toolchain not available")
+	}
+	file := compileSchema(t)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "Cargo.toml"), rustCargoToml)
+	writeFile(t, filepath.Join(dir, "src", "main.rs"), rustHarnessMain)
+	writeFile(t, filepath.Join(dir, "src", "generated", "mod.rs"), "pub mod types;\npub mod server;\npub mod client;\n")
+	writeFile(t, filepath.Join(dir, "src", "generated", "types.rs"), string(genrust.GenerateTypes(file)))
+	writeFile(t, filepath.Join(dir, "src", "generated", "server.rs"), string(genrust.GenerateServer(file)))
+	writeFile(t, filepath.Join(dir, "src", "generated", "client.rs"), string(genrust.GenerateClient(file)))
+	run(t, dir, "cargo", "build", "--quiet")
+	bin := filepath.Join(dir, "target", "debug", "interop")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	return bin
 }

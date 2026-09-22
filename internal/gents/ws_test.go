@@ -43,8 +43,8 @@ func TestGenerateTSWSServer(t *testing.T) {
 		"wss.handleUpgrade(req, socket, head, (ws) => {",
 		// Outgoing frames are encoded to the wire shape on both paths, like
 		// the TS client's send(); JSON.stringify(value) alone leaks camelCase.
-		"send: (value) => { server.send(JSON.stringify(encodeChatEvent(value))); return wsDrained(server, highWaterMark); },",
-		"send: (value) => { ws.send(JSON.stringify(encodeChatEvent(value))); return wsDrained(ws, highWaterMark); },",
+		"send: (value) => { server.send(wsEncodeMessage(value, encodeChatEvent, undefined)); return wsDrained(server, highWaterMark); },",
+		"send: (value) => { ws.send(wsEncodeMessage(value, encodeChatEvent, undefined)); return wsDrained(ws, highWaterMark); },",
 		// One shared 'upgrade' listener per http.Server rejects paths no
 		// route claims instead of leaking the socket until TCP timeout.
 		`const nodeSocketRoutesKey = Symbol.for("onekit.nodeSocketRoutes");`,
@@ -115,7 +115,7 @@ func TestGenerateTSWSServerCorrelated(t *testing.T) {
 		"execute(req: Frame, out: WSCallOut<string, Frame, Frame>): void | Promise<void>;",
 		"const pending = new WSPending<string, Frame>();",
 		"if (server.readyState !== 1) pending.rejectAll(new WSClosedError());",
-		"if (!pending.closed) server.send(JSON.stringify(encodeFrame(value)));",
+		"if (!pending.closed) server.send(wsEncodeMessage(value, encodeFrame, undefined));",
 		"if (replyId !== undefined && pending.resolve(replyId, ((): string => {",
 		// Both oneof variants carrying @ws_id must get extraction code, not
 		// just whichever one happens to be first by declaration order.
@@ -124,7 +124,7 @@ func TestGenerateTSWSServerCorrelated(t *testing.T) {
 		// Node adapter gets the same correlated out/call shape, reusing the
 		// identical shared body (just socketVar "ws" instead of "server").
 		"export function attachRuntimeNodeSocketHandlers(httpServer: HttpServer, handler: RuntimeHandler, options: WSServerOptions = {}): void {",
-		"if (!pending.closed) ws.send(JSON.stringify(encodeFrame(value)));",
+		"if (!pending.closed) ws.send(wsEncodeMessage(value, encodeFrame, undefined));",
 		"if (this.isClosed) return Promise.reject(this.closedWith);",
 	} {
 		if !strings.Contains(text, want) {
