@@ -363,6 +363,7 @@ func writeMessage(p *Printer, m *onkir.Message) {
 	for _, f := range m.Fields {
 		if f.Oneof != nil {
 			writeOneof(p, m, f)
+			writeOneofWireType(p, m, f)
 		}
 	}
 	for _, nested := range m.Nested {
@@ -380,58 +381,75 @@ func oneofDiscriminatorName(f *onkir.Field) string {
 	return "type"
 }
 
+// oneofWireName is the unexported struct a oneof field travels as on the
+// wire: its discriminator tag plus one pointer per variant, all but one nil.
+func oneofWireName(m *onkir.Message, f *onkir.Field) string {
+	return "wire" + OneofInterfaceName(m, f)
+}
+
+// oneofWireFieldType is a variant's type inside the wire struct: always a
+// pointer, so omitempty drops exactly the unset variants and never a set
+// variant whose value happens to be its zero value.
+func oneofWireFieldType(p *Printer, variant *onkir.OneofVariant) string {
+	t := p.GoFieldType(variant.Type)
+	if strings.HasPrefix(t, "*") {
+		return t
+	}
+	return "*" + t
+}
+
+// writeOneofWireType emits the wire struct for one oneof field. A message's
+// MarshalJSON/UnmarshalJSON carry it directly in their aux struct, so the
+// payload is encoded and decoded in the same single encoding/json pass as the
+// rest of the message. The earlier approach - a map[string]any marshaled into
+// a RawMessage on the way out, and three json.Unmarshal calls over the same
+// bytes (outer message, discriminator, variant) on the way in - rescanned and
+// copied the payload at every level, making a large frame several times
+// slower than the same payload in a plain struct.
+func writeOneofWireType(p *Printer, m *onkir.Message, f *onkir.Field) {
+	p.P("type ", oneofWireName(m, f), " struct {")
+	p.P("Tag string `json:\"", oneofDiscriminatorName(f), "\"`")
+	for _, variant := range f.Oneof.Variants {
+		p.P("V", PascalCase(variant.Name), " ", oneofWireFieldType(p, variant), " `json:\"", variant.Name, ",omitempty\"`")
+	}
+	p.P("}")
+	p.P()
+}
+
 // writeOneofMarshalField/writeOneofUnmarshalField emit the per-oneof-field
 // logic inside a message's combined MarshalJSON/UnmarshalJSON (see
-// jsonmapping_codegen.go). A Go interface-typed field can't be (de)serialized
-// by encoding/json without help: marshaling needs to pick the discriminator
-// tag for whichever concrete variant is set, and unmarshaling needs to read
-// the discriminator back out of the raw JSON before it can construct the
-// right concrete type.
+// jsonmapping_codegen.go): moving between the Go interface-typed field, which
+// encoding/json can't handle alone, and its wire struct.
 func writeOneofMarshalField(p *Printer, m *onkir.Message, f *onkir.Field) {
 	goName := PascalCase(f.Name)
-	discriminator := oneofDiscriminatorName(f)
-	p.P("if m.", goName, " != nil {")
-	p.P("var obj map[string]any")
 	p.P("switch v := m.", goName, ".(type) {")
 	for _, variant := range f.Oneof.Variants {
 		typeName := OneofVariantTypeName(m, f, variant)
+		value := "v." + PascalCase(variant.Name)
+		if !strings.HasPrefix(p.GoFieldType(variant.Type), "*") {
+			value = "&" + value
+		}
 		p.P("case *", typeName, ":")
-		p.P(fmt.Sprintf(
-			"obj = map[string]any{%q: %q, %q: v.%s}",
-			discriminator, variant.Tag(), variant.Name, PascalCase(variant.Name),
-		))
+		p.P("aux.", goName, " = &", oneofWireName(m, f), "{Tag: ", fmt.Sprintf("%q", variant.Tag()), ", V", PascalCase(variant.Name), ": ", value, "}")
 	}
-	p.P("}")
-	p.P("objBytes, err := json.Marshal(obj)")
-	p.P("if err != nil {")
-	p.P("return nil, err")
-	p.P("}")
-	p.P("aux.", goName, " = objBytes")
 	p.P("}")
 }
 
 func writeOneofUnmarshalField(p *Printer, m *onkir.Message, f *onkir.Field) {
 	goName := PascalCase(f.Name)
-	discriminator := oneofDiscriminatorName(f)
-	p.P("if len(aux.", goName, ") > 0 {")
-	p.P("var disc struct {")
-	p.P("Tag string `json:\"", discriminator, "\"`")
-	p.P("}")
-	p.P("if err := json.Unmarshal(aux.", goName, ", &disc); err != nil {")
-	p.P("return err")
-	p.P("}")
-	p.P("switch disc.Tag {")
+	p.P("if w := aux.", goName, "; w != nil {")
+	p.P("switch w.Tag {")
 	for _, variant := range f.Oneof.Variants {
 		typeName := OneofVariantTypeName(m, f, variant)
-		innerGoType := p.GoFieldType(variant.Type)
+		field := "w.V" + PascalCase(variant.Name)
 		p.P("case ", fmt.Sprintf("%q", variant.Tag()), ":")
-		p.P("var v struct {")
-		p.P("Val ", innerGoType, " `json:\"", variant.Name, "\"`")
-		p.P("}")
-		p.P("if err := json.Unmarshal(aux.", goName, ", &v); err != nil {")
-		p.P("return err")
-		p.P("}")
-		p.P("m.", goName, " = &", typeName, "{", PascalCase(variant.Name), ": v.Val}")
+		if strings.HasPrefix(p.GoFieldType(variant.Type), "*") {
+			p.P("m.", goName, " = &", typeName, "{", PascalCase(variant.Name), ": ", field, "}")
+			continue
+		}
+		p.P("variant := &", typeName, "{}")
+		p.P("if ", field, " != nil { variant.", PascalCase(variant.Name), " = *", field, " }")
+		p.P("m.", goName, " = variant")
 	}
 	p.P("}")
 	p.P("}")
