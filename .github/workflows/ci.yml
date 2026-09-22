@@ -369,30 +369,38 @@ jobs:
             summary += '**Coverage Report**: Available in checks above\n';
             summary += '**Artifacts**: Test results and coverage reports uploaded\n';
 
-            // Post comment on PR
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number
-            });
-
-            const botComment = comments.find(comment =>
-              comment.user.login === 'github-actions[bot]' &&
-              comment.body.includes('CI Pipeline Status')
-            );
-
-            if (botComment) {
-              await github.rest.issues.updateComment({
+            // Post comment on PR. GITHUB_TOKEN is always read-only for a
+            // pull_request run triggered from a fork, no matter what
+            // `permissions:` declares above, so this 403s on every external
+            // contribution. That's expected there - report it and move on
+            // rather than failing the whole status-check job over a comment.
+            try {
+              const { data: comments } = await github.rest.issues.listComments({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: summary
+                issue_number: context.payload.pull_request.number
               });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-                body: summary
-              });
+
+              const botComment = comments.find(comment =>
+                comment.user.login === 'github-actions[bot]' &&
+                comment.body.includes('CI Pipeline Status')
+              );
+
+              if (botComment) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: botComment.id,
+                  body: summary
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.payload.pull_request.number,
+                  body: summary
+                });
+              }
+            } catch (error) {
+              core.notice(`Skipping PR summary comment (likely a fork PR with a read-only token): ${error.message}`);
             }
