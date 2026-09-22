@@ -70,6 +70,9 @@ func TestGenerateClientWebSockets(t *testing.T) {
 		`"github.com/coder/websocket"`,
 		"type ChatMessageToChatEventSocket struct{ conn *websocket.Conn }",
 		") (*ChatMessageToChatEventSocket, error) {",
+		// Without the base URL the client dials a bare path and every call
+		// fails with `unexpected url scheme: ""`, the same as unary and SSE.
+		"socketURL := c.BaseURL + path",
 		`socketURL = "wss://" + strings.TrimPrefix(socketURL, "https://")`,
 		"&websocket.DialOptions{HTTPClient: c.HTTPClient, HTTPHeader: header}",
 	} {
