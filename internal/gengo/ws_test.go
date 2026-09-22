@@ -357,6 +357,52 @@ func TestRuntimeHarness(t *testing.T) {
 	}
 	t.Fatal("timed out waiting for RunResult - Call() never got its HostResult reply")
 }
+
+type lateCallImpl struct{ result chan error }
+
+func (h *lateCallImpl) Execute(ctx context.Context, req *Frame, out *RuntimeExecuteOut) error {
+	if req.GetRun() == nil {
+		return nil
+	}
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		_, err := out.Call(context.Background(), "late-1", &Frame{Payload: &FramePayloadHostCall{HostCall: &HostCall{Id: "late-1", Method: "late"}}})
+		h.result <- err
+	}()
+	return nil
+}
+
+// A Call made after the peer has gone must fail promptly - even with no
+// deadline on ctx - rather than waiting on a reply that can never arrive.
+func TestRuntimeLateCallAfterClose(t *testing.T) {
+	impl := &lateCallImpl{result: make(chan error, 1)}
+	mux := http.NewServeMux()
+	if err := RegisterRuntimeServer(mux, impl); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := NewRuntimeClient("http://" + server.Listener.Addr().String())
+	socket, err := client.Execute(context.Background(), &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: "x"}}})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	if err := socket.Send(context.Background(), &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: "x"}}}); err != nil {
+		t.Fatalf("send run request: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	_ = socket.Close()
+
+	select {
+	case err := <-impl.result:
+		if err == nil {
+			t.Fatal("Call after the peer closed returned no error")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Call after the peer closed never returned")
+	}
+}
 `
 
 // TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants actually runs a
@@ -403,13 +449,15 @@ func TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants(t *testing.T) {
 	if out, err := tidy.CombinedOutput(); err != nil {
 		t.Fatalf("go mod tidy: %v\n%s", err, out)
 	}
-	run := exec.Command("go", "test", "-run", "TestRuntimeHarness", "-v", ".")
+	run := exec.Command("go", "test", "-run", "TestRuntime", "-v", ".")
 	run.Dir = dir
 	out, err := run.CombinedOutput()
 	if err != nil {
 		t.Fatalf("runtime harness failed: %v\n%s", err, out)
 	}
-	if !strings.Contains(string(out), "PASS") {
-		t.Fatalf("expected harness test to pass:\n%s", out)
+	for _, want := range []string{"--- PASS: TestRuntimeHarness", "--- PASS: TestRuntimeLateCallAfterClose"} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("expected %q in harness output:\n%s", want, out)
+		}
 	}
 }

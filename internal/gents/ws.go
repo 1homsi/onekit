@@ -37,6 +37,7 @@ func WriteTSWSServerRuntime(p *Printer) {
 	p.P("// Minimal structural typing for the Web-standard socket pair; avoids a")
 	p.P("// hard dependency on environment-specific DOM typings.")
 	p.P("type PairServerSocket = {")
+	p.P("readyState: number;")
 	p.P("accept(): void;")
 	p.P("send(data: string): void;")
 	p.P("close(code?: number, reason?: string): void;")
@@ -57,6 +58,31 @@ func WriteTSWSNodeServerRuntime(p *Printer) {
 	p.P("return value ?? null;")
 	p.P("}")
 	p.P()
+	p.P("type NodeSocketRoute = (req: IncomingMessage, socket: Duplex, head: Buffer, url: URL) => boolean;")
+	p.P()
+	p.P("// One 'upgrade' listener per http.Server, shared by every")
+	p.P("// attach*NodeSocketHandlers call - including ones from other generated")
+	p.P("// modules, via the global Symbol.for registry - so an upgrade whose path")
+	p.P("// no route claims can be rejected instead of hanging until TCP timeout.")
+	p.P(`const nodeSocketRoutesKey = Symbol.for("onekit.nodeSocketRoutes");`)
+	p.P()
+	p.P("function registerNodeSocketRoute(httpServer: HttpServer, route: NodeSocketRoute): void {")
+	p.P("const holder = httpServer as unknown as Record<symbol, NodeSocketRoute[] | undefined>;")
+	p.P("const existing = holder[nodeSocketRoutesKey];")
+	p.P("if (existing) { existing.push(route); return; }")
+	p.P("const routes: NodeSocketRoute[] = [route];")
+	p.P("holder[nodeSocketRoutesKey] = routes;")
+	p.P(`httpServer.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {`)
+	p.P(`const url = new URL(req.url ?? "/", "http://" + (req.headers.host ?? "localhost"));`)
+	p.P("for (const r of routes) if (r(req, socket, head, url)) return;")
+	p.P("// Another upgrade listener (socket.io, a hand-written route) may own this")
+	p.P("// path; only reject when nothing else could.")
+	p.P(`if (httpServer.listenerCount("upgrade") > 1) return;`)
+	p.P(`socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");`)
+	p.P("socket.destroy();")
+	p.P("});")
+	p.P("}")
+	p.P()
 }
 
 // writeTSWSPendingType emits the correlation-map runtime shared by every
@@ -71,8 +97,15 @@ func writeTSWSPendingType(p *Printer) {
 	p.P("// outstanding at once on a single connection and resolved out of order.")
 	p.P("export class WSPending<K, T> {")
 	p.P("private waiters = new Map<K, { resolve: (value: T) => void; reject: (err: unknown) => void }>();")
+	p.P("private closedWith: unknown = null;")
+	p.P("private isClosed = false;")
+	p.P()
+	p.P("// closed is sticky: once the connection is gone, a later register()")
+	p.P("// rejects immediately instead of waiting on a reply that can never come.")
+	p.P("get closed(): boolean { return this.isClosed; }")
 	p.P()
 	p.P("register(id: K): Promise<T> {")
+	p.P("if (this.isClosed) return Promise.reject(this.closedWith);")
 	p.P("return new Promise((resolve, reject) => { this.waiters.set(id, { resolve, reject }); });")
 	p.P("}")
 	p.P()
@@ -87,6 +120,8 @@ func writeTSWSPendingType(p *Printer) {
 	p.P("cancel(id: K): void { this.waiters.delete(id); }")
 	p.P()
 	p.P("rejectAll(err: unknown): void {")
+	p.P("this.isClosed = true;")
+	p.P("this.closedWith = err;")
 	p.P("for (const waiter of this.waiters.values()) waiter.reject(err);")
 	p.P("this.waiters.clear();")
 	p.P("}")
@@ -94,11 +129,6 @@ func writeTSWSPendingType(p *Printer) {
 	p.P()
 }
 
-// tsWSIDExpression returns a TS IIFE expression evaluating to the @ws_id
-// value found within frameExpr (typed as message, already decoded), or
-// undefined - checking direct fields first, then each oneof variant's own
-// message, mirroring decodeOneofExpr's wire shape (types.go) for both the
-// flattened and nested-under-variant-key cases.
 // tsWSIDExpression builds an expression extracting whichever field of
 // message actually carries @ws_id - a direct field, or (independently, per
 // variant) any oneof variant whose own message carries one. idField only
@@ -213,23 +243,35 @@ func WriteTSWSSocketRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 // request/upgrade plumbing differs per platform.
 func writeTSWSSocketBody(p *Printer, m *onkir.Method, socketVar string) {
 	idField, correlated := m.WSIDField()
+	// Outgoing frames go through encode<Response> exactly like the TS client's
+	// send() does, so the wire carries the schema's own keys (host_call,
+	// exit_code) rather than the decoded camelCase TS shape - a Go or Rust
+	// peer decoding a camelCase frame sees the oneof tag but a nil body.
+	sendFrame := socketVar + ".send(JSON.stringify(" + p.MessageCodecName(m.Response, "encode") + "(value)))"
 	if correlated {
 		idType := p.TSFieldType(idField.Type)
 		p.P("const pending = new WSPending<", idType, ", ", p.MessageTypeName(m.Request), ">();")
 		p.P("const out: WSCallOut<", idType, ", ", p.MessageTypeName(m.Response), ", ", p.MessageTypeName(m.Request), "> = {")
-		p.P("send: (value) => { ", socketVar, ".send(JSON.stringify(value)); },")
-		p.P("call: (id, value) => { const reply = pending.register(id); ", socketVar, ".send(JSON.stringify(value)); return reply; },")
+		p.P("send: (value) => { ", sendFrame, "; },")
+		// A socket that's closing or closed silently drops sends, so without
+		// this a call() made after the peer left would never settle.
+		p.P("call: (id, value) => {")
+		p.P("if (", socketVar, `.readyState !== 1) pending.rejectAll(new Error("websocket closed"));`)
+		p.P("const reply = pending.register(id);")
+		p.P("if (!pending.closed) ", sendFrame, ";")
+		p.P("return reply;")
+		p.P("},")
 		p.P("};")
 		p.P(socketVar, `.addEventListener("close", () => { pending.rejectAll(new Error("websocket closed")); });`)
 	} else {
 		p.P("const out: WSOut<", p.MessageTypeName(m.Response), "> = {")
-		p.P("send: (value) => { ", socketVar, ".send(JSON.stringify(value)); },")
+		p.P("send: (value) => { ", sendFrame, "; },")
 		p.P("};")
 	}
 	p.P(socketVar, ".addEventListener(\"message\", async (event: any) => {")
 	p.P("try {")
-	p.P("const frame = decode", m.Request.Name, "(JSON.parse(String(event.data)));")
-	p.P("const violations = validate", m.Request.Name, "(frame);")
+	p.P("const frame = ", p.MessageCodecName(m.Request, "decode"), "(JSON.parse(String(event.data)));")
+	p.P("const violations = ", p.MessageCodecName(m.Request, "validate"), "(frame);")
 	p.P("if (violations.length > 0) {")
 	p.P(socketVar, `.send(JSON.stringify({ error: violations.join("; ") }));`)
 	p.P(socketVar, ".close(1008, \"invalid frame\");")
@@ -271,13 +313,13 @@ func writeTSNodeSocketFactory(p *Printer, s *onkir.Service) {
 	factory := "attach" + s.Name + "NodeSocketHandlers"
 	p.P("export function ", factory, "(httpServer: HttpServer, handler: ", s.Name, "Handler): void {")
 	p.P("const wss = new WebSocketServer({ noServer: true });")
-	p.P(`httpServer.on("upgrade", (req, socket, head) => {`)
-	p.P(`const url = new URL(req.url ?? "/", "http://" + (req.headers.host ?? "localhost"));`)
+	p.P("registerNodeSocketRoute(httpServer, (req, socket, head, url) => {")
 	for _, m := range s.Methods {
 		if m.IsWebSocket() {
 			WriteTSWSNodeSocketRoute(p, s, m)
 		}
 	}
+	p.P("return false;")
 	p.P("});")
 	p.P("}")
 	p.P()
@@ -326,12 +368,12 @@ func WriteTSWSNodeSocketRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 			}
 		}
 	}
-	p.P("const connection = decode", m.Request.Name, "(body);")
-	p.P("const connectionViolations = validate", m.Request.Name, "(connection);")
+	p.P("const connection = ", p.MessageCodecName(m.Request, "decode"), "(body);")
+	p.P("const connectionViolations = ", p.MessageCodecName(m.Request, "validate"), "(connection);")
 	p.P("if (connectionViolations.length > 0) {")
 	p.P(`socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");`)
 	p.P("socket.destroy();")
-	p.P("return;")
+	p.P("return true;")
 	p.P("}")
 	p.P("wss.handleUpgrade(req, socket, head, (ws) => {")
 	writeTSWSSocketBody(p, m, "ws")
@@ -341,7 +383,7 @@ func WriteTSWSNodeSocketRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P(`socket.write("HTTP/1.1 " + status + " Bad Request\r\nConnection: close\r\n\r\n");`)
 	p.P("socket.destroy();")
 	p.P("}")
-	p.P("return;")
+	p.P("return true;")
 	p.P("}")
 	p.P("}")
 }
@@ -429,7 +471,12 @@ func writeTSDuplexClass(p *Printer, m *onkir.Method) {
 	p.P("// routes correlated replies here and everything else to it.")
 	p.P("call(id: ", p.TSFieldType(idField.Type), ", value: ", reqRef, "): Promise<", resRef, "> {")
 	p.P("this.ensureListening();")
+	// The close listener only exists once ensureListening() has run, so a
+	// socket that closed before the first call() never marked pending closed;
+	// check readyState directly rather than sending into a dead socket.
+	p.P(`if (this.ws.readyState !== 1) this.pending.rejectAll(this.closedWith ?? new Error("websocket closed"));`)
 	p.P("const reply = this.pending.register(id);")
+	p.P("if (this.pending.closed) return reply;")
 	p.P("try {")
 	p.P("this.send(value);")
 	p.P("} catch (err) {")

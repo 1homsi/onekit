@@ -58,7 +58,8 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 	hasWS := onkir.FileHasWSMethods(file)
 	if hasWS {
 		p.P(`import { WebSocketServer } from "ws";`)
-		p.P(`import type { Server as HttpServer, IncomingHttpHeaders } from "node:http";`)
+		p.P(`import type { Server as HttpServer, IncomingHttpHeaders, IncomingMessage } from "node:http";`)
+		p.P(`import type { Duplex } from "node:stream";`)
 	}
 	for _, ref := range collectServiceExternalRefs(file, resolver) {
 		p.P(`import * as `, ref.Alias, ` from "`, ref.ImportPath, `";`)
