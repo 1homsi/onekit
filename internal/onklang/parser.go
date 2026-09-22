@@ -385,6 +385,10 @@ func (p *Parser) parseMessage() (*MessageDecl, error) {
 	}
 	defer p.leaveNesting()
 	doc := p.tok.Doc
+	// Capture the leading comments from the declaration keyword before it is
+	// consumed: by the time the name has been read, p.prev is the name token,
+	// whose leading comments are always empty.
+	leading := append([]string(nil), p.tok.LeadingComments...)
 	if err := p.expectIdentText("message"); err != nil {
 		return nil, err
 	}
@@ -392,7 +396,7 @@ func (p *Parser) parseMessage() (*MessageDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &MessageDecl{Name: name.Text, Doc: doc, LeadingComments: append([]string(nil), p.prev.LeadingComments...), Line: name.Line, Col: name.Col}
+	m := &MessageDecl{Name: name.Text, Doc: doc, LeadingComments: leading, Line: name.Line, Col: name.Col}
 
 	decorators, err := p.parseDecorators()
 	if err != nil {
@@ -436,6 +440,10 @@ func (p *Parser) parseMessage() (*MessageDecl, error) {
 
 func (p *Parser) parseEnum() (*EnumDecl, error) {
 	doc := p.tok.Doc
+	// Capture the leading comments from the declaration keyword before it is
+	// consumed: by the time the name has been read, p.prev is the name token,
+	// whose leading comments are always empty.
+	leading := append([]string(nil), p.tok.LeadingComments...)
 	if err := p.expectIdentText("enum"); err != nil {
 		return nil, err
 	}
@@ -443,7 +451,7 @@ func (p *Parser) parseEnum() (*EnumDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	e := &EnumDecl{Name: name.Text, Doc: doc, LeadingComments: append([]string(nil), p.prev.LeadingComments...), Line: name.Line, Col: name.Col}
+	e := &EnumDecl{Name: name.Text, Doc: doc, LeadingComments: leading, Line: name.Line, Col: name.Col}
 
 	if _, err := p.expect(LBRACE); err != nil {
 		return nil, err
@@ -584,6 +592,10 @@ func (p *Parser) parseRPC() (*RPCDecl, error) {
 
 func (p *Parser) parseService() (*ServiceDecl, error) {
 	doc := p.tok.Doc
+	// Capture the leading comments from the declaration keyword before it is
+	// consumed: by the time the name has been read, p.prev is the name token,
+	// whose leading comments are always empty.
+	leading := append([]string(nil), p.tok.LeadingComments...)
 	if err := p.expectIdentText("service"); err != nil {
 		return nil, err
 	}
@@ -591,7 +603,7 @@ func (p *Parser) parseService() (*ServiceDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &ServiceDecl{Name: name.Text, Doc: doc, LeadingComments: append([]string(nil), p.prev.LeadingComments...), Line: name.Line, Col: name.Col}
+	s := &ServiceDecl{Name: name.Text, Doc: doc, LeadingComments: leading, Line: name.Line, Col: name.Col}
 
 	if _, err := p.expect(LBRACE); err != nil {
 		return nil, err
