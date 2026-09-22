@@ -736,6 +736,30 @@ func TestRuntimeClientFailsOnUndecodableFrame(t *testing.T) {
 		t.Fatalf("want the decode error, got %v", err)
 	}
 }
+
+type closingImpl struct{}
+
+func (closingImpl) Execute(ctx context.Context, req *Frame, out *RuntimeExecuteOut) error {
+	if req.GetRun() == nil {
+		return nil
+	}
+	go func() { _ = out.Close(4000, "idle") }()
+	return nil
+}
+
+func TestRuntimeHandlerClosesItsConnection(t *testing.T) {
+	socket := dialRuntime(t, closingImpl{})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := socket.Send(ctx, &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: "x"}}}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	_, err := socket.Receive(ctx)
+	var closeErr websocket.CloseError
+	if !errors.As(err, &closeErr) || closeErr.Code != 4000 || closeErr.Reason != "idle" {
+		t.Fatalf("want close 4000 \"idle\", got %v", err)
+	}
+}
 `
 
 // TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants actually runs a
@@ -801,6 +825,7 @@ func TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants(t *testing.T) {
 		"--- PASS: TestRuntimeOutContextEndsWhenClientCloses",
 		"--- PASS: TestRuntimeKeepAliveDropsUnresponsivePeer",
 		"--- PASS: TestRuntimeClientFailsOnUndecodableFrame",
+		"--- PASS: TestRuntimeHandlerClosesItsConnection",
 	} {
 		if !strings.Contains(string(out), want) {
 			t.Fatalf("expected %q in harness output:\n%s", want, out)

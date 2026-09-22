@@ -230,6 +230,9 @@ impl Runtime for Impl {
                         if out.is_closed() { WATCHED_CLOSE.fetch_add(1, std::sync::atomic::Ordering::SeqCst); }
                     });
                 }
+                Some(FramePayload::Run(run)) if run.code == "close" => {
+                    out.close(4002, "idle").await;
+                }
                 Some(FramePayload::Run(run)) if run.code == "boom" => {
                     return Err(RuntimeExecuteServerError::Internal("boom".into()));
                 }
@@ -375,6 +378,8 @@ async fn main() {
             if invalid != Some((1007, "invalid JSON frame".to_string())) { fail(format!("invalid frame: {invalid:?}")); }
             let boom = raw_close(addr, r#"{"payload":{"type":"run","run":{"code":"boom"}}}"#).await;
             if boom != Some((1011, "internal server error: boom".to_string())) { fail(format!("handler error: {boom:?}")); }
+            let closed = raw_close(addr, r#"{"payload":{"type":"run","run":{"code":"close"}}}"#).await;
+            if closed != Some((4002, "idle".to_string())) { fail(format!("out.close: {closed:?}")); }
         })
         .await,
         Err(elapsed) => Err(elapsed),

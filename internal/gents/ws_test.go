@@ -728,6 +728,7 @@ let aborted = null;
 const handler = {
   async execute(req, out) {
     if (!req.payload || req.payload.type !== "run") return;
+    if (req.payload.run.code === "close") { out.close(4001, "idle"); return; }
     out.signal.addEventListener("abort", () => { aborted = out.signal.reason; });
   },
 };
@@ -749,6 +750,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   a.close(4000, "bye");
   await sleep(200);
   if (!(aborted instanceof server.WSClosedError) || aborted.code !== 4000) fail("out.signal:", aborted);
+
+  const c = new WebSocket("ws://" + addr + "/v1/execute");
+  await new Promise((r) => c.on("open", r));
+  const closedBy = new Promise((r) => c.on("close", (code, reason) => r(code + " " + String(reason))));
+  c.send(JSON.stringify({ payload: { type: "run", run: { code: "close" } } }));
+  const closeResult = await closedBy;
+  if (closeResult !== "4001 idle") fail("out.close:", closeResult);
 
   const fast = await listen({ pingIntervalMs: 100 });
   const b = new WebSocket("ws://" + fast + "/v1/execute", { autoPong: false });
