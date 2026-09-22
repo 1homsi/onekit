@@ -34,6 +34,12 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 	p.Blank()
 	writeServerContext(p)
 	writePathParser(p)
+	if onkir.FileHasWSMethods(file) {
+		// Emitted once per file, not per service: WsPending/WsCallSink are
+		// shared types, and two services in one file both declaring @ws
+		// methods would otherwise redefine them.
+		WriteWSServerRuntime(p, onkir.FileHasWSCorrelation(file))
+	}
 	for _, service := range file.Services {
 		writeServerService(p, service)
 	}
@@ -89,8 +95,8 @@ func writeServerService(p *Printer, service *onkir.Service) {
 		case method.IsWebSocket():
 			p.P(
 				"fn ", RustIdent(method.Name), "(&self, context: RequestContext, req: ", requestType,
-				", out: WsSink<", responseType,
-				">) -> impl std::future::Future<Output = Result<(), ", errorType, ">> + Send;",
+				", out: ", wsOutType(p, method),
+				") -> impl std::future::Future<Output = Result<(), ", errorType, ">> + Send;",
 			)
 		case method.IsStream():
 			p.P(
@@ -110,20 +116,11 @@ func writeServerService(p *Printer, service *onkir.Service) {
 	p.P("}")
 	p.Blank()
 
-	hasWS := false
-	for _, m := range service.Methods {
-		if m.IsWebSocket() {
-			hasWS = true
-			break
-		}
-	}
-	if hasWS {
-		WriteWSServerRuntime(p)
-	}
 	writeRouter(p, service)
 	for _, method := range service.Methods {
 		if method.IsWebSocket() {
 			writeWSUpgradeHandler(p, service, method)
+			writeServerError(p, service, method)
 			continue
 		}
 		writeHandler(p, service, method)

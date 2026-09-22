@@ -186,8 +186,12 @@ func writeHandlerInterface(p *Printer, s *onkir.Service) {
 	for _, m := range s.Methods {
 		switch {
 		case m.IsWebSocket():
+			outType := "WSOut<" + p.MessageTypeName(m.Response) + ">"
+			if idField, ok := m.WSIDField(); ok {
+				outType = "WSCallOut<" + p.TSFieldType(idField.Type) + ", " + p.MessageTypeName(m.Response) + ", " + p.MessageTypeName(m.Request) + ">"
+			}
 			p.P(CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request),
-				", out: WSOut<", p.MessageTypeName(m.Response), ">): void | Promise<void>;")
+				", out: ", outType, "): void | Promise<void>;")
 		case m.IsStream():
 			writeSSEHandlerMethod(p, m)
 		default:
@@ -204,9 +208,13 @@ func writeRouteFactory(p *Printer, s *onkir.Service) {
 	p.P("export function ", factoryName, "(handler: ", s.Name, "Handler): RouteDescriptor[] {")
 	p.P("return [")
 	for _, m := range s.Methods {
-		if m.IsStream() {
+		switch {
+		case m.IsWebSocket():
+			// Gets its own route via createXSocketRoutes (writeTSSocketFactory).
+			continue
+		case m.IsStream():
 			writeSSERoute(p, s, m)
-		} else {
+		default:
 			writeRoute(p, s, m)
 		}
 	}

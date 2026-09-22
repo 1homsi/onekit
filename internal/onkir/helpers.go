@@ -336,3 +336,63 @@ func FileHasWSMethods(file *File) bool {
 	}
 	return false
 }
+
+// wsIDDecorator marks a field as the correlation key for matching an
+// outbound @ws frame to its eventual inbound reply on the same connection.
+const wsIDDecorator = "ws_id"
+
+// WSIDField returns the @ws_id-tagged field reachable from message: checked
+// on its direct fields first, then recursively within each oneof variant's
+// own message. onkcompile has already validated at most one such field per
+// message-or-variant scope and one consistent scalar type across every scope
+// a single @ws method uses, so generators can treat the first match found as
+// authoritative for that method.
+func WSIDField(message *Message) (*Field, bool) {
+	if message == nil {
+		return nil, false
+	}
+	for _, f := range message.Fields {
+		if f.Oneof != nil {
+			for _, variant := range f.Oneof.Variants {
+				if variant.Type == nil || variant.Type.Kind != KindMessage {
+					continue
+				}
+				if vf, ok := WSIDField(variant.Type.Message); ok {
+					return vf, true
+				}
+			}
+			continue
+		}
+		if f.HasDecorator(wsIDDecorator) {
+			return f, true
+		}
+	}
+	return nil, false
+}
+
+// WSIDField returns the @ws_id field a @ws method correlates replies with,
+// checking the request then the response (and each's oneof variants).
+func (m *Method) WSIDField() (*Field, bool) {
+	if f, ok := WSIDField(m.Request); ok {
+		return f, true
+	}
+	return WSIDField(m.Response)
+}
+
+// FileHasWSCorrelation reports whether any @ws method in the file uses
+// @ws_id, so generators can gate emission of the shared pending-call runtime
+// (and its concurrency-primitive imports) behind this instead of emitting it
+// unconditionally for every file that merely has a @ws method.
+func FileHasWSCorrelation(file *File) bool {
+	for _, s := range file.Services {
+		for _, m := range s.Methods {
+			if !m.IsWebSocket() {
+				continue
+			}
+			if _, ok := m.WSIDField(); ok {
+				return true
+			}
+		}
+	}
+	return false
+}

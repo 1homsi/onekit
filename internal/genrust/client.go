@@ -28,6 +28,11 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) []by
 	p.P("use serde::Serialize;")
 	p.Blank()
 	writeClientHelpers(p)
+	if onkir.FileHasWSMethods(file) {
+		// Emitted once per file, not per service - see the matching note in
+		// GenerateServerWithResolver.
+		WriteWSClientRuntime(p, onkir.FileHasWSCorrelation(file))
+	}
 	for _, service := range file.Services {
 		writeClient(p, service)
 	}
@@ -123,16 +128,13 @@ func writeClient(p *Printer, service *onkir.Service) {
 	p.Dedent()
 	p.P("}")
 	p.Blank()
-	var wsMethods []*onkir.Method
 	for _, method := range service.Methods {
 		if method.IsWebSocket() {
-			wsMethods = append(wsMethods, method)
 			writeRustWSClientMethod(p, service, method)
 			continue
 		}
 		writeClientMethod(p, service, method)
 	}
-	writeRustWSDuplexTypes(p, service, wsMethods)
 	p.Dedent()
 	p.P("}")
 	p.Blank()
@@ -425,6 +427,9 @@ func writeClientError(p *Printer, service *onkir.Service, method *onkir.Method) 
 	p.P("Validation(ValidationError),")
 	p.P("InvalidRequest(String),")
 	p.P("Transport(reqwest::Error),")
+	if method.IsWebSocket() {
+		p.P("WsTransport(tokio_tungstenite::tungstenite::Error),")
+	}
 	p.P("Response(String),")
 	p.P("Decode(serde_json::Error),")
 	if method.IsStream() {
@@ -447,6 +452,9 @@ func writeClientError(p *Printer, service *onkir.Service, method *onkir.Method) 
 	p.P("Self::Validation(error) => write!(formatter, \"request validation failed: {error}\"),")
 	p.P("Self::InvalidRequest(error) => write!(formatter, \"invalid request: {error}\"),")
 	p.P("Self::Transport(error) => write!(formatter, \"HTTP transport failed: {error}\"),")
+	if method.IsWebSocket() {
+		p.P("Self::WsTransport(error) => write!(formatter, \"WebSocket transport failed: {error}\"),")
+	}
 	p.P("Self::Response(error) => write!(formatter, \"response failed: {error}\"),")
 	p.P("Self::Decode(error) => write!(formatter, \"response decoding failed: {error}\"),")
 	if method.IsStream() {

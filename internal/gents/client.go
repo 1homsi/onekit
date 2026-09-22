@@ -91,6 +91,9 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) []by
 
 	writeResponseBodyRuntime(p)
 	writeAPIError(p)
+	if onkir.FileHasWSCorrelation(file) {
+		writeTSWSPendingType(p)
+	}
 
 	for _, s := range file.Services {
 		writeClientClass(p, s)
@@ -159,6 +162,15 @@ func writeResponseBodyRuntime(p *Printer) {
 }
 
 func writeClientClass(p *Printer, s *onkir.Service) {
+	// Duplex classes are top-level types returned by client methods below,
+	// not members of ServiceClient - emit them before it opens so they don't
+	// land nested inside another class body (invalid TS/JS syntax).
+	for _, m := range s.Methods {
+		if m.IsWebSocket() {
+			writeTSDuplexClass(p, m)
+		}
+	}
+
 	p.P("export interface ", s.Name, "ClientOptions {")
 	p.P("fetch?: typeof fetch;")
 	p.P("defaultHeaders?: Record<string, string>;")
@@ -182,11 +194,6 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 	p.P("}")
 	p.P()
 
-	for _, m := range s.Methods {
-		if m.IsWebSocket() {
-			writeTSDuplexClass(p, m)
-		}
-	}
 	for _, m := range s.Methods {
 		switch {
 		case m.IsWebSocket():

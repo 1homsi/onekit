@@ -81,6 +81,7 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	imp := clientImportsNeeded(file)
 	hasStream := onkir.FileHasStreamMethods(file)
 	hasWS := onkir.FileHasWSMethods(file)
+	hasWSCorrelation := onkir.FileHasWSCorrelation(file)
 	externalRefs := collectServiceExternalRefs(file, resolver)
 
 	p := newPrinter(resolver)
@@ -115,6 +116,9 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 		p.P(`"strings"`)
 	}
 	if hasWS {
+		p.P(`"sync"`)
+	}
+	if hasWS {
 		p.P(`"github.com/coder/websocket"`)
 	}
 	for _, ref := range externalRefs {
@@ -127,12 +131,16 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 		writeEventStreamRuntime(p)
 	}
 	writeResponseBodyRuntime(p)
+	if hasWSCorrelation {
+		writeWSPendingType(p, wsClientPendingType, wsClientPendingConstructor)
+	}
 
 	for _, s := range file.Services {
 		writeClientType(p, s)
 		for _, m := range s.Methods {
 			if m.IsWebSocket() {
-				writeWSDuplexType(p, p.MessageTypeName(m.Request), p.MessageTypeName(m.Response))
+				idField, _ := m.WSIDField()
+				writeWSDuplexType(p, p.MessageTypeName(m.Request), p.MessageTypeName(m.Response), idField, m.Response)
 			}
 		}
 		for _, m := range s.Methods {
