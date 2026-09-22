@@ -207,10 +207,12 @@ attachChatServiceNodeSocketHandlers(server, handlerImpl);
 server.listen(8080);
 ```
 
-Regular (non-`@ws`) routes already run on Node as-is (`createXRoutes`'s
-`RouteDescriptor.handler` is built on the Fetch API `Request`/`Response`,
-which Node 18+ implements natively) - only `@ws` routes needed a Node-specific
-path, since `WebSocketPair` has no Node equivalent at all.
+Regular (non-`@ws`) routes get the same treatment. `attachChatServiceNodeHandlers(server, handlerImpl)`
+serves them on an `http.Server`, and an unmatched path gets a 404 when nothing else
+listens. `createChatServiceNodeHandler(handlerImpl)` returns `(req, res) => boolean`
+for composing with your own request listener. Both take any object shaped like
+`node:http`'s, so the generated server needs neither `@types/node` nor `ws`
+unless it has `@ws` methods.
 
 ### Multiplexed correlated calls with `@ws_id`
 
@@ -316,6 +318,19 @@ resolves once the socket's `bufferedAmount` is at or under a high-water mark
 (1 MiB by default; `highWaterMarkBytes` on the server factories and client
 options), so a producer that awaits its sends is paced by the peer. The
 promise never rejects, so un-awaited sends behave as before.
+
+### Knowing when the connection is gone
+
+A server handler can watch its connection: `out.Context()` in Go (its cause
+is the close error), `out.signal` in TypeScript (aborted with a
+`WSClosedError`), and `out.closed().await` / `out.is_closed()` in Rust.
+Servers ping every 30 seconds and drop a peer that misses a pong, so a hard
+network drop ends the connection instead of hanging until a timeout. Set
+`WithWSPingInterval(d)` in Go (negative disables), `pingIntervalMs` in the
+TypeScript Node adapter (0 disables), or `WsServerOptions::ping_interval` in
+Rust (`None` disables). A client that receives a frame it can't decode fails
+the socket (a 1007 `WSClosedError` in TypeScript, the decode error in Go)
+rather than skipping it.
 
 ### Frame size limit
 

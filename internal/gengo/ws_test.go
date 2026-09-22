@@ -196,7 +196,7 @@ func TestGenerateServerWebSockets(t *testing.T) {
 		"Chat(ctx context.Context, req *ChatMessage, out WSOut[ChatEvent]) error",
 		`mux.Handle("GET /v1/rooms/{room}"`,
 		"websocket.Accept(w, r, nil)",
-		"wsConnOut[ChatEvent]{conn: conn}",
+		"wsConnOut[ChatEvent]{conn: conn, ctx: connCtx}",
 		"s.mu.Lock()",
 	} {
 		if !strings.Contains(out, want) {
@@ -661,6 +661,81 @@ func TestRuntimeClientFrameLimitIsACloseError(t *testing.T) {
 		t.Fatalf("want close 1009, got %v", err)
 	}
 }
+
+type contextImpl struct{ done chan error }
+
+func (h *contextImpl) Execute(ctx context.Context, req *Frame, out *RuntimeExecuteOut) error {
+	if req.GetRun() == nil {
+		return nil
+	}
+	go func() {
+		<-out.Context().Done()
+		h.done <- context.Cause(out.Context())
+	}()
+	return nil
+}
+
+func TestRuntimeOutContextEndsWhenClientCloses(t *testing.T) {
+	impl := &contextImpl{done: make(chan error, 1)}
+	socket := dialRuntime(t, impl)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := socket.Send(ctx, &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: "x"}}}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	_ = socket.Close()
+	select {
+	case cause := <-impl.done:
+		if websocket.CloseStatus(cause) != websocket.StatusNormalClosure {
+			t.Fatalf("want the client's normal closure as the cause, got %v", cause)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("out.Context() never ended after the client closed")
+	}
+}
+
+func TestRuntimeKeepAliveDropsUnresponsivePeer(t *testing.T) {
+	impl := &contextImpl{done: make(chan error, 1)}
+	url := serveRuntime(t, impl, WithWSPingInterval(100*time.Millisecond))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(url, "http")+"/v1/execute", nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+	if err := conn.Write(ctx, websocket.MessageText, []byte("{\"payload\":{\"type\":\"run\",\"run\":{\"code\":\"x\"}}}")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	select {
+	case <-impl.done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("a peer that never answers pings was never dropped")
+	}
+}
+
+func TestRuntimeClientFailsOnUndecodableFrame(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/execute", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		_ = conn.Write(r.Context(), websocket.MessageText, []byte("not json"))
+		_, _, _ = conn.Read(r.Context())
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	socket := dialRuntimeClient(t, NewRuntimeClient(server.URL))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := socket.Call(ctx, "c-1", &Frame{Payload: &FramePayloadHostCall{HostCall: &HostCall{Id: "c-1", Method: "x"}}})
+	if err == nil || errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "decode frame") {
+		t.Fatalf("want the decode error, got %v", err)
+	}
+}
 `
 
 // TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants actually runs a
@@ -723,6 +798,9 @@ func TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants(t *testing.T) {
 		"--- PASS: TestRuntimeHandlerErrorClosesWith1011",
 		"--- PASS: TestRuntimeInvalidFrameClosesWith1007",
 		"--- PASS: TestRuntimeClientFrameLimitIsACloseError",
+		"--- PASS: TestRuntimeOutContextEndsWhenClientCloses",
+		"--- PASS: TestRuntimeKeepAliveDropsUnresponsivePeer",
+		"--- PASS: TestRuntimeClientFailsOnUndecodableFrame",
 	} {
 		if !strings.Contains(string(out), want) {
 			t.Fatalf("expected %q in harness output:\n%s", want, out)
