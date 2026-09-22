@@ -142,7 +142,7 @@ func TestLoadConfigRejectsUnknownAndInvalidConfiguration(t *testing.T) {
 	// filepath.IsAbs requires a drive letter or UNC prefix on Windows, so a
 	// bare "/etc"-style literal isn't absolute there - build one that's
 	// actually absolute on whichever OS the test runs on.
-	absoluteSchemaRoot := filepath.ToSlash(os.TempDir())
+	absoluteSchemaRoot := filepath.ToSlash(t.TempDir())
 
 	tests := []struct {
 		name, config, want string
