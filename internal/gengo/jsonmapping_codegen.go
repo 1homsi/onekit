@@ -122,9 +122,9 @@ func bytesDecodeCall(encoding, expr string) string {
 // writeAuxFieldDecls emits the override-field declarations shared by the
 // marshal and unmarshal aux structs. includeEmpty is false for unmarshal:
 // empty-behavior only affects the marshal side (see emptyBehaviorValue).
-func writeAuxFieldDecls(p *Printer, c fieldCategories, includeEmpty bool) {
+func writeAuxFieldDecls(p *Printer, m *onkir.Message, c fieldCategories, includeEmpty bool) {
 	for _, f := range c.oneofs {
-		p.P(PascalCase(f.Name), " json.RawMessage `json:\"", f.Name, ",omitempty\"`")
+		p.P(PascalCase(f.Name), " *", oneofWireName(m, f), " `json:\"", f.Name, ",omitempty\"`")
 	}
 	for _, f := range c.int64s {
 		p.P(PascalCase(f.Name), " string `json:\"", f.Name, ",omitempty\"`")
@@ -275,7 +275,7 @@ func writeCustomMarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
 	p.P("type alias ", m.Name)
 	p.P("aux := struct {")
 	p.P("*alias")
-	writeAuxFieldDecls(p, c, true)
+	writeAuxFieldDecls(p, m, c, true)
 	p.P("}{alias: (*alias)(m)}")
 
 	for _, f := range c.oneofs {
@@ -478,7 +478,7 @@ func writeCustomUnmarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
 	p.P("type alias ", m.Name)
 	p.P("aux := struct {")
 	p.P("*alias")
-	writeAuxFieldDecls(p, c, false)
+	writeAuxFieldDecls(p, m, c, false)
 	p.P("}{alias: (*alias)(m)}")
 	p.P("if err := json.Unmarshal(data, &aux); err != nil {")
 	p.P("return err")

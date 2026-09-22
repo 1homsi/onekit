@@ -269,24 +269,16 @@ func (m *LoginRequest) MarshalJSON() ([]byte, error) {
 	type alias LoginRequest
 	aux := struct {
 		*alias
-		AuthMethod json.RawMessage `json:"auth_method,omitempty"`
-		Timestamp  string          `json:"timestamp,omitempty"`
+		AuthMethod *wireLoginRequestAuthMethod `json:"auth_method,omitempty"`
+		Timestamp  string                      `json:"timestamp,omitempty"`
 	}{alias: (*alias)(m)}
-	if m.AuthMethod != nil {
-		var obj map[string]any
-		switch v := m.AuthMethod.(type) {
-		case *LoginRequestAuthMethodEmail:
-			obj = map[string]any{"auth_type": "email", "email": v.Email}
-		case *LoginRequestAuthMethodToken:
-			obj = map[string]any{"auth_type": "token", "token": v.Token}
-		case *LoginRequestAuthMethodSocial:
-			obj = map[string]any{"auth_type": "social", "social": v.Social}
-		}
-		objBytes, err := json.Marshal(obj)
-		if err != nil {
-			return nil, err
-		}
-		aux.AuthMethod = objBytes
+	switch v := m.AuthMethod.(type) {
+	case *LoginRequestAuthMethodEmail:
+		aux.AuthMethod = &wireLoginRequestAuthMethod{Tag: "email", VEmail: v.Email}
+	case *LoginRequestAuthMethodToken:
+		aux.AuthMethod = &wireLoginRequestAuthMethod{Tag: "token", VToken: v.Token}
+	case *LoginRequestAuthMethodSocial:
+		aux.AuthMethod = &wireLoginRequestAuthMethod{Tag: "social", VSocial: v.Social}
 	}
 	aux.Timestamp = strconv.FormatInt(m.Timestamp, 10)
 	return json.Marshal(aux)
@@ -296,44 +288,20 @@ func (m *LoginRequest) UnmarshalJSON(data []byte) error {
 	type alias LoginRequest
 	aux := struct {
 		*alias
-		AuthMethod json.RawMessage `json:"auth_method,omitempty"`
-		Timestamp  string          `json:"timestamp,omitempty"`
+		AuthMethod *wireLoginRequestAuthMethod `json:"auth_method,omitempty"`
+		Timestamp  string                      `json:"timestamp,omitempty"`
 	}{alias: (*alias)(m)}
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
-	if len(aux.AuthMethod) > 0 {
-		var disc struct {
-			Tag string `json:"auth_type"`
-		}
-		if err := json.Unmarshal(aux.AuthMethod, &disc); err != nil {
-			return err
-		}
-		switch disc.Tag {
+	if w := aux.AuthMethod; w != nil {
+		switch w.Tag {
 		case "email":
-			var v struct {
-				Val *EmailAuth `json:"email"`
-			}
-			if err := json.Unmarshal(aux.AuthMethod, &v); err != nil {
-				return err
-			}
-			m.AuthMethod = &LoginRequestAuthMethodEmail{Email: v.Val}
+			m.AuthMethod = &LoginRequestAuthMethodEmail{Email: w.VEmail}
 		case "token":
-			var v struct {
-				Val *TokenAuth `json:"token"`
-			}
-			if err := json.Unmarshal(aux.AuthMethod, &v); err != nil {
-				return err
-			}
-			m.AuthMethod = &LoginRequestAuthMethodToken{Token: v.Val}
+			m.AuthMethod = &LoginRequestAuthMethodToken{Token: w.VToken}
 		case "social":
-			var v struct {
-				Val *SocialAuth `json:"social"`
-			}
-			if err := json.Unmarshal(aux.AuthMethod, &v); err != nil {
-				return err
-			}
-			m.AuthMethod = &LoginRequestAuthMethodSocial{Social: v.Val}
+			m.AuthMethod = &LoginRequestAuthMethodSocial{Social: w.VSocial}
 		}
 	}
 	if aux.Timestamp != "" {
@@ -462,6 +430,13 @@ type LoginRequestAuthMethodSocial struct {
 }
 
 func (*LoginRequestAuthMethodSocial) isLoginRequestAuthMethod() {}
+
+type wireLoginRequestAuthMethod struct {
+	Tag     string      `json:"auth_type"`
+	VEmail  *EmailAuth  `json:"email,omitempty"`
+	VToken  *TokenAuth  `json:"token,omitempty"`
+	VSocial *SocialAuth `json:"social,omitempty"`
+}
 
 type LoginResponse struct {
 	AccessToken  string `json:"access_token,omitempty"`
