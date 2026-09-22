@@ -142,7 +142,7 @@ func (p *Parser) parseFile() (*File, error) {
 			return nil, p.errf("expected message/enum/service, got %s %q", p.tok.Kind, p.tok.Text)
 		}
 	}
-	f.TrailingComments = append([]string(nil), p.tok.LeadingComments...)
+	f.TrailingComments = closingComments(p.tok)
 
 	return f, nil
 }
@@ -319,9 +319,11 @@ func (p *Parser) parseOneof() (*OneofDecl, error) {
 		}
 		o.Variants = append(o.Variants, v)
 	}
-	if _, err := p.expect(RBRACE); err != nil {
+	closing, err := p.expect(RBRACE)
+	if err != nil {
 		return nil, err
 	}
+	o.TrailingComments = closingComments(closing)
 	return o, nil
 }
 
@@ -432,9 +434,11 @@ func (p *Parser) parseMessage() (*MessageDecl, error) {
 			m.Members = append(m.Members, field)
 		}
 	}
-	if _, err := p.expect(RBRACE); err != nil {
+	closing, err := p.expect(RBRACE)
+	if err != nil {
 		return nil, err
 	}
+	m.TrailingComments = closingComments(closing)
 	return m, nil
 }
 
@@ -467,38 +471,40 @@ func (p *Parser) parseEnum() (*EnumDecl, error) {
 		}
 		e.Values = append(e.Values, EnumValueDecl{Name: vname.Text, Doc: vname.Doc, LeadingComments: append([]string(nil), vname.LeadingComments...), Decorators: decorators, Line: vname.Line, Col: vname.Col})
 	}
-	if _, err := p.expect(RBRACE); err != nil {
+	closing, err := p.expect(RBRACE)
+	if err != nil {
 		return nil, err
 	}
+	e.TrailingComments = closingComments(closing)
 	return e, nil
 }
 
-func (p *Parser) parseHeadersBlock() ([]HeaderDecl, error) {
+func (p *Parser) parseHeadersBlock() ([]HeaderDecl, []string, error) {
 	if err := p.expectIdentText("headers"); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if _, err := p.expect(COLON); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if _, err := p.expect(LBRACE); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var headers []HeaderDecl
 	for p.tok.Kind != RBRACE {
 		nameTok, err := p.expect(STRING)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if _, err := p.expect(COLON); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		typeTok, err := p.expect(IDENT)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		decorators, err := p.parseDecorators()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		headers = append(headers, HeaderDecl{
 			Name:            nameTok.Text,
@@ -509,10 +515,11 @@ func (p *Parser) parseHeadersBlock() ([]HeaderDecl, error) {
 			Col:             nameTok.Col,
 		})
 	}
-	if _, err := p.expect(RBRACE); err != nil {
-		return nil, err
+	closing, err := p.expect(RBRACE)
+	if err != nil {
+		return nil, nil, err
 	}
-	return headers, nil
+	return headers, closingComments(closing), nil
 }
 
 func (p *Parser) parseRPC() (*RPCDecl, error) {
@@ -573,18 +580,20 @@ func (p *Parser) parseRPC() (*RPCDecl, error) {
 			switch {
 			case p.isIdent("headers"):
 				r.HeadersComments = append([]string(nil), p.tok.LeadingComments...)
-				h, err := p.parseHeadersBlock()
+				h, trailing, err := p.parseHeadersBlock()
 				if err != nil {
 					return nil, err
 				}
-				r.Headers = h
+				r.Headers, r.HeadersTrailingComments = h, trailing
 			default:
 				return nil, p.errf("unexpected token in rpc body: %s %q", p.tok.Kind, p.tok.Text)
 			}
 		}
-		if _, err := p.expect(RBRACE); err != nil {
+		closing, err := p.expect(RBRACE)
+		if err != nil {
 			return nil, err
 		}
+		r.TrailingComments = closingComments(closing)
 	}
 
 	return r, nil
@@ -625,11 +634,11 @@ func (p *Parser) parseService() (*ServiceDecl, error) {
 			s.BasePath = path.Text
 		case p.isIdent("headers"):
 			s.HeadersComments = append([]string(nil), p.tok.LeadingComments...)
-			h, err := p.parseHeadersBlock()
+			h, trailing, err := p.parseHeadersBlock()
 			if err != nil {
 				return nil, err
 			}
-			s.Headers = h
+			s.Headers, s.HeadersTrailingComments = h, trailing
 		case p.tok.Kind == IDENT:
 			r, err := p.parseRPC()
 			if err != nil {
@@ -640,10 +649,25 @@ func (p *Parser) parseService() (*ServiceDecl, error) {
 			return nil, p.errf("unexpected token in service body: %s %q", p.tok.Kind, p.tok.Text)
 		}
 	}
-	if _, err := p.expect(RBRACE); err != nil {
+	closing, err := p.expect(RBRACE)
+	if err != nil {
 		return nil, err
 	}
+	s.TrailingComments = closingComments(closing)
 	return s, nil
+}
+
+// closingComments returns the comments written just before a closing `}` or
+// EOF, which no declaration follows to own; a stray `///` line keeps its doc
+// marker so formatting reproduces it rather than dropping it.
+func closingComments(tok Token) []string {
+	comments := append([]string(nil), tok.LeadingComments...)
+	if tok.Doc != "" {
+		for _, line := range strings.Split(tok.Doc, "\n") {
+			comments = append(comments, strings.TrimSpace("/// "+line))
+		}
+	}
+	return comments
 }
 
 func tokenSpan(start, end Token) Span {

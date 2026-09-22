@@ -43,6 +43,11 @@ func (l *Lexer) advance() {
 	}
 }
 
+// skipWhitespaceAndComments collects the `///` doc lines and the plain
+// comments before the next token. A plain comment between a doc block and its
+// declaration used to discard the doc; both are kept now (the formatter
+// writes plain comments above the doc, so the doc stays next to the
+// declaration it documents).
 func (l *Lexer) skipWhitespaceAndComments() (string, []string, error) {
 	var doc []string
 	var comments []string
@@ -66,7 +71,6 @@ func (l *Lexer) skipWhitespaceAndComments() (string, []string, error) {
 				l.advance()
 			}
 			comments = append(comments, strings.TrimSpace(l.src[start:l.pos]))
-			doc = nil
 		case b == '/' && l.peekByteAt(1) == '*':
 			start := l.pos
 			l.advance()
@@ -80,7 +84,6 @@ func (l *Lexer) skipWhitespaceAndComments() (string, []string, error) {
 			l.advance()
 			l.advance()
 			comments = append(comments, strings.TrimSpace(l.src[start:l.pos]))
-			doc = nil
 		default:
 			return strings.Join(doc, "\n"), comments, nil
 		}
