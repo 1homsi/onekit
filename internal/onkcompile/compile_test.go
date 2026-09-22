@@ -777,3 +777,54 @@ message M { value: string @pattern("^(a+)+$") }
 		})
 	}
 }
+
+// A schema with no imports of its own is deliberately absent from the published
+// import scopes, so it must not double as the recursion memo: sharing the two
+// handed the second and later importers a nil scope.
+func TestCompileResolvesSharedImportForEveryImporter(t *testing.T) {
+	pkg, err := Compile([]Source{
+		{Path: "common/money.onk", AST: parseOrFatal(t, `package common
+message Money { amount: int64 }`)},
+		{Path: "a/service.onk", AST: parseOrFatal(t, `package a
+import "../common/money.onk"
+message AReq { id: string }
+message Invoice { total: Money }
+service AService { get(AReq) -> Invoice @post("/get") }`)},
+		{Path: "b/service.onk", AST: parseOrFatal(t, `package b
+import "../common/money.onk"
+message BReq { id: string }
+message Receipt { paid: Money }
+service BService { get(BReq) -> Receipt @post("/get") }`)},
+	})
+	if err != nil {
+		t.Fatalf("every importer of an import-free schema must resolve it: %v", err)
+	}
+
+	for _, want := range []struct{ pkgName, message, field string }{
+		{"a", "Invoice", "total"},
+		{"b", "Receipt", "paid"},
+	} {
+		var field *onkir.Field
+		for _, file := range pkg.Files {
+			if file.Package != want.pkgName {
+				continue
+			}
+			for _, message := range file.Messages {
+				if message.Name != want.message {
+					continue
+				}
+				for _, candidate := range message.Fields {
+					if candidate.Name == want.field {
+						field = candidate
+					}
+				}
+			}
+		}
+		if field == nil {
+			t.Fatalf("%s.%s.%s not found", want.pkgName, want.message, want.field)
+		}
+		if field.Type == nil || field.Type.Message == nil || field.Type.Message.Name != "Money" {
+			t.Fatalf("%s.%s.%s should resolve to the shared Money message, got %+v", want.pkgName, want.message, want.field, field.Type)
+		}
+	}
+}

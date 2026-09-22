@@ -104,26 +104,30 @@ func validateAndBuildImportScopes(sources []Source) (map[string]map[string]bool,
 		}
 	}
 
-	var scopes map[string]map[string]bool
-	computed := map[string]bool{}
+	scopes := make(map[string]map[string]bool)
+	// Memoize every path's scope separately from scopes: a file with no imports
+	// of its own is deliberately absent from scopes (that absence is what grants
+	// it the project-wide fallback), so it cannot double as the memo. Sharing
+	// them returned a nil scope to the second and later importers of any
+	// import-free schema. Cycles are already rejected by visit above.
+	memo := map[string]map[string]bool{}
 	var scope func(string) map[string]bool
 	scope = func(path string) map[string]bool {
-		if computed[path] {
-			return scopes[path]
+		if result, ok := memo[path]; ok {
+			return result
 		}
-		computed[path] = true
 		result := map[string]bool{filepath.Dir(path): true}
 		for _, target := range graph[path] {
 			for dir := range scope(target) {
 				result[dir] = true
 			}
 		}
+		memo[path] = result
 		if len(graph[path]) > 0 {
 			scopes[path] = result
 		}
 		return result
 	}
-	scopes = make(map[string]map[string]bool)
 	for _, path := range paths {
 		if len(graph[path]) > 0 {
 			scope(path)
