@@ -34,6 +34,19 @@ func WriteTSWSServerRuntime(p *Printer) {
 	p.P("// Cap on one inbound message (default DEFAULT_MAX_WS_FRAME_BYTES); a")
 	p.P("// larger one closes the connection with 1009. Negative disables it.")
 	p.P("maxFrameBytes?: number;")
+	p.P("// out.send() waits while more than this many bytes are queued on the")
+	p.P("// socket (default DEFAULT_WS_HIGH_WATER_MARK_BYTES).")
+	p.P("highWaterMarkBytes?: number;")
+	p.P("}")
+	p.P()
+	p.P("// wsCloseReason fits message into a close frame's 123-byte reason, cutting")
+	p.P("// on a UTF-8 boundary (the socket would throw on a longer one).")
+	p.P("function wsCloseReason(message: string): string {")
+	p.P("const bytes = new TextEncoder().encode(message);")
+	p.P("if (bytes.byteLength <= 123) return message;")
+	p.P("let cut = 123;")
+	p.P("while (cut > 0 && (bytes[cut] & 0xc0) === 0x80) cut--;")
+	p.P("return new TextDecoder().decode(bytes.subarray(0, cut));")
 	p.P("}")
 	p.P()
 	p.P("export interface SocketRouteDescriptor {")
@@ -45,6 +58,7 @@ func WriteTSWSServerRuntime(p *Printer) {
 	p.P("// hard dependency on environment-specific DOM typings.")
 	p.P("type PairServerSocket = {")
 	p.P("readyState: number;")
+	p.P("bufferedAmount?: number;")
 	p.P("accept(): void;")
 	p.P("send(data: string): void;")
 	p.P("close(code?: number, reason?: string): void;")
@@ -128,6 +142,21 @@ func writeTSWSSharedRuntime(p *Printer) {
 	p.P("// same default every onekit target uses. A negative limit disables it.")
 	p.P("export const DEFAULT_MAX_WS_FRAME_BYTES = 16 * 1024 * 1024;")
 	p.P()
+	p.P("// Bytes a socket may have queued before send() starts waiting.")
+	p.P("export const DEFAULT_WS_HIGH_WATER_MARK_BYTES = 1024 * 1024;")
+	p.P()
+	p.P("// wsDrained resolves once socket's send buffer is at or under")
+	p.P("// highWaterMark, or the socket is no longer open. It never rejects, so an")
+	p.P("// un-awaited send() can't raise an unhandled rejection.")
+	p.P("function wsDrained(socket: { readyState: number; bufferedAmount?: number }, highWaterMark: number): Promise<void> {")
+	p.P("const ready = () => socket.readyState !== 1 || (socket.bufferedAmount ?? 0) <= highWaterMark;")
+	p.P("if (ready()) return Promise.resolve();")
+	p.P("return new Promise((resolve) => {")
+	p.P("const check = () => { if (ready()) resolve(); else setTimeout(check, 10); };")
+	p.P("setTimeout(check, 10);")
+	p.P("});")
+	p.P("}")
+	p.P()
 	p.P("function wsAbortError(signal: AbortSignal): Error {")
 	p.P("const reason: unknown = signal.reason;")
 	p.P(`const isTimeout = typeof reason === "object" && reason !== null && (reason as { name?: unknown }).name === "TimeoutError";`)
@@ -179,7 +208,9 @@ func writeTSWSPendingType(p *Printer) {
 	p.P("// application-supplied @ws_id value, so multiple calls can be")
 	p.P("// outstanding at once on a single connection and resolved out of order.")
 	p.P("export class WSPending<K, T> {")
-	p.P("private waiters = new Map<K, { resolve: (value: T) => void; reject: (err: unknown) => void }>();")
+	p.P("// sent is the oneof variant tag of the frame each call sent (\"\" when not")
+	p.P("// a oneof); see resolve.")
+	p.P("private waiters = new Map<K, { sent: string; resolve: (value: T) => void; reject: (err: unknown) => void }>();")
 	p.P("private closedWith: unknown = null;")
 	p.P("private isClosed = false;")
 	p.P()
@@ -190,7 +221,7 @@ func writeTSWSPendingType(p *Printer) {
 	p.P("// register returns a promise for id's reply. options.timeoutMs and")
 	p.P("// options.signal abandon the wait (WSTimeoutError/WSCancelledError), and")
 	p.P("// onAbandon then runs so the caller can tell the peer.")
-	p.P("register(id: K, options: WSCallOptions = {}, onAbandon?: () => void): Promise<T> {")
+	p.P("register(id: K, sent: string, options: WSCallOptions = {}, onAbandon?: () => void): Promise<T> {")
 	p.P("if (this.isClosed) return Promise.reject(this.closedWith);")
 	p.P("const signal = options.signal;")
 	p.P("if (signal?.aborted) return Promise.reject(wsAbortError(signal));")
@@ -201,6 +232,7 @@ func writeTSWSPendingType(p *Printer) {
 	p.P(`signal?.removeEventListener("abort", onAbort);`)
 	p.P("};")
 	p.P("const entry = {")
+	p.P("sent,")
 	p.P("resolve: (value: T) => { settle(); resolve(value); },")
 	p.P("reject: (err: unknown) => { settle(); reject(err); },")
 	p.P("};")
@@ -217,9 +249,13 @@ func writeTSWSPendingType(p *Printer) {
 	p.P("});")
 	p.P("}")
 	p.P()
-	p.P("resolve(id: K, value: T): boolean {")
+	p.P("// resolve hands value to the call waiting on id, unless value is the same")
+	p.P("// oneof variant that call sent: that is the peer starting its own call")
+	p.P("// under a colliding id, not a reply, so it goes to the handler/receive().")
+	p.P("resolve(id: K, variant: string, value: T): boolean {")
 	p.P("const waiter = this.waiters.get(id);")
 	p.P("if (!waiter) return false;")
+	p.P(`if (waiter.sent !== "" && waiter.sent === variant) return false;`)
 	p.P("this.waiters.delete(id);")
 	p.P("waiter.resolve(value);")
 	p.P("return true;")
@@ -287,6 +323,33 @@ func tsWSIDExpression(p *Printer, frameExpr string, message *onkir.Message, idFi
 		fmt.Fprintf(&b, "return %s.%s;\n", frameExpr, CamelCase(f.Name))
 	}
 	b.WriteString("return undefined;\n")
+	b.WriteString("})()")
+	return b.String()
+}
+
+// tsWSVariantExpression builds an expression evaluating to frameExpr's oneof
+// variant tag among the variants that carry @ws_id, or "" - what a call's
+// reply must differ from (see WSPending.resolve).
+func tsWSVariantExpression(frameExpr string, message *onkir.Message) string {
+	var b strings.Builder
+	b.WriteString("((): string => {\n")
+	for _, f := range message.Fields {
+		if f.Oneof == nil {
+			continue
+		}
+		disc := oneofDiscriminatorKey(f)
+		fieldAccess := frameExpr + "." + CamelCase(f.Name)
+		for _, variant := range f.Oneof.Variants {
+			if variant.Type == nil || variant.Type.Kind != onkir.KindMessage || variant.Type.Message == nil {
+				continue
+			}
+			if _, ok := onkir.WSIDField(variant.Type.Message); !ok {
+				continue
+			}
+			fmt.Fprintf(&b, "if (%s && %s.%s === %q) return %q;\n", fieldAccess, fieldAccess, disc, variant.Tag(), variant.Tag())
+		}
+	}
+	b.WriteString(`return "";` + "\n")
 	b.WriteString("})()")
 	return b.String()
 }
@@ -363,20 +426,23 @@ func writeTSWSSocketBody(p *Printer, m *onkir.Method, socketVar string) {
 	// exit_code) rather than the decoded camelCase TS shape - a Go or Rust
 	// peer decoding a camelCase frame sees the oneof tag but a nil body.
 	sendFrame := socketVar + ".send(JSON.stringify(" + p.MessageCodecName(m.Response, "encode") + "(value)))"
+	// send resolves once the socket's buffer is back under the high-water
+	// mark, so a producer that awaits it is paced by the peer.
+	sendDrained := "send: (value) => { " + sendFrame + "; return wsDrained(" + socketVar + ", highWaterMark); },"
 	if correlated {
 		idType := p.TSFieldType(idField.Type)
 		p.P("const pending = new WSPending<", idType, ", ", p.MessageTypeName(m.Request), ">();")
 		p.P("const out: WSCallOut<", idType, ", ", p.MessageTypeName(m.Response), ", ", p.MessageTypeName(m.Request), "> = {")
-		p.P("send: (value) => { ", sendFrame, "; },")
+		p.P(sendDrained)
 		// A socket that's closing or closed silently drops sends, so without
 		// this a call() made after the peer left would never settle.
 		p.P("call: (id, value, options = {}) => {")
 		p.P("if (", socketVar, ".readyState !== 1) pending.rejectAll(new WSClosedError());")
 		p.P("if (options.signal?.aborted) return Promise.reject(wsAbortError(options.signal));")
 		if cancelFrame, ok := tsWSCancelFrame(p, m.Response, "id"); ok {
-			p.P("const reply = pending.register(id, options, () => { if (", socketVar, ".readyState === 1) ", socketVar, ".send(", cancelFrame, "); });")
+			p.P("const reply = pending.register(id, ", tsWSVariantExpression("value", m.Response), ", options, () => { if (", socketVar, ".readyState === 1) ", socketVar, ".send(", cancelFrame, "); });")
 		} else {
-			p.P("const reply = pending.register(id, options);")
+			p.P("const reply = pending.register(id, ", tsWSVariantExpression("value", m.Response), ", options);")
 		}
 		p.P("if (!pending.closed) ", sendFrame, ";")
 		p.P("return reply;")
@@ -385,38 +451,50 @@ func writeTSWSSocketBody(p *Printer, m *onkir.Method, socketVar string) {
 		p.P(socketVar, `.addEventListener("close", (event: any) => { pending.rejectAll(new WSClosedError(event?.code, event?.reason)); });`)
 	} else {
 		p.P("const out: WSOut<", p.MessageTypeName(m.Response), "> = {")
-		p.P("send: (value) => { ", sendFrame, "; },")
+		p.P(sendDrained)
 		p.P("};")
 	}
+	p.P("const runHandler = async (frame: ", p.MessageTypeName(m.Request), "): Promise<void> => {")
+	p.P("try {")
+	p.P("await handler.", CamelCase(m.Name), "(frame, out);")
+	p.P("} catch (err) {")
+	p.P(socketVar, ".close(1011, wsCloseReason(err instanceof Error ? err.message : String(err)));")
+	p.P("}")
+	p.P("};")
 	p.P(socketVar, ".addEventListener(\"message\", async (event: any) => {")
 	p.P("if (wsFrameTooLarge(event.data, maxFrameBytes)) {")
 	p.P(socketVar, `.close(1009, "message too big");`)
 	p.P("return;")
 	p.P("}")
+	// Failures end the connection with a close code and the message as the
+	// reason, never an off-schema frame: 1007 for a frame that does not
+	// decode or validate, 1011 for a handler error - the same as Go and Rust.
+	p.P("let frame: ", p.MessageTypeName(m.Request), ";")
 	p.P("try {")
-	p.P("const frame = ", p.MessageCodecName(m.Request, "decode"), "(JSON.parse(String(event.data)));")
+	p.P("frame = ", p.MessageCodecName(m.Request, "decode"), "(JSON.parse(String(event.data)));")
+	p.P("} catch {")
+	p.P(socketVar, `.close(1007, "invalid JSON frame");`)
+	p.P("return;")
+	p.P("}")
 	p.P("const violations = ", p.MessageCodecName(m.Request, "validate"), "(frame);")
 	p.P("if (violations.length > 0) {")
-	p.P(socketVar, `.send(JSON.stringify({ error: violations.join("; ") }));`)
-	p.P(socketVar, ".close(1008, \"invalid frame\");")
+	p.P(socketVar, `.close(1007, wsCloseReason(violations.join("; ")));`)
 	p.P("return;")
 	p.P("}")
 	if correlated {
 		p.P("const replyId = ", tsWSIDExpression(p, "frame", m.Request, idField), ";")
-		p.P("if (replyId !== undefined && pending.resolve(replyId, frame)) return;")
+		p.P("if (replyId !== undefined && pending.resolve(replyId, ", tsWSVariantExpression("frame", m.Request), ", frame)) return;")
 	}
-	p.P("await handler.", CamelCase(m.Name), "(frame, out);")
-	p.P("} catch (err) {")
-	p.P(socketVar, `.send(JSON.stringify({ error: String(err) }));`)
-	p.P("}")
+	p.P("await runHandler(frame);")
 	p.P("});")
-	p.P("void handler.", CamelCase(m.Name), "(connection, out);")
+	p.P("void runHandler(connection);")
 }
 
 func writeTSSocketFactory(p *Printer, s *onkir.Service) {
 	factory := "create" + s.Name + "SocketRoutes"
 	p.P("export function ", factory, "(handler: ", s.Name, "Handler, options: WSServerOptions = {}): SocketRouteDescriptor[] {")
 	p.P("const maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_WS_FRAME_BYTES;")
+	p.P("const highWaterMark = options.highWaterMarkBytes ?? DEFAULT_WS_HIGH_WATER_MARK_BYTES;")
 	p.P("return [")
 	for _, m := range s.Methods {
 		if m.IsWebSocket() {
@@ -438,6 +516,7 @@ func writeTSNodeSocketFactory(p *Printer, s *onkir.Service) {
 	factory := "attach" + s.Name + "NodeSocketHandlers"
 	p.P("export function ", factory, "(httpServer: HttpServer, handler: ", s.Name, "Handler, options: WSServerOptions = {}): void {")
 	p.P("const maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_WS_FRAME_BYTES;")
+	p.P("const highWaterMark = options.highWaterMarkBytes ?? DEFAULT_WS_HIGH_WATER_MARK_BYTES;")
 	p.P("// ws enforces the cap itself (closing with 1009); 0 means unlimited there.")
 	p.P("const wss = new WebSocketServer({ noServer: true, maxPayload: maxFrameBytes < 0 ? 0 : maxFrameBytes });")
 	p.P("registerNodeSocketRoute(httpServer, (req, socket, head, url) => {")
@@ -541,15 +620,9 @@ func writeTSDuplexClass(p *Printer, m *onkir.Method) {
 		p.P("private closedWith: unknown = undefined;")
 		p.P("private listening = false;")
 	}
-	p.P("constructor(private ws: WebSocket, private maxFrameBytes: number = DEFAULT_MAX_WS_FRAME_BYTES) {}")
+	p.P("constructor(private ws: WebSocket, private maxFrameBytes: number = DEFAULT_MAX_WS_FRAME_BYTES, private highWaterMark: number = DEFAULT_WS_HIGH_WATER_MARK_BYTES) {}")
 	p.P()
-	p.P("send(value: ", reqRef, "): void {")
-	p.P("const frame = encode", m.Request.Name, "(value);")
-	p.P("const violations = validate", m.Request.Name, "(frame);")
-	p.P(`if (violations.length > 0) throw new TypeError("invalid frame: " + violations.join("; "));`)
-	p.P("this.ws.send(JSON.stringify(frame));")
-	p.P("}")
-	p.P()
+	writeTSDuplexSend(p, m, reqRef)
 
 	if !correlated {
 		p.P("receive(): Promise<", resRef, "> {")
@@ -587,7 +660,7 @@ func writeTSDuplexClass(p *Printer, m *onkir.Method) {
 	p.P("let frame: ", resRef, ";")
 	p.P("try { frame = decode", m.Response.Name, "(JSON.parse(String(event.data))); } catch { return; }")
 	p.P("const replyId = ", tsWSIDExpression(p, "frame", m.Response, idField), ";")
-	p.P("if (replyId !== undefined && this.pending.resolve(replyId, frame)) return;")
+	p.P("if (replyId !== undefined && this.pending.resolve(replyId, ", tsWSVariantExpression("frame", m.Response), ", frame)) return;")
 	p.P("const waiter = this.inboxWaiters.shift();")
 	p.P("if (waiter) { waiter.resolve(frame); return; }")
 	p.P("this.inboxQueue.push(frame);")
@@ -620,9 +693,9 @@ func writeTSDuplexClass(p *Printer, m *onkir.Method) {
 	p.P("if (this.ws.readyState !== 1) this.pending.rejectAll(this.closedWith ?? new WSClosedError());")
 	p.P("if (options.signal?.aborted) return Promise.reject(wsAbortError(options.signal));")
 	if cancelFrame, ok := tsWSCancelFrame(p, m.Request, "id"); ok {
-		p.P("const reply = this.pending.register(id, options, () => { if (this.ws.readyState === 1) this.ws.send(", cancelFrame, "); });")
+		p.P("const reply = this.pending.register(id, ", tsWSVariantExpression("value", m.Request), ", options, () => { if (this.ws.readyState === 1) this.ws.send(", cancelFrame, "); });")
 	} else {
-		p.P("const reply = this.pending.register(id, options);")
+		p.P("const reply = this.pending.register(id, ", tsWSVariantExpression("value", m.Request), ", options);")
 	}
 	p.P("if (this.pending.closed) return reply;")
 	p.P("try {")
@@ -667,9 +740,24 @@ func writeTSWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P(`socketURL = socketURL.replace(/^https:/, "wss:").replace(/^http:/, "ws:");`)
 	p.P("return new Promise((resolve, reject) => {")
 	p.P("const ws = new WebSocket(socketURL);")
-	p.P(`ws.onopen = () => resolve(new `, tsDuplexName(m), "(ws, this.options.maxFrameBytes ?? DEFAULT_MAX_WS_FRAME_BYTES));")
+	p.P(`ws.onopen = () => resolve(new `, tsDuplexName(m), "(ws, this.options.maxFrameBytes ?? DEFAULT_MAX_WS_FRAME_BYTES, this.options.highWaterMarkBytes ?? DEFAULT_WS_HIGH_WATER_MARK_BYTES));")
 	p.P(`ws.onerror = () => reject(new Error("websocket connection failed"));`)
 	p.P("});")
+	p.P("}")
+	p.P()
+}
+
+// writeTSDuplexSend emits a duplex class's send(), split out of
+// writeTSDuplexClass for the linter's statement-count limit.
+func writeTSDuplexSend(p *Printer, m *onkir.Method, reqRef string) {
+	p.P("// send throws on an invalid frame, and otherwise resolves once the")
+	p.P("// socket's buffer is back under the high-water mark (backpressure).")
+	p.P("send(value: ", reqRef, "): Promise<void> {")
+	p.P("const frame = encode", m.Request.Name, "(value);")
+	p.P("const violations = validate", m.Request.Name, "(frame);")
+	p.P(`if (violations.length > 0) throw new TypeError("invalid frame: " + violations.join("; "));`)
+	p.P("this.ws.send(JSON.stringify(frame));")
+	p.P("return wsDrained(this.ws, this.highWaterMark);")
 	p.P("}")
 	p.P()
 }

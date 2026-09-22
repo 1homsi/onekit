@@ -128,7 +128,7 @@ func TestGenerateRustWSCorrelated(t *testing.T) {
 		"pub struct WsCallSink<K, E, R> {",
 		"fn execute(&self, context: RequestContext, req: Frame, out: WsCallSink<String, Frame, Frame>)",
 		"let frame = match frame.ws_id() {",
-		"Some(id) => match out.pending.resolve(&id, frame).await { Some(frame) => frame, None => continue },",
+		"Some(id) => { let variant = frame.ws_variant(); match out.pending.resolve(&id, variant, frame).await { Some(frame) => frame, None => continue } }",
 		"out.pending.close_all().await;",
 	} {
 		if !strings.Contains(string(server), want) {
@@ -222,6 +222,23 @@ impl Runtime for Impl {
     fn execute(&self, _context: RequestContext, req: Frame, out: WsCallSink<String, Frame, Frame>) -> impl std::future::Future<Output = Result<(), RuntimeExecuteServerError>> + Send {
         async move {
             match req.payload {
+                Some(FramePayload::Run(run)) if run.code == "boom" => {
+                    return Err(RuntimeExecuteServerError::Internal("boom".into()));
+                }
+                Some(FramePayload::Run(run)) if run.code == "collide" => {
+                    tokio::spawn(async move {
+                        match out.call("dup-1".to_string(), host_call("dup-1")).await {
+                            Ok(Frame { payload: Some(FramePayload::HostResult(_)) }) => {
+                                let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 12 }))).await;
+                            }
+                            other => fail(format!("colliding call: want HostResult, got {other:?}")),
+                        }
+                    });
+                }
+                // The client's own call under the in-flight id reached the handler.
+                Some(FramePayload::HostCall(call)) if call.id == "dup-1" && call.method == "client" => {
+                    let _ = out.send(frame(FramePayload::RunResult(RunResult { exit_code: 11 }))).await;
+                }
                 Some(FramePayload::Run(run)) if run.code == "timeout" => {
                     tokio::spawn(async move {
                         match out.call_timeout("slow-1".to_string(), host_call("slow-1"), Duration::from_millis(200)).await {
@@ -273,6 +290,19 @@ async fn until_run_result(socket: &WsCallSocket<String, Frame, Frame>) -> (Vec<S
     fail("connection closed before RunResult".to_string())
 }
 
+// raw_close sends text on a fresh connection and returns the close code and
+// reason, or None if anything other than a close frame came back first.
+async fn raw_close(addr: std::net::SocketAddr, text: &str) -> Option<(u16, String)> {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/v1/execute")).await.expect("raw connect");
+    ws.send(Message::text(text)).await.expect("raw send");
+    match ws.next().await {
+        Some(Ok(Message::Close(Some(close)))) => Some((u16::from(close.code), close.reason.to_string())),
+        _ => None,
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
@@ -305,6 +335,34 @@ async fn main() {
         if code != 9 { fail(format!("server never saw the client's cancel: {code}")); }
     })
     .await;
+
+    let outcome = match outcome {
+        Ok(()) => tokio::time::timeout(Duration::from_secs(10), async {
+            // A host_call reusing the id of the server's in-flight host_call is
+            // a new call for the handler (RunResult 11), not the reply; the real
+            // HostResult still resolves the server's call (RunResult 12).
+            socket.send(&run("collide")).await.expect("send run");
+            match socket.receive().await.and_then(|f| f.payload) {
+                Some(FramePayload::HostCall(call)) if call.id == "dup-1" => {}
+                other => fail(format!("want the server's host_call, got {other:?}")),
+            }
+            let mine = frame(FramePayload::HostCall(HostCall { id: "dup-1".into(), method: "client".into() }));
+            socket.send(&mine).await.expect("send colliding call");
+            let (_, code) = until_run_result(&socket).await;
+            if code != 11 { fail(format!("colliding call was taken for the reply: {code}")); }
+            socket.send(&frame(FramePayload::HostResult(HostResult { id: "dup-1".into(), value: "ok".into() }))).await.expect("send reply");
+            let (_, code) = until_run_result(&socket).await;
+            if code != 12 { fail(format!("server call never resolved: {code}")); }
+
+            // Failures close with a code and reason, with no frame first.
+            let invalid = raw_close(addr, "not json").await;
+            if invalid != Some((1007, "invalid JSON frame".to_string())) { fail(format!("invalid frame: {invalid:?}")); }
+            let boom = raw_close(addr, r#"{"payload":{"type":"run","run":{"code":"boom"}}}"#).await;
+            if boom != Some((1011, "internal server error: boom".to_string())) { fail(format!("handler error: {boom:?}")); }
+        })
+        .await,
+        Err(elapsed) => Err(elapsed),
+    };
 
     match outcome {
         Ok(()) => println!("OK"),
