@@ -46,6 +46,7 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 
 	hasStream := onkir.FileHasStreamMethods(file)
 	hasWS := onkir.FileHasWSMethods(file)
+	hasWSCorrelation := onkir.FileHasWSCorrelation(file)
 	hasRequestBody := fileHasRequestBodyBinding(file)
 	externalRefs := collectServiceExternalRefs(file, resolver)
 
@@ -69,6 +70,9 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	p.P(`"strconv"`)
 	p.P(`"time"`)
 	if hasWS {
+		p.P(`"sync"`)
+	}
+	if hasWS {
 		p.P(`"github.com/coder/websocket"`)
 	}
 	if hasStream && fileHasStreamPathParams(file) {
@@ -86,11 +90,22 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	if hasWS {
 		writeWSOutType(p)
 	}
+	if hasWSCorrelation {
+		writeWSPendingType(p, wsServerPendingType, wsServerPendingConstructor)
+	}
 	if hasStream {
 		writeSSEServerRuntime(p)
 	}
 
 	for _, s := range file.Services {
+		for _, m := range s.Methods {
+			if !m.IsWebSocket() {
+				continue
+			}
+			if idField, ok := m.WSIDField(); ok {
+				writeWSCorrelatedOutType(p, s, m, idField)
+			}
+		}
 		writeServiceInterface(p, s)
 		writeRegisterFunc(p, s)
 	}
@@ -288,9 +303,12 @@ func writeServiceInterface(p *Printer, s *onkir.Service) {
 	for _, m := range s.Methods {
 		switch {
 		case m.IsWebSocket():
+			outType := "WSOut[" + p.MessageTypeName(m.Response) + "]"
+			if _, ok := m.WSIDField(); ok {
+				outType = "*" + wsOutName(s, m)
+			}
 			p.P(PascalCase(m.Name), "(ctx context.Context, req *",
-				p.MessageTypeName(m.Request), ", out WSOut[",
-				p.MessageTypeName(m.Response), "]) error")
+				p.MessageTypeName(m.Request), ", out ", outType, ") error")
 		case m.IsStream():
 			p.P(PascalCase(m.Name), "(ctx context.Context, req *",
 				p.MessageTypeName(m.Request), ", sender SSESender) error")
