@@ -92,6 +92,12 @@ func TestGenerateServerWebSocketsCorrelated(t *testing.T) {
 		"Execute(ctx context.Context, req *Frame, out *RuntimeExecuteOut) error",
 		"newWSServerPending[string, *Frame]()",
 		"out.pending.resolve(replyID, frame)",
+		// Both oneof variants carrying @ws_id must get extraction code, not
+		// just whichever one happens to be first by declaration order (the
+		// original bug: filtering by a single reference field's identity
+		// only ever matched host_call, silently dropping host_result).
+		"replyID, replyIDOk = v.HostCall.Id, true",
+		"replyID, replyIDOk = v.HostResult.Id, true",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("generated correlated server missing %q:\n%s", want, out)
@@ -112,6 +118,8 @@ func TestGenerateClientWebSocketsCorrelated(t *testing.T) {
 		"func (d *FrameToFrameSocket) Call(ctx context.Context, id string, value *Frame) (*Frame, error) {",
 		"func (d *FrameToFrameSocket) readLoop() {",
 		"d.pending.resolve(id, frame)",
+		"id, idOk = v.HostCall.Id, true",
+		"id, idOk = v.HostResult.Id, true",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("generated correlated client missing %q:\n%s", want, out)
@@ -260,5 +268,148 @@ func TestGeneratedWSServerCompiles(t *testing.T) {
 	build.Dir = dir
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("generated WS server failed to build: %v\n%s", err, out)
+	}
+}
+
+// wsCorrelatedRuntimeHarness drives a real generated client and server over
+// an actual WebSocket connection through the reference multiplexing
+// scenario: the server answers the client's initial RunRequest by pushing a
+// HostCall and awaiting the matching HostResult (a *different* oneof
+// variant, with its own field) before sending RunResult. This is the exact
+// shape a compile-only or single-variant test cannot catch: an earlier
+// version of writeWSIDExtraction filtered oneof variants by comparing
+// against a single reference @ws_id field's identity, which only ever
+// matched whichever field onkir.WSIDField found first by declaration
+// order (host_call) - so the server's read loop never recognized an
+// incoming host_result frame as a reply, and Call() just hung until the
+// misrouted frame reached the business handler instead.
+const wsCorrelatedRuntimeHarnessPkg = "wsc"
+
+var wsCorrelatedRuntimeHarness = `
+package ` + wsCorrelatedRuntimeHarnessPkg + `
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+)
+
+type runtimeImpl struct{}
+
+func (h *runtimeImpl) Execute(ctx context.Context, req *Frame, out *RuntimeExecuteOut) error {
+	if req.GetRun() == nil {
+		return nil
+	}
+	go func() {
+		reply, err := out.Call(context.Background(), "call-1", &Frame{Payload: &FramePayloadHostCall{HostCall: &HostCall{Id: "call-1", Method: "doThing"}}})
+		if err != nil {
+			return
+		}
+		result := reply.GetHostResult()
+		if result == nil || result.Id != "call-1" || result.Value != "answer" {
+			return
+		}
+		_ = out.Send(context.Background(), &Frame{Payload: &FramePayloadRunResult{RunResult: &RunResult{ExitCode: 0}}})
+	}()
+	return nil
+}
+
+func TestRuntimeHarness(t *testing.T) {
+	mux := http.NewServeMux()
+	if err := RegisterRuntimeServer(mux, &runtimeImpl{}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := NewRuntimeClient("http://" + server.Listener.Addr().String())
+	socket, err := client.Execute(context.Background(), &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: "print(1)"}}})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer socket.Close()
+
+	if err := socket.Send(context.Background(), &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: "print(1)"}}}); err != nil {
+		t.Fatalf("send run request: %v", err)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithDeadline(context.Background(), deadline)
+		frame, err := socket.Receive(ctx)
+		cancel()
+		if err != nil {
+			t.Fatalf("receive: %v", err)
+		}
+		if call := frame.GetHostCall(); call != nil {
+			reply := &Frame{Payload: &FramePayloadHostResult{HostResult: &HostResult{Id: call.Id, Value: "answer"}}}
+			if err := socket.Send(context.Background(), reply); err != nil {
+				t.Fatalf("send host result: %v", err)
+			}
+			continue
+		}
+		if frame.GetRunResult() != nil {
+			return
+		}
+		t.Fatalf("unexpected frame: %+v", frame)
+	}
+	t.Fatal("timed out waiting for RunResult - Call() never got its HostResult reply")
+}
+`
+
+// TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants actually runs a
+// generated correlated @ws client and server against each other and
+// verifies the full round trip, instead of only checking that the code
+// compiles or contains expected substrings - see the harness doc comment.
+func TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	file := compileWSCorrelatedFile(t)
+	server, err := GenerateServer(file)
+	if err != nil {
+		t.Fatalf("generate server: %v", err)
+	}
+	client, err := GenerateClient(file)
+	if err != nil {
+		t.Fatalf("generate client: %v", err)
+	}
+	types, err := GenerateTypes(file)
+	if err != nil {
+		t.Fatalf("generate types: %v", err)
+	}
+	validation, err := GenerateValidation(file)
+	if err != nil {
+		t.Fatalf("generate validation: %v", err)
+	}
+	dir := t.TempDir()
+	files := map[string]string{
+		"go.mod":          "module " + wsCorrelatedRuntimeHarnessPkg + "\n\ngo 1.24\n\nrequire github.com/coder/websocket v1.8.15\n",
+		"server.go":       string(server),
+		"client.go":       string(client),
+		"types.gen.go":    string(types),
+		"validate.gen.go": string(validation),
+		"harness_test.go": wsCorrelatedRuntimeHarness,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Dir = dir
+	if out, err := tidy.CombinedOutput(); err != nil {
+		t.Fatalf("go mod tidy: %v\n%s", err, out)
+	}
+	run := exec.Command("go", "test", "-run", "TestRuntimeHarness", "-v", ".")
+	run.Dir = dir
+	out, err := run.CombinedOutput()
+	if err != nil {
+		t.Fatalf("runtime harness failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "PASS") {
+		t.Fatalf("expected harness test to pass:\n%s", out)
 	}
 }

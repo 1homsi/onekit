@@ -97,6 +97,10 @@ func TestGenerateTSWSServerCorrelated(t *testing.T) {
 		"const pending = new WSPending<string, Frame>();",
 		"call: (id, value) => { const reply = pending.register(id); server.send(JSON.stringify(value)); return reply; },",
 		"if (replyId !== undefined && pending.resolve(replyId, frame)) return;",
+		// Both oneof variants carrying @ws_id must get extraction code, not
+		// just whichever one happens to be first by declaration order.
+		`if (frame.payload && frame.payload.type === "host_call") return frame.payload.hostCall.id;`,
+		`if (frame.payload && frame.payload.type === "host_result") return frame.payload.hostResult.id;`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("generated correlated ts server missing %q:\n%s", want, text)
@@ -116,6 +120,8 @@ func TestGenerateTSWSClientCorrelated(t *testing.T) {
 		"private pending = new WSPending<string, Frame>();",
 		"call(id: string, value: Frame): Promise<Frame> {",
 		"private ensureListening(): void {",
+		`if (frame.payload && frame.payload.type === "host_call") return frame.payload.hostCall.id;`,
+		`if (frame.payload && frame.payload.type === "host_result") return frame.payload.hostResult.id;`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("generated correlated ts client missing %q:\n%s", want, text)

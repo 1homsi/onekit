@@ -83,6 +83,17 @@ func writeTSWSPendingType(p *Printer) {
 // undefined - checking direct fields first, then each oneof variant's own
 // message, mirroring decodeOneofExpr's wire shape (types.go) for both the
 // flattened and nested-under-variant-key cases.
+// tsWSIDExpression builds an expression extracting whichever field of
+// message actually carries @ws_id - a direct field, or (independently, per
+// variant) any oneof variant whose own message carries one. idField only
+// supplies the shared TS type for the expression's return type: onkcompile
+// guarantees every @ws_id field a method touches shares one scalar type,
+// but each oneof variant has its own distinct field (e.g. HostCall.id vs
+// HostResult.id) with its own name, so - unlike an earlier version of this
+// function - it must not filter variants by comparing against idField's
+// identity: doing so only ever matched whichever single field
+// onkir.WSIDField(message) happened to return first (declaration order),
+// silently generating no extraction code at all for every other variant.
 func tsWSIDExpression(p *Printer, frameExpr string, message *onkir.Message, idField *onkir.Field) string {
 	idType := p.TSFieldType(idField.Type)
 	var b strings.Builder
@@ -97,7 +108,7 @@ func tsWSIDExpression(p *Printer, frameExpr string, message *onkir.Message, idFi
 					continue
 				}
 				vf, ok := onkir.WSIDField(variant.Type.Message)
-				if !ok || vf != idField {
+				if !ok {
 					continue
 				}
 				variantProp := fieldAccess
@@ -105,14 +116,14 @@ func tsWSIDExpression(p *Printer, frameExpr string, message *onkir.Message, idFi
 					variantProp = fieldAccess + "." + CamelCase(variant.Name)
 				}
 				fmt.Fprintf(&b, "if (%s && %s.%s === %q) return %s.%s;\n",
-					fieldAccess, fieldAccess, disc, variant.Tag(), variantProp, CamelCase(idField.Name))
+					fieldAccess, fieldAccess, disc, variant.Tag(), variantProp, CamelCase(vf.Name))
 			}
 			continue
 		}
-		if f != idField {
+		if !f.HasDecorator("ws_id") {
 			continue
 		}
-		fmt.Fprintf(&b, "return %s.%s;\n", frameExpr, CamelCase(idField.Name))
+		fmt.Fprintf(&b, "return %s.%s;\n", frameExpr, CamelCase(f.Name))
 	}
 	b.WriteString("return undefined;\n")
 	b.WriteString("})()")
