@@ -93,7 +93,7 @@ func TestGenerateServerWebSocketsCorrelated(t *testing.T) {
 		"func (o *RuntimeExecuteOut) Call(ctx context.Context, id string, value *Frame) (*Frame, error) {",
 		"Execute(ctx context.Context, req *Frame, out *RuntimeExecuteOut) error",
 		"newWSServerPending[string, *Frame]()",
-		"out.pending.resolve(replyID, frame)",
+		"out.pending.resolve(replyID, replyVariant, frame)",
 		// Both oneof variants carrying @ws_id must get extraction code, not
 		// just whichever one happens to be first by declaration order (the
 		// original bug: filtering by a single reference field's identity
@@ -119,7 +119,7 @@ func TestGenerateClientWebSocketsCorrelated(t *testing.T) {
 		"*wsPending[string, *Frame]",
 		"func (d *FrameToFrameSocket) Call(ctx context.Context, id string, value *Frame) (*Frame, error) {",
 		"func (d *FrameToFrameSocket) readLoop() {",
-		"d.pending.resolve(id, frame)",
+		"d.pending.resolve(id, variant, frame)",
 		"id, idOk = v.HostCall.Id, true",
 		"id, idOk = v.HostResult.Id, true",
 	} {
@@ -411,7 +411,7 @@ func TestRuntimeLateCallAfterClose(t *testing.T) {
 	}
 }
 
-func dialRuntime(t *testing.T, srv RuntimeServer, opts ...any) *FrameToFrameSocket {
+func serveRuntime(t *testing.T, srv RuntimeServer, opts ...any) string {
 	t.Helper()
 	mux := http.NewServeMux()
 	if err := RegisterRuntimeServer(mux, append([]any{srv}, opts...)...); err != nil {
@@ -419,7 +419,17 @@ func dialRuntime(t *testing.T, srv RuntimeServer, opts ...any) *FrameToFrameSock
 	}
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
-	socket, err := NewRuntimeClient(server.URL).Execute(context.Background(), &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: "x"}}})
+	return server.URL
+}
+
+func dialRuntime(t *testing.T, srv RuntimeServer, opts ...any) *FrameToFrameSocket {
+	t.Helper()
+	return dialRuntimeClient(t, NewRuntimeClient(serveRuntime(t, srv, opts...)))
+}
+
+func dialRuntimeClient(t *testing.T, client *RuntimeClient) *FrameToFrameSocket {
+	t.Helper()
+	socket, err := client.Execute(context.Background(), &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: "x"}}})
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -523,6 +533,134 @@ func TestRuntimeMaxFrameBytes(t *testing.T) {
 		t.Fatalf("want close status 1009, got %v", err)
 	}
 }
+
+type collidingCallImpl struct {
+	frames chan *Frame
+	result chan error
+}
+
+func (h *collidingCallImpl) Execute(ctx context.Context, req *Frame, out *RuntimeExecuteOut) error {
+	if req.GetRun() == nil {
+		h.frames <- req
+		return nil
+	}
+	go func() {
+		callCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		reply, err := out.Call(callCtx, "dup-1", &Frame{Payload: &FramePayloadHostCall{HostCall: &HostCall{Id: "dup-1", Method: "server"}}})
+		if err == nil && reply.GetHostResult() == nil {
+			err = errors.New("reply was not a host_result")
+		}
+		h.result <- err
+	}()
+	return nil
+}
+
+// A peer's own call that reuses the id of a call in flight the other way is
+// the same variant that call sent, so it reaches the handler instead of being
+// taken for the reply; the real reply (a different variant) still resolves it.
+func TestRuntimeCollidingInboundCallIsNotAReply(t *testing.T) {
+	impl := &collidingCallImpl{frames: make(chan *Frame, 8), result: make(chan error, 1)}
+	socket := dialRuntime(t, impl)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := socket.Send(ctx, &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: "x"}}}); err != nil {
+		t.Fatalf("send run: %v", err)
+	}
+	if first, err := socket.Receive(ctx); err != nil || first.GetHostCall() == nil {
+		t.Fatalf("want the server's host_call, got %+v (%v)", first, err)
+	}
+	if err := socket.Send(ctx, &Frame{Payload: &FramePayloadHostCall{HostCall: &HostCall{Id: "dup-1", Method: "client"}}}); err != nil {
+		t.Fatalf("send colliding call: %v", err)
+	}
+	select {
+	case frame := <-impl.frames:
+		if c := frame.GetHostCall(); c == nil || c.Method != "client" {
+			t.Fatalf("want the client's host_call at the handler, got %+v", frame)
+		}
+	case err := <-impl.result:
+		t.Fatalf("the colliding call was taken for the reply: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the colliding call never reached the handler")
+	}
+	if err := socket.Send(ctx, &Frame{Payload: &FramePayloadHostResult{HostResult: &HostResult{Id: "dup-1", Value: "ok"}}}); err != nil {
+		t.Fatalf("send reply: %v", err)
+	}
+	if err := <-impl.result; err != nil {
+		t.Fatalf("server Call: %v", err)
+	}
+}
+
+type failingImpl struct{}
+
+func (failingImpl) Execute(ctx context.Context, req *Frame, out *RuntimeExecuteOut) error {
+	if req.GetRun() != nil {
+		return errors.New("boom")
+	}
+	return nil
+}
+
+// A handler error closes with 1011 and the message as the reason - no
+// off-schema frame is sent first.
+func TestRuntimeHandlerErrorClosesWith1011(t *testing.T) {
+	socket := dialRuntime(t, failingImpl{})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := socket.Send(ctx, &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: "x"}}}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	frame, err := socket.Receive(ctx)
+	var closeErr websocket.CloseError
+	if !errors.As(err, &closeErr) || closeErr.Code != websocket.StatusInternalError || closeErr.Reason != "boom" {
+		t.Fatalf("want close 1011 \"boom\", got frame %+v, err %v", frame, err)
+	}
+}
+
+// A frame that does not decode closes with 1007, again with no frame first.
+func TestRuntimeInvalidFrameClosesWith1007(t *testing.T) {
+	url := serveRuntime(t, &recordingImpl{frames: make(chan *Frame, 8)})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(url, "http")+"/v1/execute", nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+	if err := conn.Write(ctx, websocket.MessageText, []byte("not json")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, data, err := conn.Read(ctx)
+	if websocket.CloseStatus(err) != websocket.StatusInvalidFramePayloadData {
+		t.Fatalf("want close 1007, got data %q, err %v", data, err)
+	}
+}
+
+type bigFrameImpl struct{}
+
+func (bigFrameImpl) Execute(ctx context.Context, req *Frame, out *RuntimeExecuteOut) error {
+	if req.GetRun() == nil {
+		return nil
+	}
+	return out.Send(ctx, &Frame{Payload: &FramePayloadHostCall{HostCall: &HostCall{Id: "big", Method: strings.Repeat("x", 4096)}}})
+}
+
+// Hitting the client's own limit surfaces as the 1009 CloseError the peer
+// sees, not a bare read error.
+func TestRuntimeClientFrameLimitIsACloseError(t *testing.T) {
+	client := NewRuntimeClient(serveRuntime(t, bigFrameImpl{}))
+	client.MaxWSFrameBytes = 1024
+	socket := dialRuntimeClient(t, client)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := socket.Send(ctx, &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: "x"}}}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	_, err := socket.Receive(ctx)
+	var closeErr websocket.CloseError
+	if !errors.As(err, &closeErr) || closeErr.Code != websocket.StatusMessageTooBig {
+		t.Fatalf("want close 1009, got %v", err)
+	}
+}
 `
 
 // TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants actually runs a
@@ -581,6 +719,10 @@ func TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants(t *testing.T) {
 		"--- PASS: TestRuntimeServerCallTimeoutSendsCancel",
 		"--- PASS: TestRuntimeClientCallCancelNotifiesServer",
 		"--- PASS: TestRuntimeMaxFrameBytes",
+		"--- PASS: TestRuntimeCollidingInboundCallIsNotAReply",
+		"--- PASS: TestRuntimeHandlerErrorClosesWith1011",
+		"--- PASS: TestRuntimeInvalidFrameClosesWith1007",
+		"--- PASS: TestRuntimeClientFrameLimitIsACloseError",
 	} {
 		if !strings.Contains(string(out), want) {
 			t.Fatalf("expected %q in harness output:\n%s", want, out)

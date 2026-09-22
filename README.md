@@ -255,7 +255,10 @@ and the client's duplex handle a `call(id, value)` (Go/Rust) / `.call(id, value)
 (TypeScript) method: it registers a pending waiter keyed by `id`, sends
 `value`, and resolves with whichever frame the other side answers under that
 same `id` - regardless of how many other calls are in flight or what order
-replies arrive in. Plain `Send`/`Receive` keep working for frames that were
+replies arrive in. A reply must be a *different* oneof variant from the frame
+the call sent: an inbound `host_call` that happens to reuse the id of your own
+in-flight `host_call` is the peer starting its own call, so it reaches the
+handler/`receive()` instead of being taken for the reply. Plain `Send`/`Receive` keep working for frames that were
 never routed to a pending call. This also closes a correctness gap that
 otherwise applies to `@ws` even without correlation: every send is now
 serialized (Go: `sync.Mutex`; TypeScript: single event listener; Rust:
@@ -295,6 +298,24 @@ Every backend then sends `{"type": "cancel", "cancel": {"id": ...}}` when a
 call is abandoned. A cancel frame is never treated as a reply: it arrives at
 the peer's handler (server) or `receive()` (client) like any other frame, and
 the peer decides what stopping means.
+
+### Errors on the wire
+
+A `@ws` connection never carries off-schema frames. When the server rejects
+a frame that doesn't decode or validate, it closes with status 1007. When a
+handler returns an error, it closes with 1011. Either way the message is the
+close reason, truncated to the protocol's 123 bytes. Go clients see this as a
+`websocket.CloseError`, TypeScript clients as `WSClosedError.code`/
+`closeReason`.
+
+### Backpressure
+
+Go and Rust sends block until the frame is written. In TypeScript, the
+server's `out.send()` and the client's `send()` return a promise that
+resolves once the socket's `bufferedAmount` is at or under a high-water mark
+(1 MiB by default; `highWaterMarkBytes` on the server factories and client
+options), so a producer that awaits its sends is paced by the peer. The
+promise never rejects, so un-awaited sends behave as before.
 
 ### Frame size limit
 

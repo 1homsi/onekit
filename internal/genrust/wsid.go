@@ -1,6 +1,8 @@
 package genrust
 
 import (
+	"fmt"
+
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
@@ -22,6 +24,9 @@ func writeWSCorrelatedImpls(p *Printer, file *onkir.File) {
 	p.P("pub trait WsCorrelated<K> {")
 	p.Indent()
 	p.P("fn ws_id(&self) -> Option<K>;")
+	p.P("// ws_variant is the oneof variant tag of an id-bearing frame (\"\" when the")
+	p.P("// id is a direct field): a call's reply must be a different variant.")
+	p.P("fn ws_variant(&self) -> &'static str;")
 	p.P("// ws_cancel builds the schema's @ws_cancel frame for id, if it declares one:")
 	p.P("// what an abandoned call() sends so the peer can stop working on id.")
 	p.P("fn ws_cancel(id: K) -> Option<Self> where Self: Sized;")
@@ -65,10 +70,35 @@ func writeWSCorrelatedImpl(p *Printer, message *onkir.Message, kType string, idF
 	p.Dedent()
 	p.P("}")
 	p.Blank()
+	writeWSVariantFn(p, message)
+	p.Blank()
 	writeWSCancelFn(p, message, kType)
 	p.Dedent()
 	p.P("}")
 	p.Blank()
+}
+
+func writeWSVariantFn(p *Printer, message *onkir.Message) {
+	p.P("fn ws_variant(&self) -> &'static str {")
+	p.Indent()
+	for _, f := range message.Fields {
+		if f.Oneof == nil {
+			continue
+		}
+		oneofType := OneofTypeName(message, f)
+		for _, variant := range f.Oneof.Variants {
+			if variant.Type == nil || variant.Type.Kind != onkir.KindMessage || variant.Type.Message == nil {
+				continue
+			}
+			if _, ok := onkir.WSIDField(variant.Type.Message); !ok {
+				continue
+			}
+			p.P("if let Some(", oneofType, "::", PascalCase(variant.Name), "(_)) = &self.", RustIdent(f.Name), " { return ", fmt.Sprintf("%q", variant.Tag()), "; }")
+		}
+	}
+	p.P(`""`)
+	p.Dedent()
+	p.P("}")
 }
 
 func writeWSCancelFn(p *Printer, message *onkir.Message, kType string) {

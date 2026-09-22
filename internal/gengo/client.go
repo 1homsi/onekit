@@ -100,6 +100,9 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	}
 	p.P(`"context"`)
 	p.P(`"encoding/json"`)
+	if hasWS {
+		p.P(`"errors"`)
+	}
 	p.P(`"fmt"`)
 	if imp.hex {
 		p.P(`"encoding/hex"`)
@@ -138,6 +141,16 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	}
 	writeResponseBodyRuntime(p)
 	if hasWS {
+		p.P("// wsReadError reports a read that hit this side's own frame limit as the")
+		p.P("// 1009 close it caused, so errors.As finds the same websocket.CloseError")
+		p.P("// the peer sees.")
+		p.P("func wsReadError(err error) error {")
+		p.P("if errors.Is(err, websocket.ErrMessageTooBig) {")
+		p.P(`return fmt.Errorf("%w: %w", websocket.CloseError{Code: websocket.StatusMessageTooBig, Reason: "message too big"}, err)`)
+		p.P("}")
+		p.P("return err")
+		p.P("}")
+		p.P()
 		p.P("func wsReadLimit(limit int64) int64 {")
 		p.P("if limit == 0 { return ", defaultMaxWSFrameBytes, " }")
 		p.P("if limit < 0 { return -1 }")

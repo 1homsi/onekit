@@ -43,8 +43,8 @@ func TestGenerateTSWSServer(t *testing.T) {
 		"wss.handleUpgrade(req, socket, head, (ws) => {",
 		// Outgoing frames are encoded to the wire shape on both paths, like
 		// the TS client's send(); JSON.stringify(value) alone leaks camelCase.
-		"send: (value) => { server.send(JSON.stringify(encodeChatEvent(value))); },",
-		"send: (value) => { ws.send(JSON.stringify(encodeChatEvent(value))); },",
+		"send: (value) => { server.send(JSON.stringify(encodeChatEvent(value))); return wsDrained(server, highWaterMark); },",
+		"send: (value) => { ws.send(JSON.stringify(encodeChatEvent(value))); return wsDrained(ws, highWaterMark); },",
 		// One shared 'upgrade' listener per http.Server rejects paths no
 		// route claims instead of leaking the socket until TCP timeout.
 		`const nodeSocketRoutesKey = Symbol.for("onekit.nodeSocketRoutes");`,
@@ -116,7 +116,7 @@ func TestGenerateTSWSServerCorrelated(t *testing.T) {
 		"const pending = new WSPending<string, Frame>();",
 		"if (server.readyState !== 1) pending.rejectAll(new WSClosedError());",
 		"if (!pending.closed) server.send(JSON.stringify(encodeFrame(value)));",
-		"if (replyId !== undefined && pending.resolve(replyId, frame)) return;",
+		"if (replyId !== undefined && pending.resolve(replyId, ((): string => {",
 		// Both oneof variants carrying @ws_id must get extraction code, not
 		// just whichever one happens to be first by declaration order.
 		`if (frame.payload && frame.payload.type === "host_call") return frame.payload.hostCall.id;`,
@@ -302,7 +302,7 @@ httpServer.listen(0, "127.0.0.1", () => {
 `
 
 func TestGeneratedTSWSNodeAdapterRuntimeRoutesMultipleVariants(t *testing.T) {
-	dir := buildTSNodeServer(t, wsCorrelatedFixture)
+	dir := buildTSNodeServer(t)
 	runNodeHarness(t, dir, tsNodeRuntimeHarness)
 }
 
@@ -475,26 +475,134 @@ function oversizedFrameCloseCode(addr) {
 // Also pins that an oversized frame closes only that connection: the Node
 // adapter used to leave ws's 'error' event unhandled, crashing the process.
 func TestGeneratedTSWSNodeCallCancellationAndLimits(t *testing.T) {
-	dir := buildTSNodeServer(t, wsCorrelatedFixture)
+	dir := buildTSNodeServer(t)
 	runNodeHarness(t, dir, tsNodeCancelHarness)
 }
 
+// tsNodeProtocolHarness pins three wire behaviors of the Node adapter:
+//   - an inbound host_call reusing the id of the server's own in-flight
+//     host_call is a new call for the handler, not that call's reply;
+//   - a frame that fails to decode closes with 1007, a handler error with
+//     1011 and its message as the reason, and neither sends an off-schema
+//     {"error": ...} frame first;
+//   - out.send() applies backpressure: with the client paused, awaited sends
+//     stall at the high-water mark instead of queueing without bound.
+const tsNodeProtocolHarness = `
+"use strict";
+const http = require("node:http");
+const WebSocket = require("ws");
+const server = require("./server.js");
+
+function fail(...args) { console.error(...args); process.exit(1); }
+setTimeout(() => fail("TIMEOUT"), 20000).unref();
+
+const hostCall = (id, method) => ({ payload: { type: "host_call", hostCall: { id, method } } });
+let handlerSaw = [];
+let callSettled = null;
+let sent = 0;
+
+const handler = {
+  async execute(req, out) {
+    if (!req.payload) return;
+    const p = req.payload;
+    if (p.type === "run" && p.run.code === "collide") {
+      callSettled = out.call("dup-1", hostCall("dup-1", "server")).then((r) => r.payload.type, (e) => "rejected " + e);
+      return;
+    }
+    if (p.type === "run" && p.run.code === "boom") throw new Error("boom");
+    if (p.type === "run" && p.run.code === "flood") {
+      const chunk = "x".repeat(1024 * 1024);
+      for (let i = 0; i < 64; i++) { await out.send(hostCall("f" + i, chunk)); sent++; }
+      return;
+    }
+    handlerSaw.push(p.type + ":" + (p.hostCall ? p.hostCall.method : ""));
+  },
+};
+
+const httpServer = http.createServer((req, res) => { res.writeHead(404); res.end(); });
+server.attachRuntimeNodeSocketHandlers(httpServer, handler, { highWaterMarkBytes: 1024 * 1024, maxFrameBytes: 128 * 1024 * 1024 });
+
+function connect(addr) {
+  return new Promise((resolve) => {
+    const ws = new WebSocket("ws://" + addr + "/v1/execute");
+    const frames = [];
+    ws.on("message", (data) => frames.push(JSON.parse(String(data))));
+    ws.on("open", () => resolve({ ws, frames }));
+  });
+}
+
+function closeOf(ws) {
+  return new Promise((resolve) => ws.on("close", (code, reason) => resolve(code + " " + String(reason))));
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+httpServer.listen(0, "127.0.0.1", async () => {
+  const addr = "127.0.0.1:" + httpServer.address().port;
+
+  // Colliding id.
+  const a = await connect(addr);
+  a.ws.send(JSON.stringify({ payload: { type: "run", run: { code: "collide" } } }));
+  await sleep(100);
+  a.ws.send(JSON.stringify({ payload: { type: "host_call", host_call: { id: "dup-1", method: "client" } } }));
+  await sleep(100);
+  if (handlerSaw.join(",") !== "host_call:client") fail("colliding call did not reach the handler:", handlerSaw, await callSettled);
+  a.ws.send(JSON.stringify({ payload: { type: "host_result", host_result: { id: "dup-1", value: "ok" } } }));
+  const settled = await callSettled;
+  if (settled !== "host_result") fail("server call settled with", settled);
+  a.ws.close();
+
+  // Close codes, and nothing but the close.
+  const b = await connect(addr);
+  const bClosed = closeOf(b.ws);
+  b.ws.send("not json");
+  const bClose = await bClosed;
+  if (bClose !== "1007 invalid JSON frame" || b.frames.length !== 0) fail("invalid frame:", bClose, JSON.stringify(b.frames));
+
+  const c = await connect(addr);
+  const cClosed = closeOf(c.ws);
+  c.ws.send(JSON.stringify({ payload: { type: "run", run: { code: "boom" } } }));
+  const cClose = await cClosed;
+  if (cClose !== "1011 boom" || c.frames.length !== 0) fail("handler error:", cClose, JSON.stringify(c.frames));
+
+  // Backpressure.
+  const d = await connect(addr);
+  d.ws.pause();
+  d.ws.send(JSON.stringify({ payload: { type: "run", run: { code: "flood" } } }));
+  await sleep(1000);
+  if (sent >= 64) fail("out.send never waited: all 64 MiB sent to a paused client");
+  const stalledAt = sent;
+  d.ws.resume();
+  for (let i = 0; i < 200 && sent < 64; i++) await sleep(50);
+  if (sent < 64) fail("sends never resumed after the client drained:", stalledAt, "->", sent);
+  d.ws.close();
+
+  console.log("OK");
+  process.exit(0);
+});
+`
+
+func TestGeneratedTSWSNodeReplyDirectionErrorsBackpressure(t *testing.T) {
+	dir := buildTSNodeServer(t)
+	runNodeHarness(t, dir, tsNodeProtocolHarness)
+}
+
 func TestGeneratedTSWSNodeAdapterLifecycle(t *testing.T) {
-	dir := buildTSNodeServer(t, wsCorrelatedFixture)
+	dir := buildTSNodeServer(t)
 	runNodeHarness(t, dir, tsNodeLifecycleHarness)
 }
 
-// buildTSNodeServer generates types.ts/server.ts/client.ts for fixture into a temp dir,
+// buildTSNodeServer generates types.ts/server.ts/client.ts for wsCorrelatedFixture into a temp dir,
 // installs the Node adapter's peer dependencies, and compiles them to
 // CommonJS so a plain-JS harness can require("./server.js").
-func buildTSNodeServer(t *testing.T, fixture string) string {
+func buildTSNodeServer(t *testing.T) string {
 	t.Helper()
 	for _, tool := range []string{"tsc", "npm", "node"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Skip(tool + " not available")
 		}
 	}
-	file, err := compileForTest(fixture)
+	file, err := compileForTest(wsCorrelatedFixture)
 	if err != nil {
 		t.Fatalf("fixture: %v", err)
 	}

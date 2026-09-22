@@ -66,35 +66,46 @@ func writeWSPendingType(p *Printer, typeName, constructorName, closedErrName str
 	p.P("// ", typeName, " tracks in-flight correlated WebSocket calls, keyed by an")
 	p.P("// application-supplied @ws_id value, so multiple calls can be")
 	p.P("// outstanding at once on a single connection and resolved out of order.")
+	p.P("// ", typeName, "Waiter is one in-flight call: the reply channel, and the")
+	p.P("// oneof variant tag of the frame the call sent (\"\" when not a oneof).")
+	p.P("type ", typeName, "Waiter[T any] struct {")
+	p.P("ch chan T")
+	p.P("sent string")
+	p.P("}")
+	p.P()
 	p.P("type ", typeName, "[K comparable, T any] struct {")
 	p.P("mu sync.Mutex")
-	p.P("waiters map[K]chan T")
+	p.P("waiters map[K]", typeName, "Waiter[T]")
 	p.P("// err is set once, by closeAll, and is sticky.")
 	p.P("err error")
 	p.P("}")
 	p.P()
 	p.P("func ", constructorName, "[K comparable, T any]() *", typeName, "[K, T] {")
-	p.P("return &", typeName, "[K, T]{waiters: make(map[K]chan T)}")
+	p.P("return &", typeName, "[K, T]{waiters: make(map[K]", typeName, "Waiter[T])}")
 	p.P("}")
 	p.P()
 	p.P("// register fails once closeAll has run, so a Call made after the")
 	p.P("// connection is gone fails immediately rather than waiting on a reply the")
 	p.P("// read loop will never deliver.")
-	p.P("func (p *", typeName, "[K, T]) register(id K) (chan T, error) {")
+	p.P("func (p *", typeName, "[K, T]) register(id K, sent string) (chan T, error) {")
 	p.P("p.mu.Lock()")
 	p.P("defer p.mu.Unlock()")
 	p.P("if p.err != nil { return nil, p.err }")
 	p.P("ch := make(chan T, 1)")
-	p.P("p.waiters[id] = ch")
+	p.P("p.waiters[id] = ", typeName, "Waiter[T]{ch: ch, sent: sent}")
 	p.P("return ch, nil")
 	p.P("}")
 	p.P()
-	p.P("func (p *", typeName, "[K, T]) resolve(id K, value T) bool {")
+	p.P("// resolve hands value to the call waiting on id, unless value is the same")
+	p.P("// oneof variant that call sent: that is the peer starting its own call")
+	p.P("// under a colliding id, not a reply, so it goes to the handler/Receive.")
+	p.P("func (p *", typeName, "[K, T]) resolve(id K, variant string, value T) bool {")
 	p.P("p.mu.Lock()")
-	p.P("ch, ok := p.waiters[id]")
+	p.P("w, ok := p.waiters[id]")
+	p.P(`if ok && w.sent != "" && w.sent == variant { ok = false }`)
 	p.P("if ok { delete(p.waiters, id) }")
 	p.P("p.mu.Unlock()")
-	p.P("if ok { ch <- value }")
+	p.P("if ok { w.ch <- value }")
 	p.P("return ok")
 	p.P("}")
 	p.P()
@@ -117,9 +128,9 @@ func writeWSPendingType(p *Printer, typeName, constructorName, closedErrName str
 	p.P("if p.err != nil { p.mu.Unlock(); return }")
 	p.P("p.err = &", closedErrName, "{cause: cause}")
 	p.P("waiters := p.waiters")
-	p.P("p.waiters = make(map[K]chan T)")
+	p.P("p.waiters = make(map[K]", typeName, "Waiter[T])")
 	p.P("p.mu.Unlock()")
-	p.P("for _, ch := range waiters { close(ch) }")
+	p.P("for _, w := range waiters { close(w.ch) }")
 	p.P("}")
 	p.P()
 }
@@ -214,7 +225,8 @@ func writeWSCorrelatedOutType(p *Printer, s *onkir.Service, m *onkir.Method, idF
 	p.P("// errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded)")
 	p.P("// or errors.Is(err, net.ErrClosed) respectively.")
 	p.P("func (o *", name, ") Call(ctx context.Context, id ", idType, ", value *", resRef, ") (*", reqRef, ", error) {")
-	p.P("ch, err := o.pending.register(id)")
+	writeWSVariantTag(p, "value", m.Response, "sent")
+	p.P("ch, err := o.pending.register(id, sent)")
 	p.P("if err != nil { return nil, err }")
 	p.P("if err := o.Send(ctx, value); err != nil {")
 	p.P("o.pending.cancel(id)")
@@ -259,7 +271,7 @@ func writeWSDuplexType(p *Printer, inName, outName string, idField *onkir.Field,
 	if idField == nil {
 		p.P("func (d *", name, ") Receive(ctx context.Context) (*", outName, ", error) {")
 		p.P("_, data, err := d.conn.Read(ctx)")
-		p.P("if err != nil { return nil, err }")
+		p.P("if err != nil { return nil, wsReadError(err) }")
 		p.P("frame := new(", outName, ")")
 		p.P("if err := json.Unmarshal(data, frame); err != nil { return nil, fmt.Errorf(\"decode frame: %w\", err) }")
 		p.P("return frame, nil")
@@ -292,6 +304,7 @@ func writeWSCorrelatedDuplexMethods(p *Printer, name, inName, outName string, id
 	p.P("for {")
 	p.P("_, data, err := d.conn.Read(context.Background())")
 	p.P("if err != nil {")
+	p.P("err = wsReadError(err)")
 	p.P("d.pending.closeAll(err)")
 	p.P("d.readErr <- err")
 	p.P("close(d.inbox)")
@@ -299,8 +312,8 @@ func writeWSCorrelatedDuplexMethods(p *Printer, name, inName, outName string, id
 	p.P("}")
 	p.P("frame := new(", outName, ")")
 	p.P("if err := json.Unmarshal(data, frame); err != nil { continue }")
-	writeWSIDExtraction(p, "frame", respMessage, idField, "id", "idOk")
-	p.P("if idOk && d.pending.resolve(id, frame) { continue }")
+	writeWSIDExtraction(p, "frame", respMessage, idField, "id", "idOk", "variant")
+	p.P("if idOk && d.pending.resolve(id, variant, frame) { continue }")
 	p.P("d.inbox <- frame")
 	p.P("}")
 	p.P("}")
@@ -331,7 +344,8 @@ func writeWSCorrelatedDuplexMethods(p *Printer, name, inName, outName string, id
 	p.P("// errors.Is(err, context.DeadlineExceeded) or errors.Is(err, net.ErrClosed).")
 	p.P("func (d *", name, ") Call(ctx context.Context, id ", idType, ", value *", inName, ") (*", outName, ", error) {")
 	p.P("d.ensureReader()")
-	p.P("ch, err := d.pending.register(id)")
+	writeWSVariantTag(p, "value", reqMessage, "sent")
+	p.P("ch, err := d.pending.register(id, sent)")
 	p.P("if err != nil { return nil, err }")
 	p.P("if err := d.Send(ctx, value); err != nil {")
 	p.P("d.pending.cancel(id)")
@@ -356,10 +370,11 @@ func writeWSCorrelatedDuplexMethods(p *Printer, name, inName, outName string, id
 // so only ever matched whichever single field onkir.WSIDField(message)
 // happened to return first (declaration order), silently generating no
 // extraction code at all for every other variant's @ws_id field.
-func writeWSIDExtraction(p *Printer, frameVar string, message *onkir.Message, idField *onkir.Field, idVar, okVar string) {
+func writeWSIDExtraction(p *Printer, frameVar string, message *onkir.Message, idField *onkir.Field, idVar, okVar, tagVar string) {
 	idType := p.GoFieldType(idField.Type)
 	p.P("var ", idVar, " ", idType)
 	p.P("var ", okVar, " bool")
+	p.P("var ", tagVar, " string")
 	if message == nil {
 		return
 	}
@@ -386,6 +401,7 @@ func writeWSIDExtraction(p *Printer, frameVar string, message *onkir.Message, id
 				fieldAccessor := variantAccessor + "." + PascalCase(vf.Name)
 				p.P("if v, ok := ", frameVar, ".Get", PascalCase(f.Name), "().(*", typeName, "); ok && v != nil && ", variantAccessor, " != nil {")
 				emitReturn(vf, fieldAccessor)
+				p.P(tagVar, " = ", fmt.Sprintf("%q", variant.Tag()))
 				p.P("}")
 			}
 			continue
@@ -394,6 +410,27 @@ func writeWSIDExtraction(p *Printer, frameVar string, message *onkir.Message, id
 			continue
 		}
 		emitReturn(f, frameVar+"."+PascalCase(f.Name))
+	}
+}
+
+// writeWSVariantTag declares tagVar as the oneof variant tag of frameVar -
+// among the variants that carry @ws_id, the only ones a call can send - or
+// "" when message correlates on a direct field instead.
+func writeWSVariantTag(p *Printer, frameVar string, message *onkir.Message, tagVar string) {
+	p.P("var ", tagVar, " string")
+	for _, f := range message.Fields {
+		if f.Oneof == nil {
+			continue
+		}
+		for _, variant := range f.Oneof.Variants {
+			if variant.Type == nil || variant.Type.Kind != onkir.KindMessage || variant.Type.Message == nil {
+				continue
+			}
+			if _, ok := onkir.WSIDField(variant.Type.Message); !ok {
+				continue
+			}
+			p.P("if _, ok := ", frameVar, ".Get", PascalCase(f.Name), "().(*", OneofVariantTypeName(message, f, variant), "); ok { ", tagVar, " = ", fmt.Sprintf("%q", variant.Tag()), " }")
+		}
 	}
 }
 
@@ -471,9 +508,11 @@ func writeWSRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	} else {
 		p.P("out := &wsConnOut[", resRef, "]{conn: conn}")
 	}
+	p.P("// Failures end the connection with a close code and the message as the")
+	p.P("// reason, never an off-schema frame: 1007 for a frame that does not decode")
+	p.P("// or validate, 1011 for a handler error.")
 	p.P("sendProtocolError := func(message string) {")
-	p.P("_ = out.Send(ctx, &", resRef, "{})")
-	p.P("_ = conn.Close(websocket.StatusInvalidFramePayloadData, message)")
+	p.P("_ = conn.Close(websocket.StatusInvalidFramePayloadData, wsCloseReason(message))")
 	p.P("}")
 	p.P("for {")
 	p.P("_, data, err := conn.Read(ctx)")
@@ -492,11 +531,11 @@ func writeWSRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("return")
 	p.P("} }")
 	if correlated {
-		writeWSIDExtraction(p, "frame", m.Request, idField, "replyID", "replyIDOk")
-		p.P("if replyIDOk && out.pending.resolve(replyID, frame) { continue }")
+		writeWSIDExtraction(p, "frame", m.Request, idField, "replyID", "replyIDOk", "replyVariant")
+		p.P("if replyIDOk && out.pending.resolve(replyID, replyVariant, frame) { continue }")
 	}
 	p.P("if err := srv.", PascalCase(m.Name), "(ctx, frame, out); err != nil {")
-	p.P("writeHandlerError(w, err)")
+	p.P("_ = conn.Close(websocket.StatusInternalError, wsCloseReason(err.Error()))")
 	p.P("return")
 	p.P("}")
 	p.P("}")
