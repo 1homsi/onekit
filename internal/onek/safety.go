@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 const (
@@ -62,21 +63,41 @@ func readRegularFile(filePath string) ([]byte, error) {
 	return data, nil
 }
 
+// verifiedNonSymlinkDirs memoizes ancestor directories rejectSymlinkPath has
+// already confirmed are symlink-free within the current Build call. A build
+// writes many output files sharing most of their ancestor chain (the project
+// root and everything above it never change mid-build), so without this
+// cache every write re-Lstats the same directories from scratch up to the
+// filesystem root. resetSymlinkCheckCache clears it at the top of Build, so
+// each build still sees a fresh filesystem view - only redundant re-checks
+// within one build are skipped, never across separate builds.
+//
+// Safe only because Build is invoked once per process, never concurrently
+// (its only caller is cmd/onek/main.go): revisit this cache if that changes.
+var verifiedNonSymlinkDirs sync.Map
+
+func resetSymlinkCheckCache() {
+	verifiedNonSymlinkDirs = sync.Map{}
+}
+
 // rejectSymlinkPath checks every existing component of a path. It is used
 // immediately before directory creation and replacement so a configured
 // output cannot silently cross a symlinked parent.
 func rejectSymlinkPath(filePath string) error {
 	current := filepath.Clean(filePath)
 	for {
-		info, err := os.Lstat(current)
-		switch {
-		case err == nil:
-			if info.Mode()&os.ModeSymlink != 0 {
-				return fmt.Errorf("refusing symlink path component %s", current)
+		if _, cached := verifiedNonSymlinkDirs.Load(current); !cached {
+			info, err := os.Lstat(current)
+			switch {
+			case err == nil:
+				if info.Mode()&os.ModeSymlink != 0 {
+					return fmt.Errorf("refusing symlink path component %s", current)
+				}
+			case os.IsNotExist(err):
+			default:
+				return fmt.Errorf("inspect path %s: %w", current, err)
 			}
-		case os.IsNotExist(err):
-		default:
-			return fmt.Errorf("inspect path %s: %w", current, err)
+			verifiedNonSymlinkDirs.Store(current, struct{}{})
 		}
 		parent := filepath.Dir(current)
 		if parent == current {

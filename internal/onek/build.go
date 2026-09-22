@@ -404,6 +404,7 @@ func groupOutDir(outRoot, relDir string) string {
 // Build parses and compiles every .onk file under dir, then generates every
 // target configured in onekit.toml.
 func Build(dir string) error {
+	resetSymlinkCheckCache()
 	cfg, err := LoadConfig(dir)
 	if err != nil {
 		return err
