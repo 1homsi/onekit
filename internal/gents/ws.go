@@ -21,6 +21,7 @@ func WriteTSWSServerRuntime(p *Printer) {
 	p.P("export interface WSOut<E> {")
 	p.P("send(value: E): void | Promise<void>;")
 	p.P("readonly signal: AbortSignal;")
+	p.P("close(code?: number, reason?: string): void;")
 	p.P("}")
 	p.P()
 	writeTSWSSharedRuntime(p)
@@ -438,6 +439,7 @@ func writeTSWSSocketBody(p *Printer, m *onkir.Method, socketVar string) {
 		p.P("const out: WSCallOut<", idType, ", ", p.MessageTypeName(m.Response), ", ", p.MessageTypeName(m.Request), "> = {")
 		p.P(sendDrained)
 		p.P("signal: closed.signal,")
+		p.P("close: (code = 1000, reason = \"\") => { ", socketVar, ".close(code, wsCloseReason(reason)); },")
 		// A socket that's closing or closed silently drops sends, so without
 		// this a call() made after the peer left would never settle.
 		p.P("call: (id, value, options = {}) => {")
@@ -461,6 +463,7 @@ func writeTSWSSocketBody(p *Printer, m *onkir.Method, socketVar string) {
 		p.P("const out: WSOut<", p.MessageTypeName(m.Response), "> = {")
 		p.P(sendDrained)
 		p.P("signal: closed.signal,")
+		p.P("close: (code = 1000, reason = \"\") => { ", socketVar, ".close(code, wsCloseReason(reason)); },")
 		p.P("};")
 		p.P(socketVar, `.addEventListener("close", (event: any) => { closed.abort(new WSClosedError(event?.code, event?.reason)); });`)
 	}

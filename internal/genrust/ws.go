@@ -181,6 +181,8 @@ func WriteWSServerRuntime(p *Printer, hasWSCorrelation bool) {
 	p.P()
 	p.P("pub fn is_closed(&self) -> bool { self.inner.is_closed() }")
 	p.P()
+	p.P("pub async fn close(&self, code: u16, reason: impl Into<String>) { self.inner.close(code, reason).await }")
+	p.P()
 	p.P("pub async fn closed(&self) { self.inner.closed().await }")
 	p.P()
 	p.P("// call sends value, then awaits a request-direction frame carrying the")
@@ -602,6 +604,8 @@ func writeWSServerHelpers(p *Printer) {
 func writeWSSinkLifecycle(p *Printer) {
 	p.P("impl<E> WsSink<E> {")
 	p.P("pub fn is_closed(&self) -> bool { *self.closed.borrow() }")
+	p.P()
+	p.P("pub async fn close(&self, code: u16, reason: impl Into<String>) { ws_close(&self.sink, code, reason.into()).await; }")
 	p.P()
 	p.P("pub async fn closed(&self) {")
 	p.P("let mut closed = self.closed.clone();")

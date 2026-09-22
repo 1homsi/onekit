@@ -323,7 +323,10 @@ promise never rejects, so un-awaited sends behave as before.
 
 A server handler can watch its connection: `out.Context()` in Go (its cause
 is the close error), `out.signal` in TypeScript (aborted with a
-`WSClosedError`), and `out.closed().await` / `out.is_closed()` in Rust.
+`WSClosedError`), and `out.closed().await` / `out.is_closed()` in Rust. It can also end its own
+connection with a code and reason: `out.Close(code, reason)` in Go,
+`out.close(code, reason)` in TypeScript, `out.close(code, reason).await` in
+Rust. That's useful for shutting down only idle sockets.
 Servers ping every 30 seconds and drop a peer that misses a pong, so a hard
 network drop ends the connection instead of hanging until a timeout. Set
 `WithWSPingInterval(d)` in Go (negative disables), `pingIntervalMs` in the
