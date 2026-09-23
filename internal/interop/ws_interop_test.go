@@ -45,7 +45,8 @@ message RunResult {
   chunks: Chunk[]
 }
 message HostCall { id: string @ws_id
-method: string }
+method: string
+timeout_ms: int64 @ws_timeout }
 message HostResult { id: string @ws_id
 value: string }
 message Cancel { id: string @ws_id }
@@ -548,7 +549,7 @@ impl Runtime for Impl {
                 }
                 Some(FramePayload::Run(run)) => {
                     tokio::spawn(async move {
-                        let call = frame(FramePayload::HostCall(HostCall { id: "call-1".into(), method: "doThing".into() }));
+                        let call = frame(FramePayload::HostCall(HostCall { id: "call-1".into(), method: "doThing".into(), timeout_ms: 0 }));
                         match out.call("call-1".to_string(), call).await {
                             Ok(Frame { payload: Some(FramePayload::HostResult(result)) }) if result.value == "answer" => {
                                 let _ = out.send(frame(FramePayload::RunResult(run_result(&run.code)))).await;
@@ -589,7 +590,7 @@ async fn client(base: String) {
                 other => fail(format!("unexpected frame {other:?}")),
             }
         }
-        let call = frame(FramePayload::HostCall(HostCall { id: "c-1".into(), method: "slow".into() }));
+        let call = frame(FramePayload::HostCall(HostCall { id: "c-1".into(), method: "slow".into(), timeout_ms: 0 }));
         match socket.call_timeout("c-1".to_string(), &call, Duration::from_millis(100)).await {
             Err(generated::client::WsCallError::TimedOut) => {}
             other => fail(format!("abandoned call: want TimedOut, got {other:?}")),

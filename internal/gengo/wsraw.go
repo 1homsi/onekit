@@ -340,3 +340,50 @@ func writeWSRawFrameRuntime(p *Printer) {
 	p.P("}")
 	p.P()
 }
+
+func writeWSTimeoutMethod(p *Printer, m *onkir.Message) {
+	name := m.Name
+	p.P("func (m *", name, ") wsWithTimeout(ms int64) *", name, " {")
+	p.P("if m == nil || ms <= 0 { return m }")
+	p.P("c := *m")
+	if f := onkir.WSTimeoutField(m); f != nil {
+		field := "c." + PascalCase(f.Name)
+		p.P("if ", field, " == 0 { ", field, " = ", p.GoFieldType(f.Type), "(ms) }")
+	}
+	for _, f := range m.Fields {
+		if f.Oneof == nil {
+			continue
+		}
+		var cases []*onkir.OneofVariant
+		for _, v := range f.Oneof.Variants {
+			if v.Type != nil && v.Type.Kind == onkir.KindMessage && onkir.WSTimeoutField(v.Type.Message) != nil {
+				cases = append(cases, v)
+			}
+		}
+		if len(cases) == 0 {
+			continue
+		}
+		p.P("switch v := c.", PascalCase(f.Name), ".(type) {")
+		for _, v := range cases {
+			vName := PascalCase(v.Name)
+			tf := onkir.WSTimeoutField(v.Type.Message)
+			p.P("case *", OneofVariantTypeName(m, f, v), ":")
+			p.P("if v.", vName, " != nil && v.", vName, ".", PascalCase(tf.Name), " == 0 {")
+			p.P("inner := *v.", vName)
+			p.P("inner.", PascalCase(tf.Name), " = ", p.GoFieldType(tf.Type), "(ms)")
+			p.P("c.", PascalCase(f.Name), " = &", OneofVariantTypeName(m, f, v), "{", vName, ": &inner}")
+			p.P("}")
+		}
+		p.P("}")
+	}
+	p.P("return &c")
+	p.P("}")
+	p.P()
+}
+
+func writeWSDeadlineStamp(p *Printer, sent *onkir.Message) {
+	if !onkir.MessageHasWSTimeout(sent) {
+		return
+	}
+	p.P("if deadline, ok := ctx.Deadline(); ok { value = value.wsWithTimeout(max(time.Until(deadline).Milliseconds(), 1)) }")
+}

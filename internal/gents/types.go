@@ -37,6 +37,9 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) []byt
 			if onkir.MessageHasRaw(m, p.isExternalMessage) {
 				writeTSRawFuncs(p, m)
 			}
+			if onkir.MessageHasWSTimeout(m) {
+				writeTSTimeoutFunc(p, m)
+			}
 		}
 	}
 

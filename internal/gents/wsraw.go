@@ -70,6 +70,9 @@ func wsRawImportNames(p *Printer, file *onkir.File, frames func(*onkir.Method) [
 			add("wsEncodeMessage")
 			add("wsDecodeMessage")
 			for _, frame := range frames(m) {
+				if _, correlated := m.WSIDField(); correlated && onkir.MessageHasWSTimeout(frame) && !p.isExternalMessage(frame) {
+					add(p.timeoutFnName(frame))
+				}
 				if onkir.MessageHasRaw(frame, p.isExternalMessage) {
 					add(p.rawSplitName(frame))
 					add(p.rawJoinName(frame))
@@ -245,6 +248,58 @@ func writeTSRawFuncs(p *Printer, m *onkir.Message) {
 		}
 	}
 	p.P("return true;")
+	p.P("}")
+	p.P()
+}
+
+func (p *Printer) timeoutFnName(m *onkir.Message) string {
+	return p.MessageCodecName(m, "with") + "Timeout"
+}
+
+func tsTimeoutValue(p *Printer, f *onkir.Field) string {
+	if p.scalarWireTSType(f) == tsTypeString {
+		return "String(Math.ceil(ms))"
+	}
+	return "Math.ceil(ms)"
+}
+
+func writeTSTimeoutFunc(p *Printer, m *onkir.Message) {
+	typeName := p.MessageTypeName(m)
+	p.P("export function ", p.timeoutFnName(m), "(v: ", typeName, ", ms: number): ", typeName, " {")
+	p.P("if (!(ms > 0)) return v;")
+	p.P("const c = { ...v };")
+	if f := onkir.WSTimeoutField(m); f != nil {
+		prop := "c." + CamelCase(f.Name)
+		p.P("if (!", prop, " || ", prop, ` === "0") `, prop, " = ", tsTimeoutValue(p, f), ";")
+	}
+	for _, f := range m.Fields {
+		if f.Oneof == nil {
+			continue
+		}
+		disc := oneofDiscriminatorKey(f)
+		prop := "c." + CamelCase(f.Name)
+		for _, v := range f.Oneof.Variants {
+			if v.Type == nil || v.Type.Kind != onkir.KindMessage {
+				continue
+			}
+			tf := onkir.WSTimeoutField(v.Type.Message)
+			if tf == nil {
+				continue
+			}
+			inner := prop + "." + CamelCase(v.Name)
+			if f.Oneof.Flatten() {
+				inner = prop
+			}
+			tprop := inner + "." + CamelCase(tf.Name)
+			value := tsTimeoutValue(p, tf)
+			if f.Oneof.Flatten() {
+				p.P(fmt.Sprintf("if (%s && %s.%s === %q && (!%s || %s === \"0\")) %s = { ...%s, %s: %s };", prop, prop, disc, v.Tag(), tprop, tprop, prop, prop, CamelCase(tf.Name), value))
+				continue
+			}
+			p.P(fmt.Sprintf("if (%s && %s.%s === %q && %s && (!%s || %s === \"0\")) %s = { ...%s, %s: { ...%s, %s: %s } };", prop, prop, disc, v.Tag(), inner, tprop, tprop, prop, prop, CamelCase(v.Name), inner, CamelCase(tf.Name), value))
+		}
+	}
+	p.P("return c;")
 	p.P("}")
 	p.P()
 }

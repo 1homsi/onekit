@@ -447,6 +447,9 @@ func writeTSWSSocketBody(p *Printer, m *onkir.Method, socketVar string) {
 		p.P("call: (id, value, options = {}) => {")
 		p.P("if (", socketVar, ".readyState !== 1) pending.rejectAll(new WSClosedError());")
 		p.P("if (options.signal?.aborted) return Promise.reject(wsAbortError(options.signal));")
+		if onkir.MessageHasWSTimeout(m.Response) {
+			p.P("if (options.timeoutMs !== undefined) value = ", p.timeoutFnName(m.Response), "(value, options.timeoutMs);")
+		}
 		if cancelFrame, ok := tsWSCancelFrame(p, m.Response, "id"); ok {
 			p.P("const reply = pending.register(id, ", tsWSVariantExpression("value", m.Response), ", options, () => { if (", socketVar, ".readyState === 1) ", socketVar, ".send(", cancelFrame, "); });")
 		} else {
@@ -711,6 +714,9 @@ func writeTSDuplexClass(p *Printer, m *onkir.Method) {
 	// check readyState directly rather than sending into a dead socket.
 	p.P("if (this.ws.readyState !== 1) this.pending.rejectAll(this.closedWith ?? new WSClosedError());")
 	p.P("if (options.signal?.aborted) return Promise.reject(wsAbortError(options.signal));")
+	if onkir.MessageHasWSTimeout(m.Request) {
+		p.P("if (options.timeoutMs !== undefined) value = ", p.timeoutFnName(m.Request), "(value, options.timeoutMs);")
+	}
 	if cancelFrame, ok := tsWSCancelFrame(p, m.Request, "id"); ok {
 		p.P("const reply = this.pending.register(id, ", tsWSVariantExpression("value", m.Request), ", options, () => { if (this.ws.readyState === 1) this.ws.send(", cancelFrame, "); });")
 	} else {

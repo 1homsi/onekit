@@ -62,6 +62,8 @@ func writeWSRawRuntime(p *Printer) {
 	p.P("const WS_RAW: bool;")
 	p.P("fn ws_split_raw(self, raw: &mut Vec<Vec<u8>>) -> Self;")
 	p.P("fn ws_join_raw(&mut self, raw: &mut std::vec::IntoIter<Vec<u8>>) -> bool;")
+	p.P("const WS_TIMEOUT: bool = false;")
+	p.P("fn ws_with_timeout(self, _ms: u64) -> Self { self }")
 	p.P("}")
 	p.Blank()
 	p.P("pub fn ws_encode_frame<T: WsRawFrame + Serialize>(value: T) -> Result<(bool, Vec<u8>), String> {")
@@ -132,6 +134,7 @@ func writeWSRawImpl(p *Printer, m *onkir.Message) {
 	hasRaw := onkir.MessageHasRaw(m, p.isExternalMessage)
 	steps := onkir.RawSteps(m, p.isExternalMessage)
 	p.P("impl WsRawFrame for ", name, " {")
+	writeWSTimeoutImpl(p, m)
 	if !hasRaw {
 		p.P("const WS_RAW: bool = false;")
 		p.P("fn ws_split_raw(self, _raw: &mut Vec<Vec<u8>>) -> Self { self }")
@@ -204,4 +207,35 @@ func writeWSRawImpl(p *Printer, m *onkir.Message) {
 	p.P("}")
 	p.P("}")
 	p.Blank()
+}
+
+func writeWSTimeoutImpl(p *Printer, m *onkir.Message) {
+	if !onkir.MessageHasWSTimeout(m) {
+		return
+	}
+	p.P("const WS_TIMEOUT: bool = true;")
+	p.P("fn ws_with_timeout(mut self, ms: u64) -> Self {")
+	if f := onkir.WSTimeoutField(m); f != nil {
+		field := "self." + RustIdent(f.Name)
+		p.P("if ", field, " == 0 { ", field, " = ms as ", RustScalarType(f.Type.Scalar), "; }")
+	}
+	for _, f := range m.Fields {
+		if f.Oneof == nil {
+			continue
+		}
+		for _, v := range f.Oneof.Variants {
+			if v.Type == nil || v.Type.Kind != onkir.KindMessage {
+				continue
+			}
+			tf := onkir.WSTimeoutField(v.Type.Message)
+			if tf == nil {
+				continue
+			}
+			p.P("if let Some(", OneofTypeName(m, f), "::", PascalCase(v.Name), "(inner)) = self.", RustIdent(f.Name), ".as_mut() {")
+			p.P("if inner.", RustIdent(tf.Name), " == 0 { inner.", RustIdent(tf.Name), " = ms as ", RustScalarType(tf.Type.Scalar), "; }")
+			p.P("}")
+		}
+	}
+	p.P("self")
+	p.P("}")
 }

@@ -315,6 +315,13 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) ([]by
 			}
 		}
 	}
+	if hasWS {
+		for _, m := range fileMessagesDeep(file) {
+			if onkir.MessageHasWSTimeout(m) {
+				writeWSTimeoutMethod(p, m)
+			}
+		}
+	}
 	if hasRaw {
 		for _, m := range fileMessagesDeep(file) {
 			if onkir.MessageHasRaw(m, p.isExternal) {

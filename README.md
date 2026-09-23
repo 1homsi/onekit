@@ -301,6 +301,25 @@ call is abandoned. A cancel frame is never treated as a reply: it arrives at
 the peer's handler (server) or `receive()` (client) like any other frame, and
 the peer decides what stopping means.
 
+### Deadline propagation with `@ws_timeout`
+
+Mark an integer field next to a call's `@ws_id` with `@ws_timeout`:
+
+```onk
+message HostCall {
+  id: string @ws_id
+  method: string
+  timeout_ms: int64 @ws_timeout
+}
+```
+
+When a call carries a deadline, the generated code writes the remaining
+milliseconds into that field on a copy of the frame (the caller's value is
+never modified, and an explicitly set value wins). The deadline comes from Go's
+`ctx` deadline, TypeScript's `timeoutMs`, or Rust's `call_timeout`. The
+receiving handler reads it and can give up on work the caller will no longer
+wait for.
+
 ### Errors on the wire
 
 A `@ws` connection never carries off-schema frames. When the server rejects

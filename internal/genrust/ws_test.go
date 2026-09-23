@@ -77,7 +77,8 @@ message RunResult {
   chunks: Chunk[]
 }
 message HostCall { id: string @ws_id
-method: string }
+method: string
+timeout_ms: int64 @ws_timeout }
 message HostResult { id: string @ws_id
 value: string }
 message Cancel { id: string @ws_id }
@@ -217,7 +218,7 @@ fn frame(payload: FramePayload) -> Frame {
 }
 
 fn host_call(id: &str) -> Frame {
-    frame(FramePayload::HostCall(HostCall { id: id.into(), method: "doThing".into() }))
+    frame(FramePayload::HostCall(HostCall { id: id.into(), method: "doThing".into(), timeout_ms: 0 }))
 }
 
 fn fail(message: String) -> ! {
@@ -304,6 +305,7 @@ async fn until_run_result(socket: &WsCallSocket<String, Frame, Frame>) -> (Vec<S
     while let Some(received) = socket.receive().await {
         match received.payload {
             Some(FramePayload::HostCall(call)) => {
+                if call.id == "slow-1" && call.timeout_ms != 200 { fail(format!("timeout_ms not stamped: {}", call.timeout_ms)); }
                 seen.push(format!("host_call:{}", call.id));
                 if call.id == "call-1" {
                     let reply = frame(FramePayload::HostResult(HostResult { id: call.id, value: "answer".into() }));
@@ -382,7 +384,7 @@ async fn main() {
                 Some(FramePayload::HostCall(call)) if call.id == "dup-1" => {}
                 other => fail(format!("want the server's host_call, got {other:?}")),
             }
-            let mine = frame(FramePayload::HostCall(HostCall { id: "dup-1".into(), method: "client".into() }));
+            let mine = frame(FramePayload::HostCall(HostCall { id: "dup-1".into(), method: "client".into(), timeout_ms: 0 }));
             socket.send(&mine).await.expect("send colliding call");
             let (_, code) = until_run_result(&socket).await;
             if code != 11 { fail(format!("colliding call was taken for the reply: {code}")); }
