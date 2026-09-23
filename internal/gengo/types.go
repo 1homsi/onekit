@@ -156,10 +156,13 @@ type typesImports struct {
 	errors  bool
 	unsafe  bool
 	io      bool
+	math    bool
+	utf8    bool
+	sync    bool
 }
 
 func (imp typesImports) any() bool {
-	return imp.time || imp.fmt || imp.json || imp.hex || imp.base64 || imp.strconv || imp.strings || imp.binary || imp.errors || imp.unsafe || imp.io
+	return imp.time || imp.fmt || imp.json || imp.hex || imp.base64 || imp.strconv || imp.strings || imp.binary || imp.errors || imp.unsafe || imp.io || imp.math || imp.utf8 || imp.sync
 }
 
 func computeTypesImports(file *onkir.File) typesImports {
@@ -240,14 +243,23 @@ func writeTypesImports(p *Printer, imp typesImports, externalRefs []PackageRef) 
 	if imp.io {
 		p.P(`"io"`)
 	}
+	if imp.math {
+		p.P(`"math"`)
+	}
 	if imp.strconv {
 		p.P(`"strconv"`)
 	}
 	if imp.strings {
 		p.P(`"strings"`)
 	}
+	if imp.sync {
+		p.P(`"sync"`)
+	}
 	if imp.time {
 		p.P(`"time"`)
+	}
+	if imp.utf8 {
+		p.P(`"unicode/utf8"`)
 	}
 	if imp.unsafe {
 		p.P(`"unsafe"`)
@@ -278,6 +290,9 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) ([]by
 	imp.json = imp.json || hasWS
 	imp.binary, imp.errors, imp.unsafe = hasRaw, hasRaw, hasRaw
 	imp.io = hasWS
+	if hasWS {
+		imp.errors, imp.strconv, imp.strings, imp.base64, imp.math, imp.utf8, imp.sync = true, true, true, true, true, true, true
+	}
 	writeTypesImports(p, imp, collectExternalRefs(file, resolver))
 
 	for _, e := range file.Enums {
@@ -288,6 +303,12 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) ([]by
 	}
 	if hasWS {
 		writeWSCodecRuntime(p, hasRaw)
+		writeWSJSONRuntime(p)
+		for _, m := range fileMessagesDeep(file) {
+			if fastJSONEligible(m) {
+				writeFastJSONMethods(p, m)
+			}
+		}
 	}
 	if hasRaw {
 		for _, m := range fileMessagesDeep(file) {
@@ -366,7 +387,7 @@ func writeEnum(p *Printer, e *onkir.Enum) {
 		p.P("*v = ", constName)
 	}
 	p.P("default:")
-	p.P("return fmt.Errorf(", fmt.Sprintf("%q", e.Name+": unknown value %%q"), ", s)")
+	p.P("return fmt.Errorf(", fmt.Sprintf("%q", e.Name+": unknown value %q"), ", s)")
 	p.P("}")
 	p.P("return nil")
 	p.P("}")
