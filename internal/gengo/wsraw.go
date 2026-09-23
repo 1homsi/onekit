@@ -241,68 +241,7 @@ func writeRawJoin(p *Printer, m *onkir.Message, name string, steps []onkir.RawSt
 }
 
 func writeWSIORuntime(p *Printer) {
-	p.P("func wsPingInterval(interval time.Duration) time.Duration {")
-	p.P("if interval == 0 { return 30 * time.Second }")
-	p.P("return interval")
-	p.P("}")
-	p.P()
-	p.P("func wsKeepAlive(ctx context.Context, ping func(context.Context) error, closeNow func() error, interval time.Duration) {")
-	p.P("if interval <= 0 { return }")
-	p.P("ticker := time.NewTicker(interval)")
-	p.P("defer ticker.Stop()")
-	p.P("for {")
-	p.P("select {")
-	p.P("case <-ctx.Done():")
-	p.P("return")
-	p.P("case <-ticker.C:")
-	p.P("pingCtx, cancel := context.WithTimeout(ctx, interval)")
-	p.P("err := ping(pingCtx)")
-	p.P("cancel()")
-	p.P("if err != nil {")
-	p.P("if ctx.Err() == nil { _ = closeNow() }")
-	p.P("return")
-	p.P("}")
-	p.P("}")
-	p.P("}")
-	p.P("}")
-	p.P()
-	p.P("func wsReadAll(r io.Reader, buf []byte) ([]byte, error) {")
-	p.P("for {")
-	p.P("if len(buf) == cap(buf) {")
-	p.P("var probe [1]byte")
-	p.P("n, err := r.Read(probe[:])")
-	p.P("if n == 0 && err == io.EOF { return buf, nil }")
-	p.P("if err != nil && err != io.EOF { return nil, err }")
-	p.P("buf = append(buf, probe[:n]...)")
-	p.P("if err == io.EOF { return buf, nil }")
-	p.P("continue")
-	p.P("}")
-	p.P("n, err := r.Read(buf[len(buf):cap(buf)])")
-	p.P("buf = buf[:len(buf)+n]")
-	p.P("if err == io.EOF { return buf, nil }")
-	p.P("if err != nil { return nil, err }")
-	p.P("}")
-	p.P("}")
-	p.P()
-	p.P("func wsWriteParts(w io.WriteCloser, prefix []byte, raw [][]byte) error {")
-	p.P("pending := prefix")
-	p.P("for _, segment := range raw {")
-	p.P("if len(segment) < 32<<10 {")
-	p.P("pending = append(pending, segment...)")
-	p.P("continue")
-	p.P("}")
-	p.P("if len(pending) > 0 {")
-	p.P("if _, err := w.Write(pending); err != nil { _ = w.Close(); return err }")
-	p.P("pending = pending[:0]")
-	p.P("}")
-	p.P("if _, err := w.Write(segment); err != nil { _ = w.Close(); return err }")
-	p.P("}")
-	p.P("if len(pending) > 0 {")
-	p.P("if _, err := w.Write(pending); err != nil { _ = w.Close(); return err }")
-	p.P("}")
-	p.P("return w.Close()")
-	p.P("}")
-	p.P()
+	p.P(wsIORuntimeSource)
 }
 
 func writeWSRawFrameRuntime(p *Printer) {
@@ -387,3 +326,153 @@ func writeWSDeadlineStamp(p *Printer, sent *onkir.Message) {
 	}
 	p.P("if deadline, ok := ctx.Deadline(); ok { value = value.wsWithTimeout(max(time.Until(deadline).Milliseconds(), 1)) }")
 }
+
+const wsIORuntimeSource = `const (
+wsChunkMarker = 0xFFFFFFFF
+wsChunkHeader = 13
+wsChunkBytes = 8 << 20
+wsChunkThreshold = 16 << 20
+)
+
+var errWSChunk = errors.New("malformed chunked message")
+
+var errWSMessageTooBig = errors.New("chunked message exceeds the size limit")
+
+func wsMessageLimit(limit int64) int64 {
+if limit == 0 { return 256 << 20 }
+if limit < 0 { return math.MaxInt64 }
+return limit
+}
+
+func wsChunkCloseCode(err error) int {
+if errors.Is(err, errWSMessageTooBig) { return 1009 }
+return 1007
+}
+
+type wsAssembler struct {
+limit int64
+buf []byte
+total uint64
+kind byte
+active bool
+}
+
+func (a *wsAssembler) feed(isBinary bool, data []byte) (bool, []byte, bool, bool, error) {
+if !isBinary || len(data) < wsChunkHeader || binary.BigEndian.Uint32(data) != wsChunkMarker {
+if a.active { return false, nil, false, false, errWSChunk }
+return isBinary, data, true, true, nil
+}
+kind := data[4]
+total := binary.BigEndian.Uint64(data[5:wsChunkHeader])
+chunk := data[wsChunkHeader:]
+if kind > 1 { return false, nil, false, false, errWSChunk }
+if !a.active {
+if total > uint64(wsMessageLimit(a.limit)) { return false, nil, false, false, errWSMessageTooBig }
+a.buf, a.total, a.kind, a.active = make([]byte, 0, total), total, kind, true
+} else if total != a.total || kind != a.kind {
+return false, nil, false, false, errWSChunk
+}
+if uint64(len(a.buf))+uint64(len(chunk)) > a.total { return false, nil, false, false, errWSChunk }
+a.buf = append(a.buf, chunk...)
+if uint64(len(a.buf)) < a.total { return false, nil, false, false, nil }
+out := a.buf
+a.buf, a.active = nil, false
+return a.kind == 1, out, true, false, nil
+}
+
+func wsFrameSize(data []byte, raw [][]byte) int {
+size := len(data)
+for _, segment := range raw { size += len(segment) }
+return size
+}
+
+func wsWriteChunked(newWriter func() (io.WriteCloser, error), isBinary bool, parts [][]byte) error {
+total := 0
+for _, part := range parts { total += len(part) }
+var header [wsChunkHeader]byte
+binary.BigEndian.PutUint32(header[:4], wsChunkMarker)
+if isBinary { header[4] = 1 }
+binary.BigEndian.PutUint64(header[5:], uint64(total))
+index, offset, sent := 0, 0, 0
+for {
+w, err := newWriter()
+if err != nil { return err }
+if _, err := w.Write(header[:]); err != nil { _ = w.Close(); return err }
+room := wsChunkBytes
+for room > 0 && index < len(parts) {
+part := parts[index][offset:]
+n := min(room, len(part))
+if n > 0 {
+if _, err := w.Write(part[:n]); err != nil { _ = w.Close(); return err }
+}
+room -= n
+sent += n
+offset += n
+if offset == len(parts[index]) { index, offset = index+1, 0 }
+}
+if err := w.Close(); err != nil { return err }
+if sent >= total { return nil }
+}
+}
+
+func wsPingInterval(interval time.Duration) time.Duration {
+if interval == 0 { return 30 * time.Second }
+return interval
+}
+
+func wsKeepAlive(ctx context.Context, ping func(context.Context) error, closeNow func() error, interval time.Duration) {
+if interval <= 0 { return }
+ticker := time.NewTicker(interval)
+defer ticker.Stop()
+for {
+select {
+case <-ctx.Done():
+return
+case <-ticker.C:
+pingCtx, cancel := context.WithTimeout(ctx, interval)
+err := ping(pingCtx)
+cancel()
+if err != nil {
+if ctx.Err() == nil { _ = closeNow() }
+return
+}
+}
+}
+}
+
+func wsReadAll(r io.Reader, buf []byte) ([]byte, error) {
+for {
+if len(buf) == cap(buf) {
+var probe [1]byte
+n, err := r.Read(probe[:])
+if n == 0 && err == io.EOF { return buf, nil }
+if err != nil && err != io.EOF { return nil, err }
+buf = append(buf, probe[:n]...)
+if err == io.EOF { return buf, nil }
+continue
+}
+n, err := r.Read(buf[len(buf):cap(buf)])
+buf = buf[:len(buf)+n]
+if err == io.EOF { return buf, nil }
+if err != nil { return nil, err }
+}
+}
+
+func wsWriteParts(w io.WriteCloser, prefix []byte, raw [][]byte) error {
+pending := prefix
+for _, segment := range raw {
+if len(segment) < 32<<10 {
+pending = append(pending, segment...)
+continue
+}
+if len(pending) > 0 {
+if _, err := w.Write(pending); err != nil { _ = w.Close(); return err }
+pending = pending[:0]
+}
+if _, err := w.Write(segment); err != nil { _ = w.Close(); return err }
+}
+if len(pending) > 0 {
+if _, err := w.Write(pending); err != nil { _ = w.Close(); return err }
+}
+return w.Close()
+}`

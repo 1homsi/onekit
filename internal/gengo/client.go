@@ -200,6 +200,7 @@ func writeClientType(p *Printer, s *onkir.Service) {
 		p.P("// message closes the connection with status 1009 (message too big).")
 		p.P("MaxWSFrameBytes int64")
 		p.P("WSPingInterval time.Duration")
+		p.P("MaxWSMessageBytes int64")
 	}
 	p.P("}")
 	p.P()

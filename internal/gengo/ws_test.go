@@ -908,6 +908,7 @@ message RunResult {
   exit_code: int32
   result_json: string @raw
   chunks: Chunk[]
+  note: string
 }
 
 message Frame {
@@ -953,12 +954,18 @@ func (rawImpl) Execute(ctx context.Context, req *Frame, out WSOut[Frame]) error 
 	if run.Code == "small" {
 		result = &RunResult{ExitCode: 5}
 	}
+	if run.Code == "huge" {
+		result = &RunResult{ExitCode: 9, ResultJson: strings.Repeat("h", 20<<20)}
+	}
+	if run.Code == "hugetext" {
+		result = &RunResult{ExitCode: 10, Note: strings.Repeat("t", 17<<20)}
+	}
 	return out.Send(ctx, &Frame{Payload: &FramePayloadRunResult{RunResult: result}})
 }
 
-func serve(t *testing.T) string {
+func serve(t *testing.T, opts ...any) string {
 	mux := http.NewServeMux()
-	if err := RegisterRuntimeServer(mux, rawImpl{}); err != nil {
+	if err := RegisterRuntimeServer(mux, append([]any{rawImpl{}}, opts...)...); err != nil {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(mux)
@@ -989,6 +996,47 @@ func TestRuntimeRawRoundTrip(t *testing.T) {
 	}
 	if len(result.Chunks) != 3 || !bytes.Equal(result.Chunks[0].Data, []byte{0, 1, 2}) || len(result.Chunks[1].Data) != 0 || len(result.Chunks[2].Data) != 1000 || result.Chunks[2].Index != 3 {
 		t.Fatalf("raw bytes did not round trip: %+v", result.Chunks)
+	}
+}
+
+func TestRuntimeChunkedMessages(t *testing.T) {
+	url := serve(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	socket, err := NewRuntimeClient(url).Execute(ctx, &Frame{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer socket.Close()
+	for _, code := range []string{"huge", "hugetext", strings.Repeat("c", 20<<20)} {
+		if err := socket.Send(ctx, &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: code}}}); err != nil {
+			t.Fatal(err)
+		}
+		frame, err := socket.Receive(ctx)
+		if err != nil {
+			t.Fatalf("receive after %d-byte code: %v", len(code), err)
+		}
+		result := frame.GetRunResult()
+		switch {
+		case code == "huge" && (result.ExitCode != 9 || len(result.ResultJson) != 20<<20):
+			t.Fatalf("chunked raw frame did not round trip: %d bytes", len(result.ResultJson))
+		case code == "hugetext" && (result.ExitCode != 10 || len(result.Note) != 17<<20):
+			t.Fatalf("chunked text frame did not round trip: %d bytes", len(result.Note))
+		case len(code) > 100 && result.ExitCode != int32(len(code)):
+			t.Fatalf("server saw %d bytes of a %d-byte chunked request", result.ExitCode, len(code))
+		}
+	}
+
+	limited := serve(t, WithMaxWSMessageBytes(1<<20))
+	small, err := NewRuntimeClient(limited).Execute(ctx, &Frame{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer small.Close()
+	_ = small.Send(ctx, &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: strings.Repeat("c", 20<<20)}}})
+	_, err = small.Receive(ctx)
+	if websocket.CloseStatus(err) != websocket.StatusMessageTooBig {
+		t.Fatalf("want 1009 over the assembled limit, got %v", err)
 	}
 }
 
@@ -1069,7 +1117,7 @@ func TestGeneratedWSRawFrames(t *testing.T) {
 			t.Fatalf("go %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
 		if args[0] == "test" {
-			for _, want := range []string{"--- PASS: TestRuntimeRawRoundTrip", "--- PASS: TestRuntimeRawWireFormat"} {
+			for _, want := range []string{"--- PASS: TestRuntimeRawRoundTrip", "--- PASS: TestRuntimeRawWireFormat", "--- PASS: TestRuntimeChunkedMessages"} {
 				if !strings.Contains(string(out), want) {
 					t.Fatalf("expected %q in harness output:\n%s", want, out)
 				}

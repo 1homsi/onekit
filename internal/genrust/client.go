@@ -84,6 +84,7 @@ func writeClient(p *Printer, service *onkir.Service) {
 	p.P("max_sse_frame_bytes: usize,")
 	if serviceHasWS(service) {
 		p.P("max_ws_frame_bytes: usize,")
+		p.P("max_ws_message_bytes: usize,")
 	}
 	if serviceHasCorrelatedWS(service) {
 		p.P("ws_ping_interval: Option<std::time::Duration>,")
@@ -95,7 +96,7 @@ func writeClient(p *Printer, service *onkir.Service) {
 	p.Indent()
 	wsFrameInit := ""
 	if serviceHasWS(service) {
-		wsFrameInit = ", max_ws_frame_bytes: DEFAULT_MAX_WS_FRAME_BYTES"
+		wsFrameInit = ", max_ws_frame_bytes: DEFAULT_MAX_WS_FRAME_BYTES, max_ws_message_bytes: DEFAULT_MAX_WS_MESSAGE_BYTES"
 	}
 	if serviceHasCorrelatedWS(service) {
 		wsFrameInit += ", ws_ping_interval: Some(std::time::Duration::from_secs(30))"
@@ -152,6 +153,13 @@ func writeClient(p *Printer, service *onkir.Service) {
 		p.Blank()
 	}
 	if serviceHasWS(service) {
+		p.P("pub fn with_max_ws_message_bytes(mut self, limit: usize) -> Self {")
+		p.Indent()
+		p.P("self.max_ws_message_bytes = if limit == 0 { DEFAULT_MAX_WS_MESSAGE_BYTES } else { limit };")
+		p.P("self")
+		p.Dedent()
+		p.P("}")
+		p.Blank()
 		p.P("// Cap on one inbound WebSocket message; a larger one ends the connection.")
 		p.P("pub fn with_max_ws_frame_bytes(mut self, limit: usize) -> Self {")
 		p.Indent()
