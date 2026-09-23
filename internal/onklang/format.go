@@ -311,3 +311,7 @@ func formatArgs(args []Arg) string {
 	}
 	return "(" + strings.Join(values, ", ") + ")"
 }
+
+func FormatDecorators(decorators []Decorator) string {
+	return formatDecorators(decorators)
+}

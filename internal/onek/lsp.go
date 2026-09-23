@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/1homsi/onekit/internal/onklang"
 )
@@ -159,6 +161,8 @@ func (s *languageServer) handle(req rpcRequest) (any, *rpcError) {
 		changed = true
 	case "textDocument/didSave", "workspace/didChangeWatchedFiles":
 		changed = true
+	case "textDocument/completion":
+		return s.decoratorCompletion(path, p.Position), nil
 	case "textDocument/definition", "textDocument/references", "textDocument/hover", "textDocument/documentSymbol", "workspace/symbol":
 	default:
 		return nil, &rpcError{-32601, "method not found"}
@@ -370,5 +374,31 @@ func (s *languageServer) initialize(raw json.RawMessage, dir string) (any, *rpcE
 	return map[string]any{"serverInfo": map[string]string{"name": "onekit"}, "capabilities": map[string]any{
 		"positionEncoding": "utf-16", "textDocumentSync": map[string]any{"openClose": true, "change": 1, "save": true},
 		"definitionProvider": true, "referencesProvider": true, "hoverProvider": true, "documentSymbolProvider": true, "workspaceSymbolProvider": true,
+		"completionProvider": map[string]any{"triggerCharacters": []string{"@"}},
 	}}, nil
+}
+
+func (s *languageServer) decoratorCompletion(path string, position Position) []map[string]any {
+	text, ok := s.overlays[path]
+	if !ok {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return []map[string]any{}
+		}
+		text = string(data)
+	}
+	lines := strings.Split(text, "\n")
+	if position.Line < 0 || position.Line >= len(lines) {
+		return []map[string]any{}
+	}
+	line := []rune(lines[position.Line])
+	end := min(position.Character, len(line))
+	start := end
+	for start > 0 && (line[start-1] == '_' || unicode.IsLetter(line[start-1]) || unicode.IsDigit(line[start-1])) {
+		start--
+	}
+	if start == 0 || line[start-1] != '@' {
+		return []map[string]any{}
+	}
+	return DecoratorCompletions(string(line[start:end]))
 }

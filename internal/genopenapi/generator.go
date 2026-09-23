@@ -542,9 +542,14 @@ func Generate(file *onkir.File, opts Options) ([]byte, error) {
 	paths := orderedmap.New[string, *v3.PathItem]()
 	for _, s := range file.Services {
 		for _, m := range s.Methods {
-			// WebSocket RPCs have no OpenAPI 3.x representation; they are
-			// documented separately by consumers (e.g. AsyncAPI).
 			if m.IsWebSocket() {
+				wsPath, _ := m.WebSocketPath()
+				item, ok := paths.Get(s.BasePath + wsPath)
+				if !ok {
+					item = &v3.PathItem{}
+					paths.Set(s.BasePath+wsPath, item)
+				}
+				item.Get = buildWSOperation(s, m)
 				continue
 			}
 			verb, _ := m.Verb()

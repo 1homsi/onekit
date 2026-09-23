@@ -141,3 +141,68 @@ func TestLSPRejectsOutsideSchemaWithoutPoisoningWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLSPDecoratorHoverAndCompletion(t *testing.T) {
+	root, err := canonicalProjectDir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(root, "onekit.toml"), "module = \"example.com/test\"\n")
+	source := "package rt\nmessage Call {\n id: string @ws_id\n timeout_ms: int64 @ws_timeout\n}\nmessage Frame { payload: oneof(discriminator: \"type\") { call: Call } }\nservice Runtime { execute(Frame) -> Frame @ws(\"/x\") }\n"
+	path := filepath.Join(root, "rt.onk")
+	writeTestFile(t, path, source)
+	uri := fileURI(path)
+	var input, output bytes.Buffer
+	request := func(id any, method string, params any) {
+		t.Helper()
+		m := map[string]any{"jsonrpc": "2.0", "method": method, "params": params}
+		if id != nil {
+			m["id"] = id
+		}
+		if err := writeLSPMessage(&input, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	editing := strings.Replace(source, " id: string @ws_id", " id: string @ws_", 1)
+	request(1, "initialize", map[string]any{"rootUri": fileURI(root)})
+	request(2, "textDocument/hover", map[string]any{"textDocument": map[string]string{"uri": uri}, "position": positionOf(t, source, "timeout_ms")})
+	request(3, "textDocument/hover", map[string]any{"textDocument": map[string]string{"uri": uri}, "position": positionOf(t, source, "execute")})
+	request(nil, "textDocument/didOpen", map[string]any{"textDocument": map[string]any{"uri": uri, "text": editing, "version": 1}})
+	end := positionOf(t, editing, "@ws_\n")
+	end.Character += len("@ws_")
+	request(4, "textDocument/completion", map[string]any{"textDocument": map[string]string{"uri": uri}, "position": end})
+	request(5, "shutdown", nil)
+	request(nil, "exit", nil)
+	if err := RunLSP(&input, &output, ""); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(&output)
+	responses := map[int]string{}
+	for reader.Buffered() > 0 || output.Len() > 0 {
+		data, err := readLSPMessage(reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatal(err)
+		}
+		if id, ok := m["id"].(float64); ok {
+			responses[int(id)] = string(data)
+		}
+	}
+	for id, want := range map[int][]string{
+		2: {"timeout_ms: int64 @ws_timeout", "remaining time in milliseconds"},
+		3: {`@ws(\"/x\")`, "bidirectional WebSocket RPC"},
+		4: {`"label":"@ws_cancel"`, `"label":"@ws_id"`, `"label":"@ws_timeout"`},
+	} {
+		for _, text := range want {
+			if !strings.Contains(responses[id], text) {
+				t.Fatalf("response %d missing %q: %s", id, text, responses[id])
+			}
+		}
+	}
+	if strings.Contains(responses[4], `"label":"@raw"`) {
+		t.Fatalf("completion ignored the typed prefix: %s", responses[4])
+	}
+}

@@ -272,11 +272,11 @@ func (s *LanguageSnapshot) addDeclarations(src onkcompile.Source, decls map[any]
 		}
 		add(m, m.Name, q, "message", "message "+q+" { "+strings.Join(fields, ", ")+" }", m.Doc, m.Line, m.Col)
 		for _, f := range m.Fields {
-			add(f, f.Name, qualify(q, f.Name), "field", f.Name+": "+fieldType(f), f.Doc, f.Line, f.Col)
+			add(f, f.Name, qualify(q, f.Name), "field", f.Name+": "+fieldType(f)+onklang.FormatDecorators(f.Decorators), withDecoratorDocs(f.Doc, f.Decorators), f.Line, f.Col)
 			if f.Oneof != nil {
 				for i := range f.Oneof.Variants {
 					v := &f.Oneof.Variants[i]
-					add(v, v.Name, qualify(qualify(q, f.Name), v.Name), "field", v.Name+": "+typeName(v.Type), "", v.Line, v.Col)
+					add(v, v.Name, qualify(qualify(q, f.Name), v.Name), "field", v.Name+": "+typeName(v.Type)+onklang.FormatDecorators(v.Decorators), withDecoratorDocs("", v.Decorators), v.Line, v.Col)
 				}
 			}
 		}
@@ -305,7 +305,8 @@ func (s *LanguageSnapshot) addDeclarations(src onkcompile.Source, decls map[any]
 			if len(r.ErrorTypes) > 0 {
 				detail += " | " + strings.Join(r.ErrorTypes, " | ")
 			}
-			add(r, r.Name, qualify(q, r.Name), "method", detail, r.Doc, r.Line, r.Col)
+			detail += onklang.FormatDecorators(r.Decorators)
+			add(r, r.Name, qualify(q, r.Name), "method", detail, withDecoratorDocs(r.Doc, r.Decorators), r.Line, r.Col)
 		}
 	}
 }
@@ -384,4 +385,45 @@ func languagePath(root, path string) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+var decoratorDocs = map[string]string{
+	"ws":         "@ws(path): a bidirectional WebSocket RPC. The request and response messages are the client-to-server and server-to-client frame types.",
+	"ws_id":      "@ws_id: the correlation key of a @ws frame. call(id, value) sends a frame and resolves with the reply carrying the same id in a different oneof variant.",
+	"ws_cancel":  "@ws_cancel: the oneof variant sent when a correlated call is abandoned (cancelled or timed out). Its message must carry the @ws_id; it always reaches the peer's handler.",
+	"ws_timeout": "@ws_timeout: an integer field next to a @ws_id that generated calls fill with the caller's remaining time in milliseconds when they carry a deadline.",
+	"raw":        "@raw: a string or bytes field carried outside the JSON as raw bytes in a binary WebSocket frame, so large payloads are never escaped or scanned.",
+	"tag":        "@tag(value): the discriminator value that identifies this oneof variant on the wire.",
+	"encode":     "@encode(kind): the field's wire encoding (number, hex, base64, base64_raw, base64url, base64url_raw, unix_seconds, unix_millis, date).",
+	"required":   "@required: the field must be present and non-empty.",
+	"query":      "@query(name): bind the field to a URL query parameter.",
+	"flatten":    "@flatten(prefix): inline the child message's fields into this message on the wire.",
+}
+
+func withDecoratorDocs(doc string, decorators []onklang.Decorator) string {
+	parts := []string{}
+	if doc != "" {
+		parts = append(parts, doc)
+	}
+	for _, d := range decorators {
+		if text, ok := decoratorDocs[d.Name]; ok {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func DecoratorCompletions(prefix string) []map[string]any {
+	names := make([]string, 0, len(decoratorDocs))
+	for name := range decoratorDocs {
+		if strings.HasPrefix(name, prefix) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	items := make([]map[string]any, 0, len(names))
+	for _, name := range names {
+		items = append(items, map[string]any{"label": "@" + name, "insertText": name, "kind": 14, "documentation": decoratorDocs[name]})
+	}
+	return items
 }
