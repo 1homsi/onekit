@@ -415,6 +415,23 @@ async fn main() {
                     other => fail(format!("want a binary raw frame, got {other:?}")),
                 }
             }
+            {
+                let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+                let silent_addr = silent.local_addr().expect("addr");
+                tokio::spawn(async move {
+                    if let Ok((tcp, _)) = silent.accept().await {
+                        let held = tokio_tungstenite::accept_async(tcp).await;
+                        tokio::time::sleep(Duration::from_secs(30)).await;
+                        drop(held);
+                    }
+                });
+                let client = RuntimeClient::new(format!("http://{silent_addr}")).with_ws_ping_interval(Some(Duration::from_millis(100)));
+                let socket = client.execute(&run("x")).await.expect("connect silent");
+                match tokio::time::timeout(Duration::from_secs(3), socket.call("k-1".to_string(), &host_call("k-1"))).await {
+                    Ok(Err(generated::client::WsCallError::Closed)) => {}
+                    other => fail(format!("unanswered pings: want Closed, got {other:?}")),
+                }
+            }
             let closed = raw_close(addr, r#"{"payload":{"type":"run","run":{"code":"close"}}}"#).await;
             if closed != Some((4002, "idle".to_string())) { fail(format!("out.close: {closed:?}")); }
         })

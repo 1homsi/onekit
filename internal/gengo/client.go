@@ -126,7 +126,7 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	if hasWS {
 		p.P(`"sync"`)
 	}
-	if fileHasWSCancel(file, func(m *onkir.Method) *onkir.Message { return m.Request }) {
+	if hasWS || fileHasWSCancel(file, func(m *onkir.Method) *onkir.Message { return m.Request }) {
 		p.P(`"time"`)
 	}
 	if hasWS {
@@ -199,6 +199,7 @@ func writeClientType(p *Printer, s *onkir.Service) {
 		p.P("// 16 MiB default and a negative value disables the check. A larger")
 		p.P("// message closes the connection with status 1009 (message too big).")
 		p.P("MaxWSFrameBytes int64")
+		p.P("WSPingInterval time.Duration")
 	}
 	p.P("}")
 	p.P()

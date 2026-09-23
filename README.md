@@ -331,7 +331,11 @@ Servers ping every 30 seconds and drop a peer that misses a pong, so a hard
 network drop ends the connection instead of hanging until a timeout. Set
 `WithWSPingInterval(d)` in Go (negative disables), `pingIntervalMs` in the
 TypeScript Node adapter (0 disables), or `WsServerOptions::ping_interval` in
-Rust (`None` disables). A client that receives a frame it can't decode fails
+Rust (`None` disables). Clients of methods that use `@ws_id` ping too, every
+30 seconds by default, and fail in-flight calls with a closed error when a
+pong goes missing: `WSPingInterval` in Go, `with_ws_ping_interval` in Rust.
+Browsers and Node's built-in `WebSocket` offer no ping API, so TypeScript
+clients rely on the server's pings. A client that receives a frame it can't decode fails
 the socket (a 1007 `WSClosedError` in TypeScript, the decode error in Go)
 rather than skipping it.
 

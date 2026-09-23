@@ -289,6 +289,7 @@ func writeWSDuplexType(p *Printer, inName, outName string, idField *onkir.Field,
 		p.P("inbox chan *", outName)
 		p.P("readErr chan error")
 		p.P("readOnce sync.Once")
+		p.P("pingInterval time.Duration")
 	}
 	p.P("}")
 	p.P()
@@ -342,11 +343,14 @@ func writeWSCorrelatedDuplexMethods(p *Printer, name, inName, outName string, id
 	p.P("d.inbox = make(chan *", outName, ", 16)")
 	p.P("d.readErr = make(chan error, 1)")
 	p.P("d.pending = ", wsClientPendingConstructor, "[", idType, ", *", outName, "]()")
-	p.P("go d.readLoop()")
+	p.P("ctx, stop := context.WithCancel(context.Background())")
+	p.P("go wsKeepAlive(ctx, d.conn.Ping, d.conn.CloseNow, d.pingInterval)")
+	p.P("go d.readLoop(stop)")
 	p.P("})")
 	p.P("}")
 	p.P()
-	p.P("func (d *", name, ") readLoop() {")
+	p.P("func (d *", name, ") readLoop(stop context.CancelFunc) {")
+	p.P("defer stop()")
 	p.P("for {")
 	writeWSBufferedRead(p, "d.conn", "context.Background()", "d.readBuf", "d.readHint")
 	p.P("if err != nil {")
@@ -524,7 +528,11 @@ func writeWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("conn, _, err := websocket.Dial(ctx, socketURL, &websocket.DialOptions{ HTTPClient: c.HTTPClient, HTTPHeader: header })")
 	p.P("if err != nil { return nil, fmt.Errorf(\"dial websocket: %w\", err) }")
 	p.P("conn.SetReadLimit(wsReadLimit(c.MaxWSFrameBytes))")
-	p.P("return &", wsDuplexName(reqRef, resRef), "{conn: conn}, nil")
+	if _, correlated := m.WSIDField(); correlated {
+		p.P("return &", wsDuplexName(reqRef, resRef), "{conn: conn, pingInterval: wsPingInterval(c.WSPingInterval)}, nil")
+	} else {
+		p.P("return &", wsDuplexName(reqRef, resRef), "{conn: conn}, nil")
+	}
 	p.P("}")
 	p.P()
 }
@@ -558,7 +566,7 @@ func writeWSRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("ctx := r.Context()")
 	p.P("connCtx, closeConn := context.WithCancelCause(ctx)")
 	p.P("defer closeConn(net.ErrClosed)")
-	p.P("go wsKeepAlive(connCtx, conn, wsServerPingInterval(o.wsPingInterval))")
+	p.P("go wsKeepAlive(connCtx, conn.Ping, conn.CloseNow, wsPingInterval(o.wsPingInterval))")
 	if correlated {
 		idType := p.GoFieldType(idField.Type)
 		p.P("out := &", wsOutName(s, m), "{conn: conn, ctx: connCtx, pending: ", wsServerPendingConstructor, "[", idType, ", *", p.MessageTypeName(m.Request), "]()}")
