@@ -215,7 +215,7 @@ func TestGenerateClientWebSockets(t *testing.T) {
 	for _, want := range []string{
 		`"github.com/coder/websocket"`,
 		"type ChatMessageToChatEventSocket struct {",
-		"mu   sync.Mutex",
+		"sync.Mutex",
 		"d.mu.Lock()",
 		") (*ChatMessageToChatEventSocket, error) {",
 		// Without the base URL the client dials a bare path and every call

@@ -155,10 +155,11 @@ type typesImports struct {
 	binary  bool
 	errors  bool
 	unsafe  bool
+	io      bool
 }
 
 func (imp typesImports) any() bool {
-	return imp.time || imp.fmt || imp.json || imp.hex || imp.base64 || imp.strconv || imp.strings || imp.binary || imp.errors || imp.unsafe
+	return imp.time || imp.fmt || imp.json || imp.hex || imp.base64 || imp.strconv || imp.strings || imp.binary || imp.errors || imp.unsafe || imp.io
 }
 
 func computeTypesImports(file *onkir.File) typesImports {
@@ -236,6 +237,9 @@ func writeTypesImports(p *Printer, imp typesImports, externalRefs []PackageRef) 
 	if imp.fmt {
 		p.P(`"fmt"`)
 	}
+	if imp.io {
+		p.P(`"io"`)
+	}
 	if imp.strconv {
 		p.P(`"strconv"`)
 	}
@@ -273,6 +277,7 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) ([]by
 	hasRaw := hasWS && fileHasWSRaw(p, file)
 	imp.json = imp.json || hasWS
 	imp.binary, imp.errors, imp.unsafe = hasRaw, hasRaw, hasRaw
+	imp.io = hasWS
 	writeTypesImports(p, imp, collectExternalRefs(file, resolver))
 
 	for _, e := range file.Enums {
