@@ -285,13 +285,9 @@ func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl, 
 			if !field.Repeated {
 				return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@%s requires a repeated field", decorator.Name)}
 			}
-		case "ws_timeout":
-			if field.Repeated || field.Optional || !isIntegerTypeRef(field.Type) {
-				return &Error{Path: filePath, Line: field.Line, Msg: "@ws_timeout requires a non-repeated, non-optional integer field"}
-			}
-		case "raw":
-			if field.Repeated || field.Optional || !(isScalarNamed(field.Type, "string") || isScalarNamed(field.Type, "bytes")) {
-				return &Error{Path: filePath, Line: field.Line, Msg: "@raw requires a non-repeated, non-optional string or bytes field"}
+		case "ws_timeout", "raw":
+			if err := validateWSFieldDecorator(filePath, field, decorator.Name); err != nil {
+				return err
 			}
 		case wsIDDecorator:
 			if !isWSIDTypeRef(field.Type) || field.Repeated {
@@ -1174,4 +1170,14 @@ func isIntegerTypeRef(typ *onklang.TypeRef) bool {
 		}
 	}
 	return false
+}
+
+func validateWSFieldDecorator(filePath string, field *onklang.FieldDecl, name string) error {
+	if name == "ws_timeout" && (field.Repeated || field.Optional || !isIntegerTypeRef(field.Type)) {
+		return &Error{Path: filePath, Line: field.Line, Msg: "@ws_timeout requires a non-repeated, non-optional integer field"}
+	}
+	if name == "raw" && (field.Repeated || field.Optional || !(isScalarNamed(field.Type, "string") || isScalarNamed(field.Type, "bytes"))) {
+		return &Error{Path: filePath, Line: field.Line, Msg: "@raw requires a non-repeated, non-optional string or bytes field"}
+	}
+	return nil
 }
