@@ -294,6 +294,7 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) ([]by
 	imp.json = imp.json || hasWS
 	imp.binary, imp.errors, imp.unsafe = hasRaw, hasRaw, hasRaw
 	imp.io = hasWS
+	imp.binary = imp.binary || hasWS
 	if hasWS {
 		imp.errors, imp.strconv, imp.strings, imp.base64, imp.math, imp.utf8, imp.sync = true, true, true, true, true, true, true
 		imp.context, imp.time = true, true

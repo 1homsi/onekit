@@ -61,7 +61,7 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	p.P(`"encoding/json"`)
 	p.P(`"errors"`)
 	p.P(`"fmt"`)
-	if hasRequestBody {
+	if hasRequestBody || hasWS {
 		p.P(`"io"`)
 	}
 	p.P(`"math"`)
@@ -175,6 +175,8 @@ func writeWSServerOption(p *Printer) {
 	p.P()
 	p.P(`func WithWSPingInterval(interval time.Duration) ServerOption { return func(o *serverOptions) { o.wsPingInterval = interval } }`)
 	p.P()
+	p.P(`func WithMaxWSMessageBytes(limit int64) ServerOption { return func(o *serverOptions) { o.maxWSMessageBytes = limit } }`)
+	p.P()
 	p.P(`func wsServerReadLimit(limit int64) int64 {`)
 	p.P(`if limit == 0 { return `, defaultMaxWSFrameBytes, ` }`)
 	p.P(`if limit < 0 { return -1 }`)
@@ -217,6 +219,7 @@ func writeServerOptions(p *Printer, hasWS bool) {
 	p.P(`observer RequestObserver`)
 	if hasWS {
 		p.P(`maxWSFrameBytes int64`)
+		p.P(`maxWSMessageBytes int64`)
 		p.P(`wsPingInterval time.Duration`)
 	}
 	p.P(`}`)

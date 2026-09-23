@@ -36,6 +36,7 @@ func WriteTSWSServerRuntime(p *Printer) {
 	p.P("// Cap on one inbound message (default DEFAULT_MAX_WS_FRAME_BYTES); a")
 	p.P("// larger one closes the connection with 1009. Negative disables it.")
 	p.P("maxFrameBytes?: number;")
+	p.P("maxMessageBytes?: number;")
 	p.P("// out.send() waits while more than this many bytes are queued on the")
 	p.P("// socket (default DEFAULT_WS_HIGH_WATER_MARK_BYTES).")
 	p.P("highWaterMarkBytes?: number;")
@@ -430,11 +431,12 @@ func writeTSWSSocketBody(p *Printer, m *onkir.Method, socketVar string) {
 	// peer decoding a camelCase frame sees the oneof tag but a nil body.
 	respSplit, _ := p.wsRawCodecArgs(m.Response)
 	_, reqJoin := p.wsRawCodecArgs(m.Request)
-	sendFrame := socketVar + ".send(wsEncodeMessage(value, " + p.MessageCodecName(m.Response, "encode") + ", " + respSplit + "))"
+	sendFrame := "wsSend(" + socketVar + ", wsEncodeMessage(value, " + p.MessageCodecName(m.Response, "encode") + ", " + respSplit + "))"
 	// send resolves once the socket's buffer is back under the high-water
 	// mark, so a producer that awaits it is paced by the peer.
 	sendDrained := "send: (value) => { " + sendFrame + "; return wsDrained(" + socketVar + ", highWaterMark); },"
 	p.P("const closed = new AbortController();")
+	p.P("const assembler = new WSAssembler(maxMessageBytes);")
 	if correlated {
 		idType := p.TSFieldType(idField.Type)
 		p.P("const pending = new WSPending<", idType, ", ", p.MessageTypeName(m.Request), ">();")
@@ -487,9 +489,17 @@ func writeTSWSSocketBody(p *Printer, m *onkir.Method, socketVar string) {
 	// Failures end the connection with a close code and the message as the
 	// reason, never an off-schema frame: 1007 for a frame that does not
 	// decode or validate, 1011 for a handler error - the same as Go and Rust.
+	p.P("let payload: string | Uint8Array | undefined;")
+	p.P("try {")
+	p.P("payload = assembler.feed(event.data);")
+	p.P("} catch (err) {")
+	p.P(socketVar, `.close(err instanceof WSChunkError ? err.code : 1007, "invalid chunked message");`)
+	p.P("return;")
+	p.P("}")
+	p.P("if (payload === undefined) return;")
 	p.P("let frame: ", p.MessageTypeName(m.Request), ";")
 	p.P("try {")
-	p.P("frame = wsDecodeMessage(event.data, ", p.MessageCodecName(m.Request, "decode"), ", ", reqJoin, ");")
+	p.P("frame = wsDecodeMessage(payload, ", p.MessageCodecName(m.Request, "decode"), ", ", reqJoin, ");")
 	p.P("} catch {")
 	p.P(socketVar, `.close(1007, "invalid JSON frame");`)
 	p.P("return;")
@@ -512,6 +522,7 @@ func writeTSSocketFactory(p *Printer, s *onkir.Service) {
 	factory := "create" + s.Name + "SocketRoutes"
 	p.P("export function ", factory, "(handler: ", s.Name, "Handler, options: WSServerOptions = {}): SocketRouteDescriptor[] {")
 	p.P("const maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_WS_FRAME_BYTES;")
+	p.P("const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_WS_MESSAGE_BYTES;")
 	p.P("const highWaterMark = options.highWaterMarkBytes ?? DEFAULT_WS_HIGH_WATER_MARK_BYTES;")
 	p.P("return [")
 	for _, m := range s.Methods {
@@ -534,6 +545,7 @@ func writeTSNodeSocketFactory(p *Printer, s *onkir.Service) {
 	factory := "attach" + s.Name + "NodeSocketHandlers"
 	p.P("export function ", factory, "(httpServer: HttpServer, handler: ", s.Name, "Handler, options: WSServerOptions = {}): void {")
 	p.P("const maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_WS_FRAME_BYTES;")
+	p.P("const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_WS_MESSAGE_BYTES;")
 	p.P("const highWaterMark = options.highWaterMarkBytes ?? DEFAULT_WS_HIGH_WATER_MARK_BYTES;")
 	p.P("// ws enforces the cap itself (closing with 1009); 0 means unlimited there.")
 	p.P("const wss = new WebSocketServer({ noServer: true, maxPayload: maxFrameBytes < 0 ? 0 : maxFrameBytes });")
@@ -643,75 +655,86 @@ func writeTSDuplexClass(p *Printer, m *onkir.Method) {
 
 	p.P("export class ", name, " {")
 	if correlated {
-		idType := p.TSFieldType(idField.Type)
-		p.P("private pending = new WSPending<", idType, ", ", resRef, ">();")
-		p.P("private inboxQueue: ", resRef, "[] = [];")
-		p.P("private inboxWaiters: Array<{ resolve: (value: ", resRef, ") => void; reject: (err: unknown) => void }> = [];")
-		p.P("private closedWith: unknown = undefined;")
-		p.P("private localClose: WSClosedError | undefined = undefined;")
-		p.P("private listening = false;")
+		p.P("private pending = new WSPending<", p.TSFieldType(idField.Type), ", ", resRef, ">();")
 	}
-	p.P("constructor(private ws: WebSocket, private maxFrameBytes: number = DEFAULT_MAX_WS_FRAME_BYTES, private highWaterMark: number = DEFAULT_WS_HIGH_WATER_MARK_BYTES) {}")
+	p.P("private inboxQueue: ", resRef, "[] = [];")
+	p.P("private inboxWaiters: Array<{ resolve: (value: ", resRef, ") => void; reject: (err: unknown) => void }> = [];")
+	p.P("private closedWith: unknown = undefined;")
+	p.P("private localClose: WSClosedError | undefined = undefined;")
+	p.P("private assembler: WSAssembler;")
+	p.P("constructor(private ws: WebSocket, private maxFrameBytes: number = DEFAULT_MAX_WS_FRAME_BYTES, private highWaterMark: number = DEFAULT_WS_HIGH_WATER_MARK_BYTES, maxMessageBytes: number = DEFAULT_MAX_WS_MESSAGE_BYTES) {")
+	p.P("this.assembler = new WSAssembler(maxMessageBytes);")
+	p.P("this.listen();")
+	p.P("}")
 	p.P()
 	writeTSDuplexSend(p, m, reqRef)
-
-	if !correlated {
-		writeTSDuplexReceive(p, m, resRef)
-		return
-	}
-
 	p.P("private failLocally(code: number, reason: string): void {")
 	p.P("this.localClose = new WSClosedError(code, reason);")
 	p.P("this.ws.close(1000, reason);")
 	p.P("}")
 	p.P()
-	p.P("private ensureListening(): void {")
-	p.P("if (this.listening) return;")
-	p.P("this.listening = true;")
-	p.P("this.ws.addEventListener(\"message\", (event: MessageEvent) => {")
-	p.P("if (wsFrameTooLarge(event.data, this.maxFrameBytes)) {")
-	p.P(`this.failLocally(1009, "message too big");`)
-	p.P("return;")
-	p.P("}")
-	p.P("let frame: ", resRef, ";")
-	p.P("try {")
-	_, respJoin := p.wsRawCodecArgs(m.Response)
-	p.P("frame = wsDecodeMessage(event.data, ", p.MessageCodecName(m.Response, "decode"), ", ", respJoin, ");")
-	p.P("} catch {")
-	p.P(`this.failLocally(1007, "invalid frame");`)
-	p.P("return;")
-	p.P("}")
-	p.P("const replyId = ", tsWSIDExpression(p, "frame", m.Response, idField), ";")
-	p.P("if (replyId !== undefined && this.pending.resolve(replyId, ", tsWSVariantExpression("frame", m.Response), ", frame)) return;")
-	p.P("const waiter = this.inboxWaiters.shift();")
-	p.P("if (waiter) { waiter.resolve(frame); return; }")
-	p.P("this.inboxQueue.push(frame);")
-	p.P("});")
-	p.P(`this.ws.addEventListener("close", (event: CloseEvent) => {`)
-	p.P("this.closedWith = this.localClose ?? new WSClosedError(event.code, event.reason);")
-	p.P("this.pending.rejectAll(this.closedWith);")
-	p.P("for (const waiter of this.inboxWaiters.splice(0)) waiter.reject(this.closedWith);")
-	p.P("});")
-	p.P("}")
-	p.P()
+	writeTSDuplexListen(p, m, resRef, correlated)
 	p.P("receive(): Promise<", resRef, "> {")
-	p.P("this.ensureListening();")
 	p.P("const queued = this.inboxQueue.shift();")
 	p.P("if (queued !== undefined) return Promise.resolve(queued);")
 	p.P("if (this.closedWith !== undefined) return Promise.reject(this.closedWith);")
 	p.P("return new Promise((resolve, reject) => { this.inboxWaiters.push({ resolve, reject }); });")
 	p.P("}")
 	p.P()
-	p.P("// call sends value, then resolves once a response-direction frame")
-	p.P("// carrying the matching @ws_id arrives. It rejects with WSClosedError if")
-	p.P("// the connection closes first, or WSTimeoutError/WSCancelledError per")
-	p.P("// options. Safe alongside receive(): the persistent listener routes")
-	p.P("// correlated replies here and everything else to it.")
+	if correlated {
+		writeTSDuplexCall(p, m, reqRef, resRef)
+	}
+	p.P("close(): void { this.ws.close(); }")
+	p.P("}")
+	p.P()
+}
+
+func writeTSDuplexListen(p *Printer, m *onkir.Method, resRef string, correlated bool) {
+	p.P("private listen(): void {")
+	p.P("this.ws.addEventListener(\"message\", (event: MessageEvent) => {")
+	p.P("if (wsFrameTooLarge(event.data, this.maxFrameBytes)) {")
+	p.P(`this.failLocally(1009, "message too big");`)
+	p.P("return;")
+	p.P("}")
+	p.P("let payload: string | Uint8Array | undefined;")
+	p.P("try {")
+	p.P("payload = this.assembler.feed(event.data);")
+	p.P("} catch (err) {")
+	p.P(`this.failLocally(err instanceof WSChunkError ? err.code : 1007, "invalid chunked message");`)
+	p.P("return;")
+	p.P("}")
+	p.P("if (payload === undefined) return;")
+	p.P("let frame: ", resRef, ";")
+	p.P("try {")
+	_, respJoin := p.wsRawCodecArgs(m.Response)
+	p.P("frame = wsDecodeMessage(payload, ", p.MessageCodecName(m.Response, "decode"), ", ", respJoin, ");")
+	p.P("} catch {")
+	p.P(`this.failLocally(1007, "invalid frame");`)
+	p.P("return;")
+	p.P("}")
+	if correlated {
+		idField, _ := m.WSIDField()
+		p.P("const replyId = ", tsWSIDExpression(p, "frame", m.Response, idField), ";")
+		p.P("if (replyId !== undefined && this.pending.resolve(replyId, ", tsWSVariantExpression("frame", m.Response), ", frame)) return;")
+	}
+	p.P("const waiter = this.inboxWaiters.shift();")
+	p.P("if (waiter) { waiter.resolve(frame); return; }")
+	p.P("this.inboxQueue.push(frame);")
+	p.P("});")
+	p.P(`this.ws.addEventListener("close", (event: CloseEvent) => {`)
+	p.P("this.closedWith = this.localClose ?? new WSClosedError(event.code, event.reason);")
+	if correlated {
+		p.P("this.pending.rejectAll(this.closedWith);")
+	}
+	p.P("for (const waiter of this.inboxWaiters.splice(0)) waiter.reject(this.closedWith);")
+	p.P("});")
+	p.P("}")
+	p.P()
+}
+
+func writeTSDuplexCall(p *Printer, m *onkir.Method, reqRef, resRef string) {
+	idField, _ := m.WSIDField()
 	p.P("call(id: ", p.TSFieldType(idField.Type), ", value: ", reqRef, ", options: WSCallOptions = {}): Promise<", resRef, "> {")
-	p.P("this.ensureListening();")
-	// The close listener only exists once ensureListening() has run, so a
-	// socket that closed before the first call() never marked pending closed;
-	// check readyState directly rather than sending into a dead socket.
 	p.P("if (this.ws.readyState !== 1) this.pending.rejectAll(this.closedWith ?? new WSClosedError());")
 	p.P("if (options.signal?.aborted) return Promise.reject(wsAbortError(options.signal));")
 	if onkir.MessageHasWSTimeout(m.Request) {
@@ -729,9 +752,6 @@ func writeTSDuplexClass(p *Printer, m *onkir.Method) {
 	p.P("this.pending.fail(id, err);")
 	p.P("}")
 	p.P("return reply;")
-	p.P("}")
-	p.P()
-	p.P("close(): void { this.ws.close(); }")
 	p.P("}")
 	p.P()
 }
@@ -766,7 +786,7 @@ func writeTSWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("return new Promise((resolve, reject) => {")
 	p.P("const ws = new WebSocket(socketURL);")
 	p.P(`ws.binaryType = "arraybuffer";`)
-	p.P(`ws.onopen = () => resolve(new `, tsDuplexName(m), "(ws, this.options.maxFrameBytes ?? DEFAULT_MAX_WS_FRAME_BYTES, this.options.highWaterMarkBytes ?? DEFAULT_WS_HIGH_WATER_MARK_BYTES));")
+	p.P(`ws.onopen = () => resolve(new `, tsDuplexName(m), "(ws, this.options.maxFrameBytes ?? DEFAULT_MAX_WS_FRAME_BYTES, this.options.highWaterMarkBytes ?? DEFAULT_WS_HIGH_WATER_MARK_BYTES, this.options.maxMessageBytes ?? DEFAULT_MAX_WS_MESSAGE_BYTES));")
 	p.P(`ws.onerror = () => reject(new Error("websocket connection failed"));`)
 	p.P("});")
 	p.P("}")
@@ -782,33 +802,8 @@ func writeTSDuplexSend(p *Printer, m *onkir.Method, reqRef string) {
 	reqSplit, _ := p.wsRawCodecArgs(m.Request)
 	p.P("const violations = ", p.MessageCodecName(m.Request, "validate"), "(value);")
 	p.P(`if (violations.length > 0) throw new TypeError("invalid frame: " + violations.join("; "));`)
-	p.P("this.ws.send(wsEncodeMessage(value, ", p.MessageCodecName(m.Request, "encode"), ", ", reqSplit, "));")
+	p.P("wsSend(this.ws, wsEncodeMessage(value, ", p.MessageCodecName(m.Request, "encode"), ", ", reqSplit, "));")
 	p.P("return wsDrained(this.ws, this.highWaterMark);")
-	p.P("}")
-	p.P()
-}
-
-func writeTSDuplexReceive(p *Printer, m *onkir.Method, resRef string) {
-	p.P("receive(): Promise<", resRef, "> {")
-	p.P("return new Promise((resolve, reject) => {")
-	p.P("const onMessage = (event: MessageEvent) => {")
-	p.P("cleanup();")
-	p.P("if (wsFrameTooLarge(event.data, this.maxFrameBytes)) {")
-	p.P(`this.ws.close(1000, "message too big");`)
-	p.P(`reject(new WSClosedError(1009, "message too big"));`)
-	p.P("return;")
-	p.P("}")
-	_, respJoin := p.wsRawCodecArgs(m.Response)
-	p.P("try { resolve(wsDecodeMessage(event.data, ", p.MessageCodecName(m.Response, "decode"), ", ", respJoin, ")); } catch (err) { reject(err); }")
-	p.P("};")
-	p.P("const onClose = (event: CloseEvent) => { cleanup(); reject(new WSClosedError(event.code, event.reason)); };")
-	p.P("const cleanup = () => { this.ws.removeEventListener(\"message\", onMessage); this.ws.removeEventListener(\"close\", onClose); };")
-	p.P("this.ws.addEventListener(\"message\", onMessage);")
-	p.P("this.ws.addEventListener(\"close\", onClose);")
-	p.P("});")
-	p.P("}")
-	p.P()
-	p.P("close(): void { this.ws.close(); }")
 	p.P("}")
 	p.P()
 }

@@ -185,6 +185,7 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 			p.P("// Cap on one inbound WebSocket message (default DEFAULT_MAX_WS_FRAME_BYTES);")
 			p.P("// a larger one closes the socket with 1009. Negative disables it.")
 			p.P("maxFrameBytes?: number;")
+			p.P("maxMessageBytes?: number;")
 			p.P("// send() waits while more than this many bytes are queued on the")
 			p.P("// socket (default DEFAULT_WS_HIGH_WATER_MARK_BYTES).")
 			p.P("highWaterMarkBytes?: number;")

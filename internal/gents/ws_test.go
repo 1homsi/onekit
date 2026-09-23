@@ -43,8 +43,8 @@ func TestGenerateTSWSServer(t *testing.T) {
 		"wss.handleUpgrade(req, socket, head, (ws) => {",
 		// Outgoing frames are encoded to the wire shape on both paths, like
 		// the TS client's send(); JSON.stringify(value) alone leaks camelCase.
-		"send: (value) => { server.send(wsEncodeMessage(value, encodeChatEvent, undefined)); return wsDrained(server, highWaterMark); },",
-		"send: (value) => { ws.send(wsEncodeMessage(value, encodeChatEvent, undefined)); return wsDrained(ws, highWaterMark); },",
+		"send: (value) => { wsSend(server, wsEncodeMessage(value, encodeChatEvent, undefined)); return wsDrained(server, highWaterMark); },",
+		"send: (value) => { wsSend(ws, wsEncodeMessage(value, encodeChatEvent, undefined)); return wsDrained(ws, highWaterMark); },",
 		// One shared 'upgrade' listener per http.Server rejects paths no
 		// route claims instead of leaking the socket until TCP timeout.
 		`const nodeSocketRoutesKey = Symbol.for("onekit.nodeSocketRoutes");`,
@@ -116,7 +116,7 @@ func TestGenerateTSWSServerCorrelated(t *testing.T) {
 		"execute(req: Frame, out: WSCallOut<string, Frame, Frame>): void | Promise<void>;",
 		"const pending = new WSPending<string, Frame>();",
 		"if (server.readyState !== 1) pending.rejectAll(new WSClosedError());",
-		"if (!pending.closed) server.send(wsEncodeMessage(value, encodeFrame, undefined));",
+		"if (!pending.closed) wsSend(server, wsEncodeMessage(value, encodeFrame, undefined));",
 		"if (replyId !== undefined && pending.resolve(replyId, ((): string => {",
 		// Both oneof variants carrying @ws_id must get extraction code, not
 		// just whichever one happens to be first by declaration order.
@@ -125,7 +125,7 @@ func TestGenerateTSWSServerCorrelated(t *testing.T) {
 		// Node adapter gets the same correlated out/call shape, reusing the
 		// identical shared body (just socketVar "ws" instead of "server").
 		"export function attachRuntimeNodeSocketHandlers(httpServer: HttpServer, handler: RuntimeHandler, options: WSServerOptions = {}): void {",
-		"if (!pending.closed) ws.send(wsEncodeMessage(value, encodeFrame, undefined));",
+		"if (!pending.closed) wsSend(ws, wsEncodeMessage(value, encodeFrame, undefined));",
 		"if (this.isClosed) return Promise.reject(this.closedWith);",
 	} {
 		if !strings.Contains(text, want) {
@@ -145,7 +145,7 @@ func TestGenerateTSWSClientCorrelated(t *testing.T) {
 		"export class ExecuteSocket {",
 		"private pending = new WSPending<string, Frame>();",
 		"call(id: string, value: Frame, options: WSCallOptions = {}): Promise<Frame> {",
-		"private ensureListening(): void {",
+		"private listen(): void {",
 		`if (frame.payload && frame.payload.type === "host_call") return frame.payload.hostCall.id;`,
 		`if (frame.payload && frame.payload.type === "host_result") return frame.payload.hostResult.id;`,
 	} {
@@ -587,6 +587,41 @@ httpServer.listen(0, "127.0.0.1", async () => {
 func TestGeneratedTSWSNodeReplyDirectionErrorsBackpressure(t *testing.T) {
 	dir := buildTSNodeServer(t, wsCorrelatedFixture, nil)
 	runNodeHarness(t, dir, tsNodeProtocolHarness)
+}
+
+const tsNodeChunkHarness = `
+"use strict";
+const http = require("node:http");
+const server = require("./server.js");
+const client = require("./client.js");
+
+function fail(...args) { console.error(...args); process.exit(1); }
+setTimeout(() => fail("TIMEOUT"), 30000).unref();
+
+const big = "x".repeat(20 * 1024 * 1024);
+const handler = {
+  async execute(req, out) {
+    if (!req.payload || req.payload.type !== "host_call") return;
+    await out.send({ payload: { type: "host_result", hostResult: { id: req.payload.hostCall.id, value: String(req.payload.hostCall.method.length) + ":" + big } } });
+  },
+};
+
+const httpServer = http.createServer();
+server.attachRuntimeNodeSocketHandlers(httpServer, handler);
+httpServer.listen(0, "127.0.0.1", async () => {
+  const socket = await new client.RuntimeClient("http://127.0.0.1:" + httpServer.address().port).execute({ payload: { type: "run", run: { code: "x" } } });
+  socket.send({ payload: { type: "host_call", hostCall: { id: "big-1", method: big } } });
+  const frame = await socket.receive();
+  const value = frame.payload && frame.payload.hostResult && frame.payload.hostResult.value;
+  if (value !== String(big.length) + ":" + big) fail("chunked round trip failed:", value && value.length);
+  console.log("OK");
+  process.exit(0);
+});
+`
+
+func TestGeneratedTSWSNodeChunkedMessages(t *testing.T) {
+	dir := buildTSNodeServer(t, wsCorrelatedFixture, nil)
+	runNodeHarness(t, dir, tsNodeChunkHarness)
 }
 
 func TestGeneratedTSWSNodeAdapterLifecycle(t *testing.T) {

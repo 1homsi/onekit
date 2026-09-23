@@ -55,7 +55,7 @@ func TestGenerateRustWS(t *testing.T) {
 		"pub struct WsFrameSocket<In, Out> {",
 		"tokio_tungstenite::connect_async_with_config(url, Some(config), false)",
 		"pub async fn chat(&self, req: &ChatMessage) -> Result<WsFrameSocket<ChatMessage, ChatEvent>, ChatServiceChatError> {",
-		"Ok(WsFrameSocket::<ChatMessage, ChatEvent>::new(stream))",
+		"Ok(WsFrameSocket::<ChatMessage, ChatEvent>::new(stream).with_max_message_bytes(self.max_ws_message_bytes))",
 	} {
 		if !strings.Contains(string(client), want) {
 			t.Fatalf("generated rust client missing %q:\n%s", want, client)
@@ -405,6 +405,12 @@ async fn main() {
                     if result.exit_code != 7 || result.result_json != format!("R:{big}") || !chunks_ok { fail(format!("raw round trip: exit {} len {}", result.exit_code, result.result_json.len())); }
                 }
                 other => fail(format!("want raw run_result, got {other:?}")),
+            }
+            let huge = "h".repeat(20 << 20);
+            socket.send(&run(&huge)).await.expect("send chunked run");
+            match socket.receive().await.and_then(|f| f.payload) {
+                Some(FramePayload::RunResult(result)) if result.result_json.len() == huge.len() + 2 => {}
+                other => fail(format!("chunked round trip failed: {:?}", other.map(|_| "wrong frame"))),
             }
             {
                 use futures_util::{SinkExt, StreamExt};

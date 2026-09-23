@@ -392,6 +392,19 @@ A 400 KB `result_json` (Apple M-series, Go 1.26, Node 26):
 | Node decode | 667 µs | 25 µs |
 | Go client ↔ Go server round trip | 3347 µs | 160 µs |
 
+### Messages over 16 MiB
+
+A message larger than 16 MiB (JSON text or a `@raw` binary frame) is sent as
+8 MiB binary chunks. Each chunk carries a 13-byte header: the marker
+`0xFFFFFFFF`, a kind byte (0 text, 1 binary) and the total length as a
+big-endian u64. The receiver reassembles them before decoding, so `@raw`
+fields remain zero-copy slices of the assembled buffer. The per-message cap
+still applies to each chunk, and the assembled total has its own cap, 256 MiB
+by default: `WithMaxWSMessageBytes` / `MaxWSMessageBytes` in Go,
+`maxMessageBytes` in TypeScript, `max_message_bytes` / `with_max_ws_message_bytes`
+in Rust. Over it, the connection closes with 1009. Anything up to 16 MiB goes
+out exactly as before.
+
 ### Frame size limit
 
 Every target caps one inbound message at 16 MiB by default and closes the
