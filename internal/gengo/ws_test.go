@@ -1269,3 +1269,244 @@ func TestGeneratedWSFastJSONMatchesEncodingJSON(t *testing.T) {
 		t.Fatalf("fast JSON differential test failed: %v\n%s", err, out)
 	}
 }
+
+const wsPerfFixtureSrc = `
+package wsp
+
+message Call {
+  id: string
+  method: string
+  args: string[]
+}
+
+message RunResult {
+  exit_code: int32
+  result_json: string @raw
+}
+
+message PlainResult {
+  exit_code: int32
+  result_json: string
+}
+
+message Frame {
+  payload: oneof(discriminator: "type") {
+    call: Call @tag("call")
+    run_result: RunResult @tag("run_result")
+    plain_result: PlainResult @tag("plain_result")
+  }
+}
+
+service Runtime {
+  base_path: "/v1"
+
+  execute(Frame) -> Frame @ws("/execute")
+}
+`
+
+const wsPerfHarness = `
+package wsp
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+var payload = func() string {
+	var b strings.Builder
+	b.WriteString("[")
+	for b.Len() < 400*1024 {
+		b.WriteString("{\"id\":\"row-1234\",\"name\":\"O'Brien \\\"the\\\" builder\",\"note\":\"line1\\nline2\"},")
+	}
+	b.WriteString("{}]")
+	return b.String()
+}()
+
+var (
+	rawFrame   = &Frame{Payload: &FramePayloadRunResult{RunResult: &RunResult{ResultJson: payload}}}
+	plainFrame = &Frame{Payload: &FramePayloadPlainResult{PlainResult: &PlainResult{ResultJson: payload}}}
+	callFrame  = &Frame{Payload: &FramePayloadCall{Call: &Call{Id: "call-123", Method: "doThing", Args: []string{"a", "b"}}}}
+)
+
+type plainStruct struct {
+	PlainResult *PlainResult ` + "`json:\"plain_result\"`" + `
+}
+
+func nsPerOp(f func(b *testing.B)) float64 {
+	best := 0.0
+	for i := 0; i < 3; i++ {
+		r := testing.Benchmark(f)
+		ns := float64(r.T.Nanoseconds()) / float64(r.N)
+		if best == 0 || ns < best {
+			best = ns
+		}
+	}
+	return best
+}
+
+func budget(t *testing.T, name string, slow, fast, minRatio float64) {
+	t.Helper()
+	ratio := slow / fast
+	t.Logf("%s: %.0f ns vs %.0f ns (%.1fx, budget >= %.1fx)", name, slow, fast, ratio, minRatio)
+	if ratio < minRatio {
+		t.Errorf("%s regressed: %.1fx faster, budget is >= %.1fx", name, ratio, minRatio)
+	}
+}
+
+func ceiling(t *testing.T, name string, subject, baseline, maxRatio float64) {
+	t.Helper()
+	ratio := subject / baseline
+	t.Logf("%s: %.0f ns vs %.0f ns (%.1fx, budget <= %.1fx)", name, subject, baseline, ratio, maxRatio)
+	if ratio > maxRatio {
+		t.Errorf("%s regressed: %.1fx slower, budget is <= %.1fx", name, ratio, maxRatio)
+	}
+}
+
+type impl struct{}
+
+func (impl) Execute(ctx context.Context, req *Frame, out WSOut[Frame]) error {
+	if req.GetCall() == nil {
+		return nil
+	}
+	if req.GetCall().Method == "raw" {
+		return out.Send(ctx, rawFrame)
+	}
+	return out.Send(ctx, plainFrame)
+}
+
+func roundTrip(method string) func(b *testing.B) {
+	return func(b *testing.B) {
+		mux := http.NewServeMux()
+		_ = RegisterRuntimeServer(mux, impl{})
+		server := httptest.NewServer(mux)
+		defer server.Close()
+		ctx := context.Background()
+		socket, err := NewRuntimeClient(server.URL).Execute(ctx, &Frame{})
+		if err != nil {
+			b.Fatal(err)
+		}
+		defer socket.Close()
+		req := &Frame{Payload: &FramePayloadCall{Call: &Call{Method: method}}}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = socket.Send(ctx, req)
+			if _, err := socket.Receive(ctx); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+}
+
+func TestPerfBudgets(t *testing.T) {
+	plainJSON, _ := json.Marshal(plainFrame)
+	_, rawData, rawSegments, _ := wsEncode(rawFrame)
+	rawWire := append(append([]byte(nil), rawData...), rawSegments[0]...)
+	callJSON, _ := json.Marshal(callFrame)
+	plainStructJSON, _ := json.Marshal(plainStruct{PlainResult: plainFrame.GetPlainResult()})
+
+	stdDecodeLarge := nsPerOp(func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			var f Frame
+			_ = json.Unmarshal(plainJSON, &f)
+		}
+	})
+	rawDecodeLarge := nsPerOp(func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			var f Frame
+			_ = wsDecode(true, rawWire, &f)
+		}
+	})
+	budget(t, "raw decode vs JSON decode (400 KB)", stdDecodeLarge, rawDecodeLarge, 100)
+
+	plainStructDecode := nsPerOp(func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			var v plainStruct
+			_ = json.Unmarshal(plainStructJSON, &v)
+		}
+	})
+	ceiling(t, "oneof std decode vs plain struct (400 KB)", stdDecodeLarge, plainStructDecode, 3)
+
+	stdDecodeSmall := nsPerOp(func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			var f Frame
+			_ = f.UnmarshalJSON(callJSON)
+		}
+	})
+	fastDecodeSmall := nsPerOp(func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			var f Frame
+			_ = wsUnmarshal(callJSON, &f)
+		}
+	})
+	budget(t, "fast decode vs std decode (small frame)", stdDecodeSmall, fastDecodeSmall, 2)
+
+	stdEncodeSmall := nsPerOp(func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_, _ = callFrame.MarshalJSON()
+		}
+	})
+	fastEncodeSmall := nsPerOp(func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			buf := wsGetBuffer()
+			_, data, _, _ := wsEncodeAppend((*buf)[:0], callFrame)
+			*buf = data[:0]
+			wsPutBuffer(buf)
+		}
+	})
+	budget(t, "fast encode vs std encode (small frame)", stdEncodeSmall, fastEncodeSmall, 1.5)
+
+	budget(t, "raw vs JSON round trip (400 KB)", nsPerOp(roundTrip("json")), nsPerOp(roundTrip("raw")), 5)
+}
+`
+
+func TestGeneratedWSPerfBudgets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("perf budgets skipped in -short mode")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	ast, err := onklang.Parse(wsPerfFixtureSrc)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "wsp.onk", AST: ast}})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	file := pkg.Files[0]
+	dir := t.TempDir()
+	files := map[string]string{
+		"go.mod":          "module wsp\n\ngo 1.24\n\nrequire github.com/coder/websocket v1.8.15\n",
+		"harness_test.go": wsPerfHarness,
+	}
+	for name, generate := range map[string]func(*onkir.File) ([]byte, error){
+		"server.go": GenerateServer, "client.go": GenerateClient, "types.gen.go": GenerateTypes, "validate.gen.go": GenerateValidation,
+	} {
+		src, err := generate(file)
+		if err != nil {
+			t.Fatalf("generate %s: %v", name, err)
+		}
+		files[name] = string(src)
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	for _, args := range [][]string{{"mod", "tidy"}, {"test", "-run", "TestPerfBudgets", "-v", "-count=1", "-test.benchtime=200ms", "-timeout", "300s", "."}} {
+		cmd := exec.Command("go", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("go %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		if args[0] == "test" {
+			t.Logf("%s", out)
+		}
+	}
+}

@@ -158,10 +158,11 @@ type typesImports struct {
 	io      bool
 	math    bool
 	utf8    bool
+	sync    bool
 }
 
 func (imp typesImports) any() bool {
-	return imp.time || imp.fmt || imp.json || imp.hex || imp.base64 || imp.strconv || imp.strings || imp.binary || imp.errors || imp.unsafe || imp.io || imp.math || imp.utf8
+	return imp.time || imp.fmt || imp.json || imp.hex || imp.base64 || imp.strconv || imp.strings || imp.binary || imp.errors || imp.unsafe || imp.io || imp.math || imp.utf8 || imp.sync
 }
 
 func computeTypesImports(file *onkir.File) typesImports {
@@ -251,6 +252,9 @@ func writeTypesImports(p *Printer, imp typesImports, externalRefs []PackageRef) 
 	if imp.strings {
 		p.P(`"strings"`)
 	}
+	if imp.sync {
+		p.P(`"sync"`)
+	}
 	if imp.time {
 		p.P(`"time"`)
 	}
@@ -287,7 +291,7 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) ([]by
 	imp.binary, imp.errors, imp.unsafe = hasRaw, hasRaw, hasRaw
 	imp.io = hasWS
 	if hasWS {
-		imp.errors, imp.strconv, imp.strings, imp.base64, imp.math, imp.utf8 = true, true, true, true, true, true
+		imp.errors, imp.strconv, imp.strings, imp.base64, imp.math, imp.utf8, imp.sync = true, true, true, true, true, true, true
 	}
 	writeTypesImports(p, imp, collectExternalRefs(file, resolver))
 
