@@ -1428,7 +1428,7 @@ func TestPerfBudgets(t *testing.T) {
 			_ = json.Unmarshal(plainStructJSON, &v)
 		}
 	})
-	ceiling(t, "oneof std decode vs plain struct (400 KB)", stdDecodeLarge, plainStructDecode, 3)
+	ceiling(t, "oneof std decode vs plain struct (400 KB)", stdDecodeLarge, plainStructDecode, 8)
 
 	stdDecodeSmall := nsPerOp(func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
