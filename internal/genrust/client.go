@@ -85,6 +85,9 @@ func writeClient(p *Printer, service *onkir.Service) {
 	if serviceHasWS(service) {
 		p.P("max_ws_frame_bytes: usize,")
 	}
+	if serviceHasCorrelatedWS(service) {
+		p.P("ws_ping_interval: Option<std::time::Duration>,")
+	}
 	p.Dedent()
 	p.P("}")
 	p.Blank()
@@ -93,6 +96,9 @@ func writeClient(p *Printer, service *onkir.Service) {
 	wsFrameInit := ""
 	if serviceHasWS(service) {
 		wsFrameInit = ", max_ws_frame_bytes: DEFAULT_MAX_WS_FRAME_BYTES"
+	}
+	if serviceHasCorrelatedWS(service) {
+		wsFrameInit += ", ws_ping_interval: Some(std::time::Duration::from_secs(30))"
 	}
 	p.P("pub fn new(base_url: impl Into<String>) -> Self {")
 	p.Indent()
@@ -136,6 +142,15 @@ func writeClient(p *Printer, service *onkir.Service) {
 	p.Dedent()
 	p.P("}")
 	p.Blank()
+	if serviceHasCorrelatedWS(service) {
+		p.P("pub fn with_ws_ping_interval(mut self, interval: Option<std::time::Duration>) -> Self {")
+		p.Indent()
+		p.P("self.ws_ping_interval = interval;")
+		p.P("self")
+		p.Dedent()
+		p.P("}")
+		p.Blank()
+	}
 	if serviceHasWS(service) {
 		p.P("// Cap on one inbound WebSocket message; a larger one ends the connection.")
 		p.P("pub fn with_max_ws_frame_bytes(mut self, limit: usize) -> Self {")
@@ -509,4 +524,13 @@ func pathFieldNames(path string) []string {
 		}
 	}
 	return names
+}
+
+func serviceHasCorrelatedWS(service *onkir.Service) bool {
+	for _, method := range service.Methods {
+		if _, ok := method.WSIDField(); ok && method.IsWebSocket() {
+			return true
+		}
+	}
+	return false
 }

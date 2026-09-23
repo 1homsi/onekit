@@ -100,7 +100,7 @@ var (
 		"min_items": {minArgs: 1, maxArgs: 1}, "max_items": {minArgs: 1, maxArgs: 1},
 		flattenDecorator: {minArgs: 0, maxArgs: 1}, "encode": {minArgs: 1, maxArgs: 1},
 		"empty": {minArgs: 1, maxArgs: 1}, "query": {minArgs: 0, maxArgs: 1},
-		wsIDDecorator: {}, "raw": {},
+		wsIDDecorator: {}, "raw": {}, "ws_timeout": {},
 	}
 	headerDecorators = map[string]decoratorRule{
 		"required": {}, "format": {minArgs: 1, maxArgs: 1}, "example": {minArgs: 1, maxArgs: 1},
@@ -285,9 +285,9 @@ func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl, 
 			if !field.Repeated {
 				return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@%s requires a repeated field", decorator.Name)}
 			}
-		case "raw":
-			if field.Repeated || field.Optional || !(isScalarNamed(field.Type, "string") || isScalarNamed(field.Type, "bytes")) {
-				return &Error{Path: filePath, Line: field.Line, Msg: "@raw requires a non-repeated, non-optional string or bytes field"}
+		case "ws_timeout", "raw":
+			if err := validateWSFieldDecorator(filePath, field, decorator.Name); err != nil {
+				return err
 			}
 		case wsIDDecorator:
 			if !isWSIDTypeRef(field.Type) || field.Repeated {
@@ -1009,6 +1009,11 @@ func validateWSCorrelation(filePath string, method *onkir.Method) error {
 			return err
 		}
 	}
+	for _, message := range []*onkir.Message{method.Request, method.Response} {
+		if err := validateWSTimeoutFields(filePath, method.Name, message); err != nil {
+			return err
+		}
+	}
 	all := append(append([]*onkir.Field{}, requestFields...), responseFields...)
 	if len(all) == 0 {
 		return nil
@@ -1104,6 +1109,41 @@ func wsIDFieldInScope(filePath, methodName, scope string, fields []*onkir.Field)
 	return found, nil
 }
 
+func validateWSTimeoutFields(filePath, methodName string, message *onkir.Message) error {
+	check := func(scope string, m *onkir.Message) error {
+		count := 0
+		for _, f := range m.Fields {
+			if !f.HasDecorator("ws_timeout") {
+				continue
+			}
+			count++
+			if count > 1 {
+				return &Error{Path: filePath, Msg: fmt.Sprintf("%s on RPC %s has more than one @ws_timeout field", scope, methodName)}
+			}
+			if onkir.FindWSIDDirect(m) == nil {
+				return &Error{Path: filePath, Msg: fmt.Sprintf("@ws_timeout field %s on RPC %s must sit next to a @ws_id field", f.Name, methodName)}
+			}
+		}
+		return nil
+	}
+	if err := check("message "+message.Name, message); err != nil {
+		return err
+	}
+	for _, f := range message.Fields {
+		if f.Oneof == nil {
+			continue
+		}
+		for _, v := range f.Oneof.Variants {
+			if v.Type != nil && v.Type.Kind == onkir.KindMessage && v.Type.Message != nil {
+				if err := check("oneof variant "+v.Name, v.Type.Message); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func methodField(message *onkir.Message, name string) *onkir.Field {
 	for _, field := range message.Fields {
 		if field.Name == name {
@@ -1121,4 +1161,23 @@ func argCount(minimum, maximum int) string {
 		return "at least " + strconv.Itoa(minimum) + " argument(s)"
 	}
 	return strconv.Itoa(minimum) + " to " + strconv.Itoa(maximum) + " argument(s)"
+}
+
+func isIntegerTypeRef(typ *onklang.TypeRef) bool {
+	for _, name := range []string{"int32", "int64", "uint32", "uint64"} {
+		if isScalarNamed(typ, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateWSFieldDecorator(filePath string, field *onklang.FieldDecl, name string) error {
+	if name == "ws_timeout" && (field.Repeated || field.Optional || !isIntegerTypeRef(field.Type)) {
+		return &Error{Path: filePath, Line: field.Line, Msg: "@ws_timeout requires a non-repeated, non-optional integer field"}
+	}
+	if name == "raw" && (field.Repeated || field.Optional || !(isScalarNamed(field.Type, "string") || isScalarNamed(field.Type, "bytes"))) {
+		return &Error{Path: filePath, Line: field.Line, Msg: "@raw requires a non-repeated, non-optional string or bytes field"}
+	}
+	return nil
 }

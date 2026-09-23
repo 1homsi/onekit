@@ -77,7 +77,8 @@ message RunResult {
   chunks: Chunk[]
 }
 message HostCall { id: string @ws_id
-method: string }
+method: string
+timeout_ms: int64 @ws_timeout }
 message HostResult { id: string @ws_id
 value: string }
 message Cancel { id: string @ws_id }
@@ -217,7 +218,7 @@ fn frame(payload: FramePayload) -> Frame {
 }
 
 fn host_call(id: &str) -> Frame {
-    frame(FramePayload::HostCall(HostCall { id: id.into(), method: "doThing".into() }))
+    frame(FramePayload::HostCall(HostCall { id: id.into(), method: "doThing".into(), timeout_ms: 0 }))
 }
 
 fn fail(message: String) -> ! {
@@ -304,6 +305,7 @@ async fn until_run_result(socket: &WsCallSocket<String, Frame, Frame>) -> (Vec<S
     while let Some(received) = socket.receive().await {
         match received.payload {
             Some(FramePayload::HostCall(call)) => {
+                if call.id == "slow-1" && call.timeout_ms != 200 { fail(format!("timeout_ms not stamped: {}", call.timeout_ms)); }
                 seen.push(format!("host_call:{}", call.id));
                 if call.id == "call-1" {
                     let reply = frame(FramePayload::HostResult(HostResult { id: call.id, value: "answer".into() }));
@@ -382,7 +384,7 @@ async fn main() {
                 Some(FramePayload::HostCall(call)) if call.id == "dup-1" => {}
                 other => fail(format!("want the server's host_call, got {other:?}")),
             }
-            let mine = frame(FramePayload::HostCall(HostCall { id: "dup-1".into(), method: "client".into() }));
+            let mine = frame(FramePayload::HostCall(HostCall { id: "dup-1".into(), method: "client".into(), timeout_ms: 0 }));
             socket.send(&mine).await.expect("send colliding call");
             let (_, code) = until_run_result(&socket).await;
             if code != 11 { fail(format!("colliding call was taken for the reply: {code}")); }
@@ -413,6 +415,23 @@ async fn main() {
                 match raw_ws.next().await {
                     Some(Ok(Message::Binary(_))) => {}
                     other => fail(format!("want a binary raw frame, got {other:?}")),
+                }
+            }
+            {
+                let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+                let silent_addr = silent.local_addr().expect("addr");
+                tokio::spawn(async move {
+                    if let Ok((tcp, _)) = silent.accept().await {
+                        let held = tokio_tungstenite::accept_async(tcp).await;
+                        tokio::time::sleep(Duration::from_secs(30)).await;
+                        drop(held);
+                    }
+                });
+                let client = RuntimeClient::new(format!("http://{silent_addr}")).with_ws_ping_interval(Some(Duration::from_millis(100)));
+                let socket = client.execute(&run("x")).await.expect("connect silent");
+                match tokio::time::timeout(Duration::from_secs(3), socket.call("k-1".to_string(), &host_call("k-1"))).await {
+                    Ok(Err(generated::client::WsCallError::Closed)) => {}
+                    other => fail(format!("unanswered pings: want Closed, got {other:?}")),
                 }
             }
             let closed = raw_close(addr, r#"{"payload":{"type":"run","run":{"code":"close"}}}"#).await;

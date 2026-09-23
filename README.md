@@ -301,6 +301,25 @@ call is abandoned. A cancel frame is never treated as a reply: it arrives at
 the peer's handler (server) or `receive()` (client) like any other frame, and
 the peer decides what stopping means.
 
+### Deadline propagation with `@ws_timeout`
+
+Mark an integer field next to a call's `@ws_id` with `@ws_timeout`:
+
+```onk
+message HostCall {
+  id: string @ws_id
+  method: string
+  timeout_ms: int64 @ws_timeout
+}
+```
+
+When a call carries a deadline, the generated code writes the remaining
+milliseconds into that field on a copy of the frame (the caller's value is
+never modified, and an explicitly set value wins). The deadline comes from Go's
+`ctx` deadline, TypeScript's `timeoutMs`, or Rust's `call_timeout`. The
+receiving handler reads it and can give up on work the caller will no longer
+wait for.
+
 ### Errors on the wire
 
 A `@ws` connection never carries off-schema frames. When the server rejects
@@ -331,7 +350,11 @@ Servers ping every 30 seconds and drop a peer that misses a pong, so a hard
 network drop ends the connection instead of hanging until a timeout. Set
 `WithWSPingInterval(d)` in Go (negative disables), `pingIntervalMs` in the
 TypeScript Node adapter (0 disables), or `WsServerOptions::ping_interval` in
-Rust (`None` disables). A client that receives a frame it can't decode fails
+Rust (`None` disables). Clients of methods that use `@ws_id` ping too, every
+30 seconds by default, and fail in-flight calls with a closed error when a
+pong goes missing: `WSPingInterval` in Go, `with_ws_ping_interval` in Rust.
+Browsers and Node's built-in `WebSocket` offer no ping API, so TypeScript
+clients rely on the server's pings. A client that receives a frame it can't decode fails
 the socket (a 1007 `WSClosedError` in TypeScript, the decode error in Go)
 rather than skipping it.
 

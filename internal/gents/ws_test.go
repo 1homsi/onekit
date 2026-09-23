@@ -81,7 +81,8 @@ package wsc
 message RunRequest { code: string }
 message RunResult { exit_code: int32 }
 message HostCall { id: string @ws_id
-method: string }
+method: string
+timeout_ms: int64 @ws_timeout }
 message HostResult { id: string @ws_id
 value: string }
 message Cancel { id: string @ws_id }
@@ -425,6 +426,7 @@ function serverCallsCancel(addr) {
     ws.on("open", () => ws.send(JSON.stringify({ payload: { type: "run", run: { code: "server-calls" } } })));
     ws.on("message", (data) => {
       const p = JSON.parse(String(data)).payload;
+      if (p.type === "host_call" && p.host_call.id === "slow-1" && p.host_call.timeout_ms !== "150") fail("timeout_ms not stamped:", JSON.stringify(p));
       seen.push(p.type + ":" + (p.host_call || p.cancel || {}).id);
       if (p.type === "run_result") { ws.close(); resolve(seen.join(",")); }
     });

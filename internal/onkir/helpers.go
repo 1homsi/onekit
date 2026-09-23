@@ -504,3 +504,32 @@ func RawSteps(m *Message, external func(*Message) bool) []RawStep {
 	}
 	return steps
 }
+
+func WSTimeoutField(m *Message) *Field {
+	if m == nil {
+		return nil
+	}
+	for _, f := range m.Fields {
+		if f.Oneof == nil && f.HasDecorator("ws_timeout") {
+			return f
+		}
+	}
+	return nil
+}
+
+func MessageHasWSTimeout(m *Message) bool {
+	if WSTimeoutField(m) != nil {
+		return true
+	}
+	for _, f := range m.Fields {
+		if f.Oneof == nil {
+			continue
+		}
+		for _, v := range f.Oneof.Variants {
+			if v.Type != nil && v.Type.Kind == KindMessage && WSTimeoutField(v.Type.Message) != nil {
+				return true
+			}
+		}
+	}
+	return false
+}

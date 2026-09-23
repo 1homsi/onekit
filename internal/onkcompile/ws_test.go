@@ -252,3 +252,28 @@ func TestRawFieldValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestWSTimeoutValidation(t *testing.T) {
+	ok := "package w\nmessage Call { id: string @ws_id\nt: int64 @ws_timeout }\nmessage Frame { payload: oneof(discriminator: \"type\") { call: Call } }\nservice S { f(Frame) -> Frame @ws(\"/y\") }\n"
+	ast, err := parseSrc(ok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Compile([]Source{{Path: "w.onk", AST: ast}}); err != nil {
+		t.Fatalf("expected @ws_timeout next to @ws_id to compile, got %v", err)
+	}
+	for src, want := range map[string]string{
+		"message M { t: string @ws_timeout }":                                                                                       "@ws_timeout requires a non-repeated, non-optional integer field",
+		"message Call { t: int64 @ws_timeout }\nservice S { f(Call) -> Call @ws(\"/y\") }":                                          "must sit next to a @ws_id field",
+		"message Call { id: string @ws_id\na: int64 @ws_timeout\nb: int32 @ws_timeout }\nservice S { f(Call) -> Call @ws(\"/y\") }": "more than one @ws_timeout field",
+	} {
+		ast, err := parseSrc("package w\n" + src + "\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = Compile([]Source{{Path: "w.onk", AST: ast}})
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%s: want %q, got %v", src, want, err)
+		}
+	}
+}

@@ -44,7 +44,8 @@ package wsc
 message RunRequest { code: string }
 message RunResult { exit_code: int32 }
 message HostCall { id: string @ws_id
-method: string }
+method: string
+timeout_ms: int64 @ws_timeout }
 message HostResult { id: string @ws_id
 value: string }
 message Cancel { id: string @ws_id }
@@ -118,7 +119,7 @@ func TestGenerateClientWebSocketsCorrelated(t *testing.T) {
 		"type wsPending[K comparable, T any] struct {",
 		"*wsPending[string, *Frame]",
 		"func (d *FrameToFrameSocket) Call(ctx context.Context, id string, value *Frame) (*Frame, error) {",
-		"func (d *FrameToFrameSocket) readLoop() {",
+		"func (d *FrameToFrameSocket) readLoop(stop context.CancelFunc) {",
 		"d.pending.resolve(id, variant, frame)",
 		"id, idOk = v.HostCall.Id, true",
 		"id, idOk = v.HostResult.Id, true",
@@ -760,6 +761,66 @@ func TestRuntimeHandlerClosesItsConnection(t *testing.T) {
 		t.Fatalf("want close 4000 \"idle\", got %v", err)
 	}
 }
+
+func TestRuntimeClientKeepAliveDropsUnresponsiveServer(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/execute", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		<-r.Context().Done()
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	client := NewRuntimeClient(server.URL)
+	client.WSPingInterval = 100 * time.Millisecond
+	socket := dialRuntimeClient(t, client)
+	done := make(chan error, 1)
+	go func() {
+		_, err := socket.Call(context.Background(), "k-1", &Frame{Payload: &FramePayloadHostCall{HostCall: &HostCall{Id: "k-1", Method: "x"}}})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("want net.ErrClosed once pings go unanswered, got %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("a server that never answers pings was never dropped")
+	}
+}
+
+type deadlineImpl struct{ seen chan int64 }
+
+func (h *deadlineImpl) Execute(ctx context.Context, req *Frame, out *RuntimeExecuteOut) error {
+	if c := req.GetHostCall(); c != nil {
+		h.seen <- c.TimeoutMs
+	}
+	return nil
+}
+
+func TestRuntimeCallStampsDeadline(t *testing.T) {
+	impl := &deadlineImpl{seen: make(chan int64, 2)}
+	socket := dialRuntime(t, impl)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	call := &Frame{Payload: &FramePayloadHostCall{HostCall: &HostCall{Id: "d-1", Method: "x"}}}
+	go func() { _, _ = socket.Call(ctx, "d-1", call) }()
+	got := <-impl.seen
+	if got <= 1000 || got > 2000 {
+		t.Fatalf("want the remaining ~2000 ms stamped into timeout_ms, got %d", got)
+	}
+	if call.GetHostCall().TimeoutMs != 0 {
+		t.Fatal("Call mutated the caller's frame")
+	}
+	explicit := &Frame{Payload: &FramePayloadHostCall{HostCall: &HostCall{Id: "d-2", Method: "x", TimeoutMs: 42}}}
+	go func() { _, _ = socket.Call(ctx, "d-2", explicit) }()
+	if got := <-impl.seen; got != 42 {
+		t.Fatalf("an explicit timeout_ms must win, got %d", got)
+	}
+}
 `
 
 // TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants actually runs a
@@ -826,6 +887,8 @@ func TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants(t *testing.T) {
 		"--- PASS: TestRuntimeKeepAliveDropsUnresponsivePeer",
 		"--- PASS: TestRuntimeClientFailsOnUndecodableFrame",
 		"--- PASS: TestRuntimeHandlerClosesItsConnection",
+		"--- PASS: TestRuntimeClientKeepAliveDropsUnresponsiveServer",
+		"--- PASS: TestRuntimeCallStampsDeadline",
 	} {
 		if !strings.Contains(string(out), want) {
 			t.Fatalf("expected %q in harness output:\n%s", want, out)
