@@ -123,7 +123,7 @@ func writeTSRawFuncs(p *Printer, m *onkir.Message) {
 				continue
 			}
 			vProp := CamelCase(step.Variant.Name)
-			p.P(fmt.Sprintf("if (%s && %s.%s === %q) %s = { ...%s, %s: %s(%s.%s, raw) };", prop, prop, disc, step.Variant.Tag(), prop, prop, vProp, split, prop, vProp))
+			p.P(fmt.Sprintf("if (%s && %s.%s === %q && %s.%s !== undefined) %s = { ...%s, %s: %s(%s.%s, raw) };", prop, prop, disc, step.Variant.Tag(), prop, vProp, prop, prop, vProp, split, prop, vProp))
 		case step.Child != nil && step.Field.Repeated:
 			p.P("if (", prop, " !== undefined) ", prop, " = ", prop, ".map((item) => ", p.rawSplitName(step.Child), "(item, raw));")
 		case step.Child != nil:
@@ -150,7 +150,7 @@ func writeTSRawFuncs(p *Printer, m *onkir.Message) {
 			if !step.Field.Oneof.Flatten() {
 				target = prop + "." + CamelCase(step.Variant.Name)
 			}
-			p.P(fmt.Sprintf("if (%s && %s.%s === %q && !%s(%s, raw, at)) return false;", prop, prop, disc, step.Variant.Tag(), join, target))
+			p.P(fmt.Sprintf("if (%s && %s.%s === %q && %s !== undefined && !%s(%s, raw, at)) return false;", prop, prop, disc, step.Variant.Tag(), target, join, target))
 		case step.Child != nil && step.Field.Repeated:
 			p.P("for (const item of ", prop, " ?? []) if (!", p.rawJoinName(step.Child), "(item, raw, at)) return false;")
 		case step.Child != nil:

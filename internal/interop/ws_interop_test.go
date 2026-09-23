@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/1homsi/onekit/internal/gengo"
+	"github.com/1homsi/onekit/internal/genpy"
 	"github.com/1homsi/onekit/internal/genrust"
 	"github.com/1homsi/onekit/internal/gents"
 	"github.com/1homsi/onekit/internal/onkcompile"
@@ -651,4 +652,93 @@ func buildRustHarness(t *testing.T) string {
 		bin += ".exe"
 	}
 	return bin
+}
+
+const pyClientHarness = `
+import base64
+import sys
+
+from client import RuntimeClient, WsTimeoutError
+from models import Frame
+
+BIG = '{"k":"v\\n"},' * (30 * 1024)
+
+
+def fail(*args):
+    print(*args, file=sys.stderr)
+    sys.exit(1)
+
+
+def until_result(sock):
+    while True:
+        payload = sock.receive(timeout=20).payload
+        if payload["type"] == "host_call":
+            call = payload["host_call"]
+            if call.get("method") != "doThing":
+                fail("host_call body did not decode:", call)
+            sock.send(Frame(payload={"type": "host_result", "host_result": {"id": call["id"], "value": "answer"}}))
+            continue
+        if payload["type"] == "run_result":
+            return payload["run_result"]
+        fail("unexpected frame:", payload)
+
+
+sock = RuntimeClient(sys.argv[1]).execute(Frame(payload={"type": "run", "run": {"code": BIG}}))
+sock.send(Frame(payload={"type": "run", "run": {"code": BIG}}))
+result = until_result(sock)
+chunks = [base64.b64decode(c.get("data") or "") for c in result.get("chunks", [])]
+if result.get("exit_code") != 7 or result.get("result_json") != "R:" + BIG:
+    fail("raw string did not round trip:", len(result.get("result_json") or ""))
+if chunks != [bytes([0, 1, 2]), b"", bytes([0xFF]) * 1000]:
+    fail("raw bytes did not round trip:", [len(c) for c in chunks])
+
+huge = "h" * (20 << 20)
+sock.send(Frame(payload={"type": "run", "run": {"code": huge}}))
+if until_result(sock).get("result_json") != "R:" + huge:
+    fail("chunked round trip failed")
+
+try:
+    sock.call("c-1", Frame(payload={"type": "host_call", "host_call": {"id": "c-1", "method": "slow"}}), timeout=0.1)
+    fail("abandoned call returned")
+except WsTimeoutError:
+    pass
+after = sock.receive(timeout=10).payload
+if after.get("type") != "run_result" or after["run_result"].get("exit_code") != 9:
+    fail("server never saw the cancel:", after)
+sock.close()
+print("OK")
+`
+
+func TestWSPythonClientGoServer(t *testing.T) {
+	goBin := buildGoHarness(t)
+	python := pythonWithWebsockets(t)
+	file := compileSchema(t)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "models.py"), string(genpy.GenerateTypes(file)))
+	writeFile(t, filepath.Join(dir, "client.py"), string(genpy.GenerateClient(file, "models")))
+	writeFile(t, filepath.Join(dir, "harness.py"), pyClientHarness)
+	port := startServer(t, "", goBin, "server")
+	expectOK(t, dir, python, "harness.py", "http://127.0.0.1:"+port)
+}
+
+func pythonWithWebsockets(t *testing.T) string {
+	t.Helper()
+	base, err := exec.LookPath("python3")
+	if err != nil {
+		if base, err = exec.LookPath("python"); err != nil {
+			t.Skip("python not available")
+		}
+	}
+	venv := filepath.Join(t.TempDir(), "venv")
+	if out, err := exec.Command(base, "-m", "venv", venv).CombinedOutput(); err != nil {
+		t.Skipf("python venv unavailable: %v\n%s", err, out)
+	}
+	python := filepath.Join(venv, "bin", "python")
+	if runtime.GOOS == "windows" {
+		python = filepath.Join(venv, "Scripts", "python.exe")
+	}
+	if out, err := exec.Command(python, "-m", "pip", "install", "--quiet", "websockets>=12").CombinedOutput(); err != nil {
+		t.Skipf("installing websockets failed: %v\n%s", err, out)
+	}
+	return python
 }
