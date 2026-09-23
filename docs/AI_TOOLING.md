@@ -81,15 +81,17 @@ returned declaration's path and `range.start` to `onekit_references`.
 References use resolved compiler object identities, covering field types, map
 values, oneof variants, and RPC request/response/error types. Same-named types
 in different directories remain distinct; import scopes follow the compiler.
-Hover describes declarations and their documentation. Decorator and primitive
-scalar hover, completion, rename, formatting, and call hierarchy are not yet
+Hover describes declarations, their documentation and their decorators, with an
+explanation of the WebSocket ones (`@ws`, `@ws_id`, `@ws_cancel`, `@ws_timeout`,
+`@raw`) and other common decorators. Typing `@` offers decorator completions.
+Primitive scalar hover, rename, formatting, and call hierarchy are not yet
 implemented.
 
 MCP reads saved files only. LSP additionally overlays open documents, including
 unsaved new .onk files inside the schema tree. It advertises full-document
 synchronization and UTF-16 positions, publishes diagnostics on open/change/save/
 close, and clears stale diagnostics. It supports definition, references, hover,
-document symbols, and workspace symbol search.
+decorator completion, document symbols, and workspace symbol search.
 
 On a syntax/semantic error, declarations from successfully parsed files remain
 available, but type-reference bindings are withheld until compilation succeeds.
