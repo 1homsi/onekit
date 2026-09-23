@@ -1014,3 +1014,258 @@ func TestGeneratedWSRawFrames(t *testing.T) {
 		}
 	}
 }
+
+const wsFastJSONFixtureSrc = `
+package wsj
+
+enum Level {
+  LOW
+  MID
+  HIGH
+}
+
+message Inner {
+  name: string
+  n: int32
+}
+
+message All {
+  s: string
+  b: bool
+  i32: int32
+  u32: uint32
+  i64: int64
+  u64: uint64
+  i64n: int64 @encode(number)
+  f32: float32
+  f64: float64
+  by: bytes
+  lvl: Level
+  ts: timestamp
+  j: json
+  m: map[string, Inner]
+  inner: Inner
+  inners: Inner[]
+  ss: string[]
+  i64s: int64[]
+  lvls: Level[]
+  os: string?
+  oi64: int64?
+  ob: bool?
+  olvl: Level?
+  choice: oneof(discriminator: "kind") {
+    a: Inner @tag("a")
+    t: string @tag("t")
+    n: int64 @tag("n")
+    l: Level @tag("l")
+  }
+}
+
+service S {
+  base_path: "/v1"
+
+  f(All) -> All @ws("/x")
+}
+`
+
+const wsFastJSONHarness = `
+package wsj
+
+import (
+	"encoding/json"
+	"math/rand"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+)
+
+func randString(r *rand.Rand) string {
+	pool := []string{"", "a", "héllo", "quote\"back\\slash", "ctl\n\t\r\x01", "\u2028sep", "emoji 🎉", "\xff\xfeinvalid", "<html>&", strings.Repeat("x", 300)}
+	return pool[r.Intn(len(pool))]
+}
+
+func randInner(r *rand.Rand) *Inner {
+	if r.Intn(4) == 0 {
+		return nil
+	}
+	return &Inner{Name: randString(r), N: int32(r.Intn(2000) - 1000)}
+}
+
+func randAll(r *rand.Rand) *All {
+	a := &All{
+		S: randString(r), B: r.Intn(2) == 0, I32: int32(r.Uint32()), U32: r.Uint32(),
+		I64: r.Int63() - r.Int63(), U64: r.Uint64(), I64n: int64(r.Intn(1 << 50)),
+		F32: float32(r.NormFloat64() * 1e3), F64: r.NormFloat64() * []float64{1, 1e-9, 1e25, 0}[r.Intn(4)],
+		Lvl: Level(r.Intn(3)), Ts: time.Unix(r.Int63n(1<<32), r.Int63n(1e9)).UTC(), Inner: randInner(r),
+	}
+	if r.Intn(2) == 0 {
+		a.By = []byte(randString(r))
+	}
+	if r.Intn(2) == 0 {
+		a.J = json.RawMessage([]string{"{\"x\":[1,2,{\"y\":null}]}", "\"s\"", "12.5", "true"}[r.Intn(4)])
+	}
+	if r.Intn(2) == 0 {
+		a.M = map[string]*Inner{"k": randInner(r), "é": {Name: "v"}}
+	}
+	for i := r.Intn(3); i > 0; i-- {
+		a.Inners = append(a.Inners, randInner(r))
+		a.Ss = append(a.Ss, randString(r))
+		a.I64s = append(a.I64s, r.Int63())
+		a.Lvls = append(a.Lvls, Level(r.Intn(3)))
+	}
+	if r.Intn(2) == 0 {
+		s := randString(r)
+		a.Os = &s
+	}
+	if r.Intn(2) == 0 {
+		v := r.Int63()
+		a.Oi64 = &v
+	}
+	if r.Intn(2) == 0 {
+		v := r.Intn(2) == 0
+		a.Ob = &v
+	}
+	if r.Intn(2) == 0 {
+		v := Level(r.Intn(3))
+		a.Olvl = &v
+	}
+	switch r.Intn(5) {
+	case 0:
+		a.Choice = &AllChoiceA{A: randInner(r)}
+	case 1:
+		a.Choice = &AllChoiceT{T: randString(r)}
+	case 2:
+		a.Choice = &AllChoiceN{N: r.Int63()}
+	case 3:
+		a.Choice = &AllChoiceL{L: Level(r.Intn(3))}
+	}
+	return a
+}
+
+func decodeStd(t *testing.T, data []byte) (*All, error) {
+	t.Helper()
+	v := new(All)
+	err := json.Unmarshal(data, v)
+	return v, err
+}
+
+func TestFastEncodeMatchesStd(t *testing.T) {
+	r := rand.New(rand.NewSource(1))
+	for i := 0; i < 3000; i++ {
+		v := randAll(r)
+		std, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fast, err := wsMarshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !json.Valid(fast) {
+			t.Fatalf("fast output is not valid JSON: %s", fast)
+		}
+		a, errA := decodeStd(t, std)
+		b, errB := decodeStd(t, fast)
+		if errA != nil || errB != nil || !reflect.DeepEqual(a, b) {
+			t.Fatalf("encode mismatch\nstd:  %s\nfast: %s\n%v %v", std, fast, errA, errB)
+		}
+		direct := new(All)
+		d := wsJSON{data: std}
+		direct.wsDecodeJSON(&d)
+		if !d.end() || !reflect.DeepEqual(a, direct) {
+			t.Fatalf("fast decoder fell back or diverged on %s: %v", std, d.err)
+		}
+		c := new(All)
+		if err := wsUnmarshal(std, c); err != nil || !reflect.DeepEqual(a, c) {
+			t.Fatalf("decode mismatch for %s: %v\nstd:  %+v\nfast: %+v", std, err, a, c)
+		}
+	}
+}
+
+func checkDecodeParity(t *testing.T, data []byte) {
+	t.Helper()
+	a, errA := decodeStd(t, data)
+	b := new(All)
+	errB := wsUnmarshal(data, b)
+	if (errA == nil) != (errB == nil) {
+		t.Fatalf("error parity for %q: std %v, fast %v", data, errA, errB)
+	}
+	if errA == nil && !reflect.DeepEqual(a, b) {
+		t.Fatalf("value parity for %q:\nstd:  %+v\nfast: %+v", data, a, b)
+	}
+}
+
+func TestFastDecodeEdgeCases(t *testing.T) {
+	for _, input := range []string{
+		"{}", "null", " { } ", "{\"s\":\"a\\u00e9\\n\\\"\"}", "{\"s\":\"\\ud83c\\udf89\"}", "{\"s\":\"\\ud800\"}",
+		"{\"s\":\"\xff\"}", "{\"S\":\"case\"}", "{\"s\":\"a\",\"s\":\"b\"}", "{\"inner\":{\"name\":\"x\"},\"inner\":{\"n\":2}}",
+		"{\"i32\":2147483648}", "{\"i32\":1.0}", "{\"i32\":-0}", "{\"f64\":1e400}", "{\"f64\":-1.5e-7}", "{\"i64\":\"12\"}",
+		"{\"i64\":12}", "{\"i64\":\"\"}", "{\"i64\":null}", "{\"s\":null,\"inner\":null,\"inners\":null,\"m\":null}",
+		"{\"inners\":[null,{\"n\":1}]}", "{\"inners\":[]}", "{\"lvl\":\"MID\"}", "{\"lvl\":\"nope\"}", "{\"lvl\":null}",
+		"{\"choice\":{\"kind\":\"a\",\"a\":{\"n\":3}}}", "{\"choice\":{\"kind\":\"t\"}}", "{\"choice\":{\"kind\":\"zz\",\"a\":{}}}",
+		"{\"choice\":{\"a\":{},\"kind\":\"a\"}}", "{\"choice\":{\"kind\":\"n\",\"n\":\"5\"}}", "{\"choice\":null}",
+		"{\"unknown\":{\"deep\":[1,{\"x\":\"\\u0041\"}]},\"s\":\"ok\"}", "{\"by\":\"aGVsbG8=\"}", "{\"by\":\"!!\"}",
+		"{\"ts\":\"2024-01-02T03:04:05Z\"}", "{\"j\":{\"a\":[1,2]}}", "{\"m\":{\"k\":{\"n\":1}}}", "{\"s\":\"a\",}",
+		"{\"s\":\"a\"} x", "{\"s\" \"a\"}", "[1]", "{\"s\":\"\t\"}", "{\"ss\":[\"a\",]}", "{\"os\":\"x\",\"oi64\":\"7\",\"ob\":false,\"olvl\":\"HIGH\"}",
+	} {
+		checkDecodeParity(t, []byte(input))
+	}
+}
+
+func TestFastDecodeMutations(t *testing.T) {
+	r := rand.New(rand.NewSource(2))
+	for i := 0; i < 20000; i++ {
+		base, _ := json.Marshal(randAll(r))
+		mutated := append([]byte(nil), base...)
+		for k := r.Intn(3) + 1; k > 0 && len(mutated) > 0; k-- {
+			pos := r.Intn(len(mutated))
+			switch r.Intn(3) {
+			case 0:
+				mutated = append(mutated[:pos], mutated[pos+1:]...)
+			case 1:
+				alphabet := "{}[],:\"\\0123456789-.eEtfn \x80"
+				mutated = append(mutated[:pos], append([]byte{alphabet[r.Intn(len(alphabet))]}, mutated[pos:]...)...)
+			default:
+				alphabet := "{}[],:\"\\abc01 "
+				mutated[pos] = alphabet[r.Intn(len(alphabet))]
+			}
+		}
+		checkDecodeParity(t, mutated)
+	}
+}
+`
+
+func TestGeneratedWSFastJSONMatchesEncodingJSON(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	ast, err := onklang.Parse(wsFastJSONFixtureSrc)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "wsj.onk", AST: ast}})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	file := pkg.Files[0]
+	dir := t.TempDir()
+	files := map[string]string{"go.mod": "module wsj\n\ngo 1.24\n", "harness_test.go": wsFastJSONHarness}
+	for name, generate := range map[string]func(*onkir.File) ([]byte, error){"types.gen.go": GenerateTypes, "validate.gen.go": GenerateValidation} {
+		src, err := generate(file)
+		if err != nil {
+			t.Fatalf("generate %s: %v", name, err)
+		}
+		files[name] = string(src)
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	cmd := exec.Command("go", "test", "-count=1", "-timeout", "300s", ".")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("fast JSON differential test failed: %v\n%s", err, out)
+	}
+}
