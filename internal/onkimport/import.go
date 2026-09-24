@@ -252,7 +252,7 @@ func (im *importer) responsePieces(opName string, responses map[string]any) (str
 		if successCode == "" {
 			im.warnf("%s: no 2xx response declared; empty response used", opName)
 		}
-		im.registerMessage(respName)
+		im.declareReserved(respName)
 	default:
 		ft, ok := im.schemaTypeExpr(schema, respName, 1)
 		if !ok {
@@ -263,8 +263,8 @@ func (im *importer) responsePieces(opName string, responses map[string]any) (str
 			respName = ft.expr
 		case strings.HasSuffix(ft.expr, "[]") || strings.HasPrefix(ft.expr, "map[") ||
 			isScalarExpr(ft.expr):
-			im.registerMessage(respName)
-			im.messages[respName] = []string{"data: " + ft.expr}
+			im.declareReserved(respName)
+			im.messages[respName] = []string{"data: " + ft.expr + " @unwrap"}
 		default:
 			// Inline object schema already registered itself under respName.
 		}
@@ -549,6 +549,14 @@ func (im *importer) resolveRef(ref, suggested string, depth int) (fieldType, boo
 
 // registerMessage reserves a declaration slot and returns its (possibly
 // disambiguated) name.
+func (im *importer) declareReserved(name string) {
+	if _, ok := im.messages[name]; ok {
+		return
+	}
+	im.messages[name] = nil
+	im.orderMsg = append(im.orderMsg, name)
+}
+
 func (im *importer) registerMessage(base string) string {
 	name := pascalIdent(base)
 	if name == "" {
