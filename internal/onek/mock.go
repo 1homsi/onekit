@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -332,10 +333,19 @@ func mockSingleValue(field *onkir.Field, depth int) any {
 		}
 		return firstEnumJSONNameOf(field.Type.Enum)
 	case isInt64KindOf(field.Type.Scalar) && field.Type.Kind == onkir.KindScalar:
+		value := int64(mockBoundedNumber(field, 1729, true))
 		if encodeValueOf(field) == "number" {
-			return 1729
+			return value
 		}
-		return "1729"
+		return strconv.FormatInt(value, 10)
+	case field.Type.Kind == onkir.KindScalar && (field.Type.Scalar == onkir.ScalarInt32 || field.Type.Scalar == onkir.ScalarUint32):
+		fallback := 42
+		if field.Type.Scalar == onkir.ScalarUint32 {
+			fallback = 7
+		}
+		return int64(mockBoundedNumber(field, fallback, true))
+	case field.Type.Kind == onkir.KindScalar && (field.Type.Scalar == onkir.ScalarFloat32 || field.Type.Scalar == onkir.ScalarFloat64):
+		return mockBoundedNumber(field, 1.5, false)
 	case field.Type.Kind == onkir.KindScalar && field.Type.Scalar == onkir.ScalarTimestamp:
 		switch encodeValueOf(field) {
 		case "unix_seconds":
@@ -358,6 +368,50 @@ func mockSingleValue(field *onkir.Field, depth int) any {
 		return mockConstrainedString(field)
 	}
 	return mockType(field.Type, depth)
+}
+
+func mockBoundedNumber[T int | float64](field *onkir.Field, fallback T, integer bool) float64 {
+	bound := func(name string, index int) (float64, bool) {
+		d, ok := field.Decorator(name)
+		if !ok {
+			return 0, false
+		}
+		raw, ok := d.Arg(index)
+		if !ok {
+			return 0, false
+		}
+		value, err := strconv.ParseFloat(raw, 64)
+		return value, err == nil
+	}
+	step := 0.5
+	if integer {
+		step = 1
+	}
+	low, hasLow := bound("range", 0)
+	if v, ok := bound("gte", 0); ok {
+		low, hasLow = v, true
+	}
+	if v, ok := bound("gt", 0); ok {
+		low, hasLow = v+step, true
+	}
+	high, hasHigh := bound("range", 1)
+	if v, ok := bound("lte", 0); ok {
+		high, hasHigh = v, true
+	}
+	if v, ok := bound("lt", 0); ok {
+		high, hasHigh = v-step, true
+	}
+	value := float64(fallback)
+	if hasLow && value < low {
+		value = low
+	}
+	if hasHigh && value > high {
+		value = high
+	}
+	if integer {
+		value = math.Ceil(value)
+	}
+	return value
 }
 
 // mockConstrainedString derives validator-satisfying strings so fixtures
