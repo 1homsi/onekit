@@ -10,6 +10,16 @@ import (
 	"net/http"
 )
 
+type UnexpectedStatusError struct {
+	StatusCode int
+	Header     http.Header
+	Body       []byte
+}
+
+func (e *UnexpectedStatusError) Error() string {
+	return fmt.Sprintf("unexpected status %d: %s", e.StatusCode, e.Body)
+}
+
 const defaultMaxResponseBodyBytes int64 = 8 << 20
 const defaultMaxSSELineBytes = 1 << 20
 
@@ -74,7 +84,7 @@ func (c *UserServiceClient) CreateUser(ctx context.Context, req *CreateUserReque
 		if bodyErr != nil {
 			return nil, bodyErr
 		}
-		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
+		return nil, &UnexpectedStatusError{StatusCode: resp.StatusCode, Header: resp.Header, Body: respBody}
 	}
 	result := new(User)
 	if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil {
@@ -113,7 +123,7 @@ func (c *UserServiceClient) GetUser(ctx context.Context, req *GetUserRequest) (*
 		if bodyErr != nil {
 			return nil, bodyErr
 		}
-		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
+		return nil, &UnexpectedStatusError{StatusCode: resp.StatusCode, Header: resp.Header, Body: respBody}
 	}
 	result := new(User)
 	if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil {
@@ -152,7 +162,7 @@ func (c *UserServiceClient) Login(ctx context.Context, req *LoginRequest) (*Logi
 		if bodyErr != nil {
 			return nil, bodyErr
 		}
-		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
+		return nil, &UnexpectedStatusError{StatusCode: resp.StatusCode, Header: resp.Header, Body: respBody}
 	}
 	result := new(LoginResponse)
 	if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil {
