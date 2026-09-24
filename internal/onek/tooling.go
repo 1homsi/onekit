@@ -90,7 +90,7 @@ service HealthService {
 }
 `
 
-const initConfig = `module = "example.com/myapi"
+const initConfig = `module = "example.com/%s/gen"
 
 [generate.go-server]
 out = "./gen"
@@ -103,6 +103,23 @@ out = "./docs"
 title = "My API"
 version = "0.1.0"
 `
+
+func initModuleName(dirName string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(dirName) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		case r == ' ':
+			b.WriteByte('-')
+		}
+	}
+	name := strings.Trim(b.String(), "-._")
+	if name == "" {
+		return "myapi"
+	}
+	return name
+}
 
 // Init creates a small, immediately buildable OneKit project.
 func Init(dir string, force bool) error {
@@ -121,7 +138,7 @@ func Init(dir string, force bool) error {
 		path    string
 		content string
 	}{
-		{path: filepath.Join(root, configFileName), content: initConfig},
+		{path: filepath.Join(root, configFileName), content: fmt.Sprintf(initConfig, initModuleName(filepath.Base(root)))},
 		{path: filepath.Join(root, "api.onk"), content: initSchema},
 	}
 	for _, file := range files {
