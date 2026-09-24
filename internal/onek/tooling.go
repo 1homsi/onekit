@@ -139,7 +139,23 @@ func Init(dir string, force bool) error {
 			return fmt.Errorf("write %s: %w", file.path, err)
 		}
 	}
-	return nil
+	return ensureGitignoreEntry(filepath.Join(root, ".gitignore"), ".onekit/")
+}
+
+func ensureGitignoreEntry(path, entry string) error {
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed == entry || trimmed == strings.TrimSuffix(entry, "/") {
+			return nil
+		}
+	}
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		data = append(data, '\n')
+	}
+	return writeFile(path, append(data, entry+"\n"...))
 }
 
 type fileStamp struct {
