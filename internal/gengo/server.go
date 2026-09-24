@@ -217,6 +217,7 @@ func writeServerOptions(p *Printer, hasWS bool) {
 	p.P(`requestIDGenerator RequestIDGenerator`)
 	p.P(`authorizer Authorizer`)
 	p.P(`observer RequestObserver`)
+	p.P(`maxRequestBodyBytes int64`)
 	if hasWS {
 		p.P(`maxWSFrameBytes int64`)
 		p.P(`maxWSMessageBytes int64`)
@@ -241,6 +242,7 @@ func writeServerOptions(p *Printer, hasWS bool) {
 	p.P()
 	p.P(`func WithAuthorizer(authorizer Authorizer) ServerOption { return func(o *serverOptions) { o.authorizer = authorizer } }`)
 	p.P(`func WithRequestObserver(observer RequestObserver) ServerOption { return func(o *serverOptions) { o.observer = observer } }`)
+	p.P(`func WithMaxRequestBodyBytes(limit int64) ServerOption { return func(o *serverOptions) { o.maxRequestBodyBytes = limit } }`)
 	if hasWS {
 		writeWSServerOption(p)
 	}
@@ -289,6 +291,20 @@ func writeRuntimeHelpers(p *Printer) {
 	p.P(`w.Header().Set("Content-Type", "application/json")`)
 	p.P(`w.WriteHeader(status)`)
 	p.P(`_ = json.NewEncoder(w).Encode(map[string]string{"message": message})`)
+	p.P(`}`)
+	p.P()
+	p.P(`func requestBodyLimit(limit int64) int64 {`)
+	p.P(`if limit <= 0 { return 8 << 20 }`)
+	p.P(`return limit`)
+	p.P(`}`)
+	p.P()
+	p.P(`func writeBodyError(w http.ResponseWriter, err error) {`)
+	p.P(`var tooLarge *http.MaxBytesError`)
+	p.P(`if errors.As(err, &tooLarge) {`)
+	p.P(`writeJSONError(w, http.StatusRequestEntityTooLarge, "request body too large")`)
+	p.P(`return`)
+	p.P(`}`)
+	p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body")`)
 	p.P(`}`)
 	p.P()
 	p.P(`func writeHandlerError(w http.ResponseWriter, err error) {`)
@@ -411,11 +427,11 @@ func writeBodyBinding(p *Printer, method *onkir.Method) {
 		}
 	}
 	p.P("if r.Body != nil {")
-	p.P("r.Body = http.MaxBytesReader(w, r.Body, 8<<20)")
+	p.P("r.Body = http.MaxBytesReader(w, r.Body, requestBodyLimit(o.maxRequestBodyBytes))")
 	if bodyField != nil && bodyFieldNeedsCustomJSON(bodyField) {
 		p.P("var bodyValue json.RawMessage")
 		p.P("if err := json.NewDecoder(r.Body).Decode(&bodyValue); err != nil && !errors.Is(err, io.EOF) {")
-		p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body")`)
+		p.P(`writeBodyError(w, err)`)
 		p.P("return")
 		p.P("}")
 		p.P("var bodyObject struct { Value json.RawMessage `json:\"", bodyField.Name, "\"` }")
@@ -428,6 +444,11 @@ func writeBodyBinding(p *Printer, method *onkir.Method) {
 		p.P("if err := json.Unmarshal(bodyData, req); err != nil {")
 	} else {
 		p.P("if err := json.NewDecoder(r.Body).Decode(", target, "); err != nil && !errors.Is(err, io.EOF) {")
+		p.P(`writeBodyError(w, err)`)
+		p.P("return")
+		p.P("}")
+		p.P("}")
+		return
 	}
 	p.P(`writeJSONError(w, http.StatusBadRequest, "invalid request body")`)
 	p.P("return")
