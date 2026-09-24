@@ -147,9 +147,7 @@ func TestGeneratedRustTypesCompileAndRoundTrip(t *testing.T) {
 		t.Fatalf("write generated lib.rs: %v", writeErr)
 	}
 
-	cmd := exec.Command("cargo", "test", "--quiet")
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
+	out, err := cargoCommand(dir, "test", "--quiet").CombinedOutput()
 	if err != nil {
 		t.Fatalf("generated Rust types failed: %v\n%s\nGenerated source:\n%s", err, out, source)
 	}

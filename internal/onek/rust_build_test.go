@@ -195,8 +195,13 @@ func TestBuildGeneratesCompilingRustClientServerAndModules(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "src", "lib.rs"), rustServerHarness)
 	cmd := exec.Command("cargo", "test", "--quiet")
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "CARGO_TARGET_DIR="+sharedCargoTarget())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("generated Rust crate failed to compile: %v\n%s", err, out)
 	}
+}
+
+func sharedCargoTarget() string {
+	return filepath.Join(os.TempDir(), "onekit-genrust-cargo-target")
 }

@@ -188,7 +188,7 @@ main() {
     # single go test invocation so Go can schedule packages in parallel.
     packages=$(go list ./... | grep -v '/cmd/')
 
-    local test_args=()
+    local test_args=("-timeout" "25m")
     if [ "$VERBOSE" = true ]; then
         test_args+=("-v")
     fi
