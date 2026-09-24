@@ -54,7 +54,7 @@ func bytesEncodingValue(f *onkir.Field) string {
 		return ""
 	}
 	v, ok := fieldEncodeValue(f)
-	if !ok {
+	if !ok || v == "base64" {
 		return ""
 	}
 	return v
