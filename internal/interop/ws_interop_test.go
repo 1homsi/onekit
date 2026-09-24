@@ -706,6 +706,17 @@ after = sock.receive(timeout=10).payload
 if after.get("type") != "run_result" or after["run_result"].get("exit_code") != 9:
     fail("server never saw the cancel:", after)
 sock.close()
+
+with RuntimeClient(sys.argv[1]).execute(Frame()) as second:
+    second.send(Frame(payload={"type": "run", "run": {"code": "x"}}))
+    for frame in second:
+        if frame.payload["type"] == "host_call":
+            call = frame.payload["host_call"]
+            second.send(Frame(payload={"type": "host_result", "host_result": {"id": call["id"], "value": "answer"}}))
+        if frame.payload["type"] == "run_result":
+            break
+    else:
+        fail("iteration ended before run_result")
 print("OK")
 `
 
