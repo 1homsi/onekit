@@ -118,10 +118,13 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeErrorHandling(p, m)
 	p.P("return")
 	p.P("}")
-	p.P("switch e := err.(type) {")
-	for _, errType := range m.ErrorTypes {
-		p.P("case *", p.MessageTypeName(errType), ":")
-		p.P(`_ = sender.SendWithEvent("error", e)`)
+	for i, errType := range m.ErrorTypes {
+		p.P(fmt.Sprintf("var streamErr%d *", i), p.MessageTypeName(errType))
+	}
+	p.P("switch {")
+	for i := range m.ErrorTypes {
+		p.P(fmt.Sprintf("case errors.As(err, &streamErr%d):", i))
+		p.P(fmt.Sprintf(`_ = sender.SendWithEvent("error", streamErr%d)`, i))
 	}
 	p.P("default:")
 	p.P(`_ = sender.SendWithEvent("error", map[string]string{"message": "internal server error"})`)
