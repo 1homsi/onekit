@@ -121,6 +121,7 @@ components:
                     format: email
                 created_at:
                     type: string
+                    pattern: ^-?[0-9]+$
                     format: int64
             required:
                 - id
@@ -165,6 +166,7 @@ components:
                     type: string
                 timestamp:
                     type: string
+                    pattern: ^-?[0-9]+$
                     format: int64
                 scopes:
                     type: array
@@ -210,6 +212,7 @@ components:
                     type: string
                 issued_at:
                     type: string
+                    pattern: ^-?[0-9]+$
                     format: int64
             required:
                 - token
@@ -252,6 +255,7 @@ components:
                     type: string
                 expires_in:
                     type: string
+                    pattern: ^-?[0-9]+$
                     format: int64
                 user:
                     allOf:

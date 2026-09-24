@@ -2,6 +2,7 @@ package genopenapi
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"strconv"
@@ -31,9 +32,12 @@ func scalarSchema(k onkir.ScalarKind) *base.Schema {
 	case onkir.ScalarInt32:
 		return &base.Schema{Type: []string{"integer"}, Format: "int32"}
 	case onkir.ScalarUint32:
-		return &base.Schema{Type: []string{"integer"}, Format: "int32"}
-	case onkir.ScalarInt64, onkir.ScalarUint64:
-		return &base.Schema{Type: []string{"string"}, Format: "int64"}
+		minimum, maximum := 0.0, float64(math.MaxUint32)
+		return &base.Schema{Type: []string{"integer"}, Format: "int64", Minimum: &minimum, Maximum: &maximum}
+	case onkir.ScalarInt64:
+		return &base.Schema{Type: []string{"string"}, Format: "int64", Pattern: "^-?[0-9]+$"}
+	case onkir.ScalarUint64:
+		return &base.Schema{Type: []string{"string"}, Format: "uint64", Pattern: "^[0-9]+$"}
 	case onkir.ScalarFloat32:
 		return &base.Schema{Type: []string{"number"}, Format: "float"}
 	case onkir.ScalarFloat64:
@@ -47,6 +51,14 @@ func scalarSchema(k onkir.ScalarKind) *base.Schema {
 	default:
 		return &base.Schema{}
 	}
+}
+
+func numberEncodedIntegerSchema(kind onkir.ScalarKind) *base.Schema {
+	if kind == onkir.ScalarUint64 {
+		minimum := 0.0
+		return &base.Schema{Type: []string{"integer"}, Format: "uint64", Minimum: &minimum}
+	}
+	return &base.Schema{Type: []string{"integer"}, Format: "int64"}
 }
 
 func typeSchemaProxy(t *onkir.Type) *base.SchemaProxy {
@@ -148,7 +160,7 @@ func concreteTypeSchema(field *onkir.Field) *base.Schema {
 			switch field.Type.Scalar {
 			case onkir.ScalarInt64, onkir.ScalarUint64:
 				if encodeValue == "number" {
-					return &base.Schema{Type: []string{"integer"}, Format: "int64"}
+					return numberEncodedIntegerSchema(field.Type.Scalar)
 				}
 			case onkir.ScalarTimestamp:
 				if encodeValue == "unix_seconds" || encodeValue == "unix_millis" {
