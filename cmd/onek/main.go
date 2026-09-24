@@ -30,7 +30,7 @@ func usage(w io.Writer) {
   onek build [--check] [--dir DIR]
   onek check [--json] [--dir DIR]
   onek generate [--dir DIR]
-  onek fmt [--check] [--dir DIR]
+  onek fmt [--check] [--dir DIR | FILE.onk... | -]
   onek watch [--interval DURATION] [--dir DIR]
   onek mock [--addr ADDR] [--seed N] [--error-rate FLOAT] [--latency DURATION] [--dir DIR]
   onek init [--force] [DIR]
@@ -166,12 +166,41 @@ func runFormat(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if positional := fs.Args(); len(positional) > 1 {
-		return errors.New("fmt accepts at most one directory")
+	positional := fs.Args()
+	if len(positional) == 1 && positional[0] == "-" {
+		return formatStdin(os.Stdin, os.Stdout)
+	}
+	if len(positional) > 0 && allOnkFiles(positional) {
+		return onek.FormatFiles(positional, *check)
+	}
+	if len(positional) > 1 {
+		return errors.New("fmt accepts one directory, one or more .onk files, or - for stdin")
 	} else if len(positional) == 1 {
 		*dir = positional[0]
 	}
 	return onek.Format(*dir, *check)
+}
+
+func allOnkFiles(paths []string) bool {
+	for _, path := range paths {
+		if !strings.HasSuffix(path, ".onk") {
+			return false
+		}
+	}
+	return true
+}
+
+func formatStdin(in io.Reader, out io.Writer) error {
+	data, err := io.ReadAll(in)
+	if err != nil {
+		return fmt.Errorf("read stdin: %w", err)
+	}
+	formatted, err := onklang.Format(string(data))
+	if err != nil {
+		return err
+	}
+	_, err = out.Write(formatted)
+	return err
 }
 
 func runInit(args []string) error {
