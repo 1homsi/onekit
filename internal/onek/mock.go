@@ -523,10 +523,12 @@ func mockConstrainedString(field *onkir.Field) string {
 		}
 		return strings.Repeat("x", minimum)
 	}
-	return "string"
+	return mockStringValue
 }
 
 // mockType renders a bare TypeRef fixture (map values, nested containers).
+const mockStringValue = "string"
+
 func mockType(t *onkir.Type, depth int) any {
 	if t == nil {
 		return nil
@@ -548,7 +550,7 @@ func mockType(t *onkir.Type, depth int) any {
 func mockScalar(kind onkir.ScalarKind) any {
 	switch kind {
 	case onkir.ScalarString:
-		return "string"
+		return mockStringValue
 	case onkir.ScalarBool:
 		return true
 	case onkir.ScalarInt32:

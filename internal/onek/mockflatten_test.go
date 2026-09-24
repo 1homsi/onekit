@@ -34,7 +34,7 @@ service Svc { get(Req) -> Res @get("/r/{id}") }
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body["billing_city"] != "string" || body["billing"] != nil {
+	if body["billing_city"] != mockStringValue || body["billing"] != nil {
 		t.Fatalf("flattened fixture: %v", body)
 	}
 }
