@@ -449,11 +449,36 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 			security.Set(authSchemeName(header), []string{})
 		}
 	}
+	addGeneratedErrorResponses(responses, orderedmap.Len(security) > 0)
 	if orderedmap.Len(security) > 0 {
 		op.Security = []*base.SecurityRequirement{{Requirements: security}}
 	}
 
 	return op
+}
+
+const errorMessageComponent = "onekit.ErrorMessage"
+
+func errorMessageResponse(description string) *v3.Response {
+	content := orderedmap.New[string, *v3.MediaType]()
+	content.Set("application/json", &v3.MediaType{Schema: base.CreateSchemaProxyRef("#/components/schemas/" + errorMessageComponent)})
+	return &v3.Response{Description: description, Content: content}
+}
+
+func addGeneratedErrorResponses(responses *v3.Responses, authenticated bool) {
+	if _, ok := responses.Codes.Get("400"); !ok {
+		responses.Codes.Set("400", errorMessageResponse("Invalid request"))
+	}
+	if _, ok := responses.Codes.Get("401"); authenticated && !ok {
+		responses.Codes.Set("401", errorMessageResponse("Unauthorized"))
+	}
+	responses.Default = errorMessageResponse("Unexpected error")
+}
+
+func errorMessageSchema() *base.Schema {
+	properties := orderedmap.New[string, *base.SchemaProxy]()
+	properties.Set("message", base.CreateSchemaProxy(&base.Schema{Type: []string{"string"}}))
+	return &base.Schema{Type: []string{"object"}, Required: []string{"message"}, Properties: properties}
 }
 
 func authSchemeName(header *onkir.Header) string {
@@ -552,6 +577,9 @@ func Generate(file *onkir.File, opts Options) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if fileHasHTTPMethods(file) {
+		schemas.Set(errorMessageComponent, base.CreateSchemaProxy(errorMessageSchema()))
+	}
 
 	paths := orderedmap.New[string, *v3.PathItem]()
 	for _, s := range file.Services {
@@ -606,4 +634,15 @@ func GenerateJSON(file *onkir.File, opts Options) ([]byte, error) {
 		return nil, fmt.Errorf("convert to json: %w", err)
 	}
 	return jsonData, nil
+}
+
+func fileHasHTTPMethods(file *onkir.File) bool {
+	for _, s := range file.Services {
+		for _, m := range s.Methods {
+			if !m.IsWebSocket() {
+				return true
+			}
+		}
+	}
+	return false
 }
