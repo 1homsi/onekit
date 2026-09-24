@@ -194,6 +194,21 @@ func defaultRequestIDGenerator() string {
 }
 
 func (o serverOptions) wrapHandler(handler http.Handler, metadata RequestMetadata) http.Handler {
+	if o.authorizer != nil {
+		next := handler
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := o.authorizer(r.Context(), metadata, r); err != nil {
+				var statusErr interface{ HTTPStatusCode() int }
+				if errors.As(err, &statusErr) {
+					writeHandlerError(w, err)
+				} else {
+					writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+				}
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 	for i := len(o.middlewares) - 1; i >= 0; i-- {
 		if o.middlewares[i] != nil {
 			handler = o.middlewares[i](handler)
@@ -209,17 +224,6 @@ func (o serverOptions) wrapHandler(handler http.Handler, metadata RequestMetadat
 			if requestID != "" {
 				w.Header().Set(o.requestIDHeader, requestID)
 				ctx = context.WithValue(ctx, requestIDContextKey{}, requestID)
-			}
-		}
-		if o.authorizer != nil {
-			if err := o.authorizer(ctx, metadata, r); err != nil {
-				var statusErr interface{ HTTPStatusCode() int }
-				if errors.As(err, &statusErr) {
-					writeHandlerError(w, err)
-				} else {
-					writeJSONError(w, http.StatusUnauthorized, "unauthorized")
-				}
-				return
 			}
 		}
 		if o.observer == nil {
