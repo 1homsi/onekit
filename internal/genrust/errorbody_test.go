@@ -44,3 +44,21 @@ service S { get(R) -> R | NotFound @get("/r/{id}") }
 		t.Fatalf("typed error decode must fall through to UnexpectedStatus:\n%s", out)
 	}
 }
+
+func TestRustStreamErrorsDoNotLeakInternalMessages(t *testing.T) {
+	out := string(GenerateServer(compileRustSchema(t, `
+package app
+message R { id: string }
+message Gone @status(410) { reason: string }
+service S { watch(R) -> R | Gone @get("/w/{id}") @stream }
+`)))
+	for _, want := range []string{
+		`Err(error) => Event::default().event("error").json_data(error.error_body()).unwrap_or_default(),`,
+		`Self::Gone(error) => serde_json::to_value(error).unwrap_or_default(),`,
+		`Self::Internal(_error) => serde_json::json!({ "message": "internal server error" }),`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q:\n%s", want, out)
+		}
+	}
+}
