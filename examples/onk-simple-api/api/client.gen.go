@@ -41,6 +41,9 @@ type UserServiceClient struct {
 }
 
 func NewUserServiceClient(baseURL string) *UserServiceClient {
+	for len(baseURL) > 0 && baseURL[len(baseURL)-1] == '/' {
+		baseURL = baseURL[:len(baseURL)-1]
+	}
 	return &UserServiceClient{BaseURL: baseURL, HTTPClient: http.DefaultClient, Headers: map[string]string{}, MaxResponseBodyBytes: defaultMaxResponseBodyBytes, MaxSSELineBytes: defaultMaxSSELineBytes}
 }
 
