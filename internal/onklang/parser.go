@@ -576,9 +576,14 @@ func (p *Parser) parseRPC() (*RPCDecl, error) {
 		if err := p.next(); err != nil {
 			return nil, err
 		}
+		seenHeaders := false
 		for p.tok.Kind != RBRACE {
 			switch {
 			case p.isIdent("headers"):
+				if seenHeaders {
+					return nil, p.errf("duplicate headers block in rpc %s", r.Name)
+				}
+				seenHeaders = true
 				r.HeadersComments = append([]string(nil), p.tok.LeadingComments...)
 				h, trailing, err := p.parseHeadersBlock()
 				if err != nil {
@@ -617,9 +622,14 @@ func (p *Parser) parseService() (*ServiceDecl, error) {
 	if _, err := p.expect(LBRACE); err != nil {
 		return nil, err
 	}
+	seenBasePath, seenHeaders := false, false
 	for p.tok.Kind != RBRACE {
 		switch {
 		case p.isIdent("base_path"):
+			if seenBasePath {
+				return nil, p.errf("duplicate base_path in service %s", s.Name)
+			}
+			seenBasePath = true
 			s.BasePathComments = append([]string(nil), p.tok.LeadingComments...)
 			if err := p.next(); err != nil {
 				return nil, err
@@ -633,6 +643,10 @@ func (p *Parser) parseService() (*ServiceDecl, error) {
 			}
 			s.BasePath = path.Text
 		case p.isIdent("headers"):
+			if seenHeaders {
+				return nil, p.errf("duplicate headers block in service %s", s.Name)
+			}
+			seenHeaders = true
 			s.HeadersComments = append([]string(nil), p.tok.LeadingComments...)
 			h, trailing, err := p.parseHeadersBlock()
 			if err != nil {
