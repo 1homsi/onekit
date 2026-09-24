@@ -514,7 +514,19 @@ func writeClientError(p *Printer, service *onkir.Service, method *onkir.Method) 
 	p.P("}")
 	p.Dedent()
 	p.P("}")
-	p.P("impl std::error::Error for ", name, " {}")
+	p.P("impl std::error::Error for ", name, " {")
+	p.P("fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {")
+	p.P("match self {")
+	p.P("Self::Validation(error) => Some(error),")
+	p.P("Self::Transport(error) => Some(error),")
+	if method.IsWebSocket() {
+		p.P("Self::WsTransport(error) => Some(error),")
+	}
+	p.P("Self::Decode(error) => Some(error),")
+	p.P("_ => None,")
+	p.P("}")
+	p.P("}")
+	p.P("}")
 	p.Blank()
 }
 
