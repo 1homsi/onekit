@@ -108,7 +108,7 @@ func LoadConfig(dir string) (*Config, error) {
 		for i, key := range undecoded {
 			keys[i] = key.String()
 		}
-		return nil, &ConfigError{Path: path, Err: fmt.Errorf("unknown configuration key(s): %s", strings.Join(keys, ", "))}
+		return nil, &ConfigError{Path: path, Err: fmt.Errorf("unknown configuration key(s): %s", strings.Join(describeUnknownKeys(keys), ", "))}
 	}
 	if cfg.Module == "" {
 		return nil, &ConfigError{Path: path, Err: errors.New("module is required")}
