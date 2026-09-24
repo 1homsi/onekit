@@ -61,9 +61,12 @@ func main() {
 }
 
 func run(args []string) error {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		usage(os.Stdout)
 		return nil
+	}
+	if args[0] == "--version" || args[0] == "-v" {
+		return runVersion(args[1:])
 	}
 
 	switch args[0] {
@@ -89,7 +92,10 @@ func run(args []string) error {
 		if strings.HasPrefix(args[0], "-") {
 			usage(os.Stderr)
 		}
-		return fmt.Errorf("unknown command %q", args[0])
+		if suggestion := suggestCommand(args[0]); suggestion != "" {
+			return fmt.Errorf("unknown command %q (did you mean %q?)", args[0], suggestion)
+		}
+		return fmt.Errorf("unknown command %q; run 'onek help' for usage", args[0])
 	}
 }
 
@@ -327,4 +333,45 @@ func runLanguageServer(command string, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return server.Run(ctx, &mcp.StdioTransport{})
+}
+
+var commandNames = []string{"build", "check", "generate", "fmt", "watch", "mock", "init", "import", "compat", "mcp", "lsp", "version", "help"}
+
+var commandAliases = map[string]string{"format": "fmt", "lint": "check", "validate": "check", "gen": "generate", "serve": "mock", "new": "init"}
+
+func suggestCommand(input string) string {
+	if alias, ok := commandAliases[input]; ok {
+		return alias
+	}
+	best, bestScore := "", 3
+	for _, name := range commandNames {
+		score := commandDistance(input, name)
+		if strings.HasPrefix(name, input) && len(input) >= 2 {
+			score = 0
+		}
+		if score < bestScore {
+			best, bestScore = name, score
+		}
+	}
+	return best
+}
+
+func commandDistance(a, b string) int {
+	prev := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		cur := make([]int, len(b)+1)
+		cur[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(b)]
 }
