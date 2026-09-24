@@ -612,11 +612,26 @@ class WsFrameSocket:
                 self._connection.close(1007, "invalid frame")
                 raise WsClosedError(1007, "invalid frame") from exc
 
-    def receive(self, timeout=30):
+    def receive(self, timeout=None):
         return self._response_type.from_dict(self._next_dict(timeout))
 
-    def close(self):
-        self._connection.close()
+    def close(self, code=1000, reason=""):
+        self._connection.close(code, reason)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        self.close()
+
+    def __iter__(self):
+        while True:
+            try:
+                yield self.receive()
+            except WsClosedError as exc:
+                if exc.code in (None, 1000, 1001):
+                    return
+                raise
 
 
 class WsCallSocket(WsFrameSocket):
