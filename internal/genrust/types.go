@@ -973,7 +973,7 @@ func writeFieldValidation(p *Printer, field *onkir.Field, patternFuncs map[strin
 				p.Dedent()
 				p.P("}")
 			case "uuid":
-				p.P("if !", valueExpr, ".is_empty() && uuid::Uuid::parse_str(", valueExpr, ".as_str()).is_err() {")
+				p.P("if !", valueExpr, ".is_empty() && (", valueExpr, ".len() != 36 || uuid::Uuid::parse_str(", valueExpr, ".as_str()).is_err()) {")
 				p.Indent()
 				errorLine("must be a valid UUID")
 				p.Dedent()
