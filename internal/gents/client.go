@@ -279,7 +279,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	} else {
 		p.P("headers: { ...this.options.defaultHeaders, ...opts?.headers },")
 	}
-	p.P("signal: opts?.signal,")
+	p.P("signal: opts?.signal ?? null,")
 	p.P("});")
 	p.P()
 

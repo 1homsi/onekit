@@ -128,7 +128,7 @@ func writeSSEClientFetch(p *Printer, m *onkir.Method) {
 	p.P("const res = await this.request(this.baseUrl + path, {")
 	p.P(fmt.Sprintf("method: %q,", strings.ToUpper(verb)))
 	p.P(`headers: { Accept: "text/event-stream", ...this.options.defaultHeaders, ...opts?.headers },`)
-	p.P("signal: opts?.signal,")
+	p.P("signal: opts?.signal ?? null,")
 	p.P("});")
 	p.P()
 
