@@ -166,6 +166,7 @@ edition = "2024"
 
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
+async-stream = "0.3"
 base64 = "0.22"
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }

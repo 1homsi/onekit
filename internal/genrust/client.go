@@ -57,6 +57,8 @@ func writeClientHelpers(p *Printer) {
 	p.Dedent()
 	p.P("}")
 	p.Blank()
+	p.P(rustSSEFrameEndSource)
+	p.Blank()
 	p.P("#[allow(dead_code)]")
 	p.P("fn query_value<T: Serialize>(value: &T) -> String {")
 	p.Indent()
@@ -414,7 +416,7 @@ func writeClientStreamResponse(p *Printer, responseType, errorName string) {
 	p.P("Ok(async_stream::stream! {")
 	p.Indent()
 	p.P("let mut chunks = response.bytes_stream();")
-	p.P("let mut buffer = String::new();")
+	p.P("let mut buffer: Vec<u8> = Vec::new();")
 	p.P("while let Some(chunk) = chunks.next().await {")
 	p.Indent()
 	p.P("match chunk {")
@@ -422,12 +424,11 @@ func writeClientStreamResponse(p *Printer, responseType, errorName string) {
 	p.P("Err(error) => { yield Err(", errorName, "::Transport(error)); break; }")
 	p.P("Ok(chunk) => {")
 	p.Indent()
-	p.P("buffer.push_str(&String::from_utf8_lossy(&chunk));")
-	p.P("if buffer.len() > max_frame_bytes { yield Err(", errorName, "::Response(\"SSE frame exceeds configured limit\".into())); break; }")
-	p.P("while let Some(boundary) = buffer.find(\"\\n\\n\") {")
+	p.P("buffer.extend_from_slice(&chunk);")
+	p.P("while let Some((end, skip)) = sse_frame_end(&buffer) {")
 	p.Indent()
-	p.P("let frame = buffer[..boundary].to_owned();")
-	p.P("buffer.drain(..boundary + 2);")
+	p.P("let frame = String::from_utf8_lossy(&buffer[..end]).into_owned();")
+	p.P("buffer.drain(..end + skip);")
 	p.P("let mut event = \"message\";")
 	p.P("let mut data = String::new();")
 	p.P("for line in frame.lines() {")
@@ -450,6 +451,7 @@ func writeClientStreamResponse(p *Printer, responseType, errorName string) {
 	p.P("if !data.is_empty() { yield serde_json::from_str::<", responseType, ">(&data).map_err(", errorName, "::Decode); }")
 	p.Dedent()
 	p.P("}")
+	p.P("if buffer.len() > max_frame_bytes { yield Err(", errorName, "::Response(\"SSE frame exceeds configured limit\".into())); break; }")
 	p.Dedent()
 	p.P("}")
 	p.Dedent()
@@ -542,3 +544,19 @@ func serviceHasCorrelatedWS(service *onkir.Service) bool {
 	}
 	return false
 }
+
+const rustSSEFrameEndSource = `#[allow(dead_code)]
+fn sse_frame_end(buffer: &[u8]) -> Option<(usize, usize)> {
+let mut i = 0;
+while i < buffer.len() {
+match buffer[i] {
+b'\n' if buffer.get(i + 1) == Some(&b'\n') => return Some((i, 2)),
+b'\n' if buffer.get(i + 1) == Some(&b'\r') && buffer.get(i + 2) == Some(&b'\n') => return Some((i, 3)),
+b'\r' if buffer.get(i + 1) == Some(&b'\n') && buffer.get(i + 2) == Some(&b'\r') && buffer.get(i + 3) == Some(&b'\n') => return Some((i, 4)),
+b'\r' if buffer.get(i + 1) == Some(&b'\r') => return Some((i, 2)),
+_ => {}
+}
+i += 1;
+}
+None
+}`
