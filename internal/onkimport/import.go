@@ -149,6 +149,10 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 	// body before emitting any parameters: query params on body-bearing
 	// operations must fold into plain fields.
 	requestBody := im.deref(asMap(op["requestBody"]))
+	if requestBody != nil && method != "post" && method != "put" && method != "patch" {
+		im.warnf("%s: request body on %s is not supported by onekit and was dropped", opName, strings.ToUpper(method))
+		requestBody = nil
+	}
 	hasBody := false
 	if requestBody != nil {
 		if _, ok := im.jsonSchema(asMap(requestBody["content"])); ok {
