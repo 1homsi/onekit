@@ -224,6 +224,8 @@ func sortStrings(values []string) { sort.Strings(values) }
 
 const scalarString = "string"
 
+const paramInPath = "path"
+
 func isScalarExpr(expr string) bool {
 	switch expr {
 	case scalarString, "bool", "int32", "int64", "uint32", "uint64",
