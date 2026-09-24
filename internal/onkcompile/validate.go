@@ -500,7 +500,7 @@ func validateServiceRPC(filePath string, rpc *onklang.RPCDecl, service *onklang.
 	if err != nil {
 		return err
 	}
-	key := strings.ToUpper(verb) + " " + routeScope + route
+	key := routeKey(verb, routeScope+route)
 	if previous, exists := seenRoutes[key]; exists {
 		return &Error{Path: filePath, Line: rpc.Line, Msg: fmt.Sprintf(
 			"duplicate HTTP route %s (already declared by %s)", key, previous,
@@ -518,6 +518,13 @@ func validateServiceRPC(filePath string, rpc *onklang.RPCDecl, service *onklang.
 		}
 	}
 	return nil
+}
+
+func routeKey(verb, route string) string {
+	if verb == wsTransport {
+		verb = "GET"
+	}
+	return strings.ToUpper(verb) + " " + pathParameterPattern.ReplaceAllString(route, "{}")
 }
 
 func validateHeaders(path string, headers []onklang.HeaderDecl) error {
