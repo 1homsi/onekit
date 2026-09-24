@@ -389,8 +389,8 @@ func writeServerError(
 	p.Indent()
 	p.P("match self {")
 	p.Indent()
-	p.P("Self::Validation(error) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ \"error\": error.to_string() }))).into_response(),")
-	p.P("Self::InvalidRequest(error) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ \"error\": error }))).into_response(),")
+	p.P("Self::Validation(error) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ \"message\": error.to_string() }))).into_response(),")
+	p.P("Self::InvalidRequest(error) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ \"message\": error }))).into_response(),")
 	for i, errorType := range method.ErrorTypes {
 		status := 500
 		if code, ok := errorType.StatusCode(); ok {
@@ -398,7 +398,7 @@ func writeServerError(
 		}
 		p.P("Self::", variants[i], "(error) => (StatusCode::from_u16(", status, ").unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), Json(error)).into_response(),")
 	}
-	p.P("Self::Internal(_error) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ \"error\": \"internal server error\" }))).into_response(),")
+	p.P("Self::Internal(_error) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ \"message\": \"internal server error\" }))).into_response(),")
 	p.Dedent()
 	p.P("}")
 	p.Dedent()
