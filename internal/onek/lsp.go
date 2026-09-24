@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf16"
 
 	"github.com/1homsi/onekit/internal/onklang"
 )
@@ -111,6 +112,28 @@ func RunLSP(in io.Reader, out io.Writer, dir string) error {
 
 var errExitBeforeShutdown = errors.New("language server received exit before shutdown")
 
+func (s *languageServer) formatDocument(path string) (any, *rpcError) {
+	text, open := s.overlays[path]
+	if !open {
+		data, err := readRegularFile(path)
+		if err != nil {
+			return nil, &rpcError{-32603, err.Error()}
+		}
+		text = string(data)
+	}
+	formatted, err := onklang.Format(text)
+	if err != nil || string(formatted) == text || len(formatted) == 0 {
+		return []any{}, nil
+	}
+	lines := strings.Split(text, "\n")
+	last := lines[len(lines)-1]
+	end := map[string]int{"line": len(lines) - 1, "character": len(utf16.Encode([]rune(last)))}
+	return []any{map[string]any{
+		"range":   map[string]any{"start": map[string]int{"line": 0, "character": 0}, "end": end},
+		"newText": string(formatted),
+	}}, nil
+}
+
 func (s *languageServer) handle(req rpcRequest) (any, *rpcError) {
 	var p lspParams
 	if len(req.Params) > 0 {
@@ -168,6 +191,8 @@ func (s *languageServer) handle(req rpcRequest) (any, *rpcError) {
 		changed = true
 	case "textDocument/completion":
 		return s.decoratorCompletion(path, p.Position), nil
+	case "textDocument/formatting":
+		return s.formatDocument(path)
 	case "textDocument/definition", "textDocument/references", "textDocument/hover", "textDocument/documentSymbol", "workspace/symbol":
 	default:
 		return nil, &rpcError{-32601, "method not found"}
@@ -379,7 +404,8 @@ func (s *languageServer) initialize(raw json.RawMessage, dir string) (any, *rpcE
 	return map[string]any{"serverInfo": map[string]string{"name": "onekit"}, "capabilities": map[string]any{
 		"positionEncoding": "utf-16", "textDocumentSync": map[string]any{"openClose": true, "change": 1, "save": true},
 		"definitionProvider": true, "referencesProvider": true, "hoverProvider": true, "documentSymbolProvider": true, "workspaceSymbolProvider": true,
-		"completionProvider": map[string]any{"triggerCharacters": []string{"@"}},
+		"documentFormattingProvider": true,
+		"completionProvider":         map[string]any{"triggerCharacters": []string{"@"}},
 	}}, nil
 }
 
