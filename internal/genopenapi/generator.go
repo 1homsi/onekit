@@ -329,18 +329,19 @@ func headerParameter(h *onkir.Header) *v3.Parameter {
 }
 
 func pathParameter(name string, req *onkir.Message) *v3.Parameter {
-	kind := onkir.ScalarString
-	for _, f := range req.Fields {
-		if f.Name == name && f.Type != nil && f.Type.Kind == onkir.KindScalar {
-			kind = f.Type.Scalar
-		}
-	}
-	return &v3.Parameter{
+	parameter := &v3.Parameter{
 		Name:     name,
 		In:       "path",
 		Required: new(true),
-		Schema:   base.CreateSchemaProxy(scalarSchema(kind)),
+		Schema:   base.CreateSchemaProxy(scalarSchema(onkir.ScalarString)),
 	}
+	for _, f := range req.Fields {
+		if f.Name == name && f.Type != nil && f.Type.Kind == onkir.KindScalar {
+			parameter.Schema = fieldSchemaProxy(f)
+			parameter.Description = f.Doc
+		}
+	}
+	return parameter
 }
 
 func queryParameters(req *onkir.Message) []*v3.Parameter {
@@ -355,10 +356,11 @@ func queryParameters(req *onkir.Message) []*v3.Parameter {
 			name = f.Name
 		}
 		parameter := &v3.Parameter{
-			Name:     name,
-			In:       "query",
-			Required: new(!f.Optional || f.HasDecorator("required")),
-			Schema:   fieldSchemaProxy(f),
+			Name:        name,
+			In:          "query",
+			Required:    new(!f.Optional || f.HasDecorator("required")),
+			Schema:      fieldSchemaProxy(f),
+			Description: f.Doc,
 		}
 		if f.Repeated {
 			parameter.Style = "form"
