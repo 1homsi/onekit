@@ -127,8 +127,8 @@ func writeSSEClientFetch(p *Printer, m *onkir.Method) {
 	verb, _ := m.Verb()
 	p.P("const res = await this.request(this.baseUrl + path, {")
 	p.P(fmt.Sprintf("method: %q,", strings.ToUpper(verb)))
-	p.P(`headers: { Accept: "text/event-stream", ...this.options.defaultHeaders },`)
-	p.P("signal: opts?.signal,")
+	p.P(`headers: { Accept: "text/event-stream", ...this.options.defaultHeaders, ...opts?.headers },`)
+	p.P("signal: opts?.signal ?? null,")
 	p.P("});")
 	p.P()
 
@@ -196,7 +196,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	fullPath := s.BasePath + path
 
 	p.P("async *", CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request),
-		", opts?: { signal?: AbortSignal }): AsyncGenerator<", p.MessageTypeName(m.Response), "> {")
+		", opts?: RequestOptions): AsyncGenerator<", p.MessageTypeName(m.Response), "> {")
 	validator := p.MessageCodecName(m.Request, "validate")
 	p.P("const violations = ", validator, "(req);")
 	p.P(`if (violations.length > 0) throw new RequestValidationError("invalid request", violations);`)
