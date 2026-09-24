@@ -616,7 +616,7 @@ func writeWSRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	}
 	writeValidateCall(p)
 
-	p.P("conn, err := websocket.Accept(w, r, nil)")
+	p.P("conn, err := websocket.Accept(w, r, o.wsAcceptOptions)")
 	p.P("if err != nil { return }")
 	p.P("defer conn.CloseNow()")
 	p.P("conn.SetReadLimit(wsServerReadLimit(o.maxWSFrameBytes))")
