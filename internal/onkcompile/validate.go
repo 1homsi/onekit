@@ -168,6 +168,7 @@ func validateFieldDecl(path string, field *onklang.FieldDecl, options CompileOpt
 	if len(field.Oneof.Variants) == 0 {
 		return &Error{Path: path, Line: field.Line, Msg: fmt.Sprintf("oneof %q must declare at least one variant", field.Name)}
 	}
+	discriminator := oneofDiscriminator(field.Oneof.Args)
 	seenNames := map[string]string{}
 	seenTags := map[string]string{}
 	for _, variant := range field.Oneof.Variants {
@@ -184,8 +185,22 @@ func validateFieldDecl(path string, field *onklang.FieldDecl, options CompileOpt
 			)}
 		}
 		seenTags[tag] = variant.Name
+		if variant.Name == discriminator {
+			return &Error{Path: path, Line: variant.Line, Msg: fmt.Sprintf(
+				"oneof variant %q has the same JSON key as the discriminator; rename the variant or set oneof(discriminator: ...)", variant.Name,
+			)}
+		}
 	}
 	return nil
+}
+
+func oneofDiscriminator(args []onklang.Arg) string {
+	for _, arg := range args {
+		if arg.Name == oneofDiscriminatorArg {
+			return arg.Value
+		}
+	}
+	return "type"
 }
 
 func validateEnumDecl(path string, enum *onklang.EnumDecl, options CompileOptions) error {
