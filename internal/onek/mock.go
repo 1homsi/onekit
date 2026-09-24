@@ -269,6 +269,14 @@ func mockFieldValue(field *onkir.Field, depth int) any {
 			discriminator = name
 		}
 		object := map[string]any{discriminator: variant.Tag()}
+		if !field.Oneof.Flatten() {
+			if variant.Type != nil && variant.Type.Kind == onkir.KindMessage {
+				object[variant.Name] = mockMessage(variant.Type.Message, depth+1)
+			} else if variant.Type != nil {
+				object[variant.Name] = mockType(variant.Type, depth+1)
+			}
+			return object
+		}
 		if variant.Type != nil && variant.Type.Kind == onkir.KindMessage {
 			if inner, okMap := mockMessage(variant.Type.Message, depth+1).(map[string]any); okMap {
 				for name, value := range inner {
