@@ -665,6 +665,11 @@ func validateHTTPPath(value string, allowEmpty bool) error {
 	if path.Clean(withoutParams) != withoutParams {
 		return fmt.Errorf("must be a canonical literal URL path (got %s after substituting path parameters)", withoutParams)
 	}
+	for _, segment := range strings.Split(value, "/") {
+		if strings.ContainsAny(segment, "{}") && !(strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") && strings.Count(segment, "{") == 1) {
+			return fmt.Errorf("path parameter must fill a whole segment (got %q)", segment)
+		}
+	}
 	for _, name := range pathParameterNames(value) {
 		if strings.ContainsAny(name, "{}") {
 			return fmt.Errorf("path parameter %q must not contain nested braces", name)
