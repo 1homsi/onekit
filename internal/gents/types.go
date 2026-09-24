@@ -213,21 +213,22 @@ func writeValidateFunc(p *Printer, m *onkir.Message) {
 			continue
 		}
 		if field.Type.Scalar == onkir.ScalarString {
+			formatPresent := present + " && " + accessor + " !== \"\""
 			if field.HasDecorator("email") {
-				p.P("if (", present, " && !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid email"), ");")
+				p.P("if (", formatPresent, " && !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid email"), ");")
 			}
 			if field.HasDecorator("uuid") {
-				p.P("if (", present, " && !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid UUID"), ");")
+				p.P("if (", formatPresent, " && !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid UUID"), ");")
 			}
 			if field.HasDecorator("uri") {
-				p.P("if (", present, ") { try { new URL(", accessor, "); } catch { violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid URI"), "); } }")
+				p.P("if (", formatPresent, ") { try { new URL(", accessor, "); } catch { violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid URI"), "); } }")
 			}
 			if d, ok := field.Decorator("len"); ok && len(d.Args) == 2 {
 				p.P("if (", present, " && (", accessor, ".length < ", d.Args[0].Value, " || ", accessor, ".length > ", d.Args[1].Value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid length"), ");")
 			}
 			if d, ok := field.Decorator("pattern"); ok {
 				value, _ := d.Value()
-				p.P("if (", present, " && !(new RegExp(", fmt.Sprintf("%q", value), ")).test(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid format"), ");")
+				p.P("if (", formatPresent, " && !(new RegExp(", fmt.Sprintf("%q", value), ")).test(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid format"), ");")
 			}
 			if d, ok := field.Decorator("in"); ok {
 				values := make([]string, 0, len(d.Args))
