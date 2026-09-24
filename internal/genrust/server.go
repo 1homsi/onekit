@@ -34,6 +34,8 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 	p.Blank()
 	writeServerContext(p)
 	writePathParser(p)
+	p.P("pub const DEFAULT_MAX_REQUEST_BODY_BYTES: usize = 8 << 20;")
+	p.Blank()
 	if onkir.FileHasWSMethods(file) {
 		// Emitted once per file, not per service: WsPending/WsCallSink are
 		// shared types, and two services in one file both declaring @ws
@@ -167,6 +169,7 @@ func writeRouter(p *Printer, service *onkir.Service) {
 		)
 	}
 	p.P(".with_state(service)")
+	p.P(".layer(axum::extract::DefaultBodyLimit::max(DEFAULT_MAX_REQUEST_BODY_BYTES))")
 	if hasWS {
 		p.P(".layer(axum::Extension(ws_options))")
 	}
