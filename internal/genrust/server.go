@@ -316,7 +316,7 @@ func writeHandler(
 			"Ok(value) => Event::default().json_data(value).unwrap_or_else(",
 			"|error| Event::default().event(\"error\").data(error.to_string())),",
 		)
-		p.P("Err(error) => Event::default().event(\"error\").data(error.to_string()),")
+		p.P("Err(error) => Event::default().event(\"error\").json_data(error.error_body()).unwrap_or_default(),")
 		p.Dedent()
 		p.P("};")
 		p.P("Ok::<Event, Infallible>(event)")
@@ -382,6 +382,19 @@ func writeServerError(
 	p.Dedent()
 	p.P("}")
 	p.P("impl std::error::Error for ", name, " {}")
+	p.Blank()
+	p.P("impl ", name, " {")
+	p.P("pub fn error_body(&self) -> serde_json::Value {")
+	p.P("match self {")
+	p.P("Self::Validation(error) => serde_json::json!({ \"message\": error.to_string() }),")
+	p.P("Self::InvalidRequest(error) => serde_json::json!({ \"message\": error }),")
+	for i := range method.ErrorTypes {
+		p.P("Self::", variants[i], "(error) => serde_json::to_value(error).unwrap_or_default(),")
+	}
+	p.P("Self::Internal(_error) => serde_json::json!({ \"message\": \"internal server error\" }),")
+	p.P("}")
+	p.P("}")
+	p.P("}")
 	p.Blank()
 	p.P("impl axum::response::IntoResponse for ", name, " {")
 	p.Indent()
