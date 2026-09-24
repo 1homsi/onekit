@@ -280,7 +280,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		p.P("}")
 		p.P("}")
 	}
-	p.P(`return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))`)
+	p.P(`return nil, &UnexpectedStatusError{StatusCode: resp.StatusCode, Header: resp.Header, Body: respBody}`)
 	p.P("}")
 
 	p.P("return newEventStream[", p.MessageTypeName(m.Response), "](resp.Body, c.MaxSSELineBytes), nil")
