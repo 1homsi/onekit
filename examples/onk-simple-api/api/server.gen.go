@@ -91,6 +91,25 @@ func parseBool(s string) (bool, error) {
 	return false, fmt.Errorf("must be true or false")
 }
 
+func hasAuthScheme(value, scheme string) bool {
+	if len(value) <= len(scheme)+1 || value[len(scheme)] != ' ' {
+		return false
+	}
+	for i := 0; i < len(scheme); i++ {
+		a, b := value[i], scheme[i]
+		if a >= 'A' && a <= 'Z' {
+			a += 'a' - 'A'
+		}
+		if b >= 'A' && b <= 'Z' {
+			b += 'a' - 'A'
+		}
+		if a != b {
+			return false
+		}
+	}
+	return true
+}
+
 func validHeaderFormat(value, format string) bool {
 	switch format {
 	case "uuid":

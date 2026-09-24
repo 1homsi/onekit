@@ -355,6 +355,17 @@ func writeRuntimeHelpers(p *Printer) {
 	p.P(`return false, fmt.Errorf("must be true or false")`)
 	p.P(`}`)
 	p.P()
+	p.P(`func hasAuthScheme(value, scheme string) bool {`)
+	p.P(`if len(value) <= len(scheme)+1 || value[len(scheme)] != ' ' { return false }`)
+	p.P(`for i := 0; i < len(scheme); i++ {`)
+	p.P(`a, b := value[i], scheme[i]`)
+	p.P(`if a >= 'A' && a <= 'Z' { a += 'a' - 'A' }`)
+	p.P(`if b >= 'A' && b <= 'Z' { b += 'a' - 'A' }`)
+	p.P(`if a != b { return false }`)
+	p.P(`}`)
+	p.P(`return true`)
+	p.P(`}`)
+	p.P()
 	p.P(`func validHeaderFormat(value, format string) bool {`)
 	p.P(`switch format {`)
 	p.P(`case "uuid": return validHeaderUUID.MatchString(value)`)
@@ -659,6 +670,16 @@ func writeHeaderCheck(p *Printer, h *onkir.Header) {
 	if hasFormat {
 		p.P(`if value != "" && !validHeaderFormat(value, `, fmt.Sprintf("%q", format), `) {`)
 		p.P("writeJSONError(w, http.StatusBadRequest, ", fmt.Sprintf("%q", "invalid header "+h.Name+": expected "+format), ")")
+		p.P("return")
+		p.P("}")
+	}
+	if authType, ok := h.AuthType(); ok && (authType == "bearer" || authType == "basic") {
+		scheme := "Bearer"
+		if authType == "basic" {
+			scheme = "Basic"
+		}
+		p.P(`if value != "" && !hasAuthScheme(value, `, fmt.Sprintf("%q", scheme), `) {`)
+		p.P("writeJSONError(w, http.StatusUnauthorized, ", fmt.Sprintf("%q", "invalid "+h.Name+" header: expected "+scheme+" credentials"), ")")
 		p.P("return")
 		p.P("}")
 	}
