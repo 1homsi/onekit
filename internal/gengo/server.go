@@ -72,14 +72,11 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	if hasWS {
 		p.P(`"net"`)
 	}
-	if hasWS {
+	if hasWS || hasStream {
 		p.P(`"sync"`)
 	}
 	if hasWS {
 		p.P(`"github.com/coder/websocket"`)
-	}
-	if hasStream && fileHasStreamPathParams(file) {
-		p.P(`"net/url"`)
 	}
 	for _, ref := range externalRefs {
 		p.P(ref.Alias, " ", fmt.Sprintf("%q", ref.ImportPath))
@@ -114,20 +111,6 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	}
 
 	return p.Format()
-}
-
-func fileHasStreamPathParams(file *onkir.File) bool {
-	for _, service := range file.Services {
-		for _, method := range service.Methods {
-			if method.IsStream() {
-				path, _ := method.Path()
-				if len(onkir.PathParamNames(path)) > 0 {
-					return true
-				}
-			}
-		}
-	}
-	return false
 }
 
 // fileHasRequestBodyBinding reports whether any route decodes a request body,
