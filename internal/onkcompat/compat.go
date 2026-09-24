@@ -168,9 +168,11 @@ func fieldTypeSignature(field *onkir.Field) string {
 		}
 		sort.Strings(variants)
 		parts = append(parts, "variants="+strings.Join(variants, "|"))
-		if discriminator, ok := field.Oneof.Discriminator(); ok {
-			parts = append(parts, "discriminator="+discriminator)
+		discriminator, ok := field.Oneof.Discriminator()
+		if !ok || discriminator == "" {
+			discriminator = "type"
 		}
+		parts = append(parts, "discriminator="+discriminator)
 		parts = append(parts, fmt.Sprintf("flatten=%t", field.Oneof.Flatten()))
 	}
 	return strings.Join(parts, "|")
