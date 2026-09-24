@@ -122,6 +122,11 @@ func writeAPIError(p *Printer) {
 	p.P("}")
 	p.P("}")
 	p.P()
+	p.P("export interface RequestOptions {")
+	p.P("signal?: AbortSignal;")
+	p.P("headers?: Record<string, string>;")
+	p.P("}")
+	p.P()
 	p.P("export class ApiError extends Error {")
 	p.P("statusCode: number;")
 	p.P("body: string;")
@@ -242,7 +247,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	bodyBearing := onkir.IsBodyBearingVerb(verb)
 
 	p.P("async ", CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request),
-		"): Promise<", p.MessageTypeName(m.Response), "> {")
+		", opts?: RequestOptions): Promise<", p.MessageTypeName(m.Response), "> {")
 	validator := p.MessageCodecName(m.Request, "validate")
 	p.P("const violations = ", validator, "(req);")
 	p.P(`if (violations.length > 0) throw new RequestValidationError("invalid request", violations);`)
@@ -265,15 +270,16 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("const res = await this.request(this.baseUrl + path, {")
 	p.P(fmt.Sprintf("method: %q,", strings.ToUpper(verb)))
 	if bodyBearing {
-		p.P(`headers: { "Content-Type": "application/json", ...this.options.defaultHeaders },`)
+		p.P(`headers: { "Content-Type": "application/json", ...this.options.defaultHeaders, ...opts?.headers },`)
 		if bodyField, ok := m.BodyField(); ok {
 			p.P("body: JSON.stringify(encode", m.Request.Name, "(req)[", fmt.Sprintf("%q", bodyField), "]),")
 		} else {
 			p.P("body: JSON.stringify(encode", m.Request.Name, "(req)),")
 		}
 	} else {
-		p.P("headers: { ...this.options.defaultHeaders },")
+		p.P("headers: { ...this.options.defaultHeaders, ...opts?.headers },")
 	}
+	p.P("signal: opts?.signal,")
 	p.P("});")
 	p.P()
 
