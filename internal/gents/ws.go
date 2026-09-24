@@ -766,7 +766,7 @@ func writeTSWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 	p.P("async ", CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request), "): Promise<", tsDuplexName(m), "> {")
 	p.P("const violations = ", p.MessageCodecName(m.Request, "validate"), "(req);")
-	p.P(`if (violations.length > 0) throw new TypeError("invalid request: " + violations.join("; "));`)
+	p.P(`if (violations.length > 0) throw new RequestValidationError("invalid request", violations);`)
 	p.P(fmt.Sprintf("let path = %q;", fullPath))
 	for _, paramName := range onkir.PathParamNames(wsPath) {
 		field := onkir.FindField(m.Request, paramName)
@@ -801,7 +801,7 @@ func writeTSDuplexSend(p *Printer, m *onkir.Method, reqRef string) {
 	p.P("send(value: ", reqRef, "): Promise<void> {")
 	reqSplit, _ := p.wsRawCodecArgs(m.Request)
 	p.P("const violations = ", p.MessageCodecName(m.Request, "validate"), "(value);")
-	p.P(`if (violations.length > 0) throw new TypeError("invalid frame: " + violations.join("; "));`)
+	p.P(`if (violations.length > 0) throw new RequestValidationError("invalid frame", violations);`)
 	p.P("wsSend(this.ws, wsEncodeMessage(value, ", p.MessageCodecName(m.Request, "encode"), ", ", reqSplit, "));")
 	p.P("return wsDrained(this.ws, this.highWaterMark);")
 	p.P("}")

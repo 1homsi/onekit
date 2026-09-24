@@ -112,6 +112,16 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) []by
 // shape, since the body isn't necessarily JSON) for callers that want to
 // inspect a failure beyond the generic message.
 func writeAPIError(p *Printer) {
+	p.P("export class RequestValidationError extends TypeError {")
+	p.P("readonly violations: string[];")
+	p.P()
+	p.P("constructor(prefix: string, violations: string[]) {")
+	p.P(`super(prefix + ": " + violations.join("; "));`)
+	p.P(`this.name = "RequestValidationError";`)
+	p.P("this.violations = violations;")
+	p.P("}")
+	p.P("}")
+	p.P()
 	p.P("export class ApiError extends Error {")
 	p.P("statusCode: number;")
 	p.P("body: string;")
@@ -235,7 +245,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		"): Promise<", p.MessageTypeName(m.Response), "> {")
 	validator := p.MessageCodecName(m.Request, "validate")
 	p.P("const violations = ", validator, "(req);")
-	p.P(`if (violations.length > 0) throw new TypeError("invalid request: " + violations.join("; "));`)
+	p.P(`if (violations.length > 0) throw new RequestValidationError("invalid request", violations);`)
 	p.P(fmt.Sprintf("let path = %q;", fullPath))
 	for _, paramName := range onkir.PathParamNames(path) {
 		field := onkir.FindField(m.Request, paramName)
