@@ -78,12 +78,17 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 
 	if fileHasHTTPRoutes(file) {
 		writeTSNodeHTTPRuntime(p)
+		p.P(tsFetchRouterSource)
 	}
 	for _, s := range file.Services {
 		writeHandlerInterface(p, s)
 		writeRouteFactory(p, s)
 		if serviceHasHTTPRoutes(s) {
 			writeTSNodeRouteFactory(p, s)
+			p.P("export function create", s.Name, "FetchHandler(handler: ", s.Name, "Handler): (req: Request) => Promise<Response> {")
+			p.P("return fetchRouter(create", s.Name, "Routes(handler));")
+			p.P("}")
+			p.P()
 		}
 		if hasWS {
 			writeTSSocketFactory(p, s)
@@ -459,3 +464,17 @@ func writeTSNodeRouteFactory(p *Printer, s *onkir.Service) {
 	p.P("}")
 	p.P()
 }
+
+const tsFetchRouterSource = `export function fetchRouter(routes: RouteDescriptor[]): (req: Request) => Promise<Response> {
+return async (req: Request): Promise<Response> => {
+const url = new URL(req.url);
+const matching = routes.filter((route) => matchPath(route.path, url.pathname) !== null);
+if (matching.length === 0) return jsonResponse({ message: "not found" }, 404);
+const route = matching.find((candidate) => candidate.method === req.method);
+if (route) return route.handler(req);
+const allow = [...new Set(matching.map((candidate) => candidate.method))].join(", ");
+if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { Allow: allow } });
+return new Response(JSON.stringify({ message: "method not allowed" }), { status: 405, headers: { "Content-Type": "application/json", Allow: allow } });
+};
+}
+`
