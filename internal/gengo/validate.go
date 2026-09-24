@@ -366,7 +366,32 @@ func writeValidate(p *Printer, m *onkir.Message) {
 	}
 }
 
+func writeOneofValidation(p *Printer, field *onkir.Field) {
+	var variants []*onkir.OneofVariant
+	for _, variant := range field.Oneof.Variants {
+		if variant.Type != nil && variant.Type.Kind == onkir.KindMessage {
+			variants = append(variants, variant)
+		}
+	}
+	if len(variants) == 0 {
+		return
+	}
+	p.P("switch v := m.", PascalCase(field.Name), ".(type) {")
+	for _, variant := range variants {
+		value := "v." + PascalCase(variant.Name)
+		p.P("case *", OneofVariantTypeName(field.Message, field, variant), ":")
+		p.P("if ", value, " != nil {")
+		p.P("if err := ", value, ".Validate(); err != nil { violations = append(violations, ", fmt.Sprintf("%q", field.Name+"."+variant.Name+": "), "+err.Error()) }")
+		p.P("}")
+	}
+	p.P("}")
+}
+
 func writeNestedValidation(p *Printer, field *onkir.Field) {
+	if field.Oneof != nil {
+		writeOneofValidation(p, field)
+		return
+	}
 	if field.Type == nil {
 		return
 	}

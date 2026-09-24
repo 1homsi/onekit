@@ -123,6 +123,26 @@ func (m *LoginRequest) Validate() error {
 		return nil
 	}
 	var violations []string
+	switch v := m.AuthMethod.(type) {
+	case *LoginRequestAuthMethodEmail:
+		if v.Email != nil {
+			if err := v.Email.Validate(); err != nil {
+				violations = append(violations, "auth_method.email: "+err.Error())
+			}
+		}
+	case *LoginRequestAuthMethodToken:
+		if v.Token != nil {
+			if err := v.Token.Validate(); err != nil {
+				violations = append(violations, "auth_method.token: "+err.Error())
+			}
+		}
+	case *LoginRequestAuthMethodSocial:
+		if v.Social != nil {
+			if err := v.Social.Validate(); err != nil {
+				violations = append(violations, "auth_method.social: "+err.Error())
+			}
+		}
+	}
 	if len(violations) > 0 {
 		return errors.New(strings.Join(violations, "; "))
 	}
