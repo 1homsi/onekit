@@ -18,15 +18,19 @@ var integerBounds = map[string][2]*big.Int{
 	"uint64": {big.NewInt(0), new(big.Int).SetUint64(math.MaxUint64)},
 }
 
+var countDecorators = map[string]bool{"len": true, "min_items": true, "max_items": true}
+
+var comparisonDecorators = map[string]bool{"gt": true, "gte": true, "lt": true, "lte": true, "range": true}
+
 func validateNumericBounds(filePath string, line int, decorator onklang.Decorator, typ *onklang.TypeRef) error {
-	switch decorator.Name {
-	case "len", "min_items", "max_items":
+	switch {
+	case countDecorators[decorator.Name]:
 		for _, arg := range decorator.Args {
 			if !fitsInteger(arg.Value, big.NewInt(0), big.NewInt(math.MaxInt32)) {
 				return &Error{Path: filePath, Line: line, Msg: fmt.Sprintf("@%s argument %q must be a non-negative integer", decorator.Name, arg.Value)}
 			}
 		}
-	case "gt", "gte", "lt", "lte", "range":
+	case comparisonDecorators[decorator.Name]:
 		for _, arg := range decorator.Args {
 			if !decimalLiteral.MatchString(arg.Value) {
 				return &Error{Path: filePath, Line: line, Msg: fmt.Sprintf("@%s argument %q must be a finite decimal number", decorator.Name, arg.Value)}
