@@ -34,6 +34,7 @@ func clientImportsNeeded(file *onkir.File) clientImports {
 				// plus scheme rewriting.
 				imp.url = true
 				imp.strings = true
+				imp.strconv = imp.strconv || methodNeedsStrconv(m)
 				continue
 			}
 			imp.url = imp.url || len(onkir.PathParamNames(path)) > 0

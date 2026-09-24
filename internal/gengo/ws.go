@@ -2,6 +2,7 @@ package gengo
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/1homsi/onekit/internal/onkir"
@@ -564,7 +565,6 @@ func writeWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 	p.P("func (c *", s.Name, "Client) ", PascalCase(m.Name),
 		"(ctx context.Context, req *", reqRef, ") (*", wsDuplexName(reqRef, resRef), ", error) {")
-	p.P(`if validator, ok := any(req).(interface{ Validate() error }); ok { if err := validator.Validate(); err != nil { return nil, fmt.Errorf("validate request: %w", err) } }`)
 
 	p.P("path := ", fmt.Sprintf("%q", fullPath))
 	for _, paramName := range onkir.PathParamNames(path) {
@@ -603,10 +603,11 @@ func writeWSRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	idField, correlated := m.WSIDField()
 
 	p.P("mux.Handle(", fmt.Sprintf("%q", "GET "+fullPath), ", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
-	p.P("req := new(", p.MessageTypeName(m.Request), ")")
-
-	writePathParamBinding(p, fullPath, m.Request)
-	writeQueryParamBinding(p, m.Request)
+	if len(goWSBoundFields(m)) > 0 {
+		p.P("req := new(", p.MessageTypeName(m.Request), ")")
+		writePathParamBinding(p, fullPath, m.Request)
+		writeQueryParamBinding(p, m.Request)
+	}
 
 	for _, h := range m.Service.Headers {
 		writeHeaderCheck(p, h)
@@ -614,8 +615,6 @@ func writeWSRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	for _, h := range m.Headers {
 		writeHeaderCheck(p, h)
 	}
-	writeValidateCall(p)
-
 	p.P("conn, err := websocket.Accept(w, r, o.wsAcceptOptions)")
 	p.P("if err != nil { return }")
 	p.P("defer conn.CloseNow()")
@@ -670,6 +669,9 @@ func writeWSRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P(`sendProtocolError("invalid JSON frame")`)
 	p.P("return")
 	p.P("}")
+	for _, name := range goWSBoundFields(m) {
+		p.P("frame.", name, " = req.", name)
+	}
 	p.P("if validator, ok := any(frame).(interface{ Validate() error }); ok { if verr := validator.Validate(); verr != nil {")
 	p.P(`sendProtocolError(verr.Error())`)
 	p.P("return")
@@ -739,3 +741,19 @@ return zero, false
 }
 }
 `
+
+func goWSBoundFields(m *onkir.Method) []string {
+	path, _ := m.WebSocketPath()
+	var names []string
+	for _, name := range onkir.PathParamNames(path) {
+		if field := onkir.FindField(m.Request, name); field != nil {
+			names = append(names, PascalCase(field.Name))
+		}
+	}
+	for _, field := range m.Request.Fields {
+		if _, ok := field.Decorator("query"); ok && !slices.Contains(onkir.PathParamNames(path), field.Name) {
+			names = append(names, PascalCase(field.Name))
+		}
+	}
+	return names
+}

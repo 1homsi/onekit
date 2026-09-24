@@ -3,6 +3,7 @@ package onek
 import (
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -26,11 +27,22 @@ out = "./api"
 		t.Fatalf("Build error: %v", err)
 	}
 	apiDir := filepath.Join(dir, "api")
-	writeTestFile(t, filepath.Join(apiDir, "go.mod"), "module example.com/check/api\n\ngo 1.26\n")
+	goMod := "module example.com/check/api\n\ngo 1.26\n"
+	if strings.Contains(schema, "@ws(") {
+		goMod += "\nrequire github.com/coder/websocket v1.8.15\n"
+	}
+	writeTestFile(t, filepath.Join(apiDir, "go.mod"), goMod)
 	args := []string{"vet", "./..."}
 	if testSource != "" {
 		writeTestFile(t, filepath.Join(apiDir, "schema_test.go"), testSource)
 		args = []string{"test", "./..."}
+	}
+	if strings.Contains(schema, "@ws(") {
+		tidy := exec.Command("go", "mod", "tidy")
+		tidy.Dir = apiDir
+		if out, err := tidy.CombinedOutput(); err != nil {
+			t.Fatalf("go mod tidy: %v\n%s", err, out)
+		}
 	}
 	cmd := exec.Command("go", args...)
 	cmd.Dir = apiDir
