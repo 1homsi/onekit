@@ -308,3 +308,6 @@ components:
                     type: string
             required:
                 - message
+tags:
+    - name: UserService
+      description: UserService manages users in the system.
