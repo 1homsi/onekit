@@ -759,7 +759,14 @@ func writeErrorClass(p *Printer, m *onkir.Message) {
 	p.P("def __init__(self", p.errorInitArgs(m), ") -> None:")
 	p.Indent()
 	for _, f := range m.Fields {
-		p.P("self.", f.Name, " = ", f.Name)
+		switch {
+		case f.Repeated:
+			p.P("self.", f.Name, " = ", f.Name, " if ", f.Name, " is not None else []")
+		case f.Type != nil && f.Type.Kind == onkir.KindMap:
+			p.P("self.", f.Name, " = ", f.Name, " if ", f.Name, " is not None else {}")
+		default:
+			p.P("self.", f.Name, " = ", f.Name)
+		}
 	}
 	parts := make([]string, len(m.Fields))
 	for i, f := range m.Fields {
@@ -767,6 +774,14 @@ func writeErrorClass(p *Printer, m *onkir.Message) {
 	}
 	p.P(fmt.Sprintf("super().__init__(f%q)", m.Name+" "+strings.Join(parts, " ")))
 	p.Dedent()
+	p.Blank()
+
+	p.P("def __eq__(self, other: object) -> bool:")
+	p.Indent()
+	p.P("return type(self) is type(other) and self.to_dict() == other.to_dict()")
+	p.Dedent()
+	p.Blank()
+	p.P("__hash__ = None")
 	p.Blank()
 
 	p.P("def to_dict(self) -> dict:")
@@ -805,6 +820,10 @@ func (p *Printer) errorInitArgs(m *onkir.Message) string {
 			pyType = "list[" + pyType + "]"
 		}
 		sb.WriteString(pyType)
+		if f.Repeated || f.Optional || f.Type != nil && (f.Type.Kind == onkir.KindMap || f.Type.Kind == onkir.KindMessage || f.Type.Kind == onkir.KindEnum) {
+			sb.WriteString(" | None = None")
+			continue
+		}
 		sb.WriteString(" = ")
 		sb.WriteString(fieldPyDefault(f))
 	}
