@@ -161,7 +161,9 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) []byt
 	p.P("import re")
 	p.P("import urllib.parse")
 	p.P("import uuid")
-	p.P("from dataclasses import dataclass, field")
+	p.P("import builtins as _builtins")
+	p.P("import dataclasses as _dataclasses")
+	p.P("from dataclasses import dataclass")
 	p.P("from enum import IntEnum")
 	for _, ref := range collectExternalRefs(file, resolver) {
 		p.P("import ", ref.ModulePath, " as ", ref.Alias)
@@ -212,13 +214,13 @@ func writeFieldDecl(p *Printer, f *onkir.Field) {
 	pyType := p.fieldPyType(f)
 	switch {
 	case f.Repeated:
-		p.P(f.Name, ": list[", pyType, "] = field(default_factory=list)")
+		p.P(f.Name, ": list[", pyType, "] = _dataclasses.field(default_factory=_builtins.list)")
 	case f.Type.Kind == onkir.KindMap:
-		p.P(f.Name, ": ", pyType, " = field(default_factory=dict)")
+		p.P(f.Name, ": ", pyType, " = _dataclasses.field(default_factory=_builtins.dict)")
 	case f.Optional || f.Type.Kind == onkir.KindMessage:
 		p.P(f.Name, ": ", pyType, " | None = None")
 	case f.Type.Kind == onkir.KindEnum:
-		p.P(f.Name, ": ", pyType, " = field(default_factory=lambda: ", p.EnumTypeName(f.Type.Enum), "(0))")
+		p.P(f.Name, ": ", pyType, " = _dataclasses.field(default_factory=lambda: ", p.EnumTypeName(f.Type.Enum), "(0))")
 	default:
 		p.P(f.Name, ": ", pyType, " = ", fieldPyDefault(f))
 	}
