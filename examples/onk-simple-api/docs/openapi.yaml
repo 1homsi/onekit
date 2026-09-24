@@ -25,12 +25,24 @@ paths:
                             $ref: '#/components/schemas/examples.onksimpleapi.models.CreateUserRequest'
                 required: true
             responses:
+                default:
+                    description: Unexpected error
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/onekit.ErrorMessage'
                 "200":
                     description: OK
                     content:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/examples.onksimpleapi.models.User'
+                "400":
+                    description: Invalid request
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/onekit.ErrorMessage'
     /api/v1/users/get:
         post:
             tags:
@@ -52,12 +64,24 @@ paths:
                             $ref: '#/components/schemas/examples.onksimpleapi.models.GetUserRequest'
                 required: true
             responses:
+                default:
+                    description: Unexpected error
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/onekit.ErrorMessage'
                 "200":
                     description: OK
                     content:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/examples.onksimpleapi.models.User'
+                "400":
+                    description: Invalid request
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/onekit.ErrorMessage'
     /api/v1/auth/login:
         post:
             tags:
@@ -85,12 +109,24 @@ paths:
                             $ref: '#/components/schemas/examples.onksimpleapi.models.LoginRequest'
                 required: true
             responses:
+                default:
+                    description: Unexpected error
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/onekit.ErrorMessage'
                 "200":
                     description: OK
                     content:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/examples.onksimpleapi.models.LoginResponse'
+                "400":
+                    description: Invalid request
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/onekit.ErrorMessage'
 components:
     schemas:
         examples.onksimpleapi.models.CreateUserRequest:
@@ -265,3 +301,10 @@ components:
                 - refresh_token
                 - expires_in
                 - user
+        onekit.ErrorMessage:
+            type: object
+            properties:
+                message:
+                    type: string
+            required:
+                - message
