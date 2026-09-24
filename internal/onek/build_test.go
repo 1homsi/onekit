@@ -439,3 +439,30 @@ service Svc {
 		}
 	}
 }
+
+func TestDiscoverOnkFilesSkipsToolingDirsAndForeignSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "api.onk"), "message A { id: string }\n")
+	writeTestFile(t, filepath.Join(dir, "node_modules", "pkg", "x.onk"), "message Broken {\n")
+	writeTestFile(t, filepath.Join(dir, ".git", "x.onk"), "message Broken {\n")
+	writeTestFile(t, filepath.Join(dir, "node_modules", "typescript", "bin", "tsc"), "#!/bin/sh\n")
+	if err := os.MkdirAll(filepath.Join(dir, "tools"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "node_modules", "typescript", "bin", "tsc"), filepath.Join(dir, "tools", "tsc")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	files, err := discoverOnkFiles(dir)
+	if err != nil {
+		t.Fatalf("discoverOnkFiles: %v", err)
+	}
+	if len(files) != 1 || filepath.Base(files[0]) != "api.onk" {
+		t.Fatalf("want only api.onk, got %v", files)
+	}
+	if err := os.Symlink(filepath.Join(dir, "api.onk"), filepath.Join(dir, "linked.onk")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := discoverOnkFiles(dir); err == nil || !strings.Contains(err.Error(), "symlinked schema file") {
+		t.Fatalf("want a symlinked schema file error, got %v", err)
+	}
+}
