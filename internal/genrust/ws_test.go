@@ -53,7 +53,7 @@ func TestGenerateRustWS(t *testing.T) {
 	client := GenerateClient(file)
 	for _, want := range []string{
 		"pub struct WsFrameSocket<In, Out> {",
-		"tokio_tungstenite::connect_async_with_config(url, Some(config), false)",
+		"tokio_tungstenite::connect_async_with_config(request, Some(config), false)",
 		"pub async fn chat(&self, req: &ChatMessage) -> Result<WsFrameSocket<ChatMessage, ChatEvent>, ChatServiceChatError> {",
 		"Ok(WsFrameSocket::<ChatMessage, ChatEvent>::new(stream).with_max_message_bytes(self.max_ws_message_bytes))",
 	} {
