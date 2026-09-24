@@ -403,8 +403,9 @@ func writeTypedClientErrors(p *Printer, method *onkir.Method, errorName string) 
 		}
 		p.P("if status.as_u16() == ", status, " {")
 		p.Indent()
-		p.P("let error = serde_json::from_slice(&body).map_err(", errorName, "::Decode)?;")
+		p.P("if let Ok(error) = serde_json::from_slice::<", p.MessageTypeName(errorType), ">(&body) {")
 		p.P("return Err(", errorName, "::", variants[i], "(error));")
+		p.P("}")
 		p.Dedent()
 		p.P("}")
 	}

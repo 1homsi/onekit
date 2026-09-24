@@ -32,3 +32,15 @@ service S { get(R) -> R @get("/r/{id}") }
 		t.Fatalf("error bodies must use the message key like Go and TypeScript:\n%s", out)
 	}
 }
+
+func TestRustClientFallsBackWhenTypedErrorBodyDoesNotDecode(t *testing.T) {
+	out := string(GenerateClient(compileRustSchema(t, `
+package app
+message R { id: string }
+message NotFound @status(404) { resource: string }
+service S { get(R) -> R | NotFound @get("/r/{id}") }
+`)))
+	if strings.Contains(out, "map_err(SGetError::Decode)?;\nreturn Err(SGetError::NotFound") || !strings.Contains(out, "if let Ok(error) = serde_json::from_slice::<NotFound>(&body) {") {
+		t.Fatalf("typed error decode must fall through to UnexpectedStatus:\n%s", out)
+	}
+}
