@@ -1,6 +1,7 @@
 package onkir
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -143,6 +144,19 @@ func (h *Header) AuthSchemeName() (string, bool) {
 		return d.Value()
 	}
 	return "", false
+}
+
+var securitySchemeUnsafe = regexp.MustCompile(`[^A-Za-z0-9_.-]+`)
+
+func (h *Header) SecuritySchemeName() string {
+	if name, ok := h.AuthSchemeName(); ok && name != "" {
+		return name
+	}
+	name := securitySchemeUnsafe.ReplaceAllString(h.Name, "")
+	if name == "" {
+		name = "Header"
+	}
+	return name + "Auth"
 }
 
 // Decorator finds one of the method's decorators by name.

@@ -3,7 +3,6 @@ package genopenapi
 import (
 	"fmt"
 	"math"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -457,14 +456,7 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 }
 
 func authSchemeName(header *onkir.Header) string {
-	if name, ok := header.AuthSchemeName(); ok && name != "" {
-		return name
-	}
-	name := regexp.MustCompile(`[^A-Za-z0-9_.-]+`).ReplaceAllString(header.Name, "")
-	if name == "" {
-		name = "Header"
-	}
-	return name + "Auth"
+	return header.SecuritySchemeName()
 }
 
 func collectSecuritySchemes(file *onkir.File) (*orderedmap.Map[string, *v3.SecurityScheme], error) {

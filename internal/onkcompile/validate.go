@@ -892,6 +892,44 @@ func validateContract(pkg *onkir.Package) error {
 				}
 			}
 		}
+		if err := validateSecuritySchemes(file); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSecuritySchemes(file *onkir.File) error {
+	seen := map[string]string{}
+	check := func(header *onkir.Header) error {
+		authType, ok := header.AuthType()
+		if !ok {
+			return nil
+		}
+		signature := authType
+		if authType == "api_key" {
+			signature += ":" + strings.ToLower(header.Name)
+		}
+		name := header.SecuritySchemeName()
+		if previous, exists := seen[name]; exists && previous != signature {
+			return &Error{Path: file.Path, Msg: fmt.Sprintf("auth scheme %q is declared as both %s and %s; give one header a different @auth_scheme_name", name, previous, signature)}
+		}
+		seen[name] = signature
+		return nil
+	}
+	for _, service := range file.Services {
+		for _, header := range service.Headers {
+			if err := check(header); err != nil {
+				return err
+			}
+		}
+		for _, method := range service.Methods {
+			for _, header := range method.Headers {
+				if err := check(header); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	return nil
 }
