@@ -67,6 +67,17 @@ func pyModulePath(relDir string) string {
 	return strings.Join(parts, ".") + ".models"
 }
 
+func pythonRelDir(relDir string) string {
+	if relDir == "." || relDir == "" {
+		return relDir
+	}
+	parts := strings.Split(filepath.ToSlash(relDir), "/")
+	for i, part := range parts {
+		parts[i] = pythonModuleSegment(part)
+	}
+	return strings.Join(parts, "/")
+}
+
 func pythonModuleSegment(value string) string {
 	var b strings.Builder
 	for _, r := range value {

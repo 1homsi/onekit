@@ -648,10 +648,11 @@ func expectedGeneratedOutputs(cfg *Config, idx *sourceIndex) map[string]map[stri
 		}
 		if cfg.Generate.PythonClient != nil {
 			root := cfg.resolve(cfg.Generate.PythonClient.Out)
+			pyRel := filepath.FromSlash(pythonRelDir(filepath.ToSlash(rel)))
 			add(root, "__init__.py")
-			add(root, filepath.Join(rel, "models.py"))
-			add(root, filepath.Join(rel, "client.py"))
-			for parent := rel; parent != "." && parent != ""; parent = filepath.Dir(parent) {
+			add(root, filepath.Join(pyRel, "models.py"))
+			add(root, filepath.Join(pyRel, "client.py"))
+			for parent := pyRel; parent != "." && parent != ""; parent = filepath.Dir(parent) {
 				add(root, filepath.Join(parent, "__init__.py"))
 			}
 		}
@@ -956,8 +957,9 @@ func buildTSServer(cfg *Config, idx *sourceIndex) error {
 func buildPythonClient(cfg *Config, idx *sourceIndex) error {
 	outRoot := cfg.resolve(cfg.Generate.PythonClient.Out)
 	for _, g := range idx.groups {
-		outDir := groupOutDir(outRoot, g.relDir)
-		if err := writePythonInitFiles(outRoot, g.relDir); err != nil {
+		pyDir := pythonRelDir(g.relDir)
+		outDir := groupOutDir(outRoot, pyDir)
+		if err := writePythonInitFiles(outRoot, pyDir); err != nil {
 			return err
 		}
 		resolver := &pyResolver{currentDir: g.relDir, idx: idx}
