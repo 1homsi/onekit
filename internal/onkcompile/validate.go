@@ -872,11 +872,11 @@ func pathParameterNames(route string) []string {
 	return names
 }
 
-func validateContract(pkg *onkir.Package) error {
+func validateContract(pkg *onkir.Package, options CompileOptions) error {
 	fullNames := map[string]string{}
 	for _, file := range pkg.Files {
 		for _, message := range file.Messages {
-			if err := validateCompiledMessage(file.Path, message, fullNames); err != nil {
+			if err := validateCompiledMessage(file.Path, message, fullNames, options); err != nil {
 				return err
 			}
 		}
@@ -899,7 +899,7 @@ func validateContract(pkg *onkir.Package) error {
 	return nil
 }
 
-func validateCompiledMessage(filePath string, message *onkir.Message, fullNames map[string]string) error {
+func validateCompiledMessage(filePath string, message *onkir.Message, fullNames map[string]string, options CompileOptions) error {
 	if message.File != nil && message.File.Package != "" {
 		if previous, exists := fullNames[message.FullName()]; exists {
 			return &Error{Path: filePath, Msg: fmt.Sprintf("qualified declaration %q conflicts with %s", message.FullName(), previous)}
@@ -907,12 +907,12 @@ func validateCompiledMessage(filePath string, message *onkir.Message, fullNames 
 		fullNames[message.FullName()] = filePath
 	}
 	for _, field := range message.Fields {
-		if err := validateCompiledField(filePath, field); err != nil {
+		if err := validateCompiledField(filePath, field, options); err != nil {
 			return err
 		}
 	}
 	for _, nested := range message.Nested {
-		if err := validateCompiledMessage(filePath, nested, fullNames); err != nil {
+		if err := validateCompiledMessage(filePath, nested, fullNames, options); err != nil {
 			return err
 		}
 	}
@@ -927,7 +927,12 @@ func validateCompiledMessage(filePath string, message *onkir.Message, fullNames 
 	return nil
 }
 
-func validateCompiledField(filePath string, field *onkir.Field) error {
+func validateCompiledField(filePath string, field *onkir.Field, options CompileOptions) error {
+	if !options.AllowLegacyContracts && field.HasDecorator("required") && !field.Optional && !field.Repeated && field.Type != nil && field.Type.Kind == onkir.KindEnum {
+		return &Error{Path: filePath, Msg: fmt.Sprintf(
+			"@required on enum field %s.%s needs the ? marker; a non-optional enum always holds its first value", field.Message.FullName(), field.Name,
+		)}
+	}
 	if field.Type != nil && field.Type.Kind == onkir.KindMap && field.Type.MapValue != nil &&
 		field.Type.MapValue.Kind == onkir.KindMessage && isRootUnwrappedMessage(field.Type.MapValue.Message) {
 		return &Error{Path: filePath, Msg: fmt.Sprintf(
