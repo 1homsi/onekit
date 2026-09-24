@@ -394,5 +394,15 @@ func writeNestedValidation(p *Printer, field *onkir.Field) {
 		p.P("if m.", goName, " != nil {")
 		appendError("m." + goName)
 		p.P("}")
+	case field.Type.Kind == onkir.KindEnum:
+		invalid := "violations = append(violations, " + fmt.Sprintf("%q", field.Name+" must be a known "+field.Type.Enum.Name+" value") + ")"
+		switch {
+		case field.Repeated:
+			p.P("for _, value := range m.", goName, " { if !value.IsValid() { ", invalid, "; break } }")
+		case field.Optional:
+			p.P("if m.", goName, " != nil && !m.", goName, ".IsValid() { ", invalid, " }")
+		default:
+			p.P("if !m.", goName, ".IsValid() { ", invalid, " }")
+		}
 	}
 }
