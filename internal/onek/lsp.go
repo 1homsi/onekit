@@ -74,6 +74,9 @@ func RunLSP(in io.Reader, out io.Writer, dir string) error {
 		}
 		hasID := len(req.ID) > 0 && string(req.ID) != "null"
 		if req.Method == "exit" {
+			if !shutdown {
+				return errExitBeforeShutdown
+			}
 			return nil
 		}
 		var result any
@@ -98,13 +101,15 @@ func RunLSP(in io.Reader, out io.Writer, dir string) error {
 			if err := writeRPC(out, req.ID, result, callErr); err != nil {
 				return err
 			}
-		} else if callErr != nil {
+		} else if callErr != nil && callErr.Code != -32601 {
 			if err := writeLSPMessage(out, map[string]any{"jsonrpc": "2.0", "method": "window/logMessage", "params": map[string]any{"type": 1, "message": callErr.Message}}); err != nil {
 				return err
 			}
 		}
 	}
 }
+
+var errExitBeforeShutdown = errors.New("language server received exit before shutdown")
 
 func (s *languageServer) handle(req rpcRequest) (any, *rpcError) {
 	var p lspParams
