@@ -386,29 +386,21 @@ func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldT
 		return im.resolveRef(ref, suggested, depth)
 	}
 	if allOf := asSlice(schema["allOf"]); len(allOf) > 0 {
-		merged := map[string]any{
-			"type": "object",
-			"properties": func() map[string]any {
-				props := map[string]any{}
-				for _, part := range allOf {
-					sub := asMap(part)
-					if sub == nil {
-						continue
-					}
-					if ref := text(sub, "$ref"); ref != "" {
-						sub = im.lookupRef(ref)
-						if sub == nil {
-							continue
-						}
-					}
-					for k, v := range asMap(sub["properties"]) {
-						props[k] = v
-					}
-				}
-				return props
-			}(),
+		if len(allOf) == 1 && len(asMap(schema["properties"])) == 0 {
+			if ref := text(asMap(allOf[0]), "$ref"); ref != "" {
+				return im.resolveRef(ref, suggested, depth)
+			}
 		}
-		if required := im.allOfRequired(allOf); len(required) > 0 {
+		props := map[string]any{}
+		im.collectAllOfProperties(allOf, props, 0)
+		for k, v := range asMap(schema["properties"]) {
+			props[k] = v
+		}
+		merged := map[string]any{
+			"type":       "object",
+			"properties": props,
+		}
+		if required := append(im.allOfRequired(allOf), asSlice(schema["required"])...); len(required) > 0 {
 			merged["required"] = required
 		}
 		return im.schemaTypeExpr(merged, suggested, depth+1)
@@ -548,6 +540,25 @@ func (im *importer) convertProperties(msgName string, props map[string]any, requ
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+func (im *importer) collectAllOfProperties(parts []any, props map[string]any, depth int) {
+	if depth > maxDepth {
+		return
+	}
+	for _, part := range parts {
+		sub := asMap(part)
+		if ref := text(sub, "$ref"); ref != "" {
+			sub = im.lookupRef(ref)
+		}
+		if sub == nil {
+			continue
+		}
+		im.collectAllOfProperties(asSlice(sub["allOf"]), props, depth+1)
+		for k, v := range asMap(sub["properties"]) {
+			props[k] = v
+		}
+	}
 }
 
 // --- refs ------------------------------------------------------------------
