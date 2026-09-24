@@ -118,7 +118,7 @@ message CreateUserRequest {
 }
 
 message GetUserRequest {
-  id: string @query("id")
+  id: string
 }
 `
 

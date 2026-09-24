@@ -997,6 +997,9 @@ func validateMethodBindings(filePath string, method *onkir.Method) error {
 		if isBodyBearingVerb(verb) {
 			return &Error{Path: filePath, Msg: fmt.Sprintf("@query field %q is not allowed on body-bearing RPC %s", field.Name, method.Name)}
 		}
+		if seenPath[field.Name] {
+			return &Error{Path: filePath, Msg: fmt.Sprintf("request field %q cannot be both a path and query binding", field.Name)}
+		}
 		if previous, exists := seenQuery[name]; exists {
 			return &Error{Path: filePath, Msg: fmt.Sprintf("query parameter %q is bound by both %s and %s", name, previous, field.Name)}
 		}
