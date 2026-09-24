@@ -382,6 +382,9 @@ func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldT
 		if !ok {
 			return fieldType{}, false
 		}
+		if item.expr == scalarInt64 {
+			im.warnf("schema %q has int64 array items; onekit sends repeated int64 values as JSON strings", suggested)
+		}
 		return fieldType{expr: item.expr + "[]"}, true
 	case "object":
 		props := asMap(schema["properties"])
@@ -391,6 +394,9 @@ func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldT
 			value, ok := im.schemaTypeExpr(additional, singular(suggested), depth+1)
 			if !ok {
 				return fieldType{}, false
+			}
+			if value.expr == scalarInt64 {
+				im.warnf("schema %q has int64 map values; onekit sends them as JSON strings", suggested)
 			}
 			return fieldType{expr: "map[string, " + value.expr + "]"}, true
 		case len(props) == 0:
@@ -410,7 +416,7 @@ func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldT
 		return fieldType{expr: name}, true
 	case "integer":
 		if text(schema, "format") == "int64" {
-			return fieldType{expr: "int64"}, true
+			return fieldType{expr: scalarInt64, suffix: " @encode(number)"}, true
 		}
 		return fieldType{expr: "int32"}, true
 	case "number":
