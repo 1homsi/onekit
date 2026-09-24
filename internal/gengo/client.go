@@ -328,6 +328,8 @@ func writeBodyValue(p *Printer, field *onkir.Field) {
 
 func bodyWireValueExpr(field *onkir.Field, expr string) string {
 	switch {
+	case needsInt64StringEncoding(field) && field.Repeated:
+		return "func() []string { out := make([]string, len(" + expr + ")); for i, v := range " + expr + " { out[i] = " + int64FormatCall(field.Type.Scalar, "v") + " }; return out }()"
 	case needsInt64StringEncoding(field):
 		return int64FormatCall(field.Type.Scalar, expr)
 	case needsEnumNumberEncoding(field):
