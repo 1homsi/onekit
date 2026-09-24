@@ -35,10 +35,10 @@ service Svc { get(Req) -> Res @get("/r/{id}") }
 		t.Fatal(err)
 	}
 	nested, _ := body["nested"]["email"].(map[string]any)
-	if body["nested"]["kind"] != "email" || nested["email"] != "user@example.com" {
+	if body["nested"]["kind"] != "email" || nested["email"] != mockEmail {
 		t.Fatalf("nested oneof shape: %v", body["nested"])
 	}
-	if body["flat"]["type"] != "email" || body["flat"]["email"] != "user@example.com" {
+	if body["flat"]["type"] != "email" || body["flat"]["email"] != mockEmail {
 		t.Fatalf("flattened oneof shape: %v", body["flat"])
 	}
 }

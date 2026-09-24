@@ -370,6 +370,8 @@ func mockSingleValue(field *onkir.Field, depth int) any {
 
 // mockConstrainedString derives validator-satisfying strings so fixtures
 // pass client-side zod schemas unchanged.
+const mockEmail = "user@example.com"
+
 func mockConstrainedString(field *onkir.Field) string {
 	if d, ok := field.Decorator("in"); ok {
 		value, _ := d.Arg(0)
@@ -377,7 +379,7 @@ func mockConstrainedString(field *onkir.Field) string {
 	}
 	switch {
 	case field.HasDecorator("email"):
-		return "user@example.com"
+		return mockEmail
 	case field.HasDecorator("uuid"):
 		return "0f9ad6e5-8c1a-4b2e-9d3f-5a7c8e1b2d4f"
 	case field.HasDecorator("uri"):
