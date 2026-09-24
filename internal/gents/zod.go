@@ -311,7 +311,7 @@ func zodConstrainedString(f *onkir.Field) string {
 		rules.WriteString(".regex(new RegExp(" + strconv.Quote(value) + "))")
 	}
 	if d, ok := f.Decorator("len"); ok && len(d.Args) == 2 {
-		rules.WriteString(".min(" + d.Args[0].Value + ").max(" + d.Args[1].Value + ")")
+		rules.WriteString(".refine((v) => [...v].length >= " + d.Args[0].Value + " && [...v].length <= " + d.Args[1].Value + ", { message: \"length must be between " + d.Args[0].Value + " and " + d.Args[1].Value + " characters\" })")
 	}
 	return rules.String()
 }

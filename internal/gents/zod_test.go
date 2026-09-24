@@ -71,7 +71,7 @@ func TestGenerateZodMirrorsValidators(t *testing.T) {
 		`userId: z.string().uuid(),`,
 		`site: z.string().url(),`,
 		`code: z.string().regex(new RegExp("^[A-Z]{3}$")),`,
-		`nickname: z.string().min(2).max(8),`,
+		`nickname: z.string().refine((v) => [...v].length >= 2 && [...v].length <= 8, { message: "length must be between 2 and 8 characters" }),`,
 		// @in replaces the base schema entirely; membership implies non-empty
 		`role: z.enum(["admin", "viewer"]),`,
 		`note: z.string().optional(),`,

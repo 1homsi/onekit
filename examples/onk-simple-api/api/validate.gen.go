@@ -5,6 +5,7 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
@@ -27,7 +28,7 @@ func (m *User) Validate() error {
 	if m.Id != "" && !uuidPattern.MatchString(m.Id) {
 		violations = append(violations, "id must be a valid uuid")
 	}
-	if len(m.Name) < 1 || len(m.Name) > 100 {
+	if n := utf8.RuneCountInString(m.Name); n < 1 || n > 100 {
 		violations = append(violations, "name must be between 1 and 100 characters")
 	}
 	if m.Email != "" && !emailPattern.MatchString(m.Email) {
@@ -44,7 +45,7 @@ func (m *CreateUserRequest) Validate() error {
 		return nil
 	}
 	var violations []string
-	if len(m.Name) < 2 || len(m.Name) > 100 {
+	if n := utf8.RuneCountInString(m.Name); n < 2 || n > 100 {
 		violations = append(violations, "name must be between 2 and 100 characters")
 	}
 	if m.Email != "" && !emailPattern.MatchString(m.Email) {
@@ -78,7 +79,7 @@ func (m *EmailAuth) Validate() error {
 	if m.Email != "" && !emailPattern.MatchString(m.Email) {
 		violations = append(violations, "email must be a valid email")
 	}
-	if len(m.Password) < 8 || len(m.Password) > 72 {
+	if n := utf8.RuneCountInString(m.Password); n < 8 || n > 72 {
 		violations = append(violations, "password must be between 8 and 72 characters")
 	}
 	if len(violations) > 0 {
@@ -92,7 +93,7 @@ func (m *TokenAuth) Validate() error {
 		return nil
 	}
 	var violations []string
-	if len(m.Token) < 10 || len(m.Token) > 256 {
+	if n := utf8.RuneCountInString(m.Token); n < 10 || n > 256 {
 		violations = append(violations, "token must be between 10 and 256 characters")
 	}
 	if len(violations) > 0 {
@@ -109,7 +110,7 @@ func (m *SocialAuth) Validate() error {
 	if !inSet(m.Provider, "google", "github", "facebook", "apple") {
 		violations = append(violations, "provider must be one of the allowed values")
 	}
-	if len(m.AccessToken) < 20 || len(m.AccessToken) > 512 {
+	if n := utf8.RuneCountInString(m.AccessToken); n < 20 || n > 512 {
 		violations = append(violations, "access_token must be between 20 and 512 characters")
 	}
 	if len(violations) > 0 {

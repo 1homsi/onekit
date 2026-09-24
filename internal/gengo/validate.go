@@ -107,8 +107,8 @@ func stringValidationRules(m *onkir.Message, f *onkir.Field) []string {
 		minArg, _ := d.Arg(0)
 		maxArg, _ := d.Arg(1)
 		rules = append(rules, fmt.Sprintf(
-			"if len(%s) < %s || len(%s) > %s { violations = append(violations, %q) }",
-			accessor, minArg, accessor, maxArg,
+			"if n := utf8.RuneCountInString(%s); n < %s || n > %s { violations = append(violations, %q) }",
+			accessor, minArg, maxArg,
 			fmt.Sprintf("%s must be between %s and %s characters", f.Name, minArg, maxArg),
 		))
 	}
@@ -264,6 +264,9 @@ func GenerateValidation(file *onkir.File) ([]byte, error) {
 		p.P(`"regexp"`)
 	}
 	p.P(`"strings"`)
+	if usage.length {
+		p.P(`"unicode/utf8"`)
+	}
 	p.P(")")
 	p.P()
 	uuidRegex := `^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-` +
@@ -311,6 +314,7 @@ type validationFeatureUsage struct {
 	uuid     bool
 	uri      bool
 	in       bool
+	length   bool
 	patterns []patternDecl
 }
 
@@ -332,6 +336,9 @@ func scanValidationUsage(file *onkir.File) validationFeatureUsage {
 			}
 			if _, ok := f.Decorator("in"); ok {
 				usage.in = true
+			}
+			if _, ok := f.Decorator("len"); ok {
+				usage.length = true
 			}
 		}
 		for _, nested := range m.Nested {
