@@ -649,7 +649,11 @@ func writePyValidateFunc(p *Printer, m *onkir.Message) {
 	for _, f := range m.Fields {
 		accessor := "self." + f.Name
 		if f.HasDecorator("required") {
-			p.P("if ", accessor, " is None or ", accessor, " == \"\": violations.append(", fmt.Sprintf("%q", f.Name+" is required"), ")")
+			if f.Repeated || f.Type != nil && f.Type.Kind == onkir.KindMap {
+				p.P("if not ", accessor, ": violations.append(", fmt.Sprintf("%q", f.Name+" is required"), ")")
+			} else {
+				p.P("if ", accessor, " is None or ", accessor, " == \"\": violations.append(", fmt.Sprintf("%q", f.Name+" is required"), ")")
+			}
 		}
 		if f.Repeated {
 			if d, ok := f.Decorator("min_items"); ok {
