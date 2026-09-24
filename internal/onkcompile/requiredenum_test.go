@@ -20,3 +20,13 @@ message M { role: Role? @required }
 		t.Fatalf("optional required enum rejected: %v", err)
 	}
 }
+
+func TestCompileAllowsRequiredEnumsInLegacyContracts(t *testing.T) {
+	source := Source{Path: "api.onk", AST: parseOrFatal(t, `
+enum Role { ADMIN  USER }
+message M { role: Role @required }
+`)}
+	if _, err := CompileWithOptions([]Source{source}, CompileOptions{AllowLegacyContracts: true}); err != nil {
+		t.Fatalf("legacy contract rejected: %v", err)
+	}
+}
