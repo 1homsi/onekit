@@ -32,10 +32,16 @@ func discoverOnkFiles(dir string) ([]string, error) {
 		if walkErr != nil {
 			return walkErr
 		}
-		if d.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("refusing symlink in project tree: %s", path)
-		}
 		if d.IsDir() {
+			if path != root && skippedSchemaDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			if strings.HasSuffix(path, ".onk") {
+				return fmt.Errorf("refusing symlinked schema file: %s", path)
+			}
 			return nil
 		}
 		if strings.HasSuffix(path, ".onk") {
@@ -64,6 +70,17 @@ func discoverOnkFiles(dir string) ([]string, error) {
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+func skippedSchemaDir(name string) bool {
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	switch name {
+	case "node_modules", "vendor", "target", "__pycache__", "dist", "build":
+		return true
+	}
+	return false
 }
 
 func parseSources(paths []string) ([]onkcompile.Source, error) {
