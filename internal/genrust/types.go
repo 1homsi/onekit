@@ -1065,14 +1065,14 @@ func writeLengthValidation(p *Printer, decorator onkir.Decorator, value string, 
 	minimum, minOK := decorator.Arg(0)
 	maximum, maxOK := decorator.Arg(1)
 	if minOK {
-		p.P("if ", value, ".len() < ", minimum, " {")
+		p.P("if ", value, ".chars().count() < ", minimum, " {")
 		p.Indent()
 		fail("is shorter than the minimum length")
 		p.Dedent()
 		p.P("}")
 	}
 	if maxOK {
-		p.P("if ", value, ".len() > ", maximum, " {")
+		p.P("if ", value, ".chars().count() > ", maximum, " {")
 		p.Indent()
 		fail("is longer than the maximum length")
 		p.Dedent()

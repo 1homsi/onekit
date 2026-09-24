@@ -229,7 +229,7 @@ func writeValidateFunc(p *Printer, m *onkir.Message) {
 				p.P("if (", formatPresent, ") { try { new URL(", accessor, "); } catch { violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid URI"), "); } }")
 			}
 			if d, ok := field.Decorator("len"); ok && len(d.Args) == 2 {
-				p.P("if (", present, " && (", accessor, ".length < ", d.Args[0].Value, " || ", accessor, ".length > ", d.Args[1].Value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid length"), ");")
+				p.P("if (", present, " && ([...", accessor, "].length < ", d.Args[0].Value, " || [...", accessor, "].length > ", d.Args[1].Value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid length"), ");")
 			}
 			if d, ok := field.Decorator("pattern"); ok {
 				value, _ := d.Value()
