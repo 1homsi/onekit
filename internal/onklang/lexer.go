@@ -64,7 +64,7 @@ func (l *Lexer) skipWhitespaceAndComments() (string, []string, error) {
 			for l.pos < len(l.src) && l.peekByte() != '\n' {
 				l.advance()
 			}
-			doc = append(doc, strings.TrimSpace(l.src[start:l.pos]))
+			doc = append(doc, strings.TrimRight(strings.TrimPrefix(l.src[start:l.pos], " "), " \t\r"))
 		case b == '/' && l.peekByteAt(1) == '/':
 			start := l.pos
 			for l.pos < len(l.src) && l.peekByte() != '\n' {
