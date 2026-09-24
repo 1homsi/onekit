@@ -1015,6 +1015,10 @@ func writeFieldValidation(p *Printer, field *onkir.Field, patternFuncs map[strin
 			p.P(guardEnd)
 		}
 	}
+	writeNestedMessageValidation(p, field, access)
+}
+
+func writeNestedMessageValidation(p *Printer, field *onkir.Field, access string) {
 	if field.Type != nil && field.Type.Kind == onkir.KindMessage {
 		if field.Repeated {
 			p.P("for value in &", access, " {")
@@ -1029,6 +1033,13 @@ func writeFieldValidation(p *Printer, field *onkir.Field, patternFuncs map[strin
 			p.Dedent()
 			p.P("}")
 		}
+	}
+	if field.Type != nil && field.Type.Kind == onkir.KindMap && field.Type.MapValue != nil && field.Type.MapValue.Kind == onkir.KindMessage {
+		p.P("for value in ", access, ".values() {")
+		p.Indent()
+		p.P("value.validate().map_err(|error| ValidationError { field: ", strconv.Quote(field.Name), ", message: error.to_string() })?;")
+		p.Dedent()
+		p.P("}")
 	}
 }
 
