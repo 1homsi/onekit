@@ -2,6 +2,7 @@ package genrust
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/1homsi/onekit/internal/onkir"
 )
@@ -61,10 +62,15 @@ func writeWSUpgradeHandler(p *Printer, service *onkir.Service, method *onkir.Met
 	if len(pathFields) > 0 {
 		p.P("Path(path): Path<std::collections::HashMap<String, String>>,")
 	}
+	queryFields := wsQueryFields(method.Request, pathFields)
+	if len(queryFields) > 0 {
+		p.P("Query(query): Query<Vec<(String, String)>>,")
+	}
 	p.Dedent()
 	p.P(") -> Response {")
 	p.Indent()
 	p.P("let mut req = ", requestRef, "::default();")
+	writeWSQueryBinding(p, errorName, queryFields)
 	for _, name := range pathFields {
 		field := onkir.FindField(method.Request, name)
 		if field == nil {
@@ -554,6 +560,10 @@ func writeRustWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	}
 	p.P("let mut url = self.base_url.clone();")
 	p.P("url.push_str(&path);")
+	if len(wsQueryFields(m.Request, pathFieldNames(wsPath))) > 0 {
+		writeQueryParams(p, m.Request, pathFieldNames(wsPath))
+		p.P(`if !query.is_empty() { url.push('?'); url.push_str(&query.iter().map(|(key, value)| format!("{}={}", urlencoding::encode(key), urlencoding::encode(value))).collect::<Vec<_>>().join("&")); }`)
+	}
 	p.P(`let url = url.replacen("https://", "wss://", 1).replacen("http://", "ws://", 1);`)
 	p.P("let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default().max_message_size(Some(self.max_ws_frame_bytes)).max_frame_size(Some(self.max_ws_frame_bytes));")
 	p.P("let mut request = tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(url).map_err(", errorName, "::WsTransport)?;")
@@ -717,6 +727,12 @@ func writeWSServerReadLoop(p *Printer, method *onkir.Method, requestRef string, 
 	p.P(`Err(_) => { ws_close(&sink, 1007, "invalid JSON frame".to_string()).await; break; }`)
 	p.Dedent()
 	p.P("};")
+	if bound := wsBoundFieldNames(method); len(bound) > 0 {
+		p.P("let mut frame = frame;")
+		for _, name := range bound {
+			p.P("frame.", name, " = req.", name, ".clone();")
+		}
+	}
 	p.P("if let Err(error) = frame.validate() { ws_close(&sink, 1007, error.to_string()).await; break; }")
 	if correlated {
 		p.P("let frame = match frame.ws_id() {")
@@ -751,4 +767,63 @@ func writeWSSinkSend(p *Printer) {
 	p.P("}")
 	p.P("}")
 	p.Blank()
+}
+
+type wsQueryField struct {
+	field *onkir.Field
+	name  string
+}
+
+func wsQueryFields(request *onkir.Message, pathFields []string) []wsQueryField {
+	var out []wsQueryField
+	for _, field := range request.Fields {
+		decorator, ok := field.Decorator("query")
+		if !ok || field.Type == nil || field.Type.Kind != onkir.KindScalar || slices.Contains(pathFields, field.Name) {
+			continue
+		}
+		name, _ := decorator.Value()
+		if name == "" {
+			name = field.Name
+		}
+		out = append(out, wsQueryField{field: field, name: name})
+	}
+	return out
+}
+
+func writeWSQueryBinding(p *Printer, errorName string, fields []wsQueryField) {
+	if len(fields) == 0 {
+		return
+	}
+	p.P("for (key, value) in &query {")
+	p.P("match key.as_str() {")
+	for _, q := range fields {
+		target := "req." + RustIdent(q.field.Name)
+		invalid := "Err(error) => return " + errorName + "::InvalidRequest(format!(" + fmt.Sprintf("%q", "invalid query field "+q.name+": {}") + ", error)).into_response(),"
+		p.P(fmt.Sprintf("%q", q.name), " => match parse_path(value) {")
+		if q.field.Repeated {
+			p.P("Ok(value) => ", target, ".push(value),")
+		} else {
+			p.P("Ok(value) => ", target, " = value,")
+		}
+		p.P(invalid)
+		p.P("},")
+	}
+	p.P("_ => {}")
+	p.P("}")
+	p.P("}")
+}
+
+func wsBoundFieldNames(method *onkir.Method) []string {
+	wsPath, _ := method.WebSocketPath()
+	pathFields := pathFieldNames(wsPath)
+	var names []string
+	for _, name := range pathFields {
+		if field := onkir.FindField(method.Request, name); field != nil {
+			names = append(names, RustIdent(field.Name))
+		}
+	}
+	for _, q := range wsQueryFields(method.Request, pathFields) {
+		names = append(names, RustIdent(q.field.Name))
+	}
+	return names
 }
