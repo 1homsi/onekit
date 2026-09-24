@@ -72,7 +72,7 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	if hasWS {
 		p.P(`"net"`)
 	}
-	if hasWS {
+	if hasWS || hasStream {
 		p.P(`"sync"`)
 	}
 	if hasWS {
