@@ -425,6 +425,8 @@ func writeTimestampUnmarshalAssignments(p *Printer, c fieldCategories) {
 			valueExpr := "aux." + goName
 			if f.Optional {
 				valueExpr = "*aux." + goName
+			} else {
+				p.P("if aux.", goName, " != \"\" {")
 			}
 			p.P("t, err := time.Parse(\"2006-01-02\", ", valueExpr, ")")
 			p.P("if err != nil {")
@@ -434,6 +436,7 @@ func writeTimestampUnmarshalAssignments(p *Printer, c fieldCategories) {
 				p.P("m.", goName, " = &t")
 			} else {
 				p.P("m.", goName, " = t")
+				p.P("}")
 			}
 		}
 		if f.Optional {
