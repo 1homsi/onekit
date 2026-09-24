@@ -372,6 +372,10 @@ const (
 )
 
 func writeFile(path string, data []byte) error {
+	if captured != nil {
+		captured[path] = data
+		return nil
+	}
 	if err := rejectSymlinkPath(path); err != nil {
 		return err
 	}
@@ -458,6 +462,9 @@ func Build(dir string) error {
 		if err != nil {
 			return err
 		}
+	}
+	if captured != nil {
+		return nil
 	}
 	if err := cleanupStaleGeneratedOutputs(cfg, idx); err != nil {
 		return err

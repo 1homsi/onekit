@@ -26,7 +26,7 @@ var version = "dev"
 
 func usage(w io.Writer) {
 	fmt.Fprintln(w, `usage:
-  onek build [--dir DIR]
+  onek build [--check] [--dir DIR]
   onek check [--json] [--dir DIR]
   onek generate [--dir DIR]
   onek fmt [--check] [--dir DIR]
@@ -106,6 +106,10 @@ func runProjectCommand(command string, args []string) error {
 	fs.SetOutput(os.Stderr)
 	dir := fs.String("dir", ".", "schema project directory")
 	asJSON := fs.Bool("json", false, "emit machine-readable diagnostics")
+	verify := false
+	if command == "build" {
+		fs.BoolVar(&verify, "check", false, "fail if generated output differs from what build would write, without writing")
+	}
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -115,9 +119,12 @@ func runProjectCommand(command string, args []string) error {
 		*dir = positional[0]
 	}
 	var operationErr error
-	if command == "check" {
+	switch {
+	case command == "check":
 		operationErr = onek.Check(*dir)
-	} else {
+	case verify:
+		operationErr = onek.VerifyGenerated(*dir)
+	default:
 		operationErr = onek.Build(*dir)
 	}
 	if !*asJSON {
