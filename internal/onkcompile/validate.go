@@ -286,6 +286,9 @@ func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl, 
 	if field.Type == nil {
 		return nil
 	}
+	if field.Optional && field.Type.IsMap {
+		return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("map field %q cannot be optional; an empty map already means no entries", field.Name)}
+	}
 	if !options.AllowLegacyContracts && hasDecorator(field.Decorators, "nullable") {
 		return &Error{Path: filePath, Line: field.Line, Msg: "@nullable is unsupported; use the ? optional marker"}
 	}
