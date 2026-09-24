@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -97,8 +98,19 @@ func runVersion(args []string) error {
 	if len(args) != 0 {
 		return errors.New("version does not accept arguments")
 	}
-	_, _ = fmt.Fprintln(os.Stdout, version)
+	info, ok := debug.ReadBuildInfo()
+	_, _ = fmt.Fprintln(os.Stdout, resolveVersion(version, info, ok))
 	return nil
+}
+
+func resolveVersion(stamped string, info *debug.BuildInfo, ok bool) string {
+	if stamped != "dev" || !ok || info == nil {
+		return stamped
+	}
+	if v := info.Main.Version; v != "" && v != "(devel)" {
+		return v
+	}
+	return stamped
 }
 
 func runProjectCommand(command string, args []string) error {
@@ -320,7 +332,8 @@ func runLanguageServer(command string, args []string) error {
 	if *dir == "" {
 		*dir = "."
 	}
-	server, err := onek.NewLanguageMCPServer(*dir, version)
+	info, ok := debug.ReadBuildInfo()
+	server, err := onek.NewLanguageMCPServer(*dir, resolveVersion(version, info, ok))
 	if err != nil {
 		return err
 	}
