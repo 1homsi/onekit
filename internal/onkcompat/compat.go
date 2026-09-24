@@ -277,6 +277,11 @@ func methodSignature(service *onkir.Service, method *onkir.Method) string {
 		}
 	}
 	for _, header := range slices.Concat(service.Headers, method.Headers) {
+		_, hasFormat := header.Format()
+		_, hasAuth := header.AuthType()
+		if !header.Required() && !hasFormat && !hasAuth {
+			continue
+		}
 		parts = append(parts, "header="+headerSignature(header))
 	}
 	for _, errorType := range method.ErrorTypes {
@@ -293,6 +298,10 @@ func methodSignature(service *onkir.Service, method *onkir.Method) string {
 func headerSignature(header *onkir.Header) string {
 	parts := []string{strings.ToLower(header.Name), header.Type.String(), fmt.Sprintf("required=%t", header.Required())}
 	for _, decorator := range header.Decorators {
+		switch decorator.Name {
+		case "example", "deprecated", "auth_scheme_name":
+			continue
+		}
 		parts = append(parts, decoratorSignature(decorator))
 	}
 	sort.Strings(parts)
