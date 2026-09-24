@@ -1017,10 +1017,32 @@ func validateMethodBindings(filePath string, method *onkir.Method) error {
 			return &Error{Path: filePath, Msg: fmt.Sprintf("request field %q cannot be both a query and body binding", field.Name)}
 		}
 	}
+	if err := validateUnboundRequiredFields(filePath, method, verb, seenPath); err != nil {
+		return err
+	}
 	if method.IsWebSocket() {
 		if err := validateWSCorrelation(filePath, method); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validateUnboundRequiredFields(filePath string, method *onkir.Method, verb string, pathFields map[string]bool) error {
+	if method.IsWebSocket() {
+		return nil
+	}
+	bodyName, hasBody := method.BodyField()
+	if isBodyBearingVerb(verb) && !hasBody {
+		return nil
+	}
+	for _, field := range method.Request.Fields {
+		if !field.HasDecorator("required") || pathFields[field.Name] || field.HasDecorator("query") || hasBody && field.Name == bodyName {
+			continue
+		}
+		return &Error{Path: filePath, Msg: fmt.Sprintf(
+			"@required field %q on RPC %s is never sent: %s requests carry only path, @query and @body fields", field.Name, method.Name, strings.ToUpper(verb),
+		)}
 	}
 	return nil
 }
