@@ -130,12 +130,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.Indent()
 	p.P("if hasattr(req, \"validate\"): req.validate()")
 	p.P(fmt.Sprintf("path = %q", fullPath))
-	for _, paramName := range onkir.PathParamNames(path) {
-		field := onkir.FindField(m.Request, paramName)
-		if field != nil {
-			p.P(fmt.Sprintf("path = path.replace(%q, urllib.parse.quote(str(req.%s), safe=\"\"))", "{"+paramName+"}", field.Name))
-		}
-	}
+	writePyPathParams(p, path, m.Request)
 	writeClientQueryParams(p, m.Request)
 	p.P(fmt.Sprintf("request = urllib.request.Request(self.base_url + path, method=%q)", strings.ToUpper(verb)))
 	p.P(`request.add_header("Accept", "text/event-stream")`)
@@ -197,17 +192,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("if hasattr(req, \"validate\"): req.validate()")
 
 	p.P(fmt.Sprintf("path = %q", fullPath))
-	for _, paramName := range onkir.PathParamNames(path) {
-		field := onkir.FindField(m.Request, paramName)
-		if field == nil {
-			continue
-		}
-		valueExpr := pyQueryValueExpr(field.Type.Scalar, "req."+field.Name)
-		p.P(fmt.Sprintf(
-			"path = path.replace(%q, urllib.parse.quote(%s, safe=\"\"))",
-			"{"+paramName+"}", valueExpr,
-		))
-	}
+	writePyPathParams(p, path, m.Request)
 
 	if !bodyBearing {
 		writeClientQueryParams(p, m.Request)
@@ -323,6 +308,19 @@ func writeClientQueryParams(p *Printer, req *onkir.Message) {
 	p.Indent()
 	p.P(`path += "?" + urllib.parse.urlencode(query, doseq=True)`)
 	p.Dedent()
+}
+
+func writePyPathParams(p *Printer, route string, req *onkir.Message) {
+	for _, paramName := range onkir.PathParamNames(route) {
+		field := onkir.FindField(req, paramName)
+		if field == nil {
+			continue
+		}
+		p.P(fmt.Sprintf(
+			"path = path.replace(%q, urllib.parse.quote(%s, safe=\"\"))",
+			"{"+paramName+"}", pyQueryValueExpr(field.Type.Scalar, "req."+field.Name),
+		))
+	}
 }
 
 func pyQueryValueExpr(kind onkir.ScalarKind, expr string) string {
