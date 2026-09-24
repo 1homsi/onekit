@@ -319,12 +319,30 @@ func pickSuccess(responses map[string]any) string {
 }
 
 func (im *importer) jsonSchema(content map[string]any) (map[string]any, bool) {
-	media := asMap(content["application/json"])
-	if media == nil {
-		return nil, false
+	var fallback map[string]any
+	keys := mapKeys(content)
+	sort.Strings(keys)
+	for _, key := range keys {
+		mediaType := strings.ToLower(strings.TrimSpace(strings.SplitN(key, ";", 2)[0]))
+		media := asMap(content[key])
+		schema := asMap(media["schema"])
+		switch {
+		case schema == nil:
+		case mediaType == "application/json":
+			return schema, true
+		case strings.HasSuffix(mediaType, "+json") || mediaType == "*/*" || mediaType == "application/*":
+			if fallback == nil {
+				fallback = schema
+			}
+		}
 	}
-	schema := asMap(media["schema"])
-	return schema, schema != nil
+	if fallback != nil {
+		return fallback, true
+	}
+	if len(keys) > 0 {
+		im.warnf("content types %s are not JSON and were skipped", strings.Join(keys, ", "))
+	}
+	return nil, false
 }
 
 // --- schema conversion -----------------------------------------------------
