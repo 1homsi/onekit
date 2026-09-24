@@ -66,6 +66,28 @@ type Config struct {
 // onekit.toml. Generator outputs and the drift manifest anchor here.
 func (c *Config) ProjectDir() string { return c.dir }
 
+func (c *Config) EnabledTargets() []string {
+	var targets []string
+	for _, target := range []struct {
+		name    string
+		enabled bool
+	}{
+		{"go-server", c.Generate.GoServer != nil},
+		{"go-client", c.Generate.GoClient != nil},
+		{"ts-client", c.Generate.TSClient != nil},
+		{"ts-server", c.Generate.TSServer != nil},
+		{"python-client", c.Generate.PythonClient != nil},
+		{"rust-client", c.Generate.RustClient != nil},
+		{"rust-server", c.Generate.RustServer != nil},
+		{"openapi", c.Generate.OpenAPI != nil},
+	} {
+		if target.enabled {
+			targets = append(targets, target.name)
+		}
+	}
+	return targets
+}
+
 // SchemaDir returns the absolute canonical root of the .onk schema tree.
 // It defaults to ProjectDir when schema_root is not configured.
 func (c *Config) SchemaDir() string {

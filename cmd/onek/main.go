@@ -147,7 +147,7 @@ func runProjectCommand(command string, args []string) error {
 	case verify:
 		operationErr = onek.VerifyGenerated(*dir)
 	default:
-		operationErr = onek.Build(*dir)
+		operationErr = runBuildWithSummary(*dir, *asJSON)
 	}
 	if !*asJSON {
 		return operationErr
@@ -405,4 +405,17 @@ func commandDistance(a, b string) int {
 		prev = cur
 	}
 	return prev[len(b)]
+}
+
+func runBuildWithSummary(dir string, quiet bool) error {
+	summary, err := onek.BuildWithSummary(dir)
+	if err != nil || quiet {
+		return err
+	}
+	if len(summary.Targets) == 0 {
+		fmt.Fprintln(os.Stderr, "onek: no [generate.*] targets in onekit.toml; nothing was generated")
+		return nil
+	}
+	fmt.Fprintf(os.Stderr, "onek: wrote %d files for %s\n", summary.Files, strings.Join(summary.Targets, ", "))
+	return nil
 }
