@@ -231,10 +231,15 @@ func (l *Lexer) lexNumber(line, col int, doc string, comments []string) (Token, 
 		}
 		return Token{Kind: FLOAT, Text: text, Line: line, Col: col, Doc: doc, LeadingComments: comments}, nil
 	}
-	if _, err := strconv.ParseInt(text, 10, 64); err != nil {
+	if _, err := strconv.ParseInt(text, 10, 64); err != nil && !validUint64(text) {
 		return Token{}, &Error{Line: line, Column: col, Message: fmt.Sprintf("invalid integer %q", text)}
 	}
 	return Token{Kind: INT, Text: text, Line: line, Col: col, Doc: doc, LeadingComments: comments}, nil
+}
+
+func validUint64(text string) bool {
+	_, err := strconv.ParseUint(text, 10, 64)
+	return err == nil
 }
 
 func (l *Lexer) lexString(line, col int, doc string, comments []string) (Token, error) {
