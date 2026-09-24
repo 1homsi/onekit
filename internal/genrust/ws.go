@@ -556,7 +556,9 @@ func writeRustWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("url.push_str(&path);")
 	p.P(`let url = url.replacen("https://", "wss://", 1).replacen("http://", "ws://", 1);`)
 	p.P("let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default().max_message_size(Some(self.max_ws_frame_bytes)).max_frame_size(Some(self.max_ws_frame_bytes));")
-	p.P("let (stream, _) = tokio_tungstenite::connect_async_with_config(url, Some(config), false).await.map_err(", errorName, "::WsTransport)?;")
+	p.P("let mut request = tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(url).map_err(", errorName, "::WsTransport)?;")
+	p.P("request.headers_mut().extend(self.headers.clone());")
+	p.P("let (stream, _) = tokio_tungstenite::connect_async_with_config(request, Some(config), false).await.map_err(", errorName, "::WsTransport)?;")
 	if correlated {
 		p.P("Ok(", socketConstructor, "::new(stream, self.ws_ping_interval, self.max_ws_message_bytes))")
 	} else {
