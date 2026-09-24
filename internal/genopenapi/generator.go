@@ -148,6 +148,27 @@ func messageSchema(m *onkir.Message) *base.Schema {
 	}
 }
 
+const base64URLEncoding = "base64url"
+
+func bytesEncodingSchema(encoding string) *base.Schema {
+	schema := &base.Schema{Type: []string{"string"}}
+	switch encoding {
+	case "hex":
+		schema.ContentEncoding, schema.Pattern = "base16", "^[0-9a-fA-F]*$"
+	case "base64_raw":
+		schema.ContentEncoding, schema.Pattern = "base64", "^[A-Za-z0-9+/]*$"
+	case base64URLEncoding:
+		schema.ContentEncoding, schema.Pattern = base64URLEncoding, "^[A-Za-z0-9_-]*={0,2}$"
+	case "base64url_raw":
+		schema.ContentEncoding, schema.Pattern = base64URLEncoding, "^[A-Za-z0-9_-]*$"
+	default:
+		schema.ContentEncoding = "base64"
+	}
+	schema.Extensions = orderedmap.New[string, *yaml.Node]()
+	schema.Extensions.Set("x-onekit-encoding", &yaml.Node{Kind: yaml.ScalarNode, Value: encoding})
+	return schema
+}
+
 func concreteTypeSchema(field *onkir.Field) *base.Schema {
 	if field.Type == nil {
 		return &base.Schema{}
@@ -170,13 +191,7 @@ func concreteTypeSchema(field *onkir.Field) *base.Schema {
 					return &base.Schema{Type: []string{"string"}, Format: "date"}
 				}
 			case onkir.ScalarBytes:
-				schema := &base.Schema{Type: []string{"string"}}
-				if encodeValue == "hex" {
-					schema.Pattern = "^[0-9a-fA-F]*$"
-				} else {
-					schema.ContentEncoding = encodeValue
-				}
-				return schema
+				return bytesEncodingSchema(encodeValue)
 			}
 		}
 		return scalarSchema(field.Type.Scalar)
