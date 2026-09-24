@@ -428,6 +428,12 @@ func mockScalar(kind onkir.ScalarKind) any {
 		return 1.5
 	case onkir.ScalarJSON:
 		return map[string]any{}
+	case onkir.ScalarInt64, onkir.ScalarUint64:
+		return "1729"
+	case onkir.ScalarTimestamp:
+		return "2025-01-01T00:00:00Z"
+	case onkir.ScalarBytes:
+		return "YQ=="
 	default:
 		return nil
 	}
