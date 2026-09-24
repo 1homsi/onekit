@@ -358,7 +358,7 @@ func queryParameters(req *onkir.Message) []*v3.Parameter {
 		parameter := &v3.Parameter{
 			Name:        name,
 			In:          "query",
-			Required:    new(!f.Optional || f.HasDecorator("required")),
+			Required:    new(f.HasDecorator("required")),
 			Schema:      fieldSchemaProxy(f),
 			Description: f.Doc,
 		}
