@@ -174,7 +174,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+regex = "1"
+url = "2"
 urlencoding = "2"
+uuid = "1"
 validator = "0.20"
 `
 
