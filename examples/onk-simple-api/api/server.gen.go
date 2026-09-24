@@ -16,6 +16,17 @@ import (
 	"time"
 )
 
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(append(data, '\n'))
+}
+
 func writeJSONError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -301,8 +312,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			writeHandlerError(w, err)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
+		writeJSON(w, http.StatusOK, resp)
 	}), RequestMetadata{Service: "UserService", Method: "createUser", HTTPMethod: "POST", Route: "/api/v1/users", AuthSchemes: nil}))
 	mux.Handle("POST /api/v1/users/get", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := new(GetUserRequest)
@@ -335,8 +345,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			writeHandlerError(w, err)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
+		writeJSON(w, http.StatusOK, resp)
 	}), RequestMetadata{Service: "UserService", Method: "getUser", HTTPMethod: "POST", Route: "/api/v1/users/get", AuthSchemes: nil}))
 	mux.Handle("POST /api/v1/auth/login", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := new(LoginRequest)
@@ -380,8 +389,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			writeHandlerError(w, err)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
+		writeJSON(w, http.StatusOK, resp)
 	}), RequestMetadata{Service: "UserService", Method: "login", HTTPMethod: "POST", Route: "/api/v1/auth/login", AuthSchemes: nil}))
 	return nil
 }
