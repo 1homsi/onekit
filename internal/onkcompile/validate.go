@@ -323,6 +323,9 @@ func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl, 
 		if err := validateDecoratorValue(filePath, field.Line, decorator); err != nil {
 			return err
 		}
+		if err := validateNumericBounds(filePath, field.Line, decorator, field.Type); err != nil {
+			return err
+		}
 	}
 	if !options.AllowLegacyContracts && hasDecorator(field.Decorators, "required") && !field.Optional && isScalarTypeRef(field.Type) &&
 		!isScalarNamed(field.Type, "string") {
