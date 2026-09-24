@@ -179,7 +179,12 @@ func writeValidateFunc(p *Printer, m *onkir.Message) {
 		p.P("if (", present, " && !(", tsRuntimeTypeExpression(field, accessor), ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid type"), ");")
 		if field.HasDecorator("required") {
 			required := "!(" + present + ")"
-			if field.Type != nil && field.Type.Kind == onkir.KindScalar && field.Type.Scalar == onkir.ScalarString {
+			switch {
+			case field.Repeated:
+				required += " || " + accessor + ".length === 0"
+			case field.Type != nil && field.Type.Kind == onkir.KindMap:
+				required += " || Object.keys(" + accessor + ").length === 0"
+			case field.Type != nil && field.Type.Kind == onkir.KindScalar && field.Type.Scalar == onkir.ScalarString:
 				required += " || " + accessor + " === \"\""
 			}
 			p.P("if (", required, ") violations.push(", fmt.Sprintf("%q", field.Name+" is required"), ");")
