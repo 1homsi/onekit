@@ -15,6 +15,7 @@ import (
 // a handler may retain out and call Send from a goroutine it spawned,
 // concurrently with the read loop's own protocol-error replies.
 func writeWSOutType(p *Printer) {
+	p.P(wsFrameQueueSource)
 	p.P("// WSOut sends one direction of a bidirectional WebSocket RPC: server-")
 	p.P("// to-client frames of the method's declared response type.")
 	p.P("type WSOut[E any] interface {")
@@ -630,9 +631,20 @@ func writeWSRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	} else {
 		p.P("out := &wsConnOut[", resRef, "]{conn: conn, ctx: connCtx}")
 	}
-	p.P("// Failures end the connection with a close code and the message as the")
-	p.P("// reason, never an off-schema frame: 1007 for a frame that does not decode")
-	p.P("// or validate, 1011 for a handler error.")
+	p.P("queue := newWSFrameQueue[*", p.MessageTypeName(m.Request), "]()")
+	p.P("handlerDone := make(chan struct{})")
+	p.P("defer func() { closeConn(net.ErrClosed); <-handlerDone }()")
+	p.P("go func() {")
+	p.P("defer close(handlerDone)")
+	p.P("for {")
+	p.P("frame, ok := queue.pop(connCtx)")
+	p.P("if !ok { return }")
+	p.P("if err := srv.", PascalCase(m.Name), "(connCtx, frame, out); err != nil {")
+	p.P("_ = conn.Close(websocket.StatusInternalError, wsCloseReason(err.Error()))")
+	p.P("return")
+	p.P("}")
+	p.P("}")
+	p.P("}()")
 	p.P("sendProtocolError := func(message string) {")
 	p.P("_ = conn.Close(websocket.StatusInvalidFramePayloadData, wsCloseReason(message))")
 	p.P("}")
@@ -666,10 +678,7 @@ func writeWSRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		writeWSIDExtraction(p, "frame", m.Request, idField, "replyID", "replyIDOk", "replyVariant")
 		p.P("if replyIDOk && out.pending.resolve(replyID, replyVariant, frame) { continue }")
 	}
-	p.P("if err := srv.", PascalCase(m.Name), "(ctx, frame, out); err != nil {")
-	p.P("_ = conn.Close(websocket.StatusInternalError, wsCloseReason(err.Error()))")
-	p.P("return")
-	p.P("}")
+	p.P("queue.push(frame)")
 	p.P("}")
 	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", "GET"), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), "}))")
 }
@@ -690,3 +699,43 @@ func writeWSAssemble(p *Printer, asm, buf, hint string) {
 	p.P(hint, " = len(data)")
 	p.P("if aliased && msgBinary || cap(data) > 1<<20 { ", buf, " = nil } else { ", buf, " = data[:0] }")
 }
+
+const wsFrameQueueSource = `type wsFrameQueue[T any] struct {
+mu sync.Mutex
+items []T
+signal chan struct{}
+}
+
+func newWSFrameQueue[T any]() *wsFrameQueue[T] { return &wsFrameQueue[T]{signal: make(chan struct{}, 1)} }
+
+func (q *wsFrameQueue[T]) push(v T) {
+q.mu.Lock()
+q.items = append(q.items, v)
+q.mu.Unlock()
+select {
+case q.signal <- struct{}{}:
+default:
+}
+}
+
+func (q *wsFrameQueue[T]) pop(ctx context.Context) (T, bool) {
+for {
+q.mu.Lock()
+if len(q.items) > 0 {
+v := q.items[0]
+var zero T
+q.items[0] = zero
+q.items = q.items[1:]
+q.mu.Unlock()
+return v, true
+}
+q.mu.Unlock()
+select {
+case <-q.signal:
+case <-ctx.Done():
+var zero T
+return zero, false
+}
+}
+}
+`

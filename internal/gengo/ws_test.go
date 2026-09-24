@@ -793,6 +793,45 @@ func TestRuntimeCallSurvivesUndrainedPushes(t *testing.T) {
 	}
 }
 
+type inlineCallImpl struct{}
+
+func (inlineCallImpl) Execute(ctx context.Context, req *Frame, out *RuntimeExecuteOut) error {
+	if req.GetRun() == nil {
+		return nil
+	}
+	time.Sleep(300 * time.Millisecond)
+	reply, err := out.Call(ctx, "srv-1", &Frame{Payload: &FramePayloadHostCall{HostCall: &HostCall{Id: "srv-1", Method: "ask"}}})
+	if err != nil {
+		return err
+	}
+	return out.Send(ctx, &Frame{Payload: &FramePayloadRunResult{RunResult: &RunResult{ExitCode: int32(len(reply.GetHostResult().GetValue()))}}})
+}
+
+func TestRuntimeHandlerCanCallInlineAndOutliveKeepalive(t *testing.T) {
+	socket := dialRuntime(t, inlineCallImpl{}, WithWSPingInterval(20*time.Millisecond))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := socket.Send(ctx, &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: "x"}}}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	for {
+		frame, err := socket.Receive(ctx)
+		if err != nil {
+			t.Fatalf("receive: %v", err)
+		}
+		if call := frame.GetHostCall(); call != nil {
+			if err := socket.Send(ctx, &Frame{Payload: &FramePayloadHostResult{HostResult: &HostResult{Id: call.Id, Value: "four"}}}); err != nil {
+				t.Fatalf("reply: %v", err)
+			}
+			continue
+		}
+		if result := frame.GetRunResult(); result == nil || result.ExitCode != 4 {
+			t.Fatalf("unexpected frame %+v", frame)
+		}
+		return
+	}
+}
+
 func TestRuntimeClientKeepAliveDropsUnresponsiveServer(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/execute", func(w http.ResponseWriter, r *http.Request) {
@@ -919,6 +958,7 @@ func TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants(t *testing.T) {
 		"--- PASS: TestRuntimeClientFailsOnUndecodableFrame",
 		"--- PASS: TestRuntimeHandlerClosesItsConnection",
 		"--- PASS: TestRuntimeCallSurvivesUndrainedPushes",
+		"--- PASS: TestRuntimeHandlerCanCallInlineAndOutliveKeepalive",
 		"--- PASS: TestRuntimeClientKeepAliveDropsUnresponsiveServer",
 		"--- PASS: TestRuntimeCallStampsDeadline",
 	} {
