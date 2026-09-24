@@ -289,6 +289,16 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 }
 
 func writeResponseBodyRuntime(p *Printer) {
+	p.P("type UnexpectedStatusError struct {")
+	p.P("StatusCode int")
+	p.P("Header http.Header")
+	p.P("Body []byte")
+	p.P("}")
+	p.P()
+	p.P("func (e *UnexpectedStatusError) Error() string {")
+	p.P(`return fmt.Sprintf("unexpected status %d: %s", e.StatusCode, e.Body)`)
+	p.P("}")
+	p.P()
 	p.P("const defaultMaxResponseBodyBytes int64 = 8 << 20")
 	p.P("const defaultMaxSSELineBytes = 1 << 20")
 	p.P()
@@ -422,7 +432,7 @@ func writeClientErrorHandling(p *Printer, m *onkir.Method) {
 		p.P("}")
 		p.P("}")
 	}
-	p.P(`return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))`)
+	p.P(`return nil, &UnexpectedStatusError{StatusCode: resp.StatusCode, Header: resp.Header, Body: respBody}`)
 	p.P("}")
 }
 
