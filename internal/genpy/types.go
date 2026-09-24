@@ -694,22 +694,23 @@ func writePyValidateFunc(p *Printer, m *onkir.Message) {
 		}
 		present := accessor + " is not None"
 		if f.Type.Scalar == onkir.ScalarString {
+			formatPresent := accessor
 			if f.HasDecorator("email") {
-				p.P("if ", present, " and ('@' not in ", accessor, " or '.' not in ", accessor, ".split('@')[-1]): violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid email"), ")")
+				p.P("if ", formatPresent, " and ('@' not in ", accessor, " or '.' not in ", accessor, ".split('@')[-1]): violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid email"), ")")
 			}
 			if f.HasDecorator("uuid") {
-				p.P("if ", present, ":")
+				p.P("if ", formatPresent, ":")
 				p.Indent()
 				p.P("try: uuid.UUID(", accessor, ")")
 				p.P("except (ValueError, AttributeError): violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid UUID"), ")")
 				p.Dedent()
 			}
 			if f.HasDecorator("uri") {
-				p.P("if ", present, " and not urllib.parse.urlparse(", accessor, ").scheme: violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid URI"), ")")
+				p.P("if ", formatPresent, " and not urllib.parse.urlparse(", accessor, ").scheme: violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid URI"), ")")
 			}
 			if d, ok := f.Decorator("pattern"); ok {
 				value, _ := d.Value()
-				p.P("if ", present, " and re.search(", fmt.Sprintf("%q", value), ", ", accessor, ") is None: violations.append(", fmt.Sprintf("%q", f.Name+" has invalid format"), ")")
+				p.P("if ", formatPresent, " and re.search(", fmt.Sprintf("%q", value), ", ", accessor, ") is None: violations.append(", fmt.Sprintf("%q", f.Name+" has invalid format"), ")")
 			}
 			if d, ok := f.Decorator("len"); ok && len(d.Args) == 2 {
 				p.P("if ", present, " and not (", d.Args[0].Value, " <= len(", accessor, ") <= ", d.Args[1].Value, "): violations.append(", fmt.Sprintf("%q", f.Name+" has invalid length"), ")")
