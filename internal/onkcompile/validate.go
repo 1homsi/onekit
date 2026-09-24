@@ -189,6 +189,9 @@ func validateEnumDecl(path string, enum *onklang.EnumDecl, options CompileOption
 	if err := validateDeclarationName(path, enum.Line, enum.Name); err != nil {
 		return err
 	}
+	if len(enum.Values) == 0 {
+		return &Error{Path: path, Line: enum.Line, Msg: fmt.Sprintf("enum %q must declare at least one value", enum.Name)}
+	}
 	seenNames := map[string]string{}
 	seenJSON := map[string]string{}
 	for _, value := range enum.Values {
