@@ -383,7 +383,15 @@ func writeEnum(p *Printer, e *onkir.Enum) {
 	p.P("}")
 	p.P()
 
+	p.P("func (v ", e.Name, ") IsValid() bool {")
+	p.P("return v >= ", e.Name+PascalCase(strings.ToLower(e.Values[0].Name)), " && v <= ", e.Name+PascalCase(strings.ToLower(e.Values[len(e.Values)-1].Name)))
+	p.P("}")
+	p.P()
+
 	p.P("func (v ", e.Name, ") MarshalJSON() ([]byte, error) {")
+	p.P("if !v.IsValid() {")
+	p.P("return nil, fmt.Errorf(", fmt.Sprintf("%q", e.Name+": invalid value %d"), ", int32(v))")
+	p.P("}")
 	p.P("return json.Marshal(v.String())")
 	p.P("}")
 	p.P()
