@@ -186,6 +186,7 @@ func runMock(args []string) error {
 	seed := fs.Int64("seed", 1, "deterministic seed for injected errors and latency")
 	errorRate := fs.Float64("error-rate", 0, "probability [0,1] of serving a declared typed error")
 	latency := fs.Duration("latency", 0, "inject up to this much random latency per request")
+	noCORS := fs.Bool("no-cors", false, "do not send CORS headers")
 	dir := fs.String("dir", ".", "schema project directory")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -200,6 +201,7 @@ func runMock(args []string) error {
 		Seed:      *seed,
 		ErrorRate: *errorRate,
 		Latency:   *latency,
+		NoCORS:    *noCORS,
 	})
 	if err != nil {
 		return err
