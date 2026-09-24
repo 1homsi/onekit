@@ -222,11 +222,14 @@ func sortUnique(values []string) []string {
 
 func sortStrings(values []string) { sort.Strings(values) }
 
-const scalarString = "string"
+const (
+	scalarString = "string"
+	scalarInt64  = "int64"
+)
 
 func isScalarExpr(expr string) bool {
 	switch expr {
-	case scalarString, "bool", "int32", "int64", "uint32", "uint64",
+	case scalarString, "bool", "int32", scalarInt64, "uint32", "uint64",
 		"float32", "float64", "timestamp", "json":
 		return true
 	}
