@@ -311,6 +311,14 @@ func mockFieldValue(field *onkir.Field, depth int) any {
 			discriminator = name
 		}
 		object := map[string]any{discriminator: variant.Tag()}
+		if !field.Oneof.Flatten() {
+			if variant.Type != nil && variant.Type.Kind == onkir.KindMessage {
+				object[variant.Name] = mockMessage(variant.Type.Message, depth+1)
+			} else if variant.Type != nil {
+				object[variant.Name] = mockType(variant.Type, depth+1)
+			}
+			return object
+		}
 		if variant.Type != nil && variant.Type.Kind == onkir.KindMessage {
 			if inner, okMap := mockMessage(variant.Type.Message, depth+1).(map[string]any); okMap {
 				for name, value := range inner {
@@ -457,6 +465,8 @@ func mockBoundedNumber[T int | float64](field *onkir.Field, fallback T, integer 
 
 // mockConstrainedString derives validator-satisfying strings so fixtures
 // pass client-side zod schemas unchanged.
+const mockEmail = "user@example.com"
+
 func mockConstrainedString(field *onkir.Field) string {
 	if d, ok := field.Decorator("in"); ok {
 		value, _ := d.Arg(0)
@@ -464,7 +474,7 @@ func mockConstrainedString(field *onkir.Field) string {
 	}
 	switch {
 	case field.HasDecorator("email"):
-		return "user@example.com"
+		return mockEmail
 	case field.HasDecorator("uuid"):
 		return "0f9ad6e5-8c1a-4b2e-9d3f-5a7c8e1b2d4f"
 	case field.HasDecorator("uri"):

@@ -62,7 +62,7 @@ func TestMockServerServesValidatorAccurateFixtures(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if !body.OK || body.Who != "user@example.com" || body.Big != "1729" || body.WhenTS != float64(1735689600) {
+	if !body.OK || body.Who != mockEmail || body.Big != "1729" || body.WhenTS != float64(1735689600) {
 		t.Fatalf("unexpected fixture: %+v", body)
 	}
 }
