@@ -647,6 +647,13 @@ func writeMessage(p *Printer, m *onkir.Message) {
 	}
 }
 
+var pyIntegerBounds = map[onkir.ScalarKind][2]string{
+	onkir.ScalarInt32:  {"-2147483648", "2147483647"},
+	onkir.ScalarInt64:  {"-9223372036854775808", "9223372036854775807"},
+	onkir.ScalarUint32: {"0", "4294967295"},
+	onkir.ScalarUint64: {"0", "18446744073709551615"},
+}
+
 //nolint:gocognit // Each schema rule is an independent generated-code branch.
 func writePyValidateFunc(p *Printer, m *onkir.Message) {
 	p.P("def validate(self) -> None:")
@@ -699,6 +706,9 @@ func writePyValidateFunc(p *Printer, m *onkir.Message) {
 			continue
 		}
 		present := accessor + " is not None"
+		if bounds, ok := pyIntegerBounds[f.Type.Scalar]; ok {
+			p.P("if ", present, " and (isinstance(", accessor, ", bool) or not isinstance(", accessor, ", int) or not (", bounds[0], " <= ", accessor, " <= ", bounds[1], ")): violations.append(", fmt.Sprintf("%q", f.Name+" must be a "+f.Type.Scalar.String()), ")")
+		}
 		if f.Type.Scalar == onkir.ScalarString {
 			formatPresent := accessor
 			if f.HasDecorator("email") {
