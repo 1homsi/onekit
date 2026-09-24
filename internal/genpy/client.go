@@ -93,15 +93,16 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 	if hasWS {
 		wsParams = ", max_ws_frame_bytes: int = DEFAULT_MAX_WS_FRAME_BYTES, max_ws_message_bytes: int = DEFAULT_MAX_WS_MESSAGE_BYTES, ws_ping_interval: float = 30.0"
 	}
-	p.P("def __init__(self, base_url: str, headers: dict | None = None, max_response_body_bytes: int = DEFAULT_MAX_RESPONSE_BODY_BYTES, max_sse_line_bytes: int = DEFAULT_MAX_SSE_LINE_BYTES", wsParams, ") -> None:")
+	p.P("def __init__(self, base_url: str, headers: dict | None = None, max_response_body_bytes: int = DEFAULT_MAX_RESPONSE_BODY_BYTES, max_sse_line_bytes: int = DEFAULT_MAX_SSE_LINE_BYTES, timeout: float | None = 30.0", wsParams, ") -> None:")
 	p.Indent()
 	if hasWS {
 		p.P("self.max_ws_frame_bytes = max_ws_frame_bytes")
 		p.P("self.max_ws_message_bytes = max_ws_message_bytes if max_ws_message_bytes != 0 else DEFAULT_MAX_WS_MESSAGE_BYTES")
 		p.P("self.ws_ping_interval = ws_ping_interval")
 	}
-	p.P("self.base_url = base_url")
+	p.P("self.base_url = base_url.rstrip(\"/\")")
 	p.P("self.headers = headers or {}")
+	p.P("self.timeout = timeout")
 	p.P("self.max_response_body_bytes = max_response_body_bytes if max_response_body_bytes > 0 else DEFAULT_MAX_RESPONSE_BODY_BYTES")
 	p.P("self.max_sse_line_bytes = max_sse_line_bytes if max_sse_line_bytes > 0 else DEFAULT_MAX_SSE_LINE_BYTES")
 	p.Dedent()
@@ -238,7 +239,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 	p.P("try:")
 	p.Indent()
-	p.P("with urllib.request.urlopen(request) as resp:")
+	p.P("with urllib.request.urlopen(request, timeout=self.timeout) as resp:")
 	p.Indent()
 	p.P("return ", p.MessageTypeName(m.Response), ".from_dict(json.loads(_read_bounded(resp, self.max_response_body_bytes)))")
 	p.Dedent()
