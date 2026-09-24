@@ -727,43 +727,47 @@ func isHTTPVerb(name string) bool {
 func validateDecorators(path string, line int, decorators []onklang.Decorator, rules map[string]decoratorRule) error {
 	seen := map[string]bool{}
 	for _, decorator := range decorators {
+		line, col := line, 0
+		if decorator.Line > 0 {
+			line, col = decorator.Line, decorator.Col
+		}
 		rule, ok := rules[decorator.Name]
 		if !ok {
-			return &Error{Path: path, Line: line, Msg: fmt.Sprintf("unknown decorator @%s", decorator.Name)}
+			return &Error{Path: path, Line: line, Column: col, Msg: fmt.Sprintf("unknown decorator @%s", decorator.Name)}
 		}
 		if seen[decorator.Name] {
-			return &Error{Path: path, Line: line, Msg: fmt.Sprintf("duplicate decorator @%s", decorator.Name)}
+			return &Error{Path: path, Line: line, Column: col, Msg: fmt.Sprintf("duplicate decorator @%s", decorator.Name)}
 		}
 		seen[decorator.Name] = true
 		if len(decorator.Args) < rule.minArgs || (rule.maxArgs >= 0 && len(decorator.Args) > rule.maxArgs) {
-			return &Error{Path: path, Line: line, Msg: fmt.Sprintf("@%s expects %s", decorator.Name, argCount(rule.minArgs, rule.maxArgs))}
+			return &Error{Path: path, Line: line, Column: col, Msg: fmt.Sprintf("@%s expects %s", decorator.Name, argCount(rule.minArgs, rule.maxArgs))}
 		}
 		for _, arg := range decorator.Args {
 			if arg.Name != "" && (decorator.Name != flattenDecorator || arg.Name != flattenPrefixArg) {
-				return &Error{Path: path, Line: line, Msg: fmt.Sprintf("@%s does not accept named argument %q", decorator.Name, arg.Name)}
+				return &Error{Path: path, Line: line, Column: col, Msg: fmt.Sprintf("@%s does not accept named argument %q", decorator.Name, arg.Name)}
 			}
 			if arg.Value == "" && decorator.Name != flattenDecorator && decorator.Name != "in" {
-				return &Error{Path: path, Line: line, Msg: fmt.Sprintf("@%s arguments must not be empty", decorator.Name)}
+				return &Error{Path: path, Line: line, Column: col, Msg: fmt.Sprintf("@%s arguments must not be empty", decorator.Name)}
 			}
 		}
 		switch decorator.Name {
 		case "status":
 			status, err := strconv.Atoi(decorator.Args[0].Value)
 			if err != nil || status < 400 || status > 599 {
-				return &Error{Path: path, Line: line, Msg: "@status must be an HTTP error status from 400 to 599"}
+				return &Error{Path: path, Line: line, Column: col, Msg: "@status must be an HTTP error status from 400 to 599"}
 			}
 		case "auth":
 			value := decorator.Args[0].Value
 			if value != "api_key" && value != "bearer" && value != "basic" {
-				return &Error{Path: path, Line: line, Msg: "@auth must be api_key, bearer, or basic"}
+				return &Error{Path: path, Line: line, Column: col, Msg: "@auth must be api_key, bearer, or basic"}
 			}
 		case flattenDecorator:
 			if len(decorator.Args) == 1 && decorator.Args[0].Name != flattenPrefixArg {
-				return &Error{Path: path, Line: line, Msg: "@flatten argument must be named prefix"}
+				return &Error{Path: path, Line: line, Column: col, Msg: "@flatten argument must be named prefix"}
 			}
 			for _, arg := range decorator.Args {
 				if arg.Name == flattenPrefixArg && !isGeneratedKey(arg.Value) {
-					return &Error{Path: path, Line: line, Msg: "@flatten prefix must contain only letters, digits, and underscores and must not start with a digit"}
+					return &Error{Path: path, Line: line, Column: col, Msg: "@flatten prefix must contain only letters, digits, and underscores and must not start with a digit"}
 				}
 			}
 		}
