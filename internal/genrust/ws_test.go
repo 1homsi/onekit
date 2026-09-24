@@ -493,6 +493,13 @@ func TestGeneratedRustWSCorrelatedRuntimeRoutesMultipleVariants(t *testing.T) {
 	runRustWSCrate(t, rustWSCorrelatedFixture, "onekit-rust-ws-fixture-runtime", rustWSCorrelatedRuntimeMain, true)
 }
 
+func cargoCommand(dir string, args ...string) *exec.Cmd {
+	cmd := exec.Command("cargo", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "CARGO_TARGET_DIR="+filepath.Join(os.TempDir(), "onekit-genrust-cargo-target"))
+	return cmd
+}
+
 // runRustWSCrate generates types/server/client for src into a scratch crate
 // with mainRS as src/main.rs, and builds it - then, when run is true,
 // executes it and requires it to print "OK".
@@ -534,17 +541,14 @@ func runRustWSCrate(t *testing.T, src, crateName, mainRS string, run bool) {
 		}
 	}
 
-	build := exec.Command("cargo", "build", "--quiet")
-	build.Dir = dir
-	if out, err := build.CombinedOutput(); err != nil {
+	if out, err := cargoCommand(dir, "build", "--quiet").CombinedOutput(); err != nil {
 		t.Fatalf("generated Rust WS code failed to build: %v\n%s\n--- types.rs ---\n%s\n--- server.rs ---\n%s\n--- client.rs ---\n%s",
 			err, out, types, server, client)
 	}
 	if !run {
 		return
 	}
-	runCmd := exec.Command("cargo", "run", "--quiet")
-	runCmd.Dir = dir
+	runCmd := cargoCommand(dir, "run", "--quiet")
 	var stderr strings.Builder
 	runCmd.Stderr = &stderr
 	out, err := runCmd.Output()
