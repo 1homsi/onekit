@@ -880,6 +880,9 @@ func validateContract(pkg *onkir.Package, options CompileOptions) error {
 	fullNames := map[string]string{}
 	for _, file := range pkg.Files {
 		for _, message := range file.Messages {
+			if err := validateFlattenCycle(file.Path, message, nil); err != nil {
+				return err
+			}
 			if err := validateCompiledMessage(file.Path, message, fullNames, options); err != nil {
 				return err
 			}
@@ -936,6 +939,29 @@ func validateSecuritySchemes(file *onkir.File) error {
 					return err
 				}
 			}
+		}
+	}
+	return nil
+}
+
+func validateFlattenCycle(filePath string, message *onkir.Message, path []*onkir.Message) error {
+	for _, seen := range path {
+		if seen == message {
+			names := make([]string, 0, len(path)+1)
+			for _, m := range path {
+				names = append(names, m.Name)
+			}
+			names = append(names, message.Name)
+			return &Error{Path: filePath, Msg: "@flatten cycle: " + strings.Join(names, " -> ")}
+		}
+	}
+	path = append(path, message)
+	for _, field := range message.Fields {
+		if !field.HasDecorator("flatten") || field.Type == nil || field.Type.Kind != onkir.KindMessage {
+			continue
+		}
+		if err := validateFlattenCycle(filePath, field.Type.Message, path); err != nil {
+			return err
 		}
 	}
 	return nil
