@@ -371,16 +371,7 @@ func writePyWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.Indent()
 	p.P(`if hasattr(req, "validate"): req.validate()`)
 	p.P(fmt.Sprintf("path = %q", fullPath))
-	for _, paramName := range onkir.PathParamNames(wsPath) {
-		field := onkir.FindField(m.Request, paramName)
-		if field == nil {
-			continue
-		}
-		p.P(fmt.Sprintf(
-			"path = path.replace(%q, urllib.parse.quote(str(req.%s), safe=\"\"))",
-			"{"+paramName+"}", field.Name,
-		))
-	}
+	writePyPathParams(p, wsPath, m.Request)
 	writeClientQueryParams(p, m.Request)
 	p.P("connection = _ws_connect(self.base_url + path, self.headers, self.max_ws_frame_bytes, self.ws_ping_interval)")
 	p.P("return ", socketType, "(connection, ", p.MessageTypeName(m.Response), ", ", pyCodecName(p, m.Request), ", ", pyCodecName(p, m.Response), ", self.max_ws_message_bytes)")
