@@ -43,6 +43,13 @@ func messageUsesTime(m *onkir.Message) bool {
 		if f.Type != nil && typeUsesTime(f.Type) {
 			return true
 		}
+		if f.Oneof != nil {
+			for _, v := range f.Oneof.Variants {
+				if v.Type != nil && typeUsesTime(v.Type) {
+					return true
+				}
+			}
+		}
 	}
 	for _, nested := range m.Nested {
 		if messageUsesTime(nested) {
