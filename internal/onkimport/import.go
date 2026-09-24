@@ -64,6 +64,10 @@ func Import(data []byte, opts Options) (*Result, error) {
 	if root == nil {
 		return nil, errors.New("empty OpenAPI document")
 	}
+	root, _ = normalizeKeys(root).(map[string]any)
+	if version, ok := root["openapi"].(float64); ok {
+		root["openapi"] = strconv.FormatFloat(version, 'f', -1, 64)
+	}
 	if v := text(root, "openapi"); !strings.HasPrefix(v, "3") {
 		return nil, fmt.Errorf("unsupported OpenAPI version %q; only 3.x is supported", v)
 	}
@@ -638,4 +642,27 @@ func writeMessage(out *strings.Builder, name string, fields []string, isError bo
 		out.WriteString("  " + line + "\n")
 	}
 	out.WriteString("}\n\n")
+}
+
+func normalizeKeys(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, item := range typed {
+			typed[key] = normalizeKeys(item)
+		}
+		return typed
+	case map[any]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[fmt.Sprint(key)] = normalizeKeys(item)
+		}
+		return out
+	case []any:
+		for i, item := range typed {
+			typed[i] = normalizeKeys(item)
+		}
+		return typed
+	default:
+		return value
+	}
 }
