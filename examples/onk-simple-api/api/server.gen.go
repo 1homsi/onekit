@@ -127,6 +127,37 @@ func RequestMetadataFromContext(ctx context.Context) (RequestMetadata, bool) {
 	return metadata, ok
 }
 
+type httpRequestContextKey struct{}
+
+func withHTTPRequest(r *http.Request) context.Context {
+	return context.WithValue(r.Context(), httpRequestContextKey{}, r)
+}
+
+type responseControl struct {
+	status int
+	header http.Header
+}
+
+type responseControlKey struct{}
+
+func SetResponseStatus(ctx context.Context, status int) {
+	if control, ok := ctx.Value(responseControlKey{}).(*responseControl); ok && status >= 200 && status <= 299 {
+		control.status = status
+	}
+}
+
+func ResponseHeader(ctx context.Context) http.Header {
+	if control, ok := ctx.Value(responseControlKey{}).(*responseControl); ok {
+		return control.header
+	}
+	return http.Header{}
+}
+
+func HTTPRequestFromContext(ctx context.Context) (*http.Request, bool) {
+	r, ok := ctx.Value(httpRequestContextKey{}).(*http.Request)
+	return r, ok
+}
+
 func RequestIDFromContext(ctx context.Context) (string, bool) {
 	requestID, ok := ctx.Value(requestIDContextKey{}).(string)
 	return requestID, ok && requestID != ""
@@ -327,12 +358,13 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 				return
 			}
 		}
-		resp, err := srv.CreateUser(r.Context(), req)
+		control := &responseControl{status: http.StatusOK, header: w.Header()}
+		resp, err := srv.CreateUser(context.WithValue(withHTTPRequest(r), responseControlKey{}, control), req)
 		if err != nil {
 			writeHandlerError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, resp)
+		writeJSON(w, control.status, resp)
 	}), RequestMetadata{Service: "UserService", Method: "createUser", HTTPMethod: "POST", Route: "/api/v1/users", AuthSchemes: nil}))
 	mux.Handle("POST /api/v1/users/get", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := new(GetUserRequest)
@@ -360,12 +392,13 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 				return
 			}
 		}
-		resp, err := srv.GetUser(r.Context(), req)
+		control := &responseControl{status: http.StatusOK, header: w.Header()}
+		resp, err := srv.GetUser(context.WithValue(withHTTPRequest(r), responseControlKey{}, control), req)
 		if err != nil {
 			writeHandlerError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, resp)
+		writeJSON(w, control.status, resp)
 	}), RequestMetadata{Service: "UserService", Method: "getUser", HTTPMethod: "POST", Route: "/api/v1/users/get", AuthSchemes: nil}))
 	mux.Handle("POST /api/v1/auth/login", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := new(LoginRequest)
@@ -404,12 +437,13 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 				return
 			}
 		}
-		resp, err := srv.Login(r.Context(), req)
+		control := &responseControl{status: http.StatusOK, header: w.Header()}
+		resp, err := srv.Login(context.WithValue(withHTTPRequest(r), responseControlKey{}, control), req)
 		if err != nil {
 			writeHandlerError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, resp)
+		writeJSON(w, control.status, resp)
 	}), RequestMetadata{Service: "UserService", Method: "login", HTTPMethod: "POST", Route: "/api/v1/auth/login", AuthSchemes: nil}))
 	return nil
 }
