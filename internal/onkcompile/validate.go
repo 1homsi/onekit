@@ -582,6 +582,9 @@ func validateHeaders(path string, headers []onklang.HeaderDecl) error {
 		if hasAuth && !hasDecorator(header.Decorators, "required") {
 			return &Error{Path: path, Line: header.Line, Msg: fmt.Sprintf("@auth(%s) header must also be @required", auth.Args[0].Value)}
 		}
+		if hasAuth && (auth.Args[0].Value == "bearer" || auth.Args[0].Value == "basic") && !strings.EqualFold(header.Name, "Authorization") {
+			return &Error{Path: path, Line: header.Line, Msg: fmt.Sprintf("@auth(%s) must be declared on the Authorization header; use @auth(api_key) for %q", auth.Args[0].Value, header.Name)}
+		}
 		if format, ok := findDecorator(header.Decorators, "format"); ok {
 			value := format.Args[0].Value
 			if value != "uuid" && value != "email" && value != "uri" {
