@@ -30,6 +30,7 @@ type MockOptions struct {
 	ErrorRate float64
 	// Latency injects up to this much random delay before responding.
 	Latency time.Duration
+	NoCORS  bool
 }
 
 // MockServer serves schema-derived fixtures for every compiled route.
@@ -42,6 +43,7 @@ type MockServer struct {
 	errorRate float64
 	latency   time.Duration
 	routes    int
+	cors      bool
 }
 
 // NewMockServer parses and compiles the project at dir (honoring
@@ -75,6 +77,7 @@ func NewMockServer(dir string, opts MockOptions) (*MockServer, error) {
 		rng:       rand.New(rand.NewPCG(uint64(opts.Seed), ^uint64(opts.Seed))),
 		errorRate: opts.ErrorRate,
 		latency:   opts.Latency,
+		cors:      !opts.NoCORS,
 	}
 	for _, file := range pkg.Files {
 		for _, service := range file.Services {
@@ -104,7 +107,29 @@ func NewMockServer(dir string, opts MockOptions) (*MockServer, error) {
 func (m *MockServer) Routes() int { return m.routes }
 
 // Handler exposes the underlying handler for tests and embedding.
-func (m *MockServer) Handler() http.Handler { return m.mux }
+func (m *MockServer) Handler() http.Handler {
+	if !m.cors {
+		return m.mux
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if origin := r.Header.Get("Origin"); origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Expose-Headers", "*")
+		}
+		if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, QUERY, OPTIONS")
+			if headers := r.Header.Get("Access-Control-Request-Headers"); headers != "" {
+				w.Header().Set("Access-Control-Allow-Headers", headers)
+			}
+			w.Header().Set("Access-Control-Max-Age", "600")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		m.mux.ServeHTTP(w, r)
+	})
+}
 
 // Run serves until ctx is cancelled or the listener fails.
 func (m *MockServer) Run(ctx context.Context, addr string, out io.Writer) error {
@@ -116,7 +141,7 @@ func (m *MockServer) Run(ctx context.Context, addr string, out io.Writer) error 
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", addr, err)
 	}
-	httpServer := &http.Server{Handler: m.mux, ReadHeaderTimeout: 10 * time.Second}
+	httpServer := &http.Server{Handler: m.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpServer.Serve(listener) }()
 	if out != nil {
