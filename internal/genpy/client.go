@@ -100,7 +100,7 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 		p.P("self.max_ws_message_bytes = max_ws_message_bytes if max_ws_message_bytes != 0 else DEFAULT_MAX_WS_MESSAGE_BYTES")
 		p.P("self.ws_ping_interval = ws_ping_interval")
 	}
-	p.P("self.base_url = base_url")
+	p.P("self.base_url = base_url.rstrip(\"/\")")
 	p.P("self.headers = headers or {}")
 	p.P("self.max_response_body_bytes = max_response_body_bytes if max_response_body_bytes > 0 else DEFAULT_MAX_RESPONSE_BODY_BYTES")
 	p.P("self.max_sse_line_bytes = max_sse_line_bytes if max_sse_line_bytes > 0 else DEFAULT_MAX_SSE_LINE_BYTES")
