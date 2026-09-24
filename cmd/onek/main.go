@@ -42,23 +42,27 @@ func usage(w io.Writer) {
 }
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
-		var diagnosticErr *jsonDiagnosticsExitError
-		if errors.As(err, &diagnosticErr) {
-			if encodeErr := json.NewEncoder(os.Stdout).Encode(onek.Diagnostics(diagnosticErr.err)); encodeErr != nil {
-				fmt.Fprintln(os.Stderr, "onek:", encodeErr)
-				os.Exit(1)
-			}
-			os.Exit(diagnosticErr.ExitCode())
-		}
-		fmt.Fprintln(os.Stderr, "onek:", err)
-		code := 1
-		var coded interface{ ExitCode() int }
-		if errors.As(err, &coded) {
-			code = coded.ExitCode()
-		}
-		os.Exit(code)
+	os.Exit(exitCode(run(os.Args[1:]), os.Stdout, os.Stderr))
+}
+
+func exitCode(err error, stdout, stderr io.Writer) int {
+	if err == nil || errors.Is(err, flag.ErrHelp) {
+		return 0
 	}
+	var diagnosticErr *jsonDiagnosticsExitError
+	if errors.As(err, &diagnosticErr) {
+		if encodeErr := json.NewEncoder(stdout).Encode(onek.Diagnostics(diagnosticErr.err)); encodeErr != nil {
+			fmt.Fprintln(stderr, "onek:", encodeErr)
+			return 1
+		}
+		return diagnosticErr.ExitCode()
+	}
+	fmt.Fprintln(stderr, "onek:", err)
+	var coded interface{ ExitCode() int }
+	if errors.As(err, &coded) {
+		return coded.ExitCode()
+	}
+	return 1
 }
 
 func run(args []string) error {
