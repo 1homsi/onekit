@@ -217,6 +217,8 @@ func writeFieldDecl(p *Printer, f *onkir.Field) {
 		p.P(f.Name, ": ", pyType, " = field(default_factory=dict)")
 	case f.Optional || f.Type.Kind == onkir.KindMessage:
 		p.P(f.Name, ": ", pyType, " | None = None")
+	case f.Type.Kind == onkir.KindEnum:
+		p.P(f.Name, ": ", pyType, " = field(default_factory=lambda: ", p.EnumTypeName(f.Type.Enum), "(0))")
 	default:
 		p.P(f.Name, ": ", pyType, " = ", fieldPyDefault(f))
 	}
@@ -471,12 +473,16 @@ func (p *Printer) writeFromDictField(f *onkir.Field) string {
 	case f.Type.Kind == onkir.KindMessage:
 		return p.messageFieldFromDictExpr(f, key)
 	case f.Type.Kind == onkir.KindEnum:
+		enumName := p.EnumTypeName(f.Type.Enum)
+		missing := enumName + "(0)"
+		if f.Optional {
+			missing = pyNone
+		}
 		if needsEnumNumberEncoding(f) {
-			enumName := p.EnumTypeName(f.Type.Enum)
-			return fmt.Sprintf("(%s(d[%s]) if d.get(%s) is not None else None)", enumName, key, key)
+			return fmt.Sprintf("(%s(d[%s]) if d.get(%s) is not None else %s)", enumName, key, key, missing)
 		}
 		enumRef := p.enumFromJSONMapRef(f.Type.Enum)
-		return fmt.Sprintf("(%s[d[%s]] if d.get(%s) is not None else None)", enumRef, key, key)
+		return fmt.Sprintf("(%s[d[%s]] if d.get(%s) is not None else %s)", enumRef, key, key, missing)
 	case isBytesField(f):
 		if f.Optional {
 			return bytesDecodeExprWithDefault(bytesEncodingValue(f), key, "None")
