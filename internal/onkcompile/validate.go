@@ -922,6 +922,11 @@ func validateCompiledMessage(filePath string, message *onkir.Message, fullNames 
 }
 
 func validateCompiledField(filePath string, field *onkir.Field) error {
+	if field.HasDecorator("required") && !field.Optional && !field.Repeated && field.Type != nil && field.Type.Kind == onkir.KindEnum {
+		return &Error{Path: filePath, Msg: fmt.Sprintf(
+			"@required on enum field %s.%s needs the ? marker; a non-optional enum always holds its first value", field.Message.FullName(), field.Name,
+		)}
+	}
 	if field.Type != nil && field.Type.Kind == onkir.KindMap && field.Type.MapValue != nil &&
 		field.Type.MapValue.Kind == onkir.KindMessage && isRootUnwrappedMessage(field.Type.MapValue.Message) {
 		return &Error{Path: filePath, Msg: fmt.Sprintf(
