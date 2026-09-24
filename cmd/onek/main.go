@@ -19,6 +19,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/1homsi/onekit/internal/onek"
+	"github.com/1homsi/onekit/internal/onkcompat"
 	"github.com/1homsi/onekit/internal/onkimport"
 	"github.com/1homsi/onekit/internal/onklang"
 )
@@ -36,6 +37,7 @@ func usage(w io.Writer) {
   onek init [--force] [DIR]
   onek import [--out DIR] [--package NAME] [--service NAME] [--force] OPENAPI-FILE
   onek compat [--json] PREVIOUS-DIR CURRENT-DIR
+  onek compat [--json] --against GIT-REF [CURRENT-DIR]
   onek mcp [--dir DIR]
   onek lsp [--dir DIR]
   onek version`)
@@ -296,13 +298,24 @@ func runCompat(args []string) error {
 	fs := flag.NewFlagSet("compat", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	asJSON := fs.Bool("json", false, "emit machine-readable JSON")
+	against := fs.String("against", "", "git ref to use as the previous schema (for example origin/main)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if len(fs.Args()) != 2 {
-		return errors.New("compat requires PREVIOUS-DIR and CURRENT-DIR")
+	var findings []onkcompat.Finding
+	var err error
+	switch {
+	case *against != "" && len(fs.Args()) <= 1:
+		current := "."
+		if len(fs.Args()) == 1 {
+			current = fs.Arg(0)
+		}
+		findings, err = onek.CompatibilityAgainstRef(*against, current)
+	case *against == "" && len(fs.Args()) == 2:
+		findings, err = onek.Compatibility(fs.Arg(0), fs.Arg(1))
+	default:
+		return errors.New("compat requires PREVIOUS-DIR and CURRENT-DIR, or --against REF [CURRENT-DIR]")
 	}
-	findings, err := onek.Compatibility(fs.Arg(0), fs.Arg(1))
 	if err != nil {
 		return err
 	}
