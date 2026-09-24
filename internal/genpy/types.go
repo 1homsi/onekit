@@ -402,7 +402,7 @@ func writeToDictField(p *Printer, f *onkir.Field) {
 		p.Indent()
 		p.P("d[", key, "] = str(self.", f.Name, ")")
 		p.Dedent()
-	case f.Optional:
+	case f.Optional, f.Type != nil && f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarJSON:
 		p.P("if self.", f.Name, " is not None:")
 		p.Indent()
 		p.P("d[", key, "] = self.", f.Name)
