@@ -30,9 +30,34 @@ func serverCodecNames(file *onkir.File, resolver PackageResolver) []string {
 			add("decode", m.Request)
 			add("validate", m.Request)
 			add("encode", m.Response)
+			for _, errType := range m.ErrorTypes {
+				add("encode", errType)
+			}
 		}
 	}
 	return names
+}
+
+func writeTypedErrorHelpers(p *Printer, file *onkir.File) {
+	seen := map[*onkir.Message]bool{}
+	for _, s := range file.Services {
+		for _, m := range s.Methods {
+			for _, errType := range m.ErrorTypes {
+				if seen[errType] {
+					continue
+				}
+				seen[errType] = true
+				status := 500
+				if code, ok := errType.StatusCode(); ok {
+					status = code
+				}
+				p.P("export function httpErrorFrom", errType.Name, "(value: ", p.MessageTypeName(errType), "): HttpError {")
+				p.P("return new HttpError(", status, ", ", p.MessageCodecName(errType, "encode"), "(value));")
+				p.P("}")
+				p.P()
+			}
+		}
+	}
 }
 
 // GenerateServer generates server.ts treating every message/enum type as
@@ -80,6 +105,7 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 		writeTSNodeHTTPRuntime(p)
 		p.P(tsFetchRouterSource)
 	}
+	writeTypedErrorHelpers(p, file)
 	for _, s := range file.Services {
 		writeHandlerInterface(p, s)
 		writeRouteFactory(p, s)
