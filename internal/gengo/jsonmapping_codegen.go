@@ -137,7 +137,7 @@ func writeAuxFieldDecls(p *Printer, m *onkir.Message, c fieldCategories, include
 	}
 	for _, f := range c.enums {
 		if f.Optional {
-			p.P(PascalCase(f.Name), " int32 `json:\"", f.Name, ",omitempty\"`")
+			p.P(PascalCase(f.Name), " *int32 `json:\"", f.Name, ",omitempty\"`")
 			continue
 		}
 		// Non-optional number-encoded enums must not be omitempty: enum
@@ -203,6 +203,13 @@ func writeInt64MarshalAssignments(p *Printer, c fieldCategories) {
 func writeEnumMarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.enums {
 		goName := PascalCase(f.Name)
+		if f.Optional {
+			p.P("if m.", goName, " != nil {")
+			p.P("v := int32(*m.", goName, ")")
+			p.P("aux.", goName, " = &v")
+			p.P("}")
+			continue
+		}
 		p.P("aux.", goName, " = int32(m.", goName, ")")
 	}
 }
@@ -370,6 +377,13 @@ func writeInt64UnmarshalAssignments(p *Printer, c fieldCategories) {
 func writeEnumUnmarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.enums {
 		goName := PascalCase(f.Name)
+		if f.Optional {
+			p.P("if aux.", goName, " != nil {")
+			p.P("v := ", p.GoFieldType(f.Type), "(*aux.", goName, ")")
+			p.P("m.", goName, " = &v")
+			p.P("}")
+			continue
+		}
 		p.P("m.", goName, " = ", p.GoFieldType(f.Type), "(aux.", goName, ")")
 	}
 }
