@@ -127,6 +127,17 @@ func RequestMetadataFromContext(ctx context.Context) (RequestMetadata, bool) {
 	return metadata, ok
 }
 
+type httpRequestContextKey struct{}
+
+func withHTTPRequest(r *http.Request) context.Context {
+	return context.WithValue(r.Context(), httpRequestContextKey{}, r)
+}
+
+func HTTPRequestFromContext(ctx context.Context) (*http.Request, bool) {
+	r, ok := ctx.Value(httpRequestContextKey{}).(*http.Request)
+	return r, ok
+}
+
 func RequestIDFromContext(ctx context.Context) (string, bool) {
 	requestID, ok := ctx.Value(requestIDContextKey{}).(string)
 	return requestID, ok && requestID != ""
@@ -327,7 +338,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 				return
 			}
 		}
-		resp, err := srv.CreateUser(r.Context(), req)
+		resp, err := srv.CreateUser(withHTTPRequest(r), req)
 		if err != nil {
 			writeHandlerError(w, err)
 			return
@@ -360,7 +371,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 				return
 			}
 		}
-		resp, err := srv.GetUser(r.Context(), req)
+		resp, err := srv.GetUser(withHTTPRequest(r), req)
 		if err != nil {
 			writeHandlerError(w, err)
 			return
@@ -404,7 +415,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 				return
 			}
 		}
-		resp, err := srv.Login(r.Context(), req)
+		resp, err := srv.Login(withHTTPRequest(r), req)
 		if err != nil {
 			writeHandlerError(w, err)
 			return

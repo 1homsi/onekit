@@ -128,7 +128,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeValidateCall(p)
 
 	p.P("sender := newSSESender(w)")
-	p.P("if err := srv.", PascalCase(m.Name), "(r.Context(), req, sender); err != nil {")
+	p.P("if err := srv.", PascalCase(m.Name), "(withHTTPRequest(r), req, sender); err != nil {")
 	p.P("if !sender.Sent() {")
 	writeErrorHandling(p, m)
 	p.P("return")
