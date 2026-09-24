@@ -66,7 +66,23 @@ var rustKeywords = map[string]bool{
 	"use":      true,
 	"where":    true,
 	"while":    true,
+	"abstract": true,
+	"become":   true,
+	"box":      true,
+	"do":       true,
+	"final":    true,
+	"gen":      true,
+	"macro":    true,
+	"override": true,
+	"priv":     true,
+	"try":      true,
+	"typeof":   true,
+	"unsized":  true,
+	"virtual":  true,
+	"yield":    true,
 }
+
+var rustNonRawKeywords = map[string]bool{"self": true, "Self": true, "super": true, "crate": true}
 
 func SnakeCase(value string) string {
 	var out strings.Builder
@@ -100,6 +116,9 @@ func RustIdent(value string) string {
 	}
 	if ident[0] >= '0' && ident[0] <= '9' {
 		ident = "_" + ident
+	}
+	if rustNonRawKeywords[ident] {
+		return ident + "_"
 	}
 	if rustKeywords[ident] {
 		return "r#" + ident
@@ -149,6 +168,9 @@ func PascalCase(value string) string {
 		for _, r := range runes {
 			out.WriteRune(r)
 		}
+	}
+	if out.String() == "Self" {
+		return "Self_"
 	}
 	return out.String()
 }
