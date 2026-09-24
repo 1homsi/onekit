@@ -76,3 +76,31 @@ func TestFlattenRoundTrip(t *testing.T) {
 }
 `)
 }
+
+func TestGoBuildSanitizesHyphenatedPackageDirectories(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `
+module = "example.com/hy/gen"
+
+[generate.go-server]
+out = "./gen"
+`)
+	writeTestFile(t, filepath.Join(dir, "shared-types", "models.onk"), "message Addr { city: string }\n")
+	writeTestFile(t, filepath.Join(dir, "user-service", "api.onk"), `import "../shared-types/models.onk"
+message U { id: string  addr: Addr }
+service Users { get(U) -> U @get("/u/{id}") }
+`)
+	if err := Build(dir); err != nil {
+		t.Fatalf("Build error: %v", err)
+	}
+	genDir := filepath.Join(dir, "gen")
+	writeTestFile(t, filepath.Join(genDir, "go.mod"), "module example.com/hy/gen\n\ngo 1.26\n")
+	cmd := exec.Command("go", "vet", "./...")
+	cmd.Dir = genDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generated Go failed: %v\n%s", err, out)
+	}
+}
