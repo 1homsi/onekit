@@ -318,6 +318,14 @@ func mockMessage(message *onkir.Message, depth int) any {
 	}
 	object := map[string]any{}
 	for _, field := range message.Fields {
+		if prefix, ok := flattenPrefixOf(field); ok && field.Type != nil && field.Type.Kind == onkir.KindMessage {
+			if child, isMap := mockMessage(field.Type.Message, depth+1).(map[string]any); isMap {
+				for name, value := range child {
+					object[prefix+name] = value
+				}
+			}
+			continue
+		}
 		object[field.Name] = mockFieldValue(field, depth)
 	}
 	return object
@@ -365,12 +373,6 @@ func mockFieldValue(field *onkir.Field, depth int) any {
 			items = append(items, mockSingleValue(field, depth+1))
 		}
 		return items
-	}
-	if prefix, ok := flattenPrefixOf(field); ok {
-		_ = prefix // flattened children are merged by their own fields below
-		if field.Type != nil && field.Type.Kind == onkir.KindMessage {
-			return mockMessage(field.Type.Message, depth+1)
-		}
 	}
 	return mockSingleValue(field, depth+1)
 }
