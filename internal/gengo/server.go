@@ -268,6 +268,17 @@ func writeServerOptions(p *Printer, hasWS bool) {
 }
 
 func writeRuntimeHelpers(p *Printer) {
+	p.P(`func writeJSON(w http.ResponseWriter, status int, value any) {`)
+	p.P(`data, err := json.Marshal(value)`)
+	p.P(`if err != nil {`)
+	p.P(`writeJSONError(w, http.StatusInternalServerError, "internal server error")`)
+	p.P(`return`)
+	p.P(`}`)
+	p.P(`w.Header().Set("Content-Type", "application/json")`)
+	p.P(`w.WriteHeader(status)`)
+	p.P(`_, _ = w.Write(append(data, '\n'))`)
+	p.P(`}`)
+	p.P()
 	p.P(`func writeJSONError(w http.ResponseWriter, status int, message string) {`)
 	p.P(`w.Header().Set("Content-Type", "application/json")`)
 	p.P(`w.WriteHeader(status)`)
@@ -545,8 +556,7 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeErrorHandling(p, m)
 	p.P("return")
 	p.P("}")
-	p.P(`w.Header().Set("Content-Type", "application/json")`)
-	p.P("_ = json.NewEncoder(w).Encode(resp)")
+	p.P("writeJSON(w, http.StatusOK, resp)")
 	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", strings.ToUpper(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), "}))")
 }
 
@@ -617,9 +627,7 @@ func writeErrorHandling(p *Printer, m *onkir.Method) {
 		target := fmt.Sprintf("typedErr%d", index)
 		p.P("var ", target, " *", p.MessageTypeName(errType))
 		p.P("if errors.As(err, &", target, ") {")
-		p.P(`w.Header().Set("Content-Type", "application/json")`)
-		p.P(fmt.Sprintf("w.WriteHeader(%d)", status))
-		p.P("_ = json.NewEncoder(w).Encode(", target, ")")
+		p.P(fmt.Sprintf("writeJSON(w, %d, ", status), target, ")")
 		p.P("return")
 		p.P("}")
 	}
