@@ -29,7 +29,7 @@ var version = "dev"
 func usage(w io.Writer) {
 	fmt.Fprintln(w, `usage:
   onek build [--check] [--dir DIR]
-  onek check [--json] [--dir DIR]
+  onek check [--json | --format text|json|github] [--dir DIR]
   onek generate [--dir DIR]
   onek fmt [--check] [--dir DIR | FILE.onk... | -]
   onek watch [--interval DURATION] [--dir DIR]
@@ -134,8 +134,16 @@ func runProjectCommand(command string, args []string) error {
 	if command == "build" {
 		fs.BoolVar(&verify, "check", false, "fail if generated output differs from what build would write, without writing")
 	}
+	format := fs.String("format", "text", "diagnostic format: text, json or github")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	switch *format {
+	case "text", "github":
+	case "json":
+		*asJSON = true
+	default:
+		return fmt.Errorf("unknown --format %q; use text, json or github", *format)
 	}
 	if positional := fs.Args(); len(positional) > 1 {
 		return fmt.Errorf("%s accepts at most one directory", command)
@@ -150,6 +158,10 @@ func runProjectCommand(command string, args []string) error {
 		operationErr = onek.VerifyGenerated(*dir)
 	default:
 		operationErr = runBuildWithSummary(*dir, *asJSON)
+	}
+	if *format == "github" && operationErr != nil {
+		writeGitHubAnnotations(os.Stdout, onek.Diagnostics(operationErr))
+		return operationErr
 	}
 	if !*asJSON {
 		return operationErr
@@ -460,4 +472,30 @@ func runBuildWithSummary(dir string, quiet bool) error {
 	}
 	fmt.Fprintf(os.Stderr, "onek: wrote %d files for %s\n", summary.Files, strings.Join(summary.Targets, ", "))
 	return nil
+}
+
+func writeGitHubAnnotations(w io.Writer, diagnostics []onek.Diagnostic) {
+	cwd, _ := os.Getwd()
+	escape := strings.NewReplacer("%", "%25", "\r", "%0D", "\n", "%0A")
+	property := strings.NewReplacer("%", "%25", "\r", "%0D", "\n", "%0A", ":", "%3A", ",", "%2C")
+	for _, d := range diagnostics {
+		var props []string
+		if d.Path != "" {
+			path := d.Path
+			if rel, err := filepath.Rel(cwd, path); err == nil && filepath.IsAbs(path) && !strings.HasPrefix(rel, "..") {
+				path = rel
+			}
+			props = append(props, "file="+property.Replace(filepath.ToSlash(path)))
+		}
+		if d.Line > 0 {
+			props = append(props, fmt.Sprintf("line=%d", d.Line))
+		}
+		if d.Column > 0 {
+			props = append(props, fmt.Sprintf("col=%d", d.Column))
+		}
+		if d.Code != "" {
+			props = append(props, "title="+property.Replace("onek "+d.Code))
+		}
+		fmt.Fprintf(w, "::error %s::%s\n", strings.Join(props, ","), escape.Replace(d.Message))
+	}
 }
