@@ -330,10 +330,41 @@ func (im *importer) jsonSchema(content map[string]any) (map[string]any, bool) {
 // --- schema conversion -----------------------------------------------------
 
 type fieldType struct {
-	expr string
+	expr     string
+	nullable bool
 	// suffix carries validator/encoding decorators that trail the type and
 	// any optionality marker ("@email", " @encode(date)").
 	suffix string
+}
+
+func schemaTypeName(schema map[string]any) (string, bool) {
+	typ := ""
+	nullable := schema["nullable"] == true
+	switch value := schema["type"].(type) {
+	case string:
+		typ = value
+	case []any:
+		for _, item := range value {
+			switch name := textOf(item); name {
+			case "null":
+				nullable = true
+			case "":
+			default:
+				if typ == "" {
+					typ = name
+				}
+			}
+		}
+	}
+	if typ == "" {
+		switch {
+		case schema["properties"] != nil || schema["additionalProperties"] != nil || schema["required"] != nil:
+			typ = "object"
+		case schema["items"] != nil:
+			typ = "array"
+		}
+	}
+	return typ, nullable
 }
 
 func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldType, bool) {
@@ -375,6 +406,17 @@ func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldT
 			merged["required"] = required
 		}
 		return im.schemaTypeExpr(merged, suggested, depth+1)
+	}
+	if typ, nullable := schemaTypeName(schema); typ != text(schema, "type") || nullable {
+		normalized := make(map[string]any, len(schema))
+		for key, value := range schema {
+			normalized[key] = value
+		}
+		normalized["type"] = typ
+		delete(normalized, "nullable")
+		ft, ok := im.schemaTypeExpr(normalized, suggested, depth)
+		ft.nullable = ft.nullable || nullable
+		return ft, ok
 	}
 	switch text(schema, "type") {
 	case "array":
