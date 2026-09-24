@@ -283,7 +283,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeClientErrorHandling(p, m)
 
 	p.P("result := new(", p.MessageTypeName(m.Response), ")")
-	p.P("if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil {")
+	p.P("if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil && err != io.EOF {")
 	p.P(`return nil, fmt.Errorf("decode response: %w", err)`)
 	p.P("}")
 	p.P("return result, nil")

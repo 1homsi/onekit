@@ -90,7 +90,7 @@ func (c *UserServiceClient) CreateUser(ctx context.Context, req *CreateUserReque
 		return nil, &UnexpectedStatusError{StatusCode: resp.StatusCode, Header: resp.Header, Body: respBody}
 	}
 	result := new(User)
-	if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil && err != io.EOF {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return result, nil
@@ -129,7 +129,7 @@ func (c *UserServiceClient) GetUser(ctx context.Context, req *GetUserRequest) (*
 		return nil, &UnexpectedStatusError{StatusCode: resp.StatusCode, Header: resp.Header, Body: respBody}
 	}
 	result := new(User)
-	if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil && err != io.EOF {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return result, nil
@@ -168,7 +168,7 @@ func (c *UserServiceClient) Login(ctx context.Context, req *LoginRequest) (*Logi
 		return nil, &UnexpectedStatusError{StatusCode: resp.StatusCode, Header: resp.Header, Body: respBody}
 	}
 	result := new(LoginResponse)
-	if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil && err != io.EOF {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return result, nil
