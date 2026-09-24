@@ -105,8 +105,8 @@ out = "gen/openapi"
 		dir, route string
 		schemas    int
 	}{
-		{"hub/business/v1", "/hub/business/v1/businesses/{id}", 3},
-		{"hr/time_entry/v1", "/hr/time-entry/v1/entries", 2},
+		{"hub/business/v1", "/hub/business/v1/businesses/{id}", 4},
+		{"hr/time_entry/v1", "/hr/time-entry/v1/entries", 3},
 	} {
 		var values []any
 		for _, ext := range []string{"yaml", "json"} {
