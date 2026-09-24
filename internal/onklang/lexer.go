@@ -72,7 +72,7 @@ func (l *Lexer) skipWhitespaceAndComments() (string, []string, error) {
 			}
 			comments = append(comments, strings.TrimSpace(l.src[start:l.pos]))
 		case b == '/' && l.peekByteAt(1) == '*':
-			start := l.pos
+			start, indent := l.pos, l.col-1
 			l.advance()
 			l.advance()
 			for l.pos < len(l.src) && !(l.peekByte() == '*' && l.peekByteAt(1) == '/') {
@@ -83,7 +83,7 @@ func (l *Lexer) skipWhitespaceAndComments() (string, []string, error) {
 			}
 			l.advance()
 			l.advance()
-			comments = append(comments, strings.TrimSpace(l.src[start:l.pos]))
+			comments = append(comments, dedentBlockComment(strings.TrimSpace(l.src[start:l.pos]), indent))
 		default:
 			return strings.Join(doc, "\n"), comments, nil
 		}
@@ -273,4 +273,16 @@ func (l *Lexer) lexString(line, col int, doc string, comments []string) (Token, 
 		return Token{}, &Error{Line: line, Column: col, Message: fmt.Sprintf("invalid string literal: %v", err)}
 	}
 	return Token{Kind: STRING, Text: value, Line: line, Col: col, Doc: doc, LeadingComments: comments}, nil
+}
+
+func dedentBlockComment(text string, indent int) string {
+	lines := strings.Split(text, "\n")
+	for i := 1; i < len(lines); i++ {
+		n := 0
+		for n < indent && n < len(lines[i]) && (lines[i][n] == ' ' || lines[i][n] == '\t') {
+			n++
+		}
+		lines[i] = lines[i][n:]
+	}
+	return strings.Join(lines, "\n")
 }
