@@ -230,7 +230,7 @@ func (p *Parser) parseArgs() ([]Arg, error) {
 func (p *Parser) parseDecorators() ([]Decorator, error) {
 	var decorators []Decorator
 	for p.tok.Kind == AT {
-		line := p.tok.Line
+		line, col := p.tok.Line, p.tok.Col
 		if err := p.next(); err != nil {
 			return nil, err
 		}
@@ -242,7 +242,7 @@ func (p *Parser) parseDecorators() ([]Decorator, error) {
 		if err != nil {
 			return nil, err
 		}
-		decorators = append(decorators, Decorator{Name: name.Text, Args: args, Line: line})
+		decorators = append(decorators, Decorator{Name: name.Text, Args: args, Line: line, Col: col})
 	}
 	return decorators, nil
 }

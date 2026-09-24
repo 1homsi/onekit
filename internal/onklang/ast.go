@@ -33,6 +33,7 @@ type Decorator struct {
 	Name string
 	Args []Arg
 	Line int
+	Col  int
 }
 
 // Span uses one-based byte columns, matching lexer diagnostics. End is exclusive.
