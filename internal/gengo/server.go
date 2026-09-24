@@ -191,6 +191,8 @@ func writeWSServerOption(p *Printer) {
 	p.P()
 	p.P(`func WithMaxWSMessageBytes(limit int64) ServerOption { return func(o *serverOptions) { o.maxWSMessageBytes = limit } }`)
 	p.P()
+	p.P(`func WithWSAcceptOptions(options *websocket.AcceptOptions) ServerOption { return func(o *serverOptions) { o.wsAcceptOptions = options } }`)
+	p.P()
 	p.P(`func wsServerReadLimit(limit int64) int64 {`)
 	p.P(`if limit == 0 { return `, defaultMaxWSFrameBytes, ` }`)
 	p.P(`if limit < 0 { return -1 }`)
@@ -236,6 +238,7 @@ func writeServerOptions(p *Printer, hasWS bool) {
 		p.P(`maxWSFrameBytes int64`)
 		p.P(`maxWSMessageBytes int64`)
 		p.P(`wsPingInterval time.Duration`)
+		p.P(`wsAcceptOptions *websocket.AcceptOptions`)
 	}
 	p.P(`}`)
 	p.P()

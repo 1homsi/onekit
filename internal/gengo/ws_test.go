@@ -196,7 +196,7 @@ func TestGenerateServerWebSockets(t *testing.T) {
 		"type WSOut[E any] interface {",
 		"Chat(ctx context.Context, req *ChatMessage, out WSOut[ChatEvent]) error",
 		`mux.Handle("GET /v1/rooms/{room}"`,
-		"websocket.Accept(w, r, nil)",
+		"websocket.Accept(w, r, o.wsAcceptOptions)",
 		"wsConnOut[ChatEvent]{conn: conn, ctx: connCtx}",
 		"s.mu.Lock()",
 	} {
@@ -832,6 +832,23 @@ func TestRuntimeHandlerCanCallInlineAndOutliveKeepalive(t *testing.T) {
 	}
 }
 
+func TestRuntimeAcceptOptionsAllowCrossOrigin(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	blocked := NewRuntimeClient(serveRuntime(t, closingImpl{}))
+	blocked.Headers["Origin"] = "http://app.example"
+	if _, err := blocked.Execute(ctx, &Frame{}); err == nil {
+		t.Fatal("cross-origin dial succeeded without accept options")
+	}
+	allowed := NewRuntimeClient(serveRuntime(t, closingImpl{}, WithWSAcceptOptions(&websocket.AcceptOptions{OriginPatterns: []string{"app.example"}})))
+	allowed.Headers["Origin"] = "http://app.example"
+	socket, err := allowed.Execute(ctx, &Frame{})
+	if err != nil {
+		t.Fatalf("cross-origin dial rejected with matching OriginPatterns: %v", err)
+	}
+	_ = socket.Close()
+}
+
 func TestRuntimeClientKeepAliveDropsUnresponsiveServer(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/execute", func(w http.ResponseWriter, r *http.Request) {
@@ -959,6 +976,7 @@ func TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants(t *testing.T) {
 		"--- PASS: TestRuntimeHandlerClosesItsConnection",
 		"--- PASS: TestRuntimeCallSurvivesUndrainedPushes",
 		"--- PASS: TestRuntimeHandlerCanCallInlineAndOutliveKeepalive",
+		"--- PASS: TestRuntimeAcceptOptionsAllowCrossOrigin",
 		"--- PASS: TestRuntimeClientKeepAliveDropsUnresponsiveServer",
 		"--- PASS: TestRuntimeCallStampsDeadline",
 	} {
