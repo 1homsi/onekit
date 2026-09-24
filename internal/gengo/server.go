@@ -201,29 +201,33 @@ func writeWSServerOption(p *Printer) {
 }
 
 // writeServerOptions emits runtime hooks shared by every generated server.
+const serverHookTypesSource = `// RequestMetadata identifies the generated route handling a request.
+type RequestMetadata struct {
+Service string
+Method string
+HTTPMethod string
+Route string
+AuthSchemes []string
+}
+
+type requestMetadataContextKey struct{}
+type requestIDContextKey struct{}
+`
+
+const serverMiddlewareTypesSource = `type Middleware func(http.Handler) http.Handler
+type RequestIDGenerator func() string
+type Authorizer func(context.Context, RequestMetadata, *http.Request) error
+type RequestResult struct { StatusCode int; Duration time.Duration }
+type RequestObserver interface {
+RequestStarted(context.Context, RequestMetadata) context.Context
+RequestFinished(context.Context, RequestMetadata, RequestResult)
+}
+`
+
 func writeServerOptions(p *Printer, hasWS bool) {
-	p.P(`// RequestMetadata identifies the generated route handling a request.`)
-	p.P(`type RequestMetadata struct {`)
-	p.P(`Service string`)
-	p.P(`Method string`)
-	p.P(`HTTPMethod string`)
-	p.P(`Route string`)
-	p.P(`AuthSchemes []string`)
-	p.P(`}`)
-	p.P()
-	p.P(`type requestMetadataContextKey struct{}`)
-	p.P(`type requestIDContextKey struct{}`)
-	p.P()
+	p.P(serverHookTypesSource)
 	writeServerContextAccessors(p)
-	p.P(`type Middleware func(http.Handler) http.Handler`)
-	p.P(`type RequestIDGenerator func() string`)
-	p.P(`type Authorizer func(context.Context, RequestMetadata, *http.Request) error`)
-	p.P(`type RequestResult struct { StatusCode int; Duration time.Duration }`)
-	p.P(`type RequestObserver interface {`)
-	p.P(`RequestStarted(context.Context, RequestMetadata) context.Context`)
-	p.P(`RequestFinished(context.Context, RequestMetadata, RequestResult)`)
-	p.P(`}`)
-	p.P()
+	p.P(serverMiddlewareTypesSource)
 	p.P(`type ServerOption func(*serverOptions)`)
 	p.P()
 	p.P(`type serverOptions struct {`)
