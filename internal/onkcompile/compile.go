@@ -563,7 +563,15 @@ func (c *compiler) lookupQualifiedEnumForSource(path, name string) (*onkir.Enum,
 	return enum, true
 }
 
+func spanPosition(span onklang.Span, line, column int) (int, int) {
+	if span.Line > 0 {
+		return span.Line, span.Col
+	}
+	return line, column
+}
+
 func (c *compiler) resolveType(t *onklang.TypeRef, path string, line, column int) (*onkir.Type, error) {
+	line, column = spanPosition(t.Span, line, column)
 	if t.IsMap {
 		keyKind, ok := onkir.ParseScalarKind(t.MapKey)
 		if !ok {
@@ -642,14 +650,16 @@ func (c *compiler) buildMethod(rd *onklang.RPCDecl, s *onkir.Service, path strin
 		return nil, &Error{Path: path, Line: rd.Line, Column: rd.Col, Msg: err.Error()}
 	}
 	if !found {
-		return nil, &Error{Path: path, Line: rd.Line, Column: rd.Col, Msg: fmt.Sprintf("unresolved request type %q", rd.RequestType)}
+		line, column := spanPosition(rd.RequestSpan, rd.Line, rd.Col)
+		return nil, &Error{Path: path, Line: line, Column: column, Msg: fmt.Sprintf("unresolved request type %q", rd.RequestType)}
 	}
 	resp, found, err := c.resolveMessageReference(path, rd.ResponseType)
 	if err != nil {
 		return nil, &Error{Path: path, Line: rd.Line, Column: rd.Col, Msg: err.Error()}
 	}
 	if !found {
-		return nil, &Error{Path: path, Line: rd.Line, Column: rd.Col, Msg: fmt.Sprintf("unresolved response type %q", rd.ResponseType)}
+		line, column := spanPosition(rd.ResponseSpan, rd.Line, rd.Col)
+		return nil, &Error{Path: path, Line: line, Column: column, Msg: fmt.Sprintf("unresolved response type %q", rd.ResponseType)}
 	}
 	headers, err := c.buildHeaders(rd.Headers, path)
 	if err != nil {
@@ -667,13 +677,17 @@ func (c *compiler) buildMethod(rd *onklang.RPCDecl, s *onkir.Service, path strin
 	}
 
 	seenStatuses := map[int]string{}
-	for _, errName := range rd.ErrorTypes {
+	for errIndex, errName := range rd.ErrorTypes {
 		errMsg, errFound, lookupErr := c.resolveMessageReference(path, errName)
 		if lookupErr != nil {
 			return nil, &Error{Path: path, Line: rd.Line, Column: rd.Col, Msg: lookupErr.Error()}
 		}
 		if !errFound {
-			return nil, &Error{Path: path, Line: rd.Line, Column: rd.Col, Msg: fmt.Sprintf("unresolved error type %q", errName)}
+			line, column := rd.Line, rd.Col
+			if errIndex < len(rd.ErrorSpans) {
+				line, column = spanPosition(rd.ErrorSpans[errIndex], line, column)
+			}
+			return nil, &Error{Path: path, Line: line, Column: column, Msg: fmt.Sprintf("unresolved error type %q", errName)}
 		}
 		errMsg.ErrorType = true
 		status := 500
