@@ -143,18 +143,20 @@ func writeServerRuntime(p *Printer) {
 	p.P("const maxRequestBodyBytes = 8 * 1024 * 1024;")
 	p.P("async function readJSONBody(req: Request): Promise<unknown> {")
 	p.P("const declaredLength = req.headers.get(\"content-length\");")
-	p.P("if (declaredLength !== null && Number.isFinite(Number(declaredLength)) && Number(declaredLength) > maxRequestBodyBytes) throw new Error(\"request body too large\");")
-	p.P("if (!req.body) throw new Error(\"request body is missing\");")
+	p.P("if (declaredLength !== null && Number.isFinite(Number(declaredLength)) && Number(declaredLength) > maxRequestBodyBytes) throw new HttpError(413, { message: \"request body too large\" });")
+	p.P("if (!req.body) return undefined;")
 	p.P("const reader = req.body.getReader();")
 	p.P("const chunks: Uint8Array[] = []; let total = 0;")
 	p.P("while (true) {")
 	p.P("const { done, value } = await reader.read();")
 	p.P("if (done) break;")
-	p.P("if (value) { total += value.byteLength; if (total > maxRequestBodyBytes) { await reader.cancel(); throw new Error(\"request body too large\"); } chunks.push(value); }")
+	p.P("if (value) { total += value.byteLength; if (total > maxRequestBodyBytes) { await reader.cancel(); throw new HttpError(413, { message: \"request body too large\" }); } chunks.push(value); }")
 	p.P("}")
 	p.P("const bytes = new Uint8Array(total); let offset = 0;")
 	p.P("for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }")
-	p.P("return JSON.parse(new TextDecoder().decode(bytes));")
+	p.P("const text = new TextDecoder().decode(bytes);")
+	p.P("if (text.trim() === \"\") return undefined;")
+	p.P("try { return JSON.parse(text); } catch { throw new HttpError(400, { message: \"invalid request body\" }); }")
 	p.P("}")
 	p.P()
 
@@ -273,15 +275,11 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	}
 	p.P("let body: any = {};")
 	if bodyBearing {
-		p.P("try {")
 		if bodyField, ok := m.BodyField(); ok {
 			p.P("body[", fmt.Sprintf("%q", bodyField), "] = await readJSONBody(req);")
 		} else {
-			p.P("body = await readJSONBody(req);")
+			p.P("body = (await readJSONBody(req)) ?? {};")
 		}
-		p.P("} catch {")
-		p.P(`throw new HttpError(400, { message: "invalid request body" });`)
-		p.P("}")
 	} else {
 		writeServerQueryParams(p, m.Request)
 	}
