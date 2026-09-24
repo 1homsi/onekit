@@ -33,7 +33,6 @@ service S { get(R) -> R @get("/r/{id}") }
 	}
 }
 
-<<<<<<< HEAD
 func TestRustClientFallsBackWhenTypedErrorBodyDoesNotDecode(t *testing.T) {
 	out := string(GenerateClient(compileRustSchema(t, `
 package app
@@ -43,7 +42,9 @@ service S { get(R) -> R | NotFound @get("/r/{id}") }
 `)))
 	if strings.Contains(out, "map_err(SGetError::Decode)?;\nreturn Err(SGetError::NotFound") || !strings.Contains(out, "if let Ok(error) = serde_json::from_slice::<NotFound>(&body) {") {
 		t.Fatalf("typed error decode must fall through to UnexpectedStatus:\n%s", out)
-=======
+	}
+}
+
 func TestRustStreamErrorsDoNotLeakInternalMessages(t *testing.T) {
 	out := string(GenerateServer(compileRustSchema(t, `
 package app
@@ -59,6 +60,5 @@ service S { watch(R) -> R | Gone @get("/w/{id}") @stream }
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q:\n%s", want, out)
 		}
->>>>>>> dff343b (fix(genrust): send typed JSON stream errors without leaking internals)
 	}
 }
