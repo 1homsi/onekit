@@ -17,6 +17,7 @@ protoc-gen-*-regression*
 protoc-gen-*-integration*
 
 # Stray plugin binaries in repo root (should only be in bin/)
+/onek
 /protoc-gen-onekit-go-http
 /protoc-gen-onekit-go-client
 /protoc-gen-onekit-ts-client
