@@ -762,6 +762,37 @@ func TestRuntimeHandlerClosesItsConnection(t *testing.T) {
 	}
 }
 
+type floodImpl struct{}
+
+func (floodImpl) Execute(ctx context.Context, req *Frame, out *RuntimeExecuteOut) error {
+	call := req.GetHostCall()
+	if call == nil {
+		return nil
+	}
+	for i := 0; i < 40; i++ {
+		if err := out.Send(ctx, &Frame{Payload: &FramePayloadRunResult{RunResult: &RunResult{ExitCode: int32(i)}}}); err != nil {
+			return err
+		}
+	}
+	return out.Send(ctx, &Frame{Payload: &FramePayloadHostResult{HostResult: &HostResult{Id: call.Id, Value: "done"}}})
+}
+
+func TestRuntimeCallSurvivesUndrainedPushes(t *testing.T) {
+	socket := dialRuntime(t, floodImpl{})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	reply, err := socket.Call(ctx, "c-1", &Frame{Payload: &FramePayloadHostCall{HostCall: &HostCall{Id: "c-1", Method: "work"}}})
+	if err != nil || reply.GetHostResult().GetValue() != "done" {
+		t.Fatalf("call stalled behind undrained pushes: %v %+v", err, reply)
+	}
+	for i := 0; i < 40; i++ {
+		frame, err := socket.Receive(ctx)
+		if err != nil || frame.GetRunResult().GetExitCode() != int32(i) {
+			t.Fatalf("push %d: %v %+v", i, err, frame)
+		}
+	}
+}
+
 func TestRuntimeClientKeepAliveDropsUnresponsiveServer(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/execute", func(w http.ResponseWriter, r *http.Request) {
@@ -887,6 +918,7 @@ func TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants(t *testing.T) {
 		"--- PASS: TestRuntimeKeepAliveDropsUnresponsivePeer",
 		"--- PASS: TestRuntimeClientFailsOnUndecodableFrame",
 		"--- PASS: TestRuntimeHandlerClosesItsConnection",
+		"--- PASS: TestRuntimeCallSurvivesUndrainedPushes",
 		"--- PASS: TestRuntimeClientKeepAliveDropsUnresponsiveServer",
 		"--- PASS: TestRuntimeCallStampsDeadline",
 	} {
