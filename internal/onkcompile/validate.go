@@ -165,6 +165,9 @@ func validateFieldDecl(path string, field *onklang.FieldDecl, options CompileOpt
 	if err := validateOneofArgs(path, field.Line, field.Oneof.Args); err != nil {
 		return err
 	}
+	if len(field.Oneof.Variants) == 0 {
+		return &Error{Path: path, Line: field.Line, Msg: fmt.Sprintf("oneof %q must declare at least one variant", field.Name)}
+	}
 	seenNames := map[string]string{}
 	seenTags := map[string]string{}
 	for _, variant := range field.Oneof.Variants {
