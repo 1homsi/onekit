@@ -467,6 +467,9 @@ func validateServiceDecl(filePath string, service *onklang.ServiceDecl, routeSco
 	if err := validateHTTPPath(service.BasePath, true); err != nil {
 		return &Error{Path: filePath, Line: service.Line, Msg: "invalid service base_path: " + err.Error()}
 	}
+	if strings.ContainsAny(service.BasePath, "{}") {
+		return &Error{Path: filePath, Line: service.Line, Msg: "service base_path must not contain path parameters; declare them on each RPC route"}
+	}
 	if err := validateHeaders(filePath, service.Headers); err != nil {
 		return err
 	}
