@@ -334,35 +334,48 @@ func checkAt(root string, cfg *Config) error {
 
 // Compatibility compares two schema directories and returns breaking changes.
 func Compatibility(previousDir, currentDir string) ([]onkcompat.Finding, error) {
-	previous, err := compileCompatibilityProject(previousDir)
+	currentCfg, err := loadOptionalConfig(currentDir)
+	if err != nil && !errors.Is(err, errNoConfigFile) {
+		return nil, fmt.Errorf("compile current schema: %w", err)
+	}
+	previous, err := compileCompatibilityProject(previousDir, currentCfg)
 	if err != nil {
 		return nil, fmt.Errorf("compile previous schema: %w", err)
 	}
-	current, err := compileCompatibilityProject(currentDir)
+	current, err := compileCompatibilityProject(currentDir, nil)
 	if err != nil {
 		return nil, fmt.Errorf("compile current schema: %w", err)
 	}
 	return onkcompat.Compare(previous, current), nil
 }
 
-func compileCompatibilityProject(dir string) (*onkir.Package, error) {
+func compileCompatibilityProject(dir string, fallback *Config) (*onkir.Package, error) {
 	cfg, err := loadOptionalConfig(dir)
 	if err != nil && !errors.Is(err, errNoConfigFile) {
 		return nil, err
 	}
 	root := dir
 	options := onkcompile.CompileOptions{}
-	if cfg != nil {
+	routePrefix := ""
+	switch {
+	case cfg != nil:
 		root = cfg.SchemaDir()
 		options.AllowLegacyContracts = cfg.AllowLegacyContracts
+		routePrefix = cfg.RoutePrefix
+	case fallback != nil:
+		options.AllowLegacyContracts = fallback.AllowLegacyContracts
+		routePrefix = fallback.RoutePrefix
+		if fallback.SchemaRoot != "" {
+			if info, statErr := os.Stat(filepath.Join(dir, fallback.SchemaRoot)); statErr == nil && info.IsDir() {
+				root = filepath.Join(dir, fallback.SchemaRoot)
+			}
+		}
 	}
 	pkg, err := CompileWithOptions(root, options)
 	if err != nil {
 		return nil, err
 	}
-	if cfg != nil {
-		applyRoutePrefix(pkg, cfg.RoutePrefix)
-	}
+	applyRoutePrefix(pkg, routePrefix)
 	return pkg, nil
 }
 
