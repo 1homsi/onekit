@@ -967,19 +967,19 @@ func writeFieldValidation(p *Printer, field *onkir.Field, patternFuncs map[strin
 		for _, decorator := range field.Decorators {
 			switch decorator.Name {
 			case decoratorEmail:
-				p.P("if !", valueExpr, ".validate_email() {")
+				p.P("if !", valueExpr, ".is_empty() && !", valueExpr, ".validate_email() {")
 				p.Indent()
 				errorLine("must be a valid email address")
 				p.Dedent()
 				p.P("}")
 			case "uuid":
-				p.P("if uuid::Uuid::parse_str(", valueExpr, ".as_str()).is_err() {")
+				p.P("if !", valueExpr, ".is_empty() && uuid::Uuid::parse_str(", valueExpr, ".as_str()).is_err() {")
 				p.Indent()
 				errorLine("must be a valid UUID")
 				p.Dedent()
 				p.P("}")
 			case "uri":
-				p.P("if url::Url::parse(", valueExpr, ".as_str()).is_err() {")
+				p.P("if !", valueExpr, ".is_empty() && url::Url::parse(", valueExpr, ".as_str()).is_err() {")
 				p.Indent()
 				errorLine("must be a valid URI")
 				p.Dedent()
@@ -987,9 +987,9 @@ func writeFieldValidation(p *Printer, field *onkir.Field, patternFuncs map[strin
 			case "pattern":
 				if pattern, ok := decorator.Value(); ok {
 					if fnName, known := patternFuncs[pattern]; known {
-						p.P("if !", fnName, "().is_match(", valueExpr, ".as_str()) {")
+						p.P("if !", valueExpr, ".is_empty() && !", fnName, "().is_match(", valueExpr, ".as_str()) {")
 					} else {
-						p.P("if !regex::Regex::new(", strconv.Quote(pattern), ").expect(\"schema pattern was validated\").is_match(", valueExpr, ".as_str()) {")
+						p.P("if !", valueExpr, ".is_empty() && !regex::Regex::new(", strconv.Quote(pattern), ").expect(\"schema pattern was validated\").is_match(", valueExpr, ".as_str()) {")
 					}
 					p.Indent()
 					errorLine("does not match the required pattern")

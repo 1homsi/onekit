@@ -166,6 +166,7 @@ edition = "2024"
 
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
+async-stream = "0.3"
 base64 = "0.22"
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
@@ -173,7 +174,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+regex = "1"
+url = "2"
 urlencoding = "2"
+uuid = "1"
 validator = "0.20"
 `
 
