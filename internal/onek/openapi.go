@@ -73,9 +73,6 @@ func openAPIServiceFile(service *onkir.Service) *onkir.File {
 		}
 	}
 	for _, method := range service.Methods {
-		if method.IsWebSocket() {
-			continue
-		}
 		visitMessage(method.Request)
 		visitMessage(method.Response)
 		for _, message := range method.ErrorTypes {
