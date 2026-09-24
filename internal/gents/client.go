@@ -92,6 +92,7 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) []by
 
 	writeResponseBodyRuntime(p)
 	writeAPIError(p)
+	writeTypedAPIError(p)
 	if onkir.FileHasWSMethods(file) {
 		writeTSWSSharedRuntime(p)
 	}
@@ -131,6 +132,22 @@ func writeAPIError(p *Printer) {
 	p.P(`this.name = "ApiError";`)
 	p.P("this.statusCode = statusCode;")
 	p.P("this.body = body;")
+	p.P("}")
+	p.P("}")
+	p.P()
+}
+
+func writeTypedAPIError(p *Printer) {
+	p.P("export class TypedApiError<T extends object = Record<string, unknown>> extends ApiError {")
+	p.P("readonly errorType: string;")
+	p.P("readonly data: T;")
+	p.P()
+	p.P("constructor(statusCode: number, body: string, errorType: string, data: T) {")
+	p.P("super(statusCode, body);")
+	p.P("this.name = errorType;")
+	p.P("this.errorType = errorType;")
+	p.P("this.data = data;")
+	p.P("Object.assign(this, data);")
 	p.P("}")
 	p.P("}")
 	p.P()
@@ -329,10 +346,8 @@ func writeClientErrorHandling(p *Printer, m *onkir.Method) {
 			status = code
 		}
 		p.P(fmt.Sprintf("if (res.status === %d) {", status))
-		// A non-JSON error body must degrade to the generic ApiError instead
-		// of surfacing a raw SyntaxError from JSON.parse.
 		p.P("try {")
-		p.P("throw decode", errType.Name, "(JSON.parse(body));")
+		p.P("throw new TypedApiError(res.status, body, ", fmt.Sprintf("%q", errType.Name), ", decode", errType.Name, "(JSON.parse(body)));")
 		p.P("} catch (err) {")
 		p.P("if (!(err instanceof SyntaxError)) throw err;")
 		p.P("}")
