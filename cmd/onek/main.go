@@ -34,7 +34,7 @@ func usage(w io.Writer) {
   onek watch [--interval DURATION] [--dir DIR]
   onek mock [--addr ADDR] [--seed N] [--error-rate FLOAT] [--latency DURATION] [--dir DIR]
   onek init [--force] [DIR]
-  onek import [--out DIR] [--package NAME] [--service NAME] OPENAPI-FILE
+  onek import [--out DIR] [--package NAME] [--service NAME] [--force] OPENAPI-FILE
   onek compat [--json] PREVIOUS-DIR CURRENT-DIR
   onek mcp [--dir DIR]
   onek lsp [--dir DIR]
@@ -239,6 +239,7 @@ func runImport(args []string) error {
 	outDir := fs.String("out", "./imported", "directory for the generated .onk file")
 	pkg := fs.String("package", "", "generated package name (default: derived from info.title)")
 	service := fs.String("service", "", "generated service name (default: package + Service)")
+	force := fs.Bool("force", false, "overwrite an existing .onk file")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -270,8 +271,12 @@ func runImport(args []string) error {
 		return fmt.Errorf("invalid generated package name %q", result.Package)
 	}
 	target := filepath.Join(*outDir, result.Package+".onk")
+	//nolint:gosec // Same validated target as the write below.
+	if _, err := os.Lstat(target); err == nil && !*force {
+		return fmt.Errorf("refusing to overwrite %s; pass --force to replace it", target)
+	}
 	//nolint:gosec // Package is validated against [a-z0-9_]+ above and out dir is user-chosen.
-	if err := os.WriteFile(target, result.Source, 0o600); err != nil {
+	if err := os.WriteFile(target, result.Source, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", target, err)
 	}
 	fmt.Fprintf(os.Stdout, "wrote %s (%d warnings)\n", target, len(result.Warnings))
