@@ -451,6 +451,7 @@ func writeFlattenUnmarshalAssignments(p *Printer, c fieldCategories) {
 		goName := PascalCase(f.Name)
 		prefix, _ := flattenPrefix(f)
 		childType := p.GoFieldType(f.Type)
+		p.P("{")
 		p.P("childRaw := map[string]json.RawMessage{}")
 		p.P("hasChild := false")
 		p.P("for k, v := range raw {")
@@ -469,6 +470,7 @@ func writeFlattenUnmarshalAssignments(p *Printer, c fieldCategories) {
 		p.P("return err")
 		p.P("}")
 		p.P("m.", goName, " = child")
+		p.P("}")
 		p.P("}")
 	}
 }
