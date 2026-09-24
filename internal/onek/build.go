@@ -414,6 +414,18 @@ func lastPathSegment(p string) string {
 	return parts[len(parts)-1]
 }
 
+func goPackageIdent(segment string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(segment) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
+}
+
 func groupOutDir(outRoot, relDir string) string {
 	return filepath.Join(outRoot, filepath.FromSlash(relDir))
 }
@@ -846,7 +858,7 @@ func buildGo(cfg *Config, idx *sourceIndex) error {
 
 	for _, g := range idx.groups {
 		outDir := groupOutDir(typesOutRoot, g.relDir)
-		g.file.Package = lastPathSegment(outDir)
+		g.file.Package = goPackageIdent(lastPathSegment(outDir))
 		resolver := &goResolver{currentDir: g.relDir, idx: idx, packages: goRefs}
 
 		if err := writeGoTypesAndValidation(g.file, outDir, resolver); err != nil {
