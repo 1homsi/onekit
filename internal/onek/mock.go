@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -40,6 +41,7 @@ type MockOptions struct {
 // error-injection draws.
 type MockServer struct {
 	mux       *http.ServeMux
+	rngMu     sync.Mutex
 	rng       *rand.Rand
 	errorRate float64
 	latency   time.Duration
@@ -162,12 +164,26 @@ func (m *MockServer) Run(ctx context.Context, addr string, out io.Writer) error 
 	}
 }
 
+func (m *MockServer) draw(errorTypes int) (time.Duration, int) {
+	m.rngMu.Lock()
+	defer m.rngMu.Unlock()
+	var delay time.Duration
+	if m.latency > 0 {
+		delay = time.Duration(m.rng.Int64N(int64(m.latency) + 1))
+	}
+	if errorTypes == 0 || m.errorRate <= 0 || m.rng.Float64() >= m.errorRate {
+		return delay, -1
+	}
+	return delay, m.rng.IntN(errorTypes)
+}
+
 func (m *MockServer) handle(method *onkir.Method) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if m.latency > 0 {
-			time.Sleep(time.Duration(m.rng.Int64N(int64(m.latency) + 1)))
+		delay, errorIndex := m.draw(len(method.ErrorTypes))
+		injectError := errorIndex >= 0
+		if delay > 0 {
+			time.Sleep(delay)
 		}
-		injectError := m.errorRate > 0 && m.rng.Float64() < m.errorRate && len(method.ErrorTypes) > 0
 
 		w.Header().Set("Content-Type", "application/json")
 		if method.IsStream() {
@@ -175,7 +191,7 @@ func (m *MockServer) handle(method *onkir.Method) http.HandlerFunc {
 			return
 		}
 		if injectError {
-			errType := method.ErrorTypes[0]
+			errType := method.ErrorTypes[errorIndex]
 			w.WriteHeader(mockStatus(errType))
 			body, _ := json.Marshal(mockMessage(errType, 0))
 			_, _ = w.Write(body)
