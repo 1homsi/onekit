@@ -55,19 +55,19 @@ jobs:
             echo "$fmt_output" | while read -r file; do
               echo "::error file=$file::File needs gofmt formatting"
             done
-            echo "FMT_STATUS=FAIL: Format issues" >> $GITHUB_ENV
+            echo "FMT_STATUS=FAIL: Format issues" >> "$GITHUB_ENV"
             exit 1
           else
-            echo "FMT_STATUS=OK: Well formatted" >> $GITHUB_ENV
+            echo "FMT_STATUS=OK: Well formatted" >> "$GITHUB_ENV"
           fi
 
       - name: Run Go vet
         id: vet-check
         run: |
           if go vet ./...; then
-            echo "VET_STATUS=OK: No issues" >> $GITHUB_ENV
+            echo "VET_STATUS=OK: No issues" >> "$GITHUB_ENV"
           else
-            echo "VET_STATUS=FAIL: Vet issues" >> $GITHUB_ENV
+            echo "VET_STATUS=FAIL: Vet issues" >> "$GITHUB_ENV"
             exit 1
           fi
 
@@ -80,9 +80,9 @@ jobs:
           echo "- Go Vet: ${VET_STATUS:-FAIL: Failed}"
 
           if [[ "${FMT_STATUS}" == *"OK:"* && "${VET_STATUS}" == *"OK:"* ]]; then
-            echo "status=OK: All checks passed" >> $GITHUB_OUTPUT
+            echo "status=OK: All checks passed" >> "$GITHUB_OUTPUT"
           else
-            echo "status=FAIL: Some checks failed" >> $GITHUB_OUTPUT
+            echo "status=FAIL: Some checks failed" >> "$GITHUB_OUTPUT"
           fi
 
   audit:
@@ -221,7 +221,7 @@ jobs:
             echo "Total coverage: $total_coverage"
 
             # Create a simple coverage badge
-            coverage_num=$(echo "$total_coverage" | sed 's/%//')
+            coverage_num="${total_coverage//%/}"
             color="red"
             if (( $(echo "$coverage_num >= 80" | bc -l) )); then
               color="green"
@@ -234,8 +234,8 @@ jobs:
             echo "Coverage badge URL: $badge_url"
 
             # Save badge info for later use
-            echo "COVERAGE_PERCENTAGE=$total_coverage" >> $GITHUB_ENV
-            echo "COVERAGE_BADGE_URL=$badge_url" >> $GITHUB_ENV
+            echo "COVERAGE_PERCENTAGE=$total_coverage" >> "$GITHUB_ENV"
+            echo "COVERAGE_BADGE_URL=$badge_url" >> "$GITHUB_ENV"
           else
             echo "FAIL: No coverage file found for badge generation"
             exit 1
@@ -294,7 +294,7 @@ jobs:
           if [ -f "$coverage_file" ]; then
             # Extract total coverage percentage using go tool cover
             total_coverage=$(go tool cover -func="$coverage_file" | grep "total:" | awk '{print $3}')
-            coverage_num=$(echo "$total_coverage" | sed 's/%//')
+            coverage_num="${total_coverage//%/}"
 
             echo "Coverage: ${total_coverage}"
 
@@ -302,14 +302,14 @@ jobs:
             threshold=85
             if [ "${coverage_num%.*}" -ge "$threshold" ]; then
               echo "OK: Coverage meets target (${threshold}%)"
-              echo "COVERAGE_STATUS=OK: ${total_coverage}" >> $GITHUB_ENV
+              echo "COVERAGE_STATUS=OK: ${total_coverage}" >> "$GITHUB_ENV"
             else
               echo "WARN: Coverage below target (${threshold}%) - informational only"
-              echo "COVERAGE_STATUS=WARN: ${total_coverage}" >> $GITHUB_ENV
+              echo "COVERAGE_STATUS=WARN: ${total_coverage}" >> "$GITHUB_ENV"
             fi
           else
             echo "WARN: No coverage file found"
-            echo "COVERAGE_STATUS=WARN: No coverage" >> $GITHUB_ENV
+            echo "COVERAGE_STATUS=WARN: No coverage" >> "$GITHUB_ENV"
           fi
 
       - name: Update commit status

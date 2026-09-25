@@ -59,9 +59,11 @@ jobs:
             echo "::error::Release tag $TAG is not an ancestor of origin/main"
             exit 1
           fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "sha=$TAG_SHA" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$TAG"
+            echo "version=$VERSION"
+            echo "sha=$TAG_SHA"
+          } >> "$GITHUB_OUTPUT"
 
   release:
     name: Release
