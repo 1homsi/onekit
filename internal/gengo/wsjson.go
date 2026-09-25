@@ -57,7 +57,7 @@ func typeFastKind(t *onkir.Type, f *onkir.Field, inOneof bool) (fastKind, int) {
 		return fkFloat, 64
 	case onkir.ScalarInt64, onkir.ScalarUint64:
 		unsigned := t.Scalar == onkir.ScalarUint64
-		if !inOneof && f != nil && needsInt64StringEncoding(f) {
+		if inOneof || f != nil && needsInt64StringEncoding(f) {
 			if unsigned {
 				return fkUintString, 64
 			}
