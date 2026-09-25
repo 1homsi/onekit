@@ -132,13 +132,21 @@ func RustIdent(value string) string {
 // collide (e.g. sibling declarations Foo and FooError), the full PascalCase
 // name is kept for every member of the colliding group so generated enums
 // always compile.
+var builtinErrorVariants = map[string]bool{
+	"Validation": true, "InvalidRequest": true, "Transport": true, "WsTransport": true, "Response": true,
+	"Decode": true, "Stream": true, "Internal": true, "UnexpectedStatus": true,
+}
+
 func ErrorVariantNames(errorTypes []*onkir.Message) []string {
 	names := make([]string, len(errorTypes))
 	counts := map[string]int{}
 	for i, message := range errorTypes {
 		name := PascalCase(strings.TrimSuffix(message.Name, "Error"))
-		if name == "" {
+		if name == "" || builtinErrorVariants[name] {
 			name = PascalCase(message.Name)
+		}
+		if builtinErrorVariants[name] {
+			name += "Error"
 		}
 		names[i] = name
 		counts[name]++
