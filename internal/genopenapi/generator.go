@@ -127,16 +127,15 @@ func messageSchema(m *onkir.Message) *base.Schema {
 					props.Set(prefix+name, schema)
 				}
 			}
-			for _, name := range child.Required {
-				required = append(required, prefix+name)
+			if !f.Optional {
+				for _, name := range child.Required {
+					required = append(required, prefix+name)
+				}
 			}
 			continue
 		}
 		props.Set(f.Name, fieldSchemaProxy(f))
-		// Presence is declared with the "?" marker; @required is the legacy
-		// scalar form. Mirror queryParameters so one field yields one answer
-		// wherever it is rendered.
-		if !f.Optional || f.HasDecorator("required") {
+		if (!f.Optional || f.HasDecorator("required")) && !emptyOmitted(f) {
 			required = append(required, f.Name)
 		}
 	}
@@ -146,6 +145,18 @@ func messageSchema(m *onkir.Message) *base.Schema {
 		Required:    required,
 		Description: m.Doc,
 	}
+}
+
+func emptyOmitted(f *onkir.Field) bool {
+	if f.Type == nil || f.Type.Kind != onkir.KindMessage || f.Repeated {
+		return false
+	}
+	empty, ok := f.Decorator("empty")
+	if !ok {
+		return false
+	}
+	value, _ := empty.Value()
+	return value == "omit"
 }
 
 const base64URLEncoding = "base64url"
