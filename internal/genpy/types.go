@@ -208,9 +208,94 @@ func writeEnum(p *Printer, e *onkir.Enum) {
 	p.Blank()
 }
 
+func (p *Printer) oneofPyType(m *onkir.Message, f *onkir.Field) string {
+	names := make([]string, 0, len(f.Oneof.Variants))
+	for _, v := range f.Oneof.Variants {
+		names = append(names, OneofVariantClassName(m, f, v))
+	}
+	return strings.Join(names, " | ")
+}
+
+func (p *Printer) variantDecodeExpr(typ *onkir.Type, expr string) string {
+	switch {
+	case typ.Kind == onkir.KindMessage:
+		return fmt.Sprintf("(%s.from_dict(%s) if %s is not None else None)", p.MessageTypeName(typ.Message), expr, expr)
+	case typ.Kind == onkir.KindEnum:
+		return fmt.Sprintf("%s[%s]", p.enumFromJSONMapRef(typ.Enum), expr)
+	case typ.Kind == onkir.KindScalar && typ.Scalar == onkir.ScalarBytes:
+		return fmt.Sprintf("base64.b64decode(%s)", expr)
+	case typ.Kind == onkir.KindScalar && (typ.Scalar == onkir.ScalarInt64 || typ.Scalar == onkir.ScalarUint64):
+		return fmt.Sprintf("int(%s)", expr)
+	default:
+		return expr
+	}
+}
+
+func writeOneofVariantClasses(p *Printer, m *onkir.Message) {
+	for _, f := range m.Fields {
+		if f.Oneof == nil {
+			continue
+		}
+		disc := fmt.Sprintf("%q", oneofDiscriminator(f))
+		for _, v := range f.Oneof.Variants {
+			name := OneofVariantClassName(m, f, v)
+			tag := fmt.Sprintf("%q", v.Tag())
+			key := fmt.Sprintf("%q", v.Name)
+			value := "self." + v.Name
+			p.P("@dataclass")
+			p.P("class ", name, ":")
+			p.Indent()
+			switch v.Type.Kind {
+			case onkir.KindMessage:
+				p.P(v.Name, ": ", p.PyFieldType(v.Type), " | None = None")
+			case onkir.KindEnum:
+				p.P(v.Name, ": ", p.PyFieldType(v.Type), " = _dataclasses.field(default_factory=lambda: ", p.EnumTypeName(v.Type.Enum), "(0))")
+			default:
+				p.P(v.Name, ": ", p.PyFieldType(v.Type), " = ", pyDefaultValue(v.Type))
+			}
+			p.Blank()
+			p.P("def to_dict(self) -> dict:")
+			p.Indent()
+			if f.Oneof.Flatten() {
+				p.P("return {**(", value, ".to_dict() if ", value, " is not None else {}), ", disc, ": ", tag, "}")
+			} else {
+				p.P("return {", disc, ": ", tag, ", ", key, ": ", p.bodyTypeValueExpr(v.Type, value, &onkir.Field{Name: v.Name, Type: v.Type}), "}")
+			}
+			p.Dedent()
+			p.Blank()
+			p.P("@staticmethod")
+			p.P("def from_dict(o: dict) -> ", name, ":")
+			p.Indent()
+			if f.Oneof.Flatten() {
+				p.P("return ", name, "(", v.Name, "=", p.MessageTypeName(v.Type.Message), ".from_dict(o))")
+			} else {
+				p.P("return ", name, "(", v.Name, "=", p.variantDecodeExpr(v.Type, "o["+key+"]"), " if o.get(", key, ") is not None else ", name, "().", v.Name, ")")
+			}
+			p.Dedent()
+			p.Dedent()
+			p.Blank()
+		}
+		p.P("def _decode_", m.Name, "_", f.Name, "(o):")
+		p.Indent()
+		p.P("if not isinstance(o, dict):")
+		p.Indent()
+		p.P("return None")
+		p.Dedent()
+		for _, v := range f.Oneof.Variants {
+			p.P("if o.get(", disc, ") == ", fmt.Sprintf("%q", v.Tag()), ":")
+			p.Indent()
+			p.P("return ", OneofVariantClassName(m, f, v), ".from_dict(o)")
+			p.Dedent()
+		}
+		p.P("return None")
+		p.Dedent()
+		p.Blank()
+	}
+}
+
 func writeFieldDecl(p *Printer, f *onkir.Field) {
 	if f.Oneof != nil {
-		p.P(f.Name, ": dict | None = None")
+		p.P(f.Name, ": ", p.oneofPyType(f.Message, f), " | None = None")
 		return
 	}
 	pyType := p.fieldPyType(f)
@@ -371,7 +456,7 @@ func writeToDictField(p *Printer, f *onkir.Field) {
 	if f.Oneof != nil {
 		p.P("if self.", f.Name, " is not None:")
 		p.Indent()
-		p.P("d[", fmt.Sprintf("%q", f.Name), "] = dict(self.", f.Name, ")")
+		p.P("d[", fmt.Sprintf("%q", f.Name), "] = self.", f.Name, ".to_dict()")
 		p.Dedent()
 		return
 	}
@@ -439,7 +524,7 @@ func (p *Printer) messageFieldFromDictExpr(f *onkir.Field, key string) string {
 func (p *Printer) writeFromDictField(f *onkir.Field) string {
 	key := fmt.Sprintf("%q", f.Name)
 	if f.Oneof != nil {
-		return fmt.Sprintf("d.get(%s)", key)
+		return fmt.Sprintf("_decode_%s_%s(d.get(%s))", f.Message.Name, f.Name, key)
 	}
 	switch {
 	case f.Repeated:
@@ -638,6 +723,7 @@ func writeMessage(p *Printer, m *onkir.Message) {
 	writePyValidateFunc(p, m)
 	p.Dedent()
 	p.Blank()
+	writeOneofVariantClasses(p, m)
 
 	for _, nested := range m.Nested {
 		if nested.IsError() {
@@ -665,6 +751,19 @@ func writePyValidateFunc(p *Printer, m *onkir.Message) {
 	p.P("violations: list[str] = []")
 	for _, f := range m.Fields {
 		accessor := "self." + f.Name
+		if f.Oneof != nil {
+			for _, v := range f.Oneof.Variants {
+				if v.Type.Kind != onkir.KindMessage {
+					continue
+				}
+				inner := accessor + "." + v.Name
+				p.P("if isinstance(", accessor, ", ", OneofVariantClassName(m, f, v), ") and ", inner, " is not None:")
+				p.Indent()
+				p.P("try: ", inner, ".validate()")
+				p.P("except ValueError as error: violations.append(", fmt.Sprintf("%q", f.Name+": "), " + str(error))")
+				p.Dedent()
+			}
+		}
 		if f.HasDecorator("required") {
 			if f.Repeated || f.Type != nil && f.Type.Kind == onkir.KindMap {
 				p.P("if not ", accessor, ": violations.append(", fmt.Sprintf("%q", f.Name+" is required"), ")")
@@ -817,6 +916,7 @@ func writeErrorClass(p *Printer, m *onkir.Message) {
 	p.Dedent()
 	p.Dedent()
 	p.Blank()
+	writeOneofVariantClasses(p, m)
 }
 
 func (p *Printer) errorInitArgs(m *onkir.Message) string {
