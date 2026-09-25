@@ -80,20 +80,26 @@ func typeSchemaProxy(t *onkir.Type) *base.SchemaProxy {
 
 func fieldSchemaProxy(f *onkir.Field) *base.SchemaProxy {
 	if f.Oneof != nil {
-		var variants []*base.SchemaProxy
+		discriminator, ok := f.Oneof.Discriminator()
+		if !ok || discriminator == "" {
+			discriminator = "type"
+		}
+		variants := make([]*base.SchemaProxy, 0, len(f.Oneof.Variants))
 		for _, v := range f.Oneof.Variants {
-			variants = append(variants, typeSchemaProxy(v.Type))
+			props := orderedmap.New[string, *base.SchemaProxy]()
+			props.Set(discriminator, base.CreateSchemaProxy(&base.Schema{
+				Type:  []string{"string"},
+				Const: &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v.Tag()},
+			}))
+			props.Set(v.Name, typeSchemaProxy(v.Type))
+			variants = append(variants, base.CreateSchemaProxy(&base.Schema{
+				Type:       []string{"object"},
+				Title:      v.Name,
+				Properties: props,
+				Required:   []string{discriminator, v.Name},
+			}))
 		}
 		schema := &base.Schema{OneOf: variants}
-		if discriminator, ok := f.Oneof.Discriminator(); ok && discriminator != "" {
-			mapping := orderedmap.New[string, string]()
-			for _, variant := range f.Oneof.Variants {
-				if variant.Type.Kind == onkir.KindMessage {
-					mapping.Set(variant.Tag(), "#/components/schemas/"+componentName(variant.Type.Message.FullName()))
-				}
-			}
-			schema.Discriminator = &base.Discriminator{PropertyName: discriminator, Mapping: mapping}
-		}
 		return base.CreateSchemaProxy(schema)
 	}
 	if f.Repeated {
