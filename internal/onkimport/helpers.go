@@ -272,6 +272,9 @@ func (im *importer) allOfRequired(allOf []any) []any {
 			}
 		}
 		required = append(required, asSlice(sub["required"])...)
+		if nested := asSlice(sub["allOf"]); len(nested) > 0 {
+			required = append(required, im.allOfRequired(nested)...)
+		}
 	}
 	return required
 }
