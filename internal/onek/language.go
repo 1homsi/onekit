@@ -257,7 +257,7 @@ func (s *LanguageSnapshot) addDeclarations(src onkcompile.Source, decls map[any]
 		for _, v := range e.Values {
 			names = append(names, v.Name)
 		}
-		add(e, e.Name, q, "enum", "enum "+q+" { "+strings.Join(names, ", ")+" }", e.Doc, e.Line, e.Col)
+		add(e, e.Name, q, symbolKindEnum, "enum "+q+" { "+strings.Join(names, ", ")+" }", e.Doc, e.Line, e.Col)
 		for i := range e.Values {
 			v := &e.Values[i]
 			add(v, v.Name, qualify(q, v.Name), "enumMember", v.Name, v.Doc, v.Line, v.Col)
@@ -270,7 +270,7 @@ func (s *LanguageSnapshot) addDeclarations(src onkcompile.Source, decls map[any]
 		for _, f := range m.Fields {
 			fields = append(fields, f.Name+": "+fieldType(f))
 		}
-		add(m, m.Name, q, "message", "message "+q+" { "+strings.Join(fields, ", ")+" }", m.Doc, m.Line, m.Col)
+		add(m, m.Name, q, symbolKindMessage, "message "+q+" { "+strings.Join(fields, ", ")+" }", m.Doc, m.Line, m.Col)
 		for _, f := range m.Fields {
 			add(f, f.Name, qualify(q, f.Name), "field", f.Name+": "+fieldType(f)+onklang.FormatDecorators(f.Decorators), withDecoratorDocs(f.Doc, f.Decorators), f.Line, f.Col)
 			if f.Oneof != nil {

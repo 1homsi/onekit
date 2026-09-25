@@ -36,6 +36,7 @@ type lspParams struct {
 	TextDocument lspDocument `json:"textDocument"`
 	Position     Position    `json:"position"`
 	Query        string      `json:"query"`
+	NewName      string      `json:"newName"`
 	Context      struct {
 		IncludeDeclaration bool `json:"includeDeclaration"`
 	} `json:"context"`
@@ -193,7 +194,8 @@ func (s *languageServer) handle(req rpcRequest) (any, *rpcError) {
 		return s.decoratorCompletion(path, p.Position), nil
 	case "textDocument/formatting":
 		return s.formatDocument(path)
-	case "textDocument/definition", "textDocument/references", "textDocument/hover", "textDocument/documentSymbol", "workspace/symbol":
+	case "textDocument/definition", "textDocument/references", "textDocument/hover", "textDocument/documentSymbol", "workspace/symbol",
+		"textDocument/prepareRename", "textDocument/rename":
 	default:
 		return nil, &rpcError{-32601, "method not found"}
 	}
@@ -223,6 +225,10 @@ func (s *languageServer) handle(req rpcRequest) (any, *rpcError) {
 			locations = append(locations, lspLocation(location))
 		}
 		return locations, nil
+	case "textDocument/prepareRename":
+		return prepareRename(snapshot, symbol, path, p.Position), nil
+	case "textDocument/rename":
+		return renameSymbol(snapshot, symbol, p.NewName)
 	case "textDocument/hover":
 		if symbol == nil {
 			return nil, nil
@@ -274,9 +280,9 @@ func (s *languageServer) publishDiagnostics(snapshot *LanguageSnapshot) error {
 }
 func lspSymbolKind(kind string) int {
 	switch kind {
-	case "message":
+	case symbolKindMessage:
 		return 23
-	case "enum":
+	case symbolKindEnum:
 		return 10
 	case "enumMember":
 		return 22
@@ -404,6 +410,7 @@ func (s *languageServer) initialize(raw json.RawMessage, dir string) (any, *rpcE
 	return map[string]any{"serverInfo": map[string]string{"name": "onekit"}, "capabilities": map[string]any{
 		"positionEncoding": "utf-16", "textDocumentSync": map[string]any{"openClose": true, "change": 1, "save": true},
 		"definitionProvider": true, "referencesProvider": true, "hoverProvider": true, "documentSymbolProvider": true, "workspaceSymbolProvider": true,
+		"renameProvider":             map[string]any{"prepareProvider": true},
 		"documentFormattingProvider": true,
 		"completionProvider":         map[string]any{"triggerCharacters": []string{"@"}},
 	}}, nil
