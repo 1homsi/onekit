@@ -38,7 +38,7 @@ func TestGenerateReactQueryHooks(t *testing.T) {
 		// GET -> useQuery with a stable composite key
 		`useGetUser(req: GetUserRequest, opts?: { enabled?: boolean }) {`,
 		`queryKey: ["UserService", "getUser", req],`,
-		`queryFn: () => client.getUser(req),`,
+		`queryFn: ({ signal }) => client.getUser(req, { signal }),`,
 		// POST -> useMutation invalidating the service scope
 		`useCreateUser() {`,
 		`mutationFn: (req: CreateUserRequest) => client.createUser(req),`,
