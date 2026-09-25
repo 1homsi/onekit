@@ -85,6 +85,7 @@ func writeClient(p *Printer, service *onkir.Service) {
 	p.P("headers: reqwest::header::HeaderMap,")
 	p.P("max_response_body_bytes: usize,")
 	p.P("max_sse_frame_bytes: usize,")
+	p.P("timeout: Option<std::time::Duration>,")
 	if serviceHasWS(service) {
 		p.P("max_ws_frame_bytes: usize,")
 		p.P("max_ws_message_bytes: usize,")
@@ -109,9 +110,16 @@ func writeClient(p *Printer, service *onkir.Service) {
 	p.P(
 		"Self { base_url: base_url.into().trim_end_matches('/').to_owned(), ",
 		"http: reqwest::Client::new(), headers: reqwest::header::HeaderMap::new(), ",
-		"max_response_body_bytes: DEFAULT_MAX_RESPONSE_BODY_BYTES, max_sse_frame_bytes: DEFAULT_MAX_SSE_FRAME_BYTES",
+		"max_response_body_bytes: DEFAULT_MAX_RESPONSE_BODY_BYTES, max_sse_frame_bytes: DEFAULT_MAX_SSE_FRAME_BYTES, timeout: Some(std::time::Duration::from_secs(30))",
 		wsFrameInit, " }",
 	)
+	p.Dedent()
+	p.P("}")
+	p.Blank()
+	p.P("pub fn with_timeout(mut self, timeout: Option<std::time::Duration>) -> Self {")
+	p.Indent()
+	p.P("self.timeout = timeout;")
+	p.P("self")
 	p.Dedent()
 	p.P("}")
 	p.Blank()
@@ -265,6 +273,8 @@ func writeClientMethod(
 	}
 	if method.IsStream() {
 		p.P("request = request.header(reqwest::header::ACCEPT, \"text/event-stream\");")
+	} else {
+		p.P("if let Some(timeout) = self.timeout { request = request.timeout(timeout); }")
 	}
 	p.P("let response = request.send().await.map_err(", errorName, "::Transport)?;")
 	p.P("let status = response.status();")
