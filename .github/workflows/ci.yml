@@ -85,6 +85,32 @@ jobs:
             echo "status=FAIL: Some checks failed" >> $GITHUB_OUTPUT
           fi
 
+  audit:
+    name: Vulnerability & Workflow Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            go.mod
+
+      - name: Run govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
+      - name: Run actionlint
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.9
+
   test:
     name: Test (Go ${{ matrix.go-version }} - ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
