@@ -795,6 +795,12 @@ func docLines(doc string) string {
 	return b.String()
 }
 
+func orderedBounds(low, high string) bool {
+	a, errA := strconv.ParseFloat(low, 64)
+	b, errB := strconv.ParseFloat(high, 64)
+	return errA == nil && errB == nil && a <= b
+}
+
 func (im *importer) constraintDecorators(schema map[string]any, expr string) string {
 	number := func(key string) (string, bool) {
 		var value float64
@@ -820,19 +826,33 @@ func (im *importer) constraintDecorators(schema map[string]any, expr string) str
 	var out strings.Builder
 	switch {
 	case expr == scalarString:
-		if maxLength, ok := number("maxLength"); ok {
-			minLength, hasMin := number("minLength")
-			if !hasMin {
-				minLength = "0"
-			}
+		minLength, hasMin := number("minLength")
+		maxLength, hasMax := number("maxLength")
+		if !hasMin {
+			minLength = "0"
+		}
+		if !hasMax {
+			maxLength = strconv.Itoa(math.MaxInt32)
+		}
+		switch {
+		case !hasMin && !hasMax:
+		case orderedBounds(minLength, maxLength):
 			out.WriteString(" @len(" + minLength + ", " + maxLength + ")")
+		default:
+			im.warnf("minLength %s is greater than maxLength %s; length constraint dropped", minLength, maxLength)
 		}
 	case strings.HasSuffix(expr, "[]"):
-		if value, ok := number("minItems"); ok {
-			out.WriteString(" @min_items(" + value + ")")
+		minItems, hasMin := number("minItems")
+		maxItems, hasMax := number("maxItems")
+		if hasMin && hasMax && !orderedBounds(minItems, maxItems) {
+			im.warnf("minItems %s is greater than maxItems %s; item constraints dropped", minItems, maxItems)
+			break
 		}
-		if value, ok := number("maxItems"); ok {
-			out.WriteString(" @max_items(" + value + ")")
+		if hasMin {
+			out.WriteString(" @min_items(" + minItems + ")")
+		}
+		if hasMax {
+			out.WriteString(" @max_items(" + maxItems + ")")
 		}
 	case isScalarExpr(expr) && expr != "bool" && expr != scalarTime && expr != scalarJSON:
 		if value, ok := number("minimum"); ok {
