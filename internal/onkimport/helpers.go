@@ -225,6 +225,8 @@ func sortStrings(values []string) { sort.Strings(values) }
 const (
 	scalarString = "string"
 	scalarInt64  = "int64"
+	scalarJSON   = "json"
+	scalarTime   = "timestamp"
 )
 
 const paramInPath = "path"
@@ -234,7 +236,7 @@ const schemaObject = "object"
 func isScalarExpr(expr string) bool {
 	switch expr {
 	case scalarString, "bool", "int32", scalarInt64, "uint32", "uint64",
-		"float32", "float64", "timestamp", "json":
+		"float32", "float64", scalarTime, scalarJSON:
 		return true
 	}
 	return false
