@@ -362,16 +362,21 @@ const wsIDDecorator = "ws_id"
 // a single @ws method uses, so generators can treat the first match found as
 // authoritative for that method.
 func WSIDField(message *Message) (*Field, bool) {
-	if message == nil {
+	return wsIDField(message, map[*Message]bool{})
+}
+
+func wsIDField(message *Message, seen map[*Message]bool) (*Field, bool) {
+	if message == nil || seen[message] {
 		return nil, false
 	}
+	seen[message] = true
 	for _, f := range message.Fields {
 		if f.Oneof != nil {
 			for _, variant := range f.Oneof.Variants {
 				if variant.Type == nil || variant.Type.Kind != KindMessage {
 					continue
 				}
-				if vf, ok := WSIDField(variant.Type.Message); ok {
+				if vf, ok := wsIDField(variant.Type.Message, seen); ok {
 					return vf, true
 				}
 			}

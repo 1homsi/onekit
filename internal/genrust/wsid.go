@@ -114,10 +114,11 @@ func writeWSCancelFn(p *Printer, message *onkir.Message, kType string) {
 	p.P("#[allow(clippy::needless_update)]")
 	p.P("fn ws_cancel(id: ", kType, ") -> Option<Self> {")
 	p.Indent()
-	p.P(
-		"Some(Self { ", RustIdent(oneofField.Name), ": Some(", OneofTypeName(message, oneofField), "::", PascalCase(variant.Name),
-		"(", PascalCase(variant.Type.Message.Name), " { ", RustIdent(idField.Name), ": ", idValue, ", ..Default::default() })), ..Default::default() })",
-	)
+	value := PascalCase(variant.Type.Message.Name) + " { " + RustIdent(idField.Name) + ": " + idValue + ", ..Default::default() }"
+	if boxedVariant(message, variant) {
+		value = "Box::new(" + value + ")"
+	}
+	p.P("Some(Self { ", RustIdent(oneofField.Name), ": Some(", OneofTypeName(message, oneofField), "::", PascalCase(variant.Name), "(", value, ")), ..Default::default() })")
 	p.Dedent()
 	p.P("}")
 }

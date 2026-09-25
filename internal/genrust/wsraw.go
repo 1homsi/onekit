@@ -90,7 +90,11 @@ func writeWSRawImpl(p *Printer, m *onkir.Message) {
 			p.P(field, " = match ", field, " {")
 			for ; i < len(steps) && steps[i].Field == step.Field; i++ {
 				variant := PascalCase(steps[i].Variant.Name)
-				p.P("Some(", oneof, "::", variant, "(value)) => Some(", oneof, "::", variant, "(value.ws_split_raw(raw))),")
+				split := "value.ws_split_raw(raw)"
+				if boxedVariant(m, steps[i].Variant) {
+					split = "Box::new((*value).ws_split_raw(raw))"
+				}
+				p.P("Some(", oneof, "::", variant, "(value)) => Some(", oneof, "::", variant, "(", split, ")),")
 			}
 			i--
 			p.P("other => other,")
