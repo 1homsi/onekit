@@ -114,6 +114,9 @@ func (im *importer) convertPaths() ([]string, error) {
 			basePath = urlPath(raw)
 		}
 	}
+	if webhooks := asMap(im.root["webhooks"]); len(webhooks) > 0 {
+		im.warnf("%d webhooks are not supported and were dropped", len(webhooks))
+	}
 	paths := asMap(im.root["paths"])
 	keys := make([]string, 0, len(paths))
 	for key := range paths {
@@ -128,10 +131,18 @@ func (im *importer) convertPaths() ([]string, error) {
 			continue
 		}
 		sharedParams := asSlice(item["parameters"])
+		for _, method := range []string{"head", "options", "trace"} {
+			if item[method] != nil {
+				im.warnf("%s %s: %s operations are not supported and were dropped", strings.ToUpper(method), pathKey, strings.ToUpper(method))
+			}
+		}
 		for _, method := range httpMethods {
 			op := asMap(item[method])
 			if op == nil {
 				continue
+			}
+			if op["callbacks"] != nil {
+				im.warnf("%s %s: callbacks are not supported and were dropped", strings.ToUpper(method), pathKey)
 			}
 			params := append(append([]any{}, sharedParams...), asSlice(op["parameters"])...)
 			rpcs = append(rpcs, im.convertOperation(op, method, pathKey, params))
@@ -217,7 +228,7 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 	}
 	im.messages[reqName] = append(otherLines, queryLines...)
 
-	respName, union := im.responsePieces(opName, asMap(op["responses"]))
+	respName, union, stream := im.responsePieces(opName, method, asMap(op["responses"]))
 	var rpc strings.Builder
 	rpc.WriteString("  " + opName + "(" + reqName + ") -> " + respName)
 	for _, errName := range union {
@@ -228,6 +239,9 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 		rpc.WriteString(" @body(\"body\")")
 	}
 	rpc.WriteString(" @" + method + "(\"" + route + "\")")
+	if stream {
+		rpc.WriteString(" @stream")
+	}
 	if len(headers) > 0 {
 		rpc.WriteString(" {\n    headers: {\n")
 		for _, header := range headers {
@@ -345,14 +359,20 @@ func capitalize(value string) string {
 }
 
 // responsePieces resolves the success payload and declared error union.
-func (im *importer) responsePieces(opName string, responses map[string]any) (string, []string) {
+func (im *importer) responsePieces(opName, method string, responses map[string]any) (string, []string, bool) {
 	respName := im.uniqueName(opName + "Response")
 	var union []string
 
 	successCode := pickSuccess(responses)
 	schema, hasSchema := map[string]any{}, false
+	stream := false
 	if successCode != "" {
-		schema, hasSchema = im.jsonSchema(asMap(im.deref(asMap(responses[successCode]))["content"]))
+		content := asMap(im.deref(asMap(responses[successCode]))["content"])
+		if eventSchema, ok := eventStreamSchema(content); ok && method != "post" && method != "put" && method != "patch" {
+			schema, hasSchema, stream = eventSchema, true, true
+		} else {
+			schema, hasSchema = im.jsonSchema(content)
+		}
 	}
 	switch {
 	case !hasSchema:
@@ -406,7 +426,30 @@ func (im *importer) responsePieces(opName string, responses map[string]any) (str
 		seenStatus[status] = true
 		union = append(union, errName)
 	}
-	return respName, union
+	return respName, union, stream
+}
+
+func eventStreamSchema(content map[string]any) (map[string]any, bool) {
+	for key, raw := range content {
+		if strings.ToLower(strings.TrimSpace(strings.SplitN(key, ";", 2)[0])) != "text/event-stream" {
+			continue
+		}
+		media := asMap(raw)
+		if item := asMap(media["itemSchema"]); item != nil {
+			data := asMap(asMap(item["properties"])["data"])
+			if payload := asMap(data["contentSchema"]); payload != nil {
+				return payload, true
+			}
+			if data != nil && (data["$ref"] != nil || text(data, "type") == schemaObject) {
+				return data, true
+			}
+			continue
+		}
+		if schema := asMap(media["schema"]); schema != nil && (schema["$ref"] != nil || text(schema, "type") == schemaObject) {
+			return schema, true
+		}
+	}
+	return nil, false
 }
 
 func errorStatus(code string) (int, bool) {
