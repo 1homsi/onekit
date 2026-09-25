@@ -1,6 +1,7 @@
 package genrust
 
 import (
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -71,6 +72,9 @@ func collectTypeFeatures(file *onkir.File) typeFeatures {
 			}
 			if emptyBehavior(field) != "" {
 				features.empty = true
+			}
+			if field.Oneof != nil && slices.ContainsFunc(field.Oneof.Variants, isBytesVariant) {
+				features.bytes = true
 			}
 			for _, decorator := range field.Decorators {
 				if decorator.Name == decoratorEmail {
@@ -813,6 +817,10 @@ func boxedVariant(owner *onkir.Message, variant *onkir.OneofVariant) bool {
 	return reaches(variant.Type.Message)
 }
 
+func isBytesVariant(variant *onkir.OneofVariant) bool {
+	return variant.Type != nil && variant.Type.Kind == onkir.KindScalar && variant.Type.Scalar == onkir.ScalarBytes
+}
+
 func writeOneofSerialize(p *Printer, name string, field *onkir.Field) {
 	discriminator, _ := field.Oneof.Discriminator()
 	if discriminator == "" {
@@ -829,11 +837,14 @@ func writeOneofSerialize(p *Printer, name string, field *onkir.Field) {
 		p.P("Self::", PascalCase(variant.Name), "(value) => {")
 		p.Indent()
 		p.P("object.insert(", strconv.Quote(discriminator), ".into(), serde_json::Value::String(", strconv.Quote(variant.Tag()), ".into()));")
-		if field.Oneof.Flatten() {
+		switch {
+		case field.Oneof.Flatten():
 			p.P("let value = serde_json::to_value(value).map_err(serde::ser::Error::custom)?;")
 			p.P("let fields = value.as_object().ok_or_else(|| serde::ser::Error::custom(\"flattened oneof variant must serialize as an object\"))?;")
 			p.P("object.extend(fields.clone());")
-		} else {
+		case isBytesVariant(variant):
+			p.P("object.insert(", strconv.Quote(variant.Name), ".into(), serde_json::Value::String(base64::engine::general_purpose::STANDARD.encode(value)));")
+		default:
 			p.P("object.insert(", strconv.Quote(variant.Name), ".into(), serde_json::to_value(value).map_err(serde::ser::Error::custom)?);")
 		}
 		p.Dedent()
@@ -873,7 +884,12 @@ func writeOneofDeserialize(p *Printer, name string, field *onkir.Field) {
 			p.P("let value = serde_json::from_value(serde_json::Value::Object(object)).map_err(serde::de::Error::custom)?;")
 		} else {
 			p.P("let raw = object.remove(", strconv.Quote(variant.Name), ").ok_or_else(|| serde::de::Error::custom(", strconv.Quote("missing oneof value "+variant.Name), "))?;")
-			p.P("let value = serde_json::from_value(raw).map_err(serde::de::Error::custom)?;")
+			if isBytesVariant(variant) {
+				p.P("let text = raw.as_str().ok_or_else(|| serde::de::Error::custom(", strconv.Quote(variant.Name+" must be a base64 string"), "))?;")
+				p.P("let value = base64::engine::general_purpose::STANDARD.decode(text).map_err(serde::de::Error::custom)?;")
+			} else {
+				p.P("let value = serde_json::from_value(raw).map_err(serde::de::Error::custom)?;")
+			}
 		}
 		p.P("Ok(Self::", PascalCase(variant.Name), "(value))")
 		p.Dedent()
