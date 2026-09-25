@@ -298,17 +298,17 @@ func zodConstrainedString(f *onkir.Field) string {
 		rules.WriteString(".min(1)")
 	}
 	if f.HasDecorator("email") {
-		rules.WriteString(".email()")
+		rules.WriteString(`.refine((v) => v === "" || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v), { message: "must be a valid email" })`)
 	}
 	if f.HasDecorator("uuid") {
-		rules.WriteString(".uuid()")
+		rules.WriteString(`.refine((v) => v === "" || /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v), { message: "must be a valid UUID" })`)
 	}
 	if f.HasDecorator("uri") {
-		rules.WriteString(".url()")
+		rules.WriteString(`.refine((v) => { if (v === "") return true; try { new URL(v); return true; } catch { return false; } }, { message: "must be a valid URI" })`)
 	}
 	if d, ok := f.Decorator("pattern"); ok {
 		value, _ := d.Value()
-		rules.WriteString(".regex(new RegExp(" + strconv.Quote(value) + "))")
+		rules.WriteString(`.refine((v) => v === "" || new RegExp(` + strconv.Quote(value) + `).test(v), { message: "has an invalid format" })`)
 	}
 	if d, ok := f.Decorator("len"); ok && len(d.Args) == 2 {
 		rules.WriteString(".refine((v) => [...v].length >= " + d.Args[0].Value + " && [...v].length <= " + d.Args[1].Value + ", { message: \"length must be between " + d.Args[0].Value + " and " + d.Args[1].Value + " characters\" })")

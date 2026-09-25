@@ -67,10 +67,10 @@ func TestGenerateZodMirrorsValidators(t *testing.T) {
 	for _, want := range []string{
 		`import { z } from "zod";`,
 		`export const StateSchema = z.enum(["UNKNOWN", "ready"]);`,
-		`emailAddr: z.string().email(),`,
-		`userId: z.string().uuid(),`,
-		`site: z.string().url(),`,
-		`code: z.string().regex(new RegExp("^[A-Z]{3}$")),`,
+		`emailAddr: z.string().refine((v) => v === "" || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v), { message: "must be a valid email" }),`,
+		`userId: z.string().refine((v) => v === "" || /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v), { message: "must be a valid UUID" }),`,
+		`site: z.string().refine((v) => { if (v === "") return true; try { new URL(v); return true; } catch { return false; } }, { message: "must be a valid URI" }),`,
+		`code: z.string().refine((v) => v === "" || new RegExp("^[A-Z]{3}$").test(v), { message: "has an invalid format" }),`,
 		`nickname: z.string().refine((v) => [...v].length >= 2 && [...v].length <= 8, { message: "length must be between 2 and 8 characters" }),`,
 		// @in replaces the base schema entirely; membership implies non-empty
 		`role: z.enum(["admin", "viewer"]),`,
