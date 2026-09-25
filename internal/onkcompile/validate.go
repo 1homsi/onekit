@@ -883,6 +883,9 @@ func validateContract(pkg *onkir.Package, options CompileOptions) error {
 			if err := validateFlattenCycle(file.Path, message, nil); err != nil {
 				return err
 			}
+			if err := validateFlattenKeys(file.Path, message); err != nil {
+				return err
+			}
 			if err := validateCompiledMessage(file.Path, message, fullNames, options); err != nil {
 				return err
 			}
@@ -939,6 +942,36 @@ func validateSecuritySchemes(file *onkir.File) error {
 					return err
 				}
 			}
+		}
+	}
+	return nil
+}
+
+func flattenedJSONKeys(message *onkir.Message, prefix string, keys map[string]string, owner string) (string, string) {
+	for _, field := range message.Fields {
+		if decorator, ok := field.Decorator("flatten"); ok && field.Type != nil && field.Type.Kind == onkir.KindMessage {
+			childPrefix, _ := decorator.NamedArg("prefix")
+			if key, previous := flattenedJSONKeys(field.Type.Message, prefix+childPrefix, keys, owner+"."+field.Name); key != "" {
+				return key, previous
+			}
+			continue
+		}
+		key := prefix + field.Name
+		if previous, exists := keys[key]; exists {
+			return key, previous + " and " + owner + "." + field.Name
+		}
+		keys[key] = owner + "." + field.Name
+	}
+	return "", ""
+}
+
+func validateFlattenKeys(filePath string, message *onkir.Message) error {
+	if key, owners := flattenedJSONKeys(message, "", map[string]string{}, message.Name); key != "" {
+		return &Error{Path: filePath, Msg: fmt.Sprintf("JSON key %q is produced by both %s after @flatten; give the flattened field a distinct prefix", key, owners)}
+	}
+	for _, nested := range message.Nested {
+		if err := validateFlattenKeys(filePath, nested); err != nil {
+			return err
 		}
 	}
 	return nil
