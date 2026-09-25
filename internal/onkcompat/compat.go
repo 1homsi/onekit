@@ -18,13 +18,21 @@ type Finding struct {
 func Compare(previous, current *onkir.Package) []Finding {
 	var findings []Finding
 	oldMessages, newMessages := messages(previous), messages(current)
+	usage := messageUsage(previous)
+	for name, use := range messageUsage(current) {
+		usage[name] |= use
+	}
 	for name, old := range oldMessages {
 		newer, ok := newMessages[name]
 		if !ok {
 			findings = append(findings, Finding{Path: name, Message: "message was removed"})
 			continue
 		}
-		findings = append(findings, compareMessage(name, old, newer)...)
+		use := usage[name]
+		if use == 0 {
+			use = usedInRequest | usedInResponse
+		}
+		findings = append(findings, compareMessage(name, old, newer, use)...)
 	}
 	oldEnums, newEnums := enums(previous), enums(current)
 	numbered := numberEncodedEnums(oldMessages)
@@ -59,7 +67,60 @@ func Compare(previous, current *onkir.Package) []Finding {
 	return findings
 }
 
-func compareMessage(name string, old, current *onkir.Message) []Finding {
+type direction int
+
+const (
+	usedInRequest direction = 1 << iota
+	usedInResponse
+)
+
+func messageUsage(pkg *onkir.Package) map[string]direction {
+	out := map[string]direction{}
+	if pkg == nil {
+		return out
+	}
+	var markType func(*onkir.Type, direction)
+	var mark func(*onkir.Message, direction)
+	markType = func(typ *onkir.Type, use direction) {
+		if typ == nil {
+			return
+		}
+		switch typ.Kind {
+		case onkir.KindMessage:
+			mark(typ.Message, use)
+		case onkir.KindMap:
+			markType(typ.MapValue, use)
+		}
+	}
+	mark = func(message *onkir.Message, use direction) {
+		if message == nil || out[message.FullName()]&use == use {
+			return
+		}
+		out[message.FullName()] |= use
+		for _, field := range message.Fields {
+			markType(field.Type, use)
+			if field.Oneof != nil {
+				for _, variant := range field.Oneof.Variants {
+					markType(variant.Type, use)
+				}
+			}
+		}
+	}
+	for _, file := range pkg.Files {
+		for _, service := range file.Services {
+			for _, method := range service.Methods {
+				mark(method.Request, usedInRequest)
+				mark(method.Response, usedInResponse)
+				for _, errorType := range method.ErrorTypes {
+					mark(errorType, usedInResponse)
+				}
+			}
+		}
+	}
+	return out
+}
+
+func compareMessage(name string, old, current *onkir.Message, use direction) []Finding {
 	var findings []Finding
 	oldFields, newFields := fields(old), fields(current)
 	for fieldName, oldField := range oldFields {
@@ -75,12 +136,15 @@ func compareMessage(name string, old, current *onkir.Message) []Finding {
 		if fieldContractSignature(oldField) != fieldContractSignature(newField) {
 			findings = append(findings, Finding{Path: path, Message: "field validation or JSON mapping changed"})
 		}
-		if !isRequired(oldField) && isRequired(newField) {
+		if use&usedInRequest != 0 && !isRequired(oldField) && isRequired(newField) {
 			findings = append(findings, Finding{Path: path, Message: "field became required"})
+		}
+		if use&usedInResponse != 0 && isRequired(oldField) && !isRequired(newField) {
+			findings = append(findings, Finding{Path: path, Message: "field became optional in a response"})
 		}
 	}
 	for fieldName, newField := range newFields {
-		if _, existed := oldFields[fieldName]; !existed && isRequired(newField) {
+		if _, existed := oldFields[fieldName]; !existed && use&usedInRequest != 0 && isRequired(newField) {
 			findings = append(findings, Finding{Path: name + "." + fieldName, Message: "required field was added"})
 		}
 	}
@@ -189,7 +253,7 @@ func fields(message *onkir.Message) map[string]*onkir.Field {
 }
 
 func fieldTypeSignature(field *onkir.Field) string {
-	parts := []string{typeName(field.Type), fmt.Sprintf("optional=%t", field.Optional), fmt.Sprintf("repeated=%t", field.Repeated)}
+	parts := []string{typeName(field.Type), fmt.Sprintf("repeated=%t", field.Repeated)}
 	if field.Oneof != nil {
 		parts = append(parts, "oneof")
 		variants := make([]string, 0, len(field.Oneof.Variants))
