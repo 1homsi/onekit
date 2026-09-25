@@ -161,7 +161,7 @@ func writeServiceHooks(p *Printer, s *onkir.Service) {
 			p.P(hookName, "(req: ", reqType, ", opts?: { enabled?: boolean }) {")
 			p.P("return useQuery({")
 			p.P(`queryKey: [`, fmt.Sprintf("%q", s.Name), `, `, fmt.Sprintf("%q", m.Name), `, req],`)
-			p.P("queryFn: () => client.", CamelCase(m.Name), "(req),")
+			p.P("queryFn: ({ signal }) => client.", CamelCase(m.Name), "(req, { signal }),")
 			p.P("enabled: opts?.enabled ?? true,")
 			p.P("});")
 			p.P("},")
