@@ -32,6 +32,10 @@ func (p *Parser) next() error {
 	return nil
 }
 
+func (p *Parser) unclosed(open Token, what string) error {
+	return &Error{Line: p.tok.Line, Column: p.tok.Col, Message: fmt.Sprintf("missing } for %s opened at %d:%d", what, open.Line, open.Col)}
+}
+
 func (p *Parser) errf(format string, args ...any) error {
 	msg := fmt.Sprintf(format, args...)
 	return &Error{Line: p.tok.Line, Column: p.tok.Col, Message: msg}
@@ -308,11 +312,15 @@ func (p *Parser) parseOneof() (*OneofDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := p.expect(LBRACE); err != nil {
+	open, err := p.expect(LBRACE)
+	if err != nil {
 		return nil, err
 	}
 	o := &OneofDecl{LeadingComments: append([]string(nil), p.prev.LeadingComments...), Args: args, Line: line, Col: p.prev.Col}
 	for p.tok.Kind != RBRACE {
+		if p.tok.Kind == EOF {
+			return nil, p.unclosed(open, "oneof")
+		}
 		v, err := p.parseOneofVariant()
 		if err != nil {
 			return nil, err
@@ -406,10 +414,14 @@ func (p *Parser) parseMessage() (*MessageDecl, error) {
 	}
 	m.Decorators = decorators
 
-	if _, err := p.expect(LBRACE); err != nil {
+	open, err := p.expect(LBRACE)
+	if err != nil {
 		return nil, err
 	}
 	for p.tok.Kind != RBRACE {
+		if p.tok.Kind == EOF {
+			return nil, p.unclosed(open, "message "+m.Name)
+		}
 		switch {
 		case p.isKeywordIntroducer("message"):
 			nested, err := p.parseMessage()
@@ -457,10 +469,14 @@ func (p *Parser) parseEnum() (*EnumDecl, error) {
 	}
 	e := &EnumDecl{Name: name.Text, Doc: doc, LeadingComments: leading, Line: name.Line, Col: name.Col}
 
-	if _, err := p.expect(LBRACE); err != nil {
+	open, err := p.expect(LBRACE)
+	if err != nil {
 		return nil, err
 	}
 	for p.tok.Kind != RBRACE {
+		if p.tok.Kind == EOF {
+			return nil, p.unclosed(open, "enum "+e.Name)
+		}
 		vname, err := p.expect(IDENT)
 		if err != nil {
 			return nil, err
@@ -619,11 +635,15 @@ func (p *Parser) parseService() (*ServiceDecl, error) {
 	}
 	s := &ServiceDecl{Name: name.Text, Doc: doc, LeadingComments: leading, Line: name.Line, Col: name.Col}
 
-	if _, err := p.expect(LBRACE); err != nil {
+	open, err := p.expect(LBRACE)
+	if err != nil {
 		return nil, err
 	}
 	seenBasePath, seenHeaders := false, false
 	for p.tok.Kind != RBRACE {
+		if p.tok.Kind == EOF {
+			return nil, p.unclosed(open, "service "+s.Name)
+		}
 		switch {
 		case p.isIdent("base_path"):
 			if seenBasePath {
