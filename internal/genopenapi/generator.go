@@ -91,6 +91,16 @@ func fieldSchemaProxy(f *onkir.Field) *base.SchemaProxy {
 				Type:  []string{"string"},
 				Const: &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v.Tag()},
 			}))
+			if f.Oneof.Flatten() {
+				variants = append(variants, base.CreateSchemaProxy(&base.Schema{
+					Title: v.Name,
+					AllOf: []*base.SchemaProxy{
+						base.CreateSchemaProxy(&base.Schema{Type: []string{"object"}, Properties: props, Required: []string{discriminator}}),
+						typeSchemaProxy(v.Type),
+					},
+				}))
+				continue
+			}
 			props.Set(v.Name, typeSchemaProxy(v.Type))
 			variants = append(variants, base.CreateSchemaProxy(&base.Schema{
 				Type:       []string{"object"},

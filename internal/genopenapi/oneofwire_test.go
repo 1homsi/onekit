@@ -29,3 +29,20 @@ message Login {
 		t.Fatalf("discriminator mapping cannot point at inline variants:\n%s", doc)
 	}
 }
+
+func TestOpenAPIFlattenedOneofMergesVariantFields(t *testing.T) {
+	doc := openAPIForSchema(t, `
+package app
+message EmailAuth { email: string }
+message Login {
+  method: oneof(discriminator: "auth_type", flatten: true) {
+    email: EmailAuth @tag("email")
+  }
+}
+`)
+	flat := strings.Join(strings.Fields(doc), " ")
+	want := "- allOf: - type: object properties: auth_type: type: string const: email required: - auth_type - $ref: '#/components/schemas/app.EmailAuth' title: email"
+	if !strings.Contains(flat, want) {
+		t.Fatalf("missing %q in:\n%s", want, doc)
+	}
+}
