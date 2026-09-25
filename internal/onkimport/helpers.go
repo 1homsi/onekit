@@ -295,7 +295,7 @@ func truthy(v any) bool {
 func composeFieldLine(name string, ft fieldType, optional bool, owner, rawName string) string {
 	typeExpr := ft.expr
 	marker := ""
-	if optional {
+	if optional || ft.nullable {
 		if strings.HasSuffix(typeExpr, "[]") {
 			fmt.Fprintf(&strings.Builder{}, "") // no-op; warning handled by caller when needed
 			marker = ""
