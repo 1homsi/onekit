@@ -18,3 +18,14 @@ service Notes { get(Note) -> Note @get("/notes") @deprecated("use fetch") }
 		}
 	}
 }
+
+func TestOpenAPIMarksDeprecatedWebSocketOperations(t *testing.T) {
+	doc := openAPIForSchema(t, `
+package app
+message Frame { text: string }
+service Chat { join(Frame) -> Frame @ws("/chat") @deprecated }
+`)
+	if !strings.Contains(strings.Join(strings.Fields(doc), " "), "deprecated: true") {
+		t.Fatalf("websocket operation not deprecated:\n%s", doc)
+	}
+}

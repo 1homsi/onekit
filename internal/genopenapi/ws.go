@@ -16,6 +16,9 @@ func buildWSOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 		Description: m.Doc,
 		Tags:        []string{s.Name},
 	}
+	if _, deprecated := m.Deprecated(); deprecated {
+		op.Deprecated = new(true)
+	}
 	var params []*v3.Parameter
 	for _, name := range onkir.PathParamNames(path) {
 		params = append(params, pathParameter(name, m.Request))
