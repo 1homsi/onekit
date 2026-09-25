@@ -142,6 +142,7 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 		writeEventStreamRuntime(p)
 	}
 	writeResponseBodyRuntime(p)
+	writeCallOptionsRuntime(p)
 	if hasWS {
 		p.P("// wsReadError reports a read that hit this side's own frame limit as the")
 		p.P("// 1009 close it caused, so errors.As finds the same websocket.CloseError")
@@ -220,7 +221,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	bodyBearing := onkir.IsBodyBearingVerb(verb)
 
 	p.P("func (c *", s.Name, "Client) ", PascalCase(m.Name),
-		"(ctx context.Context, req *", p.MessageTypeName(m.Request), ") (*",
+		"(ctx context.Context, req *", p.MessageTypeName(m.Request), ", opts ...CallOption) (*",
 		p.MessageTypeName(m.Response), ", error) {")
 	p.P(`if validator, ok := any(req).(interface{ Validate() error }); ok { if err := validator.Validate(); err != nil { return nil, fmt.Errorf("validate request: %w", err) } }`)
 
@@ -272,6 +273,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("for k, v := range c.Headers {")
 	p.P("httpReq.Header.Set(k, v)")
 	p.P("}")
+	p.P("applyCallOptions(httpReq, opts)")
 
 	p.P("resp, err := c.HTTPClient.Do(httpReq)")
 	p.P("if err != nil {")
@@ -290,6 +292,27 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("}")
 	p.P()
 }
+
+func writeCallOptionsRuntime(p *Printer) {
+	p.P(callOptionsSource)
+}
+
+const callOptionsSource = `type CallOption func(*http.Request)
+
+func WithHeader(name, value string) CallOption {
+return func(r *http.Request) { r.Header.Set(name, value) }
+}
+
+func WithRequestEditor(edit func(*http.Request)) CallOption {
+return func(r *http.Request) { edit(r) }
+}
+
+func applyCallOptions(r *http.Request, opts []CallOption) {
+for _, opt := range opts {
+if opt != nil { opt(r) }
+}
+}
+`
 
 func writeResponseBodyRuntime(p *Printer) {
 	p.P("type UnexpectedStatusError struct {")
