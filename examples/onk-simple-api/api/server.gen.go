@@ -322,9 +322,13 @@ func (w *statusResponseWriter) Flush() {
 	}
 }
 
+// UserService manages users in the system.
 type UserServiceServer interface {
+	// Create a new user.
 	CreateUser(ctx context.Context, req *CreateUserRequest) (*User, error)
+	// Get a user by ID.
 	GetUser(ctx context.Context, req *GetUserRequest) (*User, error)
+	// Login with different authentication methods.
 	Login(ctx context.Context, req *LoginRequest) (*LoginResponse, error)
 }
 

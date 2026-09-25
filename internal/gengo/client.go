@@ -221,6 +221,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	fullPath := s.BasePath + path
 	bodyBearing := onkir.IsBodyBearingVerb(verb)
 
+	writeDoc(p, m.Doc)
 	p.P("func (c *", s.Name, "Client) ", PascalCase(m.Name),
 		"(ctx context.Context, req *", p.MessageTypeName(m.Request), ", opts ...CallOption) (*",
 		p.MessageTypeName(m.Response), ", error) {")
