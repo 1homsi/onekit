@@ -377,6 +377,11 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 		}
 		if v, ok := any(req).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
+				var list interface{ ViolationList() []string }
+				if errors.As(err, &list) {
+					writeJSON(w, http.StatusBadRequest, map[string]any{"message": err.Error(), "violations": list.ViolationList()})
+					return
+				}
 				writeJSONError(w, http.StatusBadRequest, err.Error())
 				return
 			}
@@ -411,6 +416,11 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 		}
 		if v, ok := any(req).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
+				var list interface{ ViolationList() []string }
+				if errors.As(err, &list) {
+					writeJSON(w, http.StatusBadRequest, map[string]any{"message": err.Error(), "violations": list.ViolationList()})
+					return
+				}
 				writeJSONError(w, http.StatusBadRequest, err.Error())
 				return
 			}
@@ -456,6 +466,11 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 		}
 		if v, ok := any(req).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
+				var list interface{ ViolationList() []string }
+				if errors.As(err, &list) {
+					writeJSON(w, http.StatusBadRequest, map[string]any{"message": err.Error(), "violations": list.ViolationList()})
+					return
+				}
 				writeJSONError(w, http.StatusBadRequest, err.Error())
 				return
 			}

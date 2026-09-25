@@ -2,7 +2,6 @@
 package api
 
 import (
-	"errors"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -20,6 +19,14 @@ func inSet(v string, allowed ...string) bool {
 	return false
 }
 
+type ValidationErrors struct {
+	Violations []string
+}
+
+func (e *ValidationErrors) Error() string { return strings.Join(e.Violations, "; ") }
+
+func (e *ValidationErrors) ViolationList() []string { return e.Violations }
+
 func (m *User) Validate() error {
 	if m == nil {
 		return nil
@@ -35,7 +42,7 @@ func (m *User) Validate() error {
 		violations = append(violations, "email must be a valid email")
 	}
 	if len(violations) > 0 {
-		return errors.New(strings.Join(violations, "; "))
+		return &ValidationErrors{Violations: violations}
 	}
 	return nil
 }
@@ -52,7 +59,7 @@ func (m *CreateUserRequest) Validate() error {
 		violations = append(violations, "email must be a valid email")
 	}
 	if len(violations) > 0 {
-		return errors.New(strings.Join(violations, "; "))
+		return &ValidationErrors{Violations: violations}
 	}
 	return nil
 }
@@ -66,7 +73,7 @@ func (m *GetUserRequest) Validate() error {
 		violations = append(violations, "id must be a valid uuid")
 	}
 	if len(violations) > 0 {
-		return errors.New(strings.Join(violations, "; "))
+		return &ValidationErrors{Violations: violations}
 	}
 	return nil
 }
@@ -83,7 +90,7 @@ func (m *EmailAuth) Validate() error {
 		violations = append(violations, "password must be between 8 and 72 characters")
 	}
 	if len(violations) > 0 {
-		return errors.New(strings.Join(violations, "; "))
+		return &ValidationErrors{Violations: violations}
 	}
 	return nil
 }
@@ -97,7 +104,7 @@ func (m *TokenAuth) Validate() error {
 		violations = append(violations, "token must be between 10 and 256 characters")
 	}
 	if len(violations) > 0 {
-		return errors.New(strings.Join(violations, "; "))
+		return &ValidationErrors{Violations: violations}
 	}
 	return nil
 }
@@ -114,7 +121,7 @@ func (m *SocialAuth) Validate() error {
 		violations = append(violations, "access_token must be between 20 and 512 characters")
 	}
 	if len(violations) > 0 {
-		return errors.New(strings.Join(violations, "; "))
+		return &ValidationErrors{Violations: violations}
 	}
 	return nil
 }
@@ -145,7 +152,7 @@ func (m *LoginRequest) Validate() error {
 		}
 	}
 	if len(violations) > 0 {
-		return errors.New(strings.Join(violations, "; "))
+		return &ValidationErrors{Violations: violations}
 	}
 	return nil
 }
@@ -161,7 +168,7 @@ func (m *LoginResponse) Validate() error {
 		}
 	}
 	if len(violations) > 0 {
-		return errors.New(strings.Join(violations, "; "))
+		return &ValidationErrors{Violations: violations}
 	}
 	return nil
 }

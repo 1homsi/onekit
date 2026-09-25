@@ -593,6 +593,11 @@ func writeParsedFieldAssignment(p *Printer, field *onkir.Field, call, location s
 func writeValidateCall(p *Printer) {
 	p.P("if v, ok := any(req).(interface{ Validate() error }); ok {")
 	p.P("if err := v.Validate(); err != nil {")
+	p.P(`var list interface{ ViolationList() []string }`)
+	p.P(`if errors.As(err, &list) {`)
+	p.P(`writeJSON(w, http.StatusBadRequest, map[string]any{"message": err.Error(), "violations": list.ViolationList()})`)
+	p.P("return")
+	p.P("}")
 	p.P(`writeJSONError(w, http.StatusBadRequest, err.Error())`)
 	p.P("return")
 	p.P("}")

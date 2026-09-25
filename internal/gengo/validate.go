@@ -259,7 +259,6 @@ func GenerateValidation(file *onkir.File) ([]byte, error) {
 	p.P("package ", GoPackageName(file))
 	p.P()
 	p.P(`import (`)
-	p.P(`"errors"`)
 	if usage.email || usage.uuid || usage.uri || usage.in || len(patternDecls) > 0 {
 		p.P(`"regexp"`)
 	}
@@ -299,6 +298,14 @@ func GenerateValidation(file *onkir.File) ([]byte, error) {
 		p.P()
 	}
 
+	p.P("type ValidationErrors struct {")
+	p.P("Violations []string")
+	p.P("}")
+	p.P()
+	p.P(`func (e *ValidationErrors) Error() string { return strings.Join(e.Violations, "; ") }`)
+	p.P()
+	p.P("func (e *ValidationErrors) ViolationList() []string { return e.Violations }")
+	p.P()
 	for _, m := range file.Messages {
 		writeValidate(p, m)
 	}
@@ -366,7 +373,7 @@ func writeValidate(p *Printer, m *onkir.Message) {
 		writeNestedValidation(p, f)
 	}
 	p.P("if len(violations) > 0 {")
-	p.P(`return errors.New(strings.Join(violations, "; "))`)
+	p.P(`return &ValidationErrors{Violations: violations}`)
 	p.P("}")
 	p.P("return nil")
 	p.P("}")
