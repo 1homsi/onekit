@@ -137,7 +137,23 @@ func (r *pyResolver) resolve(dir string, ok bool) (genpy.PackageRef, bool) {
 	if !ok || dir == r.currentDir {
 		return genpy.PackageRef{}, false
 	}
-	return genpy.PackageRef{Alias: goPackageAlias(dir) + "_models", ModulePath: pyModulePath(dir)}, true
+	return genpy.PackageRef{Alias: goPackageAlias(dir) + "_models", ModulePath: pyModulePath(dir), RelativePackage: pyRelativePackage(r.currentDir, dir)}, true
+}
+
+func pyRelativePackage(from, to string) string {
+	depth := 0
+	if from != "." && from != "" {
+		depth = len(strings.Split(filepath.ToSlash(from), "/"))
+	}
+	dots := strings.Repeat(".", depth+1)
+	if to == "." || to == "" {
+		return dots
+	}
+	parts := strings.Split(filepath.ToSlash(to), "/")
+	for i, part := range parts {
+		parts[i] = pythonModuleSegment(part)
+	}
+	return dots + strings.Join(parts, ".")
 }
 
 func (r *pyResolver) ResolveMessage(m *onkir.Message) (genpy.PackageRef, bool) {

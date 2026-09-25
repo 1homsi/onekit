@@ -33,10 +33,17 @@ func GenerateClientWithResolver(file *onkir.File, typesModule string, resolver P
 	}
 	p.P()
 	if names := localReferencedTypeNames(file, resolver); len(names) > 0 {
+		p.P("try:")
+		p.Indent()
+		p.P("from .models import ", strings.Join(names, ", "))
+		p.Dedent()
+		p.P("except ImportError:")
+		p.Indent()
 		p.P("from ", typesModule, " import ", strings.Join(names, ", "))
+		p.Dedent()
 	}
 	for _, ref := range collectServiceExternalRefs(file, resolver) {
-		p.P("import ", ref.ModulePath, " as ", ref.Alias)
+		writePyModuleImport(p, ref)
 	}
 	p.P()
 
