@@ -369,6 +369,20 @@ func pathParameter(name string, req *onkir.Message) *v3.Parameter {
 	return parameter
 }
 
+func bodyWithoutPathParams(req *onkir.Message, names []string) *base.Schema {
+	schema := messageSchema(req)
+	for _, name := range names {
+		schema.Properties.Delete(name)
+	}
+	schema.Required = slices.DeleteFunc(schema.Required, func(field string) bool {
+		return slices.Contains(names, field)
+	})
+	if len(schema.Required) == 0 {
+		schema.Required = nil
+	}
+	return schema
+}
+
 func queryParameters(req *onkir.Message) []*v3.Parameter {
 	var params []*v3.Parameter
 	for _, f := range req.Fields {
@@ -434,15 +448,20 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 	if bodyBearing {
 		content := orderedmap.New[string, *v3.MediaType]()
 		requestSchema := base.CreateSchemaProxyRef("#/components/schemas/" + componentName(m.Request.FullName()))
+		required := true
 		if bodyField, ok := m.BodyField(); ok {
 			if field := onkir.FindField(m.Request, bodyField); field != nil {
 				requestSchema = fieldSchemaProxy(field)
 			}
+		} else if names := onkir.PathParamNames(path); len(names) > 0 {
+			body := bodyWithoutPathParams(m.Request, names)
+			requestSchema = base.CreateSchemaProxy(body)
+			required = len(body.Required) > 0
 		}
 		content.Set("application/json", &v3.MediaType{
 			Schema: requestSchema,
 		})
-		op.RequestBody = &v3.RequestBody{Required: new(true), Content: content}
+		op.RequestBody = &v3.RequestBody{Required: new(required), Content: content}
 	}
 
 	responses := &v3.Responses{Codes: orderedmap.New[string, *v3.Response]()}
