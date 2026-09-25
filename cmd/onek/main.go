@@ -20,6 +20,7 @@ import (
 
 	"github.com/1homsi/onekit/internal/onek"
 	"github.com/1homsi/onekit/internal/onkcompat"
+	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkimport"
 	"github.com/1homsi/onekit/internal/onklang"
 )
@@ -35,7 +36,7 @@ func usage(w io.Writer) {
   onek watch [--interval DURATION] [--dir DIR]
   onek mock [--addr ADDR] [--seed N] [--error-rate FLOAT] [--latency DURATION] [--dir DIR]
   onek init [--force] [DIR]
-  onek import [--out DIR] [--package NAME] [--service NAME] [--force] OPENAPI-FILE
+  onek import [--out DIR] [--package NAME] [--service NAME] [--force] [--stdout] OPENAPI-FILE
   onek compat [--json] PREVIOUS-DIR CURRENT-DIR
   onek compat [--json] --against GIT-REF [CURRENT-DIR]
   onek mcp [--dir DIR]
@@ -280,6 +281,7 @@ func runImport(args []string) error {
 	pkg := fs.String("package", "", "generated package name (default: derived from info.title)")
 	service := fs.String("service", "", "generated service name (default: package + Service)")
 	force := fs.Bool("force", false, "overwrite an existing .onk file")
+	toStdout := fs.Bool("stdout", false, "print the schema instead of writing it")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -299,8 +301,16 @@ func runImport(args []string) error {
 	}
 	// Never write output that does not parse - a broken import is worse than
 	// a failed one.
-	if _, err := onklang.Parse(string(result.Source)); err != nil {
+	ast, err := onklang.Parse(string(result.Source))
+	if err != nil {
 		return fmt.Errorf("internal: imported schema does not parse: %w", err)
+	}
+	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: result.Package + ".onk", AST: ast}}); err != nil {
+		return fmt.Errorf("imported schema does not pass onek check: %w", err)
+	}
+	if *toStdout {
+		_, err := os.Stdout.Write(result.Source)
+		return err
 	}
 	if err := os.MkdirAll(*outDir, 0o750); err != nil {
 		return fmt.Errorf("create %s: %w", *outDir, err)

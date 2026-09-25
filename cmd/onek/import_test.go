@@ -38,3 +38,20 @@ func TestImportRefusesToOverwriteWithoutForce(t *testing.T) {
 		t.Fatalf("forced import: %v", err)
 	}
 }
+
+func TestImportRejectsSchemasThatFailCheck(t *testing.T) {
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "spec.json")
+	broken := `{"openapi":"3.0.0","info":{"title":"Pets","version":"1"},"paths":{"/pets/{id}":{"delete":{"operationId":"removePet","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"requestBody":{"content":{"application/json":{"schema":{"type":"object","properties":{"reason":{"type":"string"}}}}}},"responses":{"200":{"description":"ok"}}}}}}`
+	if err := os.WriteFile(spec, []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "schemas")
+	err := run([]string{"import", "--out", out, spec})
+	if err == nil || !strings.Contains(err.Error(), "does not pass onek check") {
+		t.Fatalf("want check failure, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(out, "pets.onk")); !os.IsNotExist(statErr) {
+		t.Fatalf("broken schema was written: %v", statErr)
+	}
+}
