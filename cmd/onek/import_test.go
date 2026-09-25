@@ -42,7 +42,7 @@ func TestImportRefusesToOverwriteWithoutForce(t *testing.T) {
 func TestImportRejectsSchemasThatFailCheck(t *testing.T) {
 	dir := t.TempDir()
 	spec := filepath.Join(dir, "spec.json")
-	broken := `{"openapi":"3.0.0","info":{"title":"Pets","version":"1"},"paths":{"/pets/{id}":{"delete":{"operationId":"removePet","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"requestBody":{"content":{"application/json":{"schema":{"type":"object","properties":{"reason":{"type":"string"}}}}}},"responses":{"200":{"description":"ok"}}}}}}`
+	broken := `{"openapi":"3.0.0","info":{"title":"Pets","version":"1"},"paths":{"/pets":{"post":{"operationId":"createPet","requestBody":{"content":{"application/json":{"schema":{"type":"object","properties":{"name":{"type":"string","minLength":5,"maxLength":2}}}}}},"responses":{"200":{"description":"ok"}}}}}}`
 	if err := os.WriteFile(spec, []byte(broken), 0o644); err != nil {
 		t.Fatal(err)
 	}
