@@ -398,6 +398,9 @@ func writeFile(path string, data []byte) error {
 		}
 		return nil
 	}
+	if filepath.Base(filepath.Dir(path)) != ".onekit" {
+		writtenFiles++
+	}
 	err := os.MkdirAll(filepath.Dir(path), genDirPerm)
 	if err != nil {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
@@ -446,6 +449,23 @@ func goPackageIdent(segment string) string {
 func groupOutDir(outRoot, relDir string) string {
 	return filepath.Join(outRoot, filepath.FromSlash(relDir))
 }
+
+type BuildSummary struct {
+	Targets []string
+	Files   int
+}
+
+func BuildWithSummary(dir string) (BuildSummary, error) {
+	writtenFiles = 0
+	err := Build(dir)
+	summary := BuildSummary{Files: writtenFiles}
+	if cfg, cfgErr := LoadConfig(dir); cfgErr == nil {
+		summary.Targets = cfg.EnabledTargets()
+	}
+	return summary, err
+}
+
+var writtenFiles int
 
 // Build parses and compiles every .onk file under dir, then generates every
 // target configured in onekit.toml.
