@@ -62,7 +62,7 @@ service API {
 }
 
 func TestFormatRejectsInvalidSchema(t *testing.T) {
-	if _, err := Format("message Broken {"); err == nil || !strings.Contains(err.Error(), "expected IDENT") {
+	if _, err := Format("message Broken {"); err == nil || !strings.Contains(err.Error(), "missing } for message Broken") {
 		t.Fatalf("expected parse error, got %v", err)
 	}
 }
