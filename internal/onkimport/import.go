@@ -15,6 +15,7 @@ package onkimport
 import (
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -566,7 +567,11 @@ func (im *importer) convertProperties(msgName string, props map[string]any, requ
 			im.warnf("%s.%q has no convertible schema; mapped to json", msgName, rawName)
 			ft = fieldType{expr: "json"}
 		}
+		ft.suffix += im.constraintDecorators(im.derefSchema(asMap(props[rawName])), ft.expr)
 		line := composeFieldLine(field, ft, !required[rawName], msgName, rawName)
+		if doc := text(asMap(props[rawName]), "description"); doc != "" {
+			line = docLines(doc) + line
+		}
 		lines = append(lines, line)
 	}
 	return lines
@@ -589,6 +594,85 @@ func (im *importer) collectAllOfProperties(parts []any, props map[string]any, de
 			props[k] = v
 		}
 	}
+}
+
+func (im *importer) derefSchema(schema map[string]any) map[string]any {
+	if ref := text(schema, "$ref"); ref != "" {
+		if resolved := im.lookupRef(ref); resolved != nil {
+			return resolved
+		}
+	}
+	return schema
+}
+
+func docLines(doc string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(strings.TrimSpace(doc), "\n") {
+		b.WriteString("/// " + strings.TrimSpace(line) + "\n  ")
+	}
+	return b.String()
+}
+
+func (im *importer) constraintDecorators(schema map[string]any, expr string) string {
+	number := func(key string) (string, bool) {
+		var value float64
+		switch typed := schema[key].(type) {
+		case float64:
+			value = typed
+		case int:
+			value = float64(typed)
+		case int64:
+			value = float64(typed)
+		case uint64:
+			value = float64(typed)
+		default:
+			return "", false
+		}
+		if strings.HasPrefix(expr, "int") || strings.HasPrefix(expr, "uint") {
+			if value != math.Trunc(value) {
+				return "", false
+			}
+		}
+		return strconv.FormatFloat(value, 'f', -1, 64), true
+	}
+	var out strings.Builder
+	switch {
+	case expr == scalarString:
+		if maxLength, ok := number("maxLength"); ok {
+			minLength, hasMin := number("minLength")
+			if !hasMin {
+				minLength = "0"
+			}
+			out.WriteString(" @len(" + minLength + ", " + maxLength + ")")
+		}
+	case strings.HasSuffix(expr, "[]"):
+		if value, ok := number("minItems"); ok {
+			out.WriteString(" @min_items(" + value + ")")
+		}
+		if value, ok := number("maxItems"); ok {
+			out.WriteString(" @max_items(" + value + ")")
+		}
+	case isScalarExpr(expr) && expr != "bool" && expr != "timestamp" && expr != "json":
+		if value, ok := number("minimum"); ok {
+			if schema["exclusiveMinimum"] == true {
+				out.WriteString(" @gt(" + value + ")")
+			} else {
+				out.WriteString(" @gte(" + value + ")")
+			}
+		} else if value, ok := number("exclusiveMinimum"); ok {
+			out.WriteString(" @gt(" + value + ")")
+		}
+		if value, ok := number("maximum"); ok {
+			if schema["exclusiveMaximum"] == true {
+				out.WriteString(" @lt(" + value + ")")
+			} else {
+				out.WriteString(" @lte(" + value + ")")
+			}
+		} else if value, ok := number("exclusiveMaximum"); ok {
+			out.WriteString(" @lt(" + value + ")")
+		}
+	}
+	return out.String()
 }
 
 // --- refs ------------------------------------------------------------------
