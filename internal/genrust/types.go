@@ -771,13 +771,46 @@ func writeOneof(p *Printer, message *onkir.Message, field *onkir.Field) {
 	p.P("pub enum ", name, " {")
 	p.Indent()
 	for _, variant := range field.Oneof.Variants {
-		p.P(PascalCase(variant.Name), "(", p.RustType(variant.Type), "),")
+		variantType := p.RustType(variant.Type)
+		if boxedVariant(message, variant) {
+			variantType = "Box<" + variantType + ">"
+		}
+		p.P(PascalCase(variant.Name), "(", variantType, "),")
 	}
 	p.Dedent()
 	p.P("}")
 	p.Blank()
 	writeOneofSerialize(p, name, field)
 	writeOneofDeserialize(p, name, field)
+}
+
+func boxedVariant(owner *onkir.Message, variant *onkir.OneofVariant) bool {
+	if variant.Type == nil || variant.Type.Kind != onkir.KindMessage || variant.Type.Message == nil {
+		return false
+	}
+	seen := map[*onkir.Message]bool{}
+	var reaches func(*onkir.Message) bool
+	reaches = func(message *onkir.Message) bool {
+		if message == owner {
+			return true
+		}
+		if seen[message] {
+			return false
+		}
+		seen[message] = true
+		for _, field := range message.Fields {
+			if field.Oneof == nil {
+				continue
+			}
+			for _, next := range field.Oneof.Variants {
+				if next.Type != nil && next.Type.Kind == onkir.KindMessage && next.Type.Message != nil && reaches(next.Type.Message) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return reaches(variant.Type.Message)
 }
 
 func writeOneofSerialize(p *Printer, name string, field *onkir.Field) {
