@@ -111,6 +111,8 @@ func TestBuildTSCompilesUnderStrictNodeESM(t *testing.T) {
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
     "lib": ["ES2022", "DOM"],
     "types": ["node", "ws"],
     "jsx": "react-jsx",

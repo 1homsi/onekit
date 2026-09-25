@@ -294,14 +294,16 @@ const WS_CHUNK_BYTES = 8 * 1024 * 1024;
 const WS_CHUNK_THRESHOLD = 16 * 1024 * 1024;
 
 export class WSChunkError extends Error {
-constructor(readonly code: number, message: string) { super(message); this.name = "WSChunkError"; }
+readonly code: number;
+constructor(code: number, message: string) { super(message); this.name = "WSChunkError"; this.code = code; }
 }
 
 export class WSAssembler {
 private buf: Uint8Array | undefined = undefined;
 private filled = 0;
 private kind = 0;
-constructor(private limit: number) {}
+private limit: number;
+constructor(limit: number) { this.limit = limit; }
 
 feed(data: unknown): string | Uint8Array | undefined {
 const malformed = () => new WSChunkError(1007, "malformed chunked message");
