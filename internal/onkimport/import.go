@@ -173,6 +173,7 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 			hasBody = true
 		}
 	}
+	boundPath := map[string]bool{}
 	var queryLines, otherLines []string
 	headers := im.securityHeaders(op, opName)
 	route := pathKey
@@ -205,6 +206,7 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 			if field != name {
 				route = strings.ReplaceAll(route, "{"+name+"}", "{"+field+"}")
 			}
+			boundPath[name] = true
 			otherLines = append(otherLines, line)
 		case "query":
 			switch {
@@ -217,6 +219,15 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 				queryLines = append(queryLines, line+" @query(\""+name+"\")")
 			}
 		}
+	}
+	for _, name := range pathTemplateNames(pathKey) {
+		if boundPath[name] {
+			continue
+		}
+		field := safeIdent(name)
+		route = strings.ReplaceAll(route, "{"+name+"}", "{"+field+"}")
+		otherLines = append(otherLines, field+": string")
+		im.warnf("%s: path parameter %q is not declared; imported as a string", opName, name)
 	}
 	if requestBody != nil {
 		if schema, ok := im.jsonSchema(asMap(requestBody["content"])); ok {
@@ -793,6 +804,22 @@ func docLines(doc string) string {
 		b.WriteString("/// " + strings.TrimSpace(line) + "\n  ")
 	}
 	return b.String()
+}
+
+func pathTemplateNames(path string) []string {
+	var names []string
+	for rest := path; ; {
+		start := strings.Index(rest, "{")
+		if start < 0 {
+			return names
+		}
+		end := strings.Index(rest[start:], "}")
+		if end < 0 {
+			return names
+		}
+		names = append(names, rest[start+1:start+end])
+		rest = rest[start+end+1:]
+	}
 }
 
 func orderedBounds(low, high string) bool {
