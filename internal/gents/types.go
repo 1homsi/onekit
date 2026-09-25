@@ -46,6 +46,21 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) []byt
 	return p.Bytes()
 }
 
+func tsDeprecatedDoc(doc string, deprecated func() (string, bool)) string {
+	reason, ok := deprecated()
+	if !ok {
+		return doc
+	}
+	tag := "@deprecated"
+	if reason != "" {
+		tag += " " + reason
+	}
+	if doc = strings.TrimSpace(doc); doc != "" {
+		return doc + "\n" + tag
+	}
+	return tag
+}
+
 func writeJSDoc(p *Printer, doc string) {
 	if doc = strings.TrimSpace(doc); doc == "" {
 		return
@@ -383,7 +398,7 @@ func tsRuntimeTypeExpression(field *onkir.Field, expr string) string {
 // "billingStreet"). Its wire key is the same prefix+field, just left in
 // snake_case.
 func writeField(p *Printer, m *onkir.Message, f *onkir.Field, wirePrefix string) {
-	writeJSDoc(p, f.Doc)
+	writeJSDoc(p, tsDeprecatedDoc(f.Doc, f.Deprecated))
 	separator, orUndefined := "?: ", " | undefined"
 	if f.HasDecorator("required") {
 		separator, orUndefined = ": ", ""

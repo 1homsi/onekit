@@ -563,7 +563,7 @@ func writeWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	reqRef := p.MessageTypeName(m.Request)
 	resRef := p.MessageTypeName(m.Response)
 
-	writeDoc(p, m.Doc)
+	writeDoc(p, deprecatedDoc(m.Doc, m.Deprecated))
 	p.P("func (c *", s.Name, "Client) ", PascalCase(m.Name),
 		"(ctx context.Context, req *", reqRef, ") (*", wsDuplexName(reqRef, resRef), ", error) {")
 

@@ -252,6 +252,9 @@ func concreteTypeSchema(field *onkir.Field) *base.Schema {
 }
 
 func applyFieldValidation(schema *base.Schema, field *onkir.Field) {
+	if _, deprecated := field.Deprecated(); deprecated {
+		schema.Deprecated = new(true)
+	}
 	if field.Doc != "" {
 		schema.Description = field.Doc
 	}
@@ -456,6 +459,9 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 	}
 	if m.Doc != "" {
 		op.Description = m.Doc
+	}
+	if _, deprecated := m.Deprecated(); deprecated {
+		op.Deprecated = new(true)
 	}
 
 	var params []*v3.Parameter

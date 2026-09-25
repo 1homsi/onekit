@@ -233,7 +233,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	path, _ := m.Path()
 	fullPath := s.BasePath + path
 
-	writeDoc(p, m.Doc)
+	writeDoc(p, deprecatedDoc(m.Doc, m.Deprecated))
 	p.P("func (c *", s.Name, "Client) ", PascalCase(m.Name),
 		"(ctx context.Context, req *", p.MessageTypeName(m.Request), ", opts ...CallOption) (*EventStream[",
 		p.MessageTypeName(m.Response), "], error) {")
