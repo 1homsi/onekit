@@ -20,6 +20,7 @@ type Options struct {
 	Title       string
 	Version     string
 	Description string
+	Servers     []string
 }
 
 func scalarSchema(k onkir.ScalarKind) *base.Schema {
@@ -631,6 +632,7 @@ func Generate(file *onkir.File, opts Options) ([]byte, error) {
 			Version:     opts.Version,
 			Description: opts.Description,
 		},
+		Servers:    documentServers(opts.Servers),
 		Paths:      &v3.Paths{PathItems: paths},
 		Components: &v3.Components{Schemas: schemas, SecuritySchemes: securitySchemes},
 		Tags:       serviceTags(file),
@@ -672,4 +674,12 @@ func serviceTags(file *onkir.File) []*base.Tag {
 		tags = append(tags, &base.Tag{Name: s.Name, Description: s.Doc})
 	}
 	return tags
+}
+
+func documentServers(urls []string) []*v3.Server {
+	servers := make([]*v3.Server, 0, len(urls))
+	for _, url := range urls {
+		servers = append(servers, &v3.Server{URL: url})
+	}
+	return servers
 }

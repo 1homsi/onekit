@@ -27,10 +27,11 @@ type TSClientTargetConfig struct {
 }
 
 type OpenAPITargetConfig struct {
-	Out         string `toml:"out"`
-	Title       string `toml:"title"`
-	Version     string `toml:"version"`
-	Description string `toml:"description"`
+	Out         string   `toml:"out"`
+	Title       string   `toml:"title"`
+	Version     string   `toml:"version"`
+	Description string   `toml:"description"`
+	Servers     []string `toml:"servers"`
 }
 
 type GenerateConfig struct {

@@ -102,6 +102,7 @@ out = "./src/generated"
 out = "./docs"
 title = "Your API"
 version = "1.0.0"
+servers = ["https://api.example.com"]
 ```
 
 The OpenAPI target writes one YAML/JSON pair per service, mirroring the schema
