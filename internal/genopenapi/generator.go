@@ -294,9 +294,20 @@ func enumSchema(e *onkir.Enum) *base.Schema {
 	for _, v := range e.Values {
 		nodes = append(nodes, &yaml.Node{Kind: yaml.ScalarNode, Value: v.JSONName()})
 	}
+	description := e.Doc
+	for _, v := range e.Values {
+		if v.Doc == "" {
+			continue
+		}
+		if description != "" {
+			description += "\n\n"
+		}
+		description += "- `" + v.JSONName() + "`: " + strings.ReplaceAll(v.Doc, "\n", " ")
+	}
 	return &base.Schema{
-		Type: []string{"string"},
-		Enum: nodes,
+		Type:        []string{"string"},
+		Enum:        nodes,
+		Description: description,
 	}
 }
 
@@ -622,6 +633,7 @@ func Generate(file *onkir.File, opts Options) ([]byte, error) {
 		},
 		Paths:      &v3.Paths{PathItems: paths},
 		Components: &v3.Components{Schemas: schemas, SecuritySchemes: securitySchemes},
+		Tags:       serviceTags(file),
 	}
 
 	yamlData, err := yaml.Marshal(doc)
@@ -652,4 +664,12 @@ func fileHasHTTPMethods(file *onkir.File) bool {
 		}
 	}
 	return false
+}
+
+func serviceTags(file *onkir.File) []*base.Tag {
+	var tags []*base.Tag
+	for _, s := range file.Services {
+		tags = append(tags, &base.Tag{Name: s.Name, Description: s.Doc})
+	}
+	return tags
 }
