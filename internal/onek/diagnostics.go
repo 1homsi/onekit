@@ -70,7 +70,7 @@ func Diagnostics(err error) []Diagnostic {
 	}
 	var configErr *ConfigError
 	if errors.As(err, &configErr) {
-		return []Diagnostic{{Path: configErr.Path, Code: "config_error", Message: configErr.Err.Error()}}
+		return []Diagnostic{{Path: configErr.Path, Line: configErr.Line, Column: configErr.Column, Code: "config_error", Message: configErr.Err.Error()}}
 	}
 	var formatErr *FormatError
 	if errors.As(err, &formatErr) {

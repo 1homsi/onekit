@@ -6,6 +6,9 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -103,11 +106,18 @@ const configFileName = "onekit.toml"
 // ConfigError gives editor integrations a concrete file location for TOML
 // and project configuration failures while preserving the wrapped cause.
 type ConfigError struct {
-	Path string
-	Err  error
+	Path   string
+	Line   int
+	Column int
+	Err    error
 }
 
-func (e *ConfigError) Error() string { return fmt.Sprintf("parse %s: %v", e.Path, e.Err) }
+func (e *ConfigError) Error() string {
+	if e.Line > 0 && !tomlErrorLine.MatchString(e.Err.Error()) {
+		return fmt.Sprintf("parse %s:%d:%d: %v", e.Path, e.Line, e.Column, e.Err)
+	}
+	return fmt.Sprintf("parse %s: %v", e.Path, e.Err)
+}
 
 func (e *ConfigError) Unwrap() error { return e.Err }
 
@@ -124,14 +134,26 @@ func LoadConfig(dir string) (*Config, error) {
 	var cfg Config
 	metadata, err := toml.Decode(string(data), &cfg)
 	if err != nil {
-		return nil, &ConfigError{Path: path, Err: err}
+		configErr := &ConfigError{Path: path, Err: err}
+		var parseErr toml.ParseError
+		if errors.As(err, &parseErr) {
+			configErr.Line, configErr.Column = parseErr.Position.Line, parseErr.Position.Col
+		} else if match := tomlErrorLine.FindStringSubmatch(err.Error()); match != nil {
+			configErr.Line, _ = strconv.Atoi(match[1])
+			if lines := strings.Split(string(data), "\n"); configErr.Line <= len(lines) {
+				line := lines[configErr.Line-1]
+				configErr.Column = len(line) - len(strings.TrimLeft(line, " \t")) + 1
+			}
+		}
+		return nil, configErr
 	}
 	if undecoded := metadata.Undecoded(); len(undecoded) > 0 {
 		keys := make([]string, len(undecoded))
 		for i, key := range undecoded {
 			keys[i] = key.String()
 		}
-		return nil, &ConfigError{Path: path, Err: fmt.Errorf("unknown configuration key(s): %s", strings.Join(describeUnknownKeys(keys), ", "))}
+		line, column := tomlKeyPosition(string(data), undecoded[0])
+		return nil, &ConfigError{Path: path, Line: line, Column: column, Err: fmt.Errorf("unknown configuration key(s): %s", strings.Join(describeUnknownKeys(keys), ", "))}
 	}
 	if cfg.Module == "" {
 		return nil, &ConfigError{Path: path, Err: errors.New("module is required")}
@@ -257,4 +279,43 @@ func (c *Config) resolve(path string) string {
 		return path
 	}
 	return filepath.Join(c.dir, path)
+}
+
+var tomlErrorLine = regexp.MustCompile(`^toml: line (\d+)`)
+
+func tomlKeyPosition(text string, key toml.Key) (int, int) {
+	unquote := func(part string) string {
+		return strings.Trim(strings.TrimSpace(part), `"'`)
+	}
+	splitKey := func(raw string) []string {
+		parts := strings.Split(raw, ".")
+		for i, part := range parts {
+			parts[i] = unquote(part)
+		}
+		return parts
+	}
+	var table []string
+	for index, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == "" || strings.HasPrefix(trimmed, "#"):
+			continue
+		case strings.HasPrefix(trimmed, "["):
+			header := strings.Trim(strings.SplitN(trimmed, "#", 2)[0], "[] \t")
+			table = splitKey(header)
+			if slices.Equal(table, key) {
+				return index + 1, strings.Index(line, "[") + 1
+			}
+			continue
+		}
+		name, _, found := strings.Cut(trimmed, "=")
+		if !found {
+			continue
+		}
+		full := append(slices.Clone(table), splitKey(name)...)
+		if slices.Equal(full, key) || len(full) < len(key) && slices.Equal(full, key[:len(full)]) {
+			return index + 1, len(line) - len(strings.TrimLeft(line, " \t")) + 1
+		}
+	}
+	return 0, 0
 }
