@@ -8,13 +8,23 @@ import (
 )
 
 type Printer struct {
-	b        strings.Builder
-	indent   int
-	resolver PackageResolver
+	b               strings.Builder
+	indent          int
+	resolver        PackageResolver
+	validationError string
 }
 
 func newPrinter(resolver PackageResolver) *Printer {
-	return &Printer{resolver: resolver}
+	return &Printer{resolver: resolver, validationError: "ValidationError"}
+}
+
+func (p *Printer) forFile(file *onkir.File) *Printer {
+	for _, message := range fileMessagesDeep(file) {
+		if RustMessageName(message) == p.validationError {
+			p.validationError = "OnekitValidationError"
+		}
+	}
+	return p
 }
 
 func (p *Printer) P(args ...any) {
