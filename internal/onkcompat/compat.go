@@ -27,6 +27,7 @@ func Compare(previous, current *onkir.Package) []Finding {
 		findings = append(findings, compareMessage(name, old, newer)...)
 	}
 	oldEnums, newEnums := enums(previous), enums(current)
+	numbered := numberEncodedEnums(oldMessages)
 	for name, old := range oldEnums {
 		newer, ok := newEnums[name]
 		if !ok {
@@ -34,6 +35,9 @@ func Compare(previous, current *onkir.Package) []Finding {
 			continue
 		}
 		findings = append(findings, compareEnum(name, old, newer)...)
+		if numbered[name] {
+			findings = append(findings, compareEnumPositions(name, old, newer)...)
+		}
 	}
 	oldRoutes, newRoutes := routes(previous), routes(current)
 	for key, old := range oldRoutes {
@@ -95,6 +99,37 @@ func compareEnum(name string, old, current *onkir.Enum) []Finding {
 			findings = append(findings, Finding{Path: name + "." + value.Name, Message: "enum value was removed"})
 		} else if jsonName != value.JSONName() {
 			findings = append(findings, Finding{Path: name + "." + value.Name, Message: "enum JSON value changed"})
+		}
+	}
+	return findings
+}
+
+func numberEncodedEnums(messages map[string]*onkir.Message) map[string]bool {
+	out := map[string]bool{}
+	for _, message := range messages {
+		for _, field := range message.Fields {
+			if field.Type == nil || field.Type.Kind != onkir.KindEnum {
+				continue
+			}
+			if encode, ok := field.Decorator("encode"); ok {
+				if value, _ := encode.Value(); value == "number" {
+					out[field.Type.Enum.FullName()] = true
+				}
+			}
+		}
+	}
+	return out
+}
+
+func compareEnumPositions(name string, old, current *onkir.Enum) []Finding {
+	positions := map[string]int{}
+	for index, value := range current.Values {
+		positions[value.Name] = index
+	}
+	var findings []Finding
+	for index, value := range old.Values {
+		if position, ok := positions[value.Name]; ok && position != index {
+			findings = append(findings, Finding{Path: name + "." + value.Name, Message: fmt.Sprintf("enum value moved from %d to %d, changing its @encode(number) wire value", index, position)})
 		}
 	}
 	return findings
