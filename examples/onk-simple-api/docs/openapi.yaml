@@ -188,15 +188,39 @@ components:
                     type: string
                 auth_method:
                     oneOf:
-                        - $ref: '#/components/schemas/examples.onksimpleapi.models.EmailAuth'
-                        - $ref: '#/components/schemas/examples.onksimpleapi.models.TokenAuth'
-                        - $ref: '#/components/schemas/examples.onksimpleapi.models.SocialAuth'
-                    discriminator:
-                        propertyName: auth_type
-                        mapping:
-                            email: '#/components/schemas/examples.onksimpleapi.models.EmailAuth'
-                            token: '#/components/schemas/examples.onksimpleapi.models.TokenAuth'
-                            social: '#/components/schemas/examples.onksimpleapi.models.SocialAuth'
+                        - type: object
+                          properties:
+                            auth_type:
+                                type: string
+                                const: email
+                            email:
+                                $ref: '#/components/schemas/examples.onksimpleapi.models.EmailAuth'
+                          title: email
+                          required:
+                            - auth_type
+                            - email
+                        - type: object
+                          properties:
+                            auth_type:
+                                type: string
+                                const: token
+                            token:
+                                $ref: '#/components/schemas/examples.onksimpleapi.models.TokenAuth'
+                          title: token
+                          required:
+                            - auth_type
+                            - token
+                        - type: object
+                          properties:
+                            auth_type:
+                                type: string
+                                const: social
+                            social:
+                                $ref: '#/components/schemas/examples.onksimpleapi.models.SocialAuth'
+                          title: social
+                          required:
+                            - auth_type
+                            - social
                 remember_me:
                     type: boolean
                 session_id:
