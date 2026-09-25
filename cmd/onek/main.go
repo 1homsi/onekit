@@ -35,7 +35,7 @@ func usage(w io.Writer) {
   onek generate [--dir DIR]
   onek fmt [--check] [--dir DIR | FILE.onk... | -]
   onek watch [--interval DURATION] [--dir DIR]
-  onek mock [--addr ADDR] [--seed N] [--error-rate FLOAT] [--latency DURATION] [--dir DIR]
+  onek mock [--addr ADDR] [--seed N] [--error-rate FLOAT] [--latency DURATION] [--watch] [--dir DIR]
   onek init [--force] [DIR]
   onek import [--out DIR] [--package NAME] [--service NAME] [--force] [--stdout] OPENAPI-FILE
   onek compat [--json] PREVIOUS-DIR CURRENT-DIR
@@ -261,6 +261,7 @@ func runMock(args []string) error {
 	errorRate := fs.Float64("error-rate", 0, "probability [0,1] of serving a declared typed error")
 	latency := fs.Duration("latency", 0, "inject up to this much random latency per request")
 	noCORS := fs.Bool("no-cors", false, "do not send CORS headers")
+	watch := fs.Bool("watch", false, "reload routes and fixtures when the schema changes")
 	dir := fs.String("dir", ".", "schema project directory")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -270,18 +271,22 @@ func runMock(args []string) error {
 	} else if len(positional) == 1 {
 		*dir = positional[0]
 	}
-	server, err := onek.NewMockServer(*dir, onek.MockOptions{
+	opts := onek.MockOptions{
 		Addr:      *addr,
 		Seed:      *seed,
 		ErrorRate: *errorRate,
 		Latency:   *latency,
 		NoCORS:    *noCORS,
-	})
-	if err != nil {
-		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if *watch {
+		return onek.RunMockWithReload(ctx, *dir, opts, 500*time.Millisecond, os.Stdout)
+	}
+	server, err := onek.NewMockServer(*dir, opts)
+	if err != nil {
+		return err
+	}
 	return server.Run(ctx, *addr, os.Stdout)
 }
 
