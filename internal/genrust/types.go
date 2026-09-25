@@ -1130,7 +1130,7 @@ func writeFieldValidation(p *Printer, field *onkir.Field, patternFuncs map[strin
 			case "range":
 				writeRangeValidation(p, field, decorator, valueExpr, errorLine)
 			case "in":
-				writeInValidation(p, decorator, valueExpr, errorLine)
+				writeInValidation(p, field, decorator, valueExpr, errorLine)
 			}
 		}
 		if guardEnd != "" {
@@ -1278,15 +1278,27 @@ func writeRangeValidation(p *Printer, field *onkir.Field, decorator onkir.Decora
 	p.P("}")
 }
 
-func writeInValidation(p *Printer, decorator onkir.Decorator, value string, fail func(string)) {
+func writeInValidation(p *Printer, field *onkir.Field, decorator onkir.Decorator, value string, fail func(string)) {
 	if len(decorator.Args) == 0 {
 		return
 	}
 	values := make([]string, 0, len(decorator.Args))
+	numeric := field.Type != nil && field.Type.Kind == onkir.KindScalar && field.Type.Scalar != onkir.ScalarString
 	for _, arg := range decorator.Args {
-		values = append(values, strconv.Quote(arg.Value))
+		if numeric {
+			values = append(values, arg.Value)
+		} else {
+			values = append(values, strconv.Quote(arg.Value))
+		}
 	}
-	p.P("if ![", strings.Join(values, ", "), "].contains(&", value, ".as_str()) {")
+	switch {
+	case numeric && value == validationValueVar:
+		p.P("if ![", strings.Join(values, ", "), "].contains(", value, ") {")
+	case numeric:
+		p.P("if ![", strings.Join(values, ", "), "].contains(&", value, ") {")
+	default:
+		p.P("if ![", strings.Join(values, ", "), "].contains(&", value, ".as_str()) {")
+	}
 	p.Indent()
 	fail("is not one of the allowed values")
 	p.Dedent()

@@ -30,6 +30,14 @@ func validateNumericBounds(filePath string, line int, decorator onklang.Decorato
 				return &Error{Path: filePath, Line: line, Msg: fmt.Sprintf("@%s argument %q must be a non-negative integer", decorator.Name, arg.Value)}
 			}
 		}
+	case decorator.Name == "in" && typ != nil:
+		if bounds, ok := integerBounds[typ.Name]; ok {
+			for _, arg := range decorator.Args {
+				if !fitsInteger(arg.Value, bounds[0], bounds[1]) {
+					return &Error{Path: filePath, Line: line, Msg: fmt.Sprintf("@in value %q must be an integer within the range of %s", arg.Value, typ.Name)}
+				}
+			}
+		}
 	case comparisonDecorators[decorator.Name]:
 		for _, arg := range decorator.Args {
 			if !decimalLiteral.MatchString(arg.Value) {

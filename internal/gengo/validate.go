@@ -130,6 +130,17 @@ func numericValidationRules(f *onkir.Field) []string {
 	accessor := fieldAccessor(f)
 	var rules []string
 
+	if d, ok := f.Decorator("in"); ok {
+		values := make([]string, 0, len(d.Args))
+		for _, a := range d.Args {
+			values = append(values, a.Value)
+		}
+		rules = append(rules, fmt.Sprintf(
+			"switch %s { case %s: default: violations = append(violations, %q) }",
+			accessor, strings.Join(values, ", "), f.Name+" must be one of the allowed values",
+		))
+	}
+
 	if d, ok := f.Decorator("range"); ok {
 		minArg, _ := d.Arg(0)
 		maxArg, _ := d.Arg(1)
@@ -340,9 +351,9 @@ func scanValidationUsage(file *onkir.File) validationFeatureUsage {
 				if f.HasDecorator("uri") {
 					usage.uri = true
 				}
-			}
-			if _, ok := f.Decorator("in"); ok {
-				usage.in = true
+				if f.HasDecorator("in") {
+					usage.in = true
+				}
 			}
 			if _, ok := f.Decorator("len"); ok {
 				usage.length = true
