@@ -144,7 +144,7 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 	// @query binding is only legal on non-body verbs, so detect a request
 	// body before emitting any parameters: query params on body-bearing
 	// operations must fold into plain fields.
-	requestBody := asMap(op["requestBody"])
+	requestBody := im.deref(asMap(op["requestBody"]))
 	hasBody := false
 	if requestBody != nil {
 		if _, ok := im.jsonSchema(asMap(requestBody["content"])); ok {
@@ -153,7 +153,7 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 	}
 	var queryLines, otherLines []string
 	for _, rawParam := range params {
-		param := asMap(rawParam)
+		param := im.deref(asMap(rawParam))
 		if param == nil {
 			continue
 		}
@@ -245,7 +245,7 @@ func (im *importer) responsePieces(opName string, responses map[string]any) (str
 	successCode := pickSuccess(responses)
 	schema, hasSchema := map[string]any{}, false
 	if successCode != "" {
-		schema, hasSchema = im.jsonSchema(asMap(asMap(responses[successCode])["content"]))
+		schema, hasSchema = im.jsonSchema(asMap(im.deref(asMap(responses[successCode]))["content"]))
 	}
 	switch {
 	case !hasSchema:
@@ -280,7 +280,7 @@ func (im *importer) responsePieces(opName string, responses map[string]any) (str
 		if err != nil || status < 400 || status > 599 {
 			continue
 		}
-		errSchema, ok := im.jsonSchema(asMap(asMap(responses[code])["content"]))
+		errSchema, ok := im.jsonSchema(asMap(im.deref(asMap(responses[code]))["content"]))
 		if !ok {
 			continue
 		}
@@ -503,6 +503,21 @@ func (im *importer) convertProperties(msgName string, props map[string]any, requ
 }
 
 // --- refs ------------------------------------------------------------------
+
+func (im *importer) deref(m map[string]any) map[string]any {
+	for range 8 {
+		ref := text(m, "$ref")
+		if ref == "" {
+			return m
+		}
+		resolved := im.lookupRef(ref)
+		if resolved == nil {
+			return m
+		}
+		m = resolved
+	}
+	return m
+}
 
 func (im *importer) lookupRef(ref string) map[string]any {
 	if !strings.HasPrefix(ref, "#/") {
