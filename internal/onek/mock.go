@@ -110,9 +110,33 @@ func NewMockServer(dir string, opts MockOptions) (*MockServer, error) {
 func (m *MockServer) Routes() int { return m.routes }
 
 // Handler exposes the underlying handler for tests and embedding.
+func (m *MockServer) routeOrError(w http.ResponseWriter, r *http.Request) {
+	if _, pattern := m.mux.Handler(r); pattern != "" {
+		m.mux.ServeHTTP(w, r)
+		return
+	}
+	var allowed []string
+	for _, verb := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, "QUERY"} {
+		probe := r.Clone(r.Context())
+		probe.Method = verb
+		if _, pattern := m.mux.Handler(probe); pattern != "" {
+			allowed = append(allowed, verb)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if len(allowed) > 0 {
+		w.Header().Set("Allow", strings.Join(allowed, ", "))
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "method " + r.Method + " not allowed for " + r.URL.Path})
+		return
+	}
+	w.WriteHeader(http.StatusNotFound)
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": "no mock route for " + r.Method + " " + r.URL.Path})
+}
+
 func (m *MockServer) Handler() http.Handler {
 	if !m.cors {
-		return m.mux
+		return http.HandlerFunc(m.routeOrError)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if origin := r.Header.Get("Origin"); origin != "" {
@@ -130,7 +154,7 @@ func (m *MockServer) Handler() http.Handler {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		m.mux.ServeHTTP(w, r)
+		m.routeOrError(w, r)
 	})
 }
 
