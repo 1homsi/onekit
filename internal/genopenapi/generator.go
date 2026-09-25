@@ -159,6 +159,8 @@ func emptyOmitted(f *onkir.Field) bool {
 	return value == "omit"
 }
 
+const verbQuery = "query"
+
 const base64URLEncoding = "base64url"
 
 func bytesEncodingSchema(encoding string) *base.Schema {
@@ -594,7 +596,7 @@ func assignOperation(item *v3.PathItem, verb string, op *v3.Operation) {
 		item.Delete = op
 	case "patch":
 		item.Patch = op
-	case "query":
+	case verbQuery:
 		item.Query = op
 	default:
 		item.Post = op
@@ -630,6 +632,7 @@ func Generate(file *onkir.File, opts Options) ([]byte, error) {
 		schemas.Set(errorMessageComponent, base.CreateSchemaProxy(errorMessageSchema()))
 	}
 
+	version := "3.1.0"
 	paths := orderedmap.New[string, *v3.PathItem]()
 	for _, s := range file.Services {
 		for _, m := range s.Methods {
@@ -644,6 +647,9 @@ func Generate(file *onkir.File, opts Options) ([]byte, error) {
 				continue
 			}
 			verb, _ := m.Verb()
+			if verb == verbQuery {
+				version = "3.2.0"
+			}
 			path, _ := m.Path()
 			fullPath := s.BasePath + path
 			item, ok := paths.Get(fullPath)
@@ -656,7 +662,7 @@ func Generate(file *onkir.File, opts Options) ([]byte, error) {
 	}
 
 	doc := &v3.Document{
-		Version: "3.1.0",
+		Version: version,
 		Info: &base.Info{
 			Title:       opts.Title,
 			Version:     opts.Version,
