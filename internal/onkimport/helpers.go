@@ -157,7 +157,14 @@ func pascalIdent(name string) string {
 	if cleaned == "" {
 		return "X"
 	}
-	return cleaned
+	runes := []rune(cleaned)
+	if !unicode.IsUpper(runes[0]) {
+		runes[0] = unicode.ToUpper(runes[0])
+		if !unicode.IsUpper(runes[0]) {
+			runes = append([]rune{'X'}, runes...)
+		}
+	}
+	return string(runes)
 }
 
 // refCanonicalName derives a component schema's declaration name from its
