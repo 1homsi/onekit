@@ -491,7 +491,11 @@ func writeOneofWireType(p *Printer, m *onkir.Message, f *onkir.Field) {
 	p.P("type ", oneofWireName(m, f), " struct {")
 	p.P("Tag string `json:\"", oneofDiscriminatorName(f), "\"`")
 	for _, variant := range f.Oneof.Variants {
-		p.P("V", PascalCase(variant.Name), " ", oneofWireFieldType(p, variant), " `json:\"", variant.Name, ",omitempty\"`")
+		options := ",omitempty"
+		if variant.Type.Kind == onkir.KindScalar && (variant.Type.Scalar == onkir.ScalarInt64 || variant.Type.Scalar == onkir.ScalarUint64) {
+			options += ",string"
+		}
+		p.P("V", PascalCase(variant.Name), " ", oneofWireFieldType(p, variant), " `json:\"", variant.Name, options, "\"`")
 	}
 	p.P("}")
 	p.P()
