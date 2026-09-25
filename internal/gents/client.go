@@ -126,6 +126,15 @@ func writeAPIError(p *Printer) {
 	p.P("export interface RequestOptions {")
 	p.P("signal?: AbortSignal;")
 	p.P("headers?: Record<string, string>;")
+	p.P("timeoutMs?: number;")
+	p.P("}")
+	p.P()
+	p.P("export const DEFAULT_REQUEST_TIMEOUT_MS = 30000;")
+	p.P()
+	p.P("function requestSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal | null {")
+	p.P("if (!(timeoutMs > 0)) return signal ?? null;")
+	p.P("const timeout = AbortSignal.timeout(timeoutMs);")
+	p.P("return signal ? AbortSignal.any([signal, timeout]) : timeout;")
 	p.P("}")
 	p.P()
 	p.P("export class ApiError extends Error {")
@@ -212,6 +221,7 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 	p.P("defaultHeaders?: Record<string, string>;")
 	p.P("maxResponseBodyBytes?: number;")
 	p.P("maxSSELineBytes?: number;")
+	p.P("timeoutMs?: number;")
 	for _, m := range s.Methods {
 		if m.IsWebSocket() {
 			p.P("// Cap on one inbound WebSocket message (default DEFAULT_MAX_WS_FRAME_BYTES);")
@@ -298,7 +308,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	} else {
 		p.P("headers: { ...this.options.defaultHeaders, ...opts?.headers },")
 	}
-	p.P("signal: opts?.signal ?? null,")
+	p.P("signal: requestSignal(opts?.signal, opts?.timeoutMs ?? this.options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS),")
 	p.P("});")
 	p.P()
 
