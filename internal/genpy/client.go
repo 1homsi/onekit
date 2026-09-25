@@ -91,6 +91,8 @@ func localReferencedTypeNames(file *onkir.File, resolver PackageResolver) []stri
 	return names
 }
 
+const pyCallOptions = ", *, headers: dict | None = None, timeout: float | None | object = _UNSET"
+
 func writeClientClass(p *Printer, s *onkir.Service) {
 	p.P("class ", s.Name, "Client:")
 	p.Indent()
@@ -136,7 +138,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	verb, _ := m.Verb()
 	path, _ := m.Path()
 	fullPath := s.BasePath + path
-	p.P("def ", SnakeCase(m.Name), "(self, req: ", p.MessageTypeName(m.Request), ") -> Iterator[", p.MessageTypeName(m.Response), "]:")
+	p.P("def ", SnakeCase(m.Name), "(self, req: ", p.MessageTypeName(m.Request), pyCallOptions, ") -> Iterator[", p.MessageTypeName(m.Response), "]:")
 	p.Indent()
 	writePyDoc(p, m.Doc)
 	writePyDeprecation(p, m)
@@ -146,13 +148,13 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeClientQueryParams(p, m.Request)
 	p.P(fmt.Sprintf("request = urllib.request.Request(self.base_url + path, method=%q)", strings.ToUpper(verb)))
 	p.P(`request.add_header("Accept", "text/event-stream")`)
-	p.P("for k, v in self.headers.items():")
+	p.P("for k, v in {**self.headers, **(headers or {})}.items():")
 	p.Indent()
 	p.P("request.add_header(k, v)")
 	p.Dedent()
 	p.P("try:")
 	p.Indent()
-	p.P("with urllib.request.urlopen(request) as resp:")
+	p.P("with urllib.request.urlopen(request, timeout=None if timeout is _UNSET else timeout) as resp:")
 	p.Indent()
 	p.P("event = \"\"")
 	p.P("data_lines: list[str] = []")
@@ -197,7 +199,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	fullPath := s.BasePath + path
 	bodyBearing := onkir.IsBodyBearingVerb(verb)
 
-	p.P("def ", SnakeCase(m.Name), "(self, req: ", p.MessageTypeName(m.Request),
+	p.P("def ", SnakeCase(m.Name), "(self, req: ", p.MessageTypeName(m.Request), pyCallOptions,
 		") -> ", p.MessageTypeName(m.Response), ":")
 	p.Indent()
 	writePyDoc(p, m.Doc)
@@ -229,7 +231,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	} else {
 		p.P(fmt.Sprintf("request = urllib.request.Request(self.base_url + path, method=%q)", strings.ToUpper(verb)))
 	}
-	p.P("for k, v in self.headers.items():")
+	p.P("for k, v in {**self.headers, **(headers or {})}.items():")
 	p.Indent()
 	p.P("request.add_header(k, v)")
 	p.Dedent()
@@ -237,7 +239,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 	p.P("try:")
 	p.Indent()
-	p.P("with urllib.request.urlopen(request, timeout=self.timeout) as resp:")
+	p.P("with urllib.request.urlopen(request, timeout=self.timeout if timeout is _UNSET else timeout) as resp:")
 	p.Indent()
 	p.P("return ", p.MessageTypeName(m.Response), ".from_dict(json.loads(_read_bounded(resp, self.max_response_body_bytes)))")
 	p.Dedent()
@@ -281,6 +283,8 @@ func writePyTypedErrorHandling(p *Printer, m *onkir.Method) {
 }
 
 func writeResponseBodyRuntime(p *Printer) {
+	p.P("_UNSET = object()")
+	p.Blank()
 	p.P("class UnexpectedStatusError(Exception):")
 	p.Indent()
 	p.P("def __init__(self, status: int, body: bytes, headers: dict[str, str]) -> None:")
