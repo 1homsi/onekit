@@ -189,6 +189,39 @@ func serviceHasWS(service *onkir.Service) bool {
 }
 
 //nolint:nestif // Extractor and response branches directly mirror the schema HTTP binding matrix.
+func writeRequestExtractor(p *Printer, method *onkir.Method, requestType string, bodyBearing bool) (string, string) {
+	if !bodyBearing {
+		p.P("query: Result<Query<", requestType, ">, axum::extract::rejection::QueryRejection>,")
+		return "", ""
+	}
+	p.P("raw_body: axum::body::Bytes,")
+	if bodyField, ok := method.BodyField(); ok {
+		if field := onkir.FindField(method.Request, bodyField); field != nil {
+			if bodyFieldNeedsCustomWire(field) {
+				return "body", "serde_json::Value"
+			}
+			return "body", rustFieldType(p, field)
+		}
+	}
+	return "mut req", requestType
+}
+
+func writeRequestDecode(p *Printer, errorName, binding, typ string) {
+	if binding == "" {
+		p.P("let mut req = match query {")
+		p.P("Ok(Query(value)) => value,")
+		p.P(`Err(error) => return `, errorName, `::InvalidRequest(format!("invalid query: {}", error.body_text())).into_response(),`)
+		p.P("};")
+		return
+	}
+	p.P("let ", binding, ": ", typ, " = if raw_body.is_empty() { Default::default() } else {")
+	p.P("match serde_json::from_slice(&raw_body) {")
+	p.P("Ok(value) => value,")
+	p.P(`Err(error) => return `, errorName, `::InvalidRequest(format!("invalid request body: {error}")).into_response(),`)
+	p.P("}")
+	p.P("};")
+}
+
 func writeHandler(
 	p *Printer,
 	service *onkir.Service,
@@ -210,28 +243,13 @@ func writeHandler(
 	if len(pathFields) > 0 {
 		p.P("Path(path): Path<std::collections::HashMap<String, String>>,")
 	}
-	if bodyBearing {
-		if bodyField, ok := method.BodyField(); ok {
-			if field := onkir.FindField(method.Request, bodyField); field != nil {
-				if bodyFieldNeedsCustomWire(field) {
-					p.P("Json(body): Json<serde_json::Value>,")
-				} else {
-					p.P("Json(body): Json<", rustFieldType(p, field), ">,")
-				}
-			} else {
-				p.P("Json(mut req): Json<", requestType, ">,")
-			}
-		} else {
-			p.P("Json(mut req): Json<", requestType, ">,")
-		}
-	} else {
-		p.P("Query(mut req): Query<", requestType, ">,")
-	}
+	bodyBinding, bodyType := writeRequestExtractor(p, method, requestType, bodyBearing)
 	p.Dedent()
 	p.P(") -> Response {")
 	p.Indent()
 
 	errorName := serverErrorName(service, method)
+	writeRequestDecode(p, errorName, bodyBinding, bodyType)
 	if verb == queryVerb {
 		writeQueryMethodGuard(p)
 	}
