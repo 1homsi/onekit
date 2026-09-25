@@ -46,7 +46,29 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) []byt
 	return p.Bytes()
 }
 
+func writeJSDoc(p *Printer, doc string) {
+	if doc = strings.TrimSpace(doc); doc == "" {
+		return
+	}
+	doc = strings.ReplaceAll(doc, "*/", "*\\/")
+	lines := strings.Split(doc, "\n")
+	if len(lines) == 1 {
+		p.P("/** ", lines[0], " */")
+		return
+	}
+	p.P("/**")
+	for _, line := range lines {
+		if line = strings.TrimRight(line, " \t"); line == "" {
+			p.P(" *")
+		} else {
+			p.P(" * ", line)
+		}
+	}
+	p.P(" */")
+}
+
 func writeEnum(p *Printer, e *onkir.Enum) {
+	writeJSDoc(p, e.Doc)
 	var values []string
 	for _, v := range e.Values {
 		values = append(values, fmt.Sprintf("%q", v.JSONName()))
@@ -121,6 +143,7 @@ func writeMessage(p *Printer, m *onkir.Message) {
 		return
 	}
 
+	writeJSDoc(p, m.Doc)
 	p.P("export interface ", m.Name, " {")
 	for _, f := range m.Fields {
 		writeField(p, m, f, "")
@@ -353,6 +376,7 @@ func tsRuntimeTypeExpression(field *onkir.Field, expr string) string {
 // "billingStreet"). Its wire key is the same prefix+field, just left in
 // snake_case.
 func writeField(p *Printer, m *onkir.Message, f *onkir.Field, wirePrefix string) {
+	writeJSDoc(p, f.Doc)
 	separator, orUndefined := "?: ", " | undefined"
 	if f.HasDecorator("required") {
 		separator, orUndefined = ": ", ""

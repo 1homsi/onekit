@@ -227,6 +227,7 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 	p.P("}")
 	p.P()
 
+	writeJSDoc(p, s.Doc)
 	p.P("export class ", s.Name, "Client {")
 	p.P("private baseUrl: string;")
 	p.P("private options: ", s.Name, "ClientOptions;")
@@ -263,6 +264,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	fullPath := s.BasePath + path
 	bodyBearing := onkir.IsBodyBearingVerb(verb)
 
+	writeJSDoc(p, m.Doc)
 	p.P("async ", CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request),
 		", opts?: RequestOptions): Promise<", p.MessageTypeName(m.Response), "> {")
 	validator := p.MessageCodecName(m.Request, "validate")
