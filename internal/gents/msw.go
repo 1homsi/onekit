@@ -173,10 +173,16 @@ func syntheticFieldLiteral(f *onkir.Field, depth int) string {
 		return strconv.Quote(firstEnumJSONName(f.Type.Enum))
 	case f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarInt64,
 		f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarUint64:
-		if !needsInt64NumberEncoding(f) {
-			return `"1"`
+		value := "1"
+		if d, ok := f.Decorator("in"); ok {
+			if first, ok := d.Arg(0); ok {
+				value = first
+			}
 		}
-		return "1"
+		if !needsInt64NumberEncoding(f) {
+			return strconv.Quote(value)
+		}
+		return value
 	case f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarTimestamp:
 		switch timestampEncodingValue(f) {
 		case timestampEncodeUnixSeconds:
@@ -204,11 +210,6 @@ func syntheticFieldLiteral(f *onkir.Field, depth int) string {
 	case f.Type.Kind == onkir.KindScalar && f.HasDecorator("in"):
 		d, _ := f.Decorator("in")
 		if value, ok := d.Arg(0); ok {
-			if f.Type.Scalar == onkir.ScalarInt64 || f.Type.Scalar == onkir.ScalarUint64 {
-				if !needsInt64NumberEncoding(f) {
-					return strconv.Quote(value)
-				}
-			}
 			return value
 		}
 	}
