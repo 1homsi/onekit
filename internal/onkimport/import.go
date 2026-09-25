@@ -739,8 +739,24 @@ func (im *importer) convertProperties(msgName string, props map[string]any, requ
 	}
 	sort.Strings(names)
 	lines := make([]string, 0, len(names))
+	final := map[string]string{}
+	claimed := map[string]bool{}
+	for _, pass := range []bool{true, false} {
+		for _, rawName := range names {
+			field := safeIdent(rawName)
+			if (field == rawName) != pass {
+				continue
+			}
+			base := field
+			for i := 2; claimed[fieldKey(field)]; i++ {
+				field = base + "_" + strconv.Itoa(i)
+			}
+			claimed[fieldKey(field)] = true
+			final[rawName] = field
+		}
+	}
 	for _, rawName := range names {
-		field := safeIdent(rawName)
+		field := final[rawName]
 		if field != rawName {
 			im.warnf("%s.%q renamed to %q", msgName, rawName, field)
 		}
@@ -799,6 +815,16 @@ func orderedBounds(low, high string) bool {
 	a, errA := strconv.ParseFloat(low, 64)
 	b, errB := strconv.ParseFloat(high, 64)
 	return errA == nil && errB == nil && a <= b
+}
+
+func fieldKey(name string) string {
+	var out strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
 }
 
 func (im *importer) constraintDecorators(schema map[string]any, expr string) string {
