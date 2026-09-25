@@ -45,6 +45,9 @@ func Compare(previous, current *onkir.Package) []Finding {
 			continue
 		}
 		findings = append(findings, compareEnum(name, old, newer)...)
+		if usage[enumUsageKey(name)]&usedInResponse != 0 {
+			findings = append(findings, addedEnumValues(name, old, newer)...)
+		}
 		if numbered[name] {
 			findings = append(findings, compareEnumPositions(name, old, newer)...)
 		}
@@ -88,6 +91,8 @@ func messageUsage(pkg *onkir.Package) map[string]direction {
 		switch typ.Kind {
 		case onkir.KindMessage:
 			mark(typ.Message, use)
+		case onkir.KindEnum:
+			out[enumUsageKey(typ.Enum.FullName())] |= use
 		case onkir.KindMap:
 			markType(typ.MapValue, use)
 		}
@@ -163,6 +168,24 @@ func compareEnum(name string, old, current *onkir.Enum) []Finding {
 			findings = append(findings, Finding{Path: name + "." + value.Name, Message: "enum value was removed"})
 		} else if jsonName != value.JSONName() {
 			findings = append(findings, Finding{Path: name + "." + value.Name, Message: "enum JSON value changed"})
+		}
+	}
+	return findings
+}
+
+func enumUsageKey(name string) string {
+	return "enum:" + name
+}
+
+func addedEnumValues(name string, old, current *onkir.Enum) []Finding {
+	existing := map[string]bool{}
+	for _, value := range old.Values {
+		existing[value.Name] = true
+	}
+	var findings []Finding
+	for _, value := range current.Values {
+		if !existing[value.Name] {
+			findings = append(findings, Finding{Path: name + "." + value.Name, Message: "enum value was added to a response enum; older clients reject unknown values"})
 		}
 	}
 	return findings
