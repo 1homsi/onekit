@@ -163,6 +163,7 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 		}
 	}
 	var queryLines, otherLines []string
+	headers := im.securityHeaders(op, opName)
 	route := pathKey
 	for _, rawParam := range params {
 		param := im.deref(asMap(rawParam))
@@ -171,9 +172,13 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 		}
 		name := text(param, "name")
 		in := text(param, "in")
-		if name == "" || in == "header" || in == "cookie" {
-			if in == "header" {
-				im.warnf("%s: header parameter %q skipped; declare header contracts explicitly", opName, name)
+		if in == "header" {
+			headers = appendHeader(headers, name, headerDecorators(param))
+			continue
+		}
+		if name == "" || in == "cookie" {
+			if in == "cookie" {
+				im.warnf("%s: cookie parameter %q is not supported and was dropped", opName, name)
 			}
 			continue
 		}
@@ -226,7 +231,99 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 		rpc.WriteString(" @body(\"body\")")
 	}
 	rpc.WriteString(" @" + method + "(\"" + route + "\")")
+	if len(headers) > 0 {
+		rpc.WriteString(" {\n    headers: {\n")
+		for _, header := range headers {
+			rpc.WriteString("      " + header.line + "\n")
+		}
+		rpc.WriteString("    }\n  }")
+	}
 	return rpc.String()
+}
+
+type importedHeader struct {
+	name string
+	line string
+}
+
+var implicitHeaders = map[string]bool{"accept": true, "content-type": true, "content-length": true}
+
+func appendHeader(headers []importedHeader, name, decorators string) []importedHeader {
+	if name == "" || implicitHeaders[strings.ToLower(name)] {
+		return headers
+	}
+	for _, existing := range headers {
+		if strings.EqualFold(existing.name, name) {
+			return headers
+		}
+	}
+	return append(headers, importedHeader{name: name, line: strconv.Quote(name) + ": string" + decorators})
+}
+
+func headerDecorators(param map[string]any) string {
+	var out string
+	if truthy(param["required"]) {
+		out += " @required"
+	}
+	switch format := text(asMap(param["schema"]), "format"); format {
+	case "uuid", "email", "uri":
+		out += " @format(\"" + format + "\")"
+	}
+	if truthy(param["deprecated"]) {
+		out += " @deprecated"
+	}
+	return out
+}
+
+func (im *importer) securityHeaders(op map[string]any, opName string) []importedHeader {
+	requirements, ok := op["security"]
+	if !ok {
+		requirements = im.root["security"]
+	}
+	options := asSlice(requirements)
+	if len(options) == 0 {
+		return nil
+	}
+	required := true
+	var alternatives []map[string]any
+	for _, option := range options {
+		if entry := asMap(option); len(entry) > 0 {
+			alternatives = append(alternatives, entry)
+		} else {
+			required = false
+		}
+	}
+	if len(alternatives) == 0 {
+		return nil
+	}
+	if len(alternatives) > 1 {
+		im.warnf("%s: alternative security requirements are not supported; kept the first one", opName)
+	}
+	if !required {
+		im.warnf("%s: optional security was imported as a required header", opName)
+	}
+	chosen := alternatives[0]
+	names := make([]string, 0, len(chosen))
+	for name := range chosen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	schemes := asMap(asMap(im.root["components"])["securitySchemes"])
+	var headers []importedHeader
+	for _, name := range names {
+		scheme := im.deref(asMap(schemes[name]))
+		switch kind := text(scheme, "type"); {
+		case kind == "apiKey" && text(scheme, "in") == "header":
+			headers = appendHeader(headers, text(scheme, "name"), " @required @auth(\"api_key\") @auth_scheme_name(\""+name+"\")")
+		case kind == "http" && strings.EqualFold(text(scheme, "scheme"), "bearer"):
+			headers = appendHeader(headers, "Authorization", " @required @auth(\"bearer\") @auth_scheme_name(\""+name+"\")")
+		case kind == "http" && strings.EqualFold(text(scheme, "scheme"), "basic"):
+			headers = appendHeader(headers, "Authorization", " @required @auth(\"basic\") @auth_scheme_name(\""+name+"\")")
+		default:
+			im.warnf("%s: security scheme %q (%s) cannot be expressed as a header and was dropped", opName, name, kind)
+		}
+	}
+	return headers
 }
 
 func (im *importer) operationName(op map[string]any, method, pathKey string) string {
