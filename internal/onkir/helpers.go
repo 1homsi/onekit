@@ -124,10 +124,12 @@ func (h *Header) Example() (string, bool) {
 
 // Deprecated returns the header's deprecation notice, if any.
 func (h *Header) Deprecated() (string, bool) {
-	if d, ok := h.Decorator("deprecated"); ok {
-		return d.Value()
+	d, ok := h.Decorator("deprecated")
+	if !ok {
+		return "", false
 	}
-	return "", false
+	reason, _ := d.Value()
+	return reason, true
 }
 
 // AuthType returns the header's auth scheme (api_key/bearer/basic).
