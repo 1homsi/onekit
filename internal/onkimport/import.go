@@ -363,7 +363,7 @@ func (im *importer) responsePieces(opName string, responses map[string]any) (str
 	default:
 		ft, ok := im.schemaTypeExpr(schema, respName, 1)
 		if !ok {
-			ft = fieldType{expr: "json"}
+			ft = fieldType{expr: scalarJSON}
 		}
 		switch {
 		case im.isDecl(ft.expr):
@@ -470,7 +470,7 @@ func (im *importer) parameterFieldType(raw any, suggested, opName, name string) 
 	if !ok || ft.expr == "" {
 		return fieldType{expr: scalarString}
 	}
-	if isScalarExpr(ft.expr) && ft.expr != "timestamp" && ft.expr != "json" {
+	if isScalarExpr(ft.expr) && ft.expr != scalarTime && ft.expr != scalarJSON {
 		return ft
 	}
 	im.warnf("%s: parameter %q has type %s, which cannot bind to a URL; imported as string", opName, name, ft.expr)
@@ -547,7 +547,7 @@ func schemaTypeName(schema map[string]any) (string, bool) {
 func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldType, bool) {
 	if depth > maxDepth {
 		im.warnf("schema %q exceeds reference depth; mapped to json", suggested)
-		return fieldType{expr: "json"}, true
+		return fieldType{expr: scalarJSON}, true
 	}
 	schema := asMap(raw)
 	if schema == nil {
@@ -611,7 +611,7 @@ func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldT
 			}
 			return fieldType{expr: "map[string, " + value.expr + "]"}, true
 		case len(props) == 0:
-			return fieldType{expr: "json"}, true
+			return fieldType{expr: scalarJSON}, true
 		}
 		name := im.registerMessage(suggested)
 		im.fillObject(name, schema, depth)
@@ -629,16 +629,16 @@ func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldT
 		return im.stringFieldType(schema, suggested), true
 	default:
 		im.warnf("schema %q uses unsupported composition (%s); mapped to json", suggested, strings.Join(mapKeys(schema), ","))
-		return fieldType{expr: "json"}, true
+		return fieldType{expr: scalarJSON}, true
 	}
 }
 
 func (im *importer) stringFieldType(schema map[string]any, suggested string) fieldType {
 	switch text(schema, "format") {
 	case "date-time":
-		return fieldType{expr: "timestamp"}
+		return fieldType{expr: scalarTime}
 	case "date":
-		return fieldType{expr: "timestamp", suffix: " @encode(date)"}
+		return fieldType{expr: scalarTime, suffix: " @encode(date)"}
 	}
 	if values := asSlice(schema["enum"]); len(values) > 0 {
 		// Enums live in their own registry: registering through the message
@@ -704,7 +704,7 @@ func (im *importer) convertProperties(msgName string, props map[string]any, requ
 		ft, ok := im.schemaTypeExpr(props[rawName], msgName+Pascal(field), depth)
 		if !ok || ft.expr == "" {
 			im.warnf("%s.%q has no convertible schema; mapped to json", msgName, rawName)
-			ft = fieldType{expr: "json"}
+			ft = fieldType{expr: scalarJSON}
 		}
 		ft.suffix += im.constraintDecorators(im.derefSchema(asMap(props[rawName])), ft.expr)
 		line := composeFieldLine(field, ft, !required[rawName], msgName, rawName)
@@ -791,7 +791,7 @@ func (im *importer) constraintDecorators(schema map[string]any, expr string) str
 		if value, ok := number("maxItems"); ok {
 			out.WriteString(" @max_items(" + value + ")")
 		}
-	case isScalarExpr(expr) && expr != "bool" && expr != "timestamp" && expr != "json":
+	case isScalarExpr(expr) && expr != "bool" && expr != scalarTime && expr != scalarJSON:
 		if value, ok := number("minimum"); ok {
 			if schema["exclusiveMinimum"] == true {
 				out.WriteString(" @gt(" + value + ")")
@@ -856,11 +856,11 @@ func (im *importer) resolveRef(ref, suggested string, depth int) (fieldType, boo
 	}
 	if im.refActive[ref] {
 		im.warnf("recursive $ref %q; edge mapped to json", ref)
-		return fieldType{expr: "json"}, true
+		return fieldType{expr: scalarJSON}, true
 	}
 	target := im.lookupRef(ref)
 	if target == nil {
-		return fieldType{expr: "json"}, true
+		return fieldType{expr: scalarJSON}, true
 	}
 	// Component schemas own their canonical declaration name regardless of
 	// call site, so Pet is emitted once as Pet - never per-context.
@@ -878,7 +878,7 @@ func (im *importer) resolveRef(ref, suggested string, depth int) (fieldType, boo
 
 	result, ok := im.schemaTypeExpr(target, suggested, depth+1)
 	if !ok {
-		result = fieldType{expr: "json"}
+		result = fieldType{expr: scalarJSON}
 	}
 	im.refDone[ref] = result
 	return result, true
