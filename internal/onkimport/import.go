@@ -156,6 +156,7 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 		}
 	}
 	var queryLines, otherLines []string
+	route := pathKey
 	for _, rawParam := range params {
 		param := im.deref(asMap(rawParam))
 		if param == nil {
@@ -170,18 +171,19 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 			continue
 		}
 		field := safeIdent(name)
-		if field != name && in == "path" {
+		if field != name && in == paramInPath {
 			im.warnf("%s: path parameter %q renamed to %q", opName, name, field)
 		}
 		ft, ok := im.schemaTypeExpr(param["schema"], reqName+Pascal(field), 1)
 		if !ok || ft.expr == "" {
 			ft = fieldType{expr: "string"}
 		}
-		line := composeFieldLine(field, ft, !truthy(param["required"]), opName, name)
+		optional := !truthy(param["required"]) && in != paramInPath
+		line := composeFieldLine(field, ft, optional, opName, name)
 		switch in {
-		case "path":
-			if !truthy(param["required"]) && !strings.HasSuffix(line, "?") {
-				line += "?"
+		case paramInPath:
+			if field != name {
+				route = strings.ReplaceAll(route, "{"+name+"}", "{"+field+"}")
 			}
 			otherLines = append(otherLines, line)
 		case "query":
@@ -216,7 +218,7 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 	if hasBody {
 		rpc.WriteString(" @body(\"body\")")
 	}
-	rpc.WriteString(" @" + method + "(\"" + pathKey + "\")")
+	rpc.WriteString(" @" + method + "(\"" + route + "\")")
 	return rpc.String()
 }
 

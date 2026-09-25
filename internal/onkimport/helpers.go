@@ -227,6 +227,8 @@ const (
 	scalarInt64  = "int64"
 )
 
+const paramInPath = "path"
+
 func isScalarExpr(expr string) bool {
 	switch expr {
 	case scalarString, "bool", "int32", scalarInt64, "uint32", "uint64",
