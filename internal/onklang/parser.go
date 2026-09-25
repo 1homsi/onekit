@@ -347,7 +347,11 @@ func (p *Parser) parseField() (*FieldDecl, error) {
 			return nil, err
 		}
 		f.Oneof = oneof
-		f.Decorators = nil
+		decorators, err := p.parseDecorators()
+		if err != nil {
+			return nil, err
+		}
+		f.Decorators = decorators
 		return f, nil
 	}
 

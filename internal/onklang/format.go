@@ -172,7 +172,7 @@ func (f *formatter) field(field *FieldDecl) {
 		}
 		f.comments(field.Oneof.TrailingComments)
 		f.indent--
-		f.line("}")
+		f.line("}" + formatDecorators(field.Decorators))
 		return
 	}
 	value := field.Name + ": " + formatType(field.Type)
