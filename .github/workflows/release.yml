@@ -210,6 +210,8 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile.onek
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
