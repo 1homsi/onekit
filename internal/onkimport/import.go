@@ -391,6 +391,35 @@ func schemaTypeName(schema map[string]any) (string, bool) {
 	return typ, nullable
 }
 
+func (im *importer) mergeAllOf(allOf []any) map[string]any {
+	merged := map[string]any{
+		"type": "object",
+		"properties": func() map[string]any {
+			props := map[string]any{}
+			for _, part := range allOf {
+				sub := asMap(part)
+				if sub == nil {
+					continue
+				}
+				if ref := text(sub, "$ref"); ref != "" {
+					sub = im.lookupRef(ref)
+					if sub == nil {
+						continue
+					}
+				}
+				for k, v := range asMap(sub["properties"]) {
+					props[k] = v
+				}
+			}
+			return props
+		}(),
+	}
+	if required := im.allOfRequired(allOf); len(required) > 0 {
+		merged["required"] = required
+	}
+	return merged
+}
+
 func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldType, bool) {
 	if depth > maxDepth {
 		im.warnf("schema %q exceeds reference depth; mapped to json", suggested)
@@ -404,32 +433,7 @@ func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldT
 		return im.resolveRef(ref, suggested, depth)
 	}
 	if allOf := asSlice(schema["allOf"]); len(allOf) > 0 {
-		merged := map[string]any{
-			"type": "object",
-			"properties": func() map[string]any {
-				props := map[string]any{}
-				for _, part := range allOf {
-					sub := asMap(part)
-					if sub == nil {
-						continue
-					}
-					if ref := text(sub, "$ref"); ref != "" {
-						sub = im.lookupRef(ref)
-						if sub == nil {
-							continue
-						}
-					}
-					for k, v := range asMap(sub["properties"]) {
-						props[k] = v
-					}
-				}
-				return props
-			}(),
-		}
-		if required := im.allOfRequired(allOf); len(required) > 0 {
-			merged["required"] = required
-		}
-		return im.schemaTypeExpr(merged, suggested, depth+1)
+		return im.schemaTypeExpr(im.mergeAllOf(allOf), suggested, depth+1)
 	}
 	if typ, nullable := schemaTypeName(schema); typ != text(schema, "type") || nullable {
 		normalized := make(map[string]any, len(schema))
