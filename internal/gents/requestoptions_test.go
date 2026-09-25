@@ -25,7 +25,8 @@ const controller = new AbortController();
 await client.get({ id: "1", text: "" }, { signal: controller.signal, headers: { "Idempotency-Key": "k1" } });
 await client.create({ id: "1", text: "t" }, { headers: { "Idempotency-Key": "k2" } });
 const [get, create] = seen.map((init) => ({ headers: init.headers as Record<string, string>, signal: init.signal }));
-if (get.signal !== controller.signal || get.headers["Idempotency-Key"] !== "k1" || get.headers["X-Base"] !== "1") throw new Error("get options lost");
+controller.abort();
+if (!get.signal?.aborted || get.headers["Idempotency-Key"] !== "k1" || get.headers["X-Base"] !== "1") throw new Error("get options lost");
 if (create.headers["Idempotency-Key"] !== "k2" || create.headers["Content-Type"] !== "application/json") throw new Error("create options lost");
 console.log("OK");
 `)
