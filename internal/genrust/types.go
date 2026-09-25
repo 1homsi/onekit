@@ -1040,9 +1040,9 @@ func writeFieldValidation(p *Printer, field *onkir.Field, patternFuncs map[strin
 			case "max_items":
 				writeMinMaxItemsValidation(p, decorator, valueExpr, false, errorLine)
 			case decoratorGt, decoratorGte, decoratorLt, decoratorLte:
-				writeNumericValidation(p, decorator, valueExpr, errorLine)
+				writeNumericValidation(p, field, decorator, valueExpr, errorLine)
 			case "range":
-				writeRangeValidation(p, decorator, valueExpr, errorLine)
+				writeRangeValidation(p, field, decorator, valueExpr, errorLine)
 			case "in":
 				writeInValidation(p, decorator, valueExpr, errorLine)
 			}
@@ -1135,7 +1135,20 @@ func writeMinMaxItemsValidation(p *Printer, decorator onkir.Decorator, value str
 	p.P("}")
 }
 
-func writeNumericValidation(p *Printer, decorator onkir.Decorator, value string, fail func(string)) {
+func numericLimit(field *onkir.Field, limit string) string {
+	if field.Type == nil || field.Type.Kind != onkir.KindScalar {
+		return limit
+	}
+	if field.Type.Scalar != onkir.ScalarFloat32 && field.Type.Scalar != onkir.ScalarFloat64 {
+		return limit
+	}
+	if strings.ContainsAny(limit, ".eE") {
+		return limit
+	}
+	return limit + ".0"
+}
+
+func writeNumericValidation(p *Printer, field *onkir.Field, decorator onkir.Decorator, value string, fail func(string)) {
 	limit, ok := decorator.Value()
 	if !ok {
 		return
@@ -1156,14 +1169,14 @@ func writeNumericValidation(p *Printer, decorator onkir.Decorator, value string,
 	if value == validationValueVar {
 		value = "*" + value
 	}
-	p.P("if ", value, " ", operator, " ", limit, " {")
+	p.P("if ", value, " ", operator, " ", numericLimit(field, limit), " {")
 	p.Indent()
 	fail("is outside the allowed numeric bound")
 	p.Dedent()
 	p.P("}")
 }
 
-func writeRangeValidation(p *Printer, decorator onkir.Decorator, value string, fail func(string)) {
+func writeRangeValidation(p *Printer, field *onkir.Field, decorator onkir.Decorator, value string, fail func(string)) {
 	minimum, minOK := decorator.Arg(0)
 	maximum, maxOK := decorator.Arg(1)
 	if !minOK || !maxOK {
@@ -1172,7 +1185,7 @@ func writeRangeValidation(p *Printer, decorator onkir.Decorator, value string, f
 	if value == validationValueVar {
 		value = "*" + value
 	}
-	p.P("if ", value, " < ", minimum, " || ", value, " > ", maximum, " {")
+	p.P("if ", value, " < ", numericLimit(field, minimum), " || ", value, " > ", numericLimit(field, maximum), " {")
 	p.Indent()
 	fail("is outside the allowed range")
 	p.Dedent()
