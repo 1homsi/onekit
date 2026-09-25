@@ -59,6 +59,7 @@ func writeWSUpgradeHandler(p *Printer, service *onkir.Service, method *onkir.Met
 	p.P("State(service): State<Arc<T>>,")
 	p.P("axum::Extension(ws_options): axum::Extension<WsServerOptions>,")
 	p.P("headers: HeaderMap,")
+	p.P("parts: axum::http::request::Parts,")
 	if len(pathFields) > 0 {
 		p.P("Path(path): Path<std::collections::HashMap<String, String>>,")
 	}
@@ -110,7 +111,7 @@ func writeWSUpgradeHandler(p *Printer, service *onkir.Service, method *onkir.Met
 		}
 	}
 	p.P("if let Err(error) = req.validate() { return ", errorName, "::Validation(error).into_response(); }")
-	p.P("let context = RequestContext { headers };")
+	p.P("let context = RequestContext { headers, method: parts.method, uri: parts.uri, extensions: parts.extensions };")
 	p.P("let ws = ws.max_message_size(ws_options.max_frame_bytes).max_frame_size(ws_options.max_frame_bytes);")
 	p.P("ws.on_upgrade(move |socket: axum::extract::ws::WebSocket| async move {")
 	p.Indent()

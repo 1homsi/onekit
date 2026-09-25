@@ -53,6 +53,9 @@ func writeServerContext(p *Printer) {
 	p.P("pub struct RequestContext {")
 	p.Indent()
 	p.P("pub headers: HeaderMap,")
+	p.P("pub method: axum::http::Method,")
+	p.P("pub uri: axum::http::Uri,")
+	p.P("pub extensions: axum::http::Extensions,")
 	p.Dedent()
 	p.P("}")
 	p.Blank()
@@ -240,6 +243,7 @@ func writeHandler(
 	}
 	p.P("State(service): State<Arc<T>>,")
 	p.P("headers: HeaderMap,")
+	p.P("parts: axum::http::request::Parts,")
 	if len(pathFields) > 0 {
 		p.P("Path(path): Path<std::collections::HashMap<String, String>>,")
 	}
@@ -323,7 +327,7 @@ func writeHandler(
 		}
 	}
 	p.P("if let Err(error) = req.validate() { return ", errorName, "::Validation(error).into_response(); }")
-	p.P("let context = RequestContext { headers };")
+	p.P("let context = RequestContext { headers, method: parts.method, uri: parts.uri, extensions: parts.extensions };")
 	p.P("match service.", RustIdent(method.Name), "(context, req).await {")
 	p.Indent()
 	if method.IsStream() {
