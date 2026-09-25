@@ -528,12 +528,62 @@ func writeCustomUnmarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
 // message's internal shape.
 func writeRootUnwrapJSON(p *Printer, m *onkir.Message, field *onkir.Field) {
 	goName := PascalCase(field.Name)
+	if needsInt64StringEncoding(field) && !field.Optional {
+		writeRootUnwrapInt64JSON(p, m, field)
+		return
+	}
 	p.P("func (m *", m.Name, ") MarshalJSON() ([]byte, error) {")
 	p.P("return json.Marshal(m.", goName, ")")
 	p.P("}")
 	p.P()
 	p.P("func (m *", m.Name, ") UnmarshalJSON(data []byte) error {")
 	p.P("return json.Unmarshal(data, &m.", goName, ")")
+	p.P("}")
+	p.P()
+}
+
+func writeRootUnwrapInt64JSON(p *Printer, m *onkir.Message, field *onkir.Field) {
+	goName := PascalCase(field.Name)
+	kind := field.Type.Scalar
+	p.P("func (m *", m.Name, ") MarshalJSON() ([]byte, error) {")
+	if field.Repeated {
+		p.P("out := make([]string, len(m.", goName, "))")
+		p.P("for i, v := range m.", goName, " {")
+		p.P("out[i] = ", int64FormatCall(kind, "v"))
+		p.P("}")
+		p.P("return json.Marshal(out)")
+	} else {
+		p.P("return json.Marshal(", int64FormatCall(kind, "m."+goName), ")")
+	}
+	p.P("}")
+	p.P()
+	p.P("func (m *", m.Name, ") UnmarshalJSON(data []byte) error {")
+	if field.Repeated {
+		p.P("var aux []string")
+		p.P("if err := json.Unmarshal(data, &aux); err != nil {")
+		p.P("return err")
+		p.P("}")
+		p.P("m.", goName, " = make([]", p.GoFieldType(field.Type), ", len(aux))")
+		p.P("for i, s := range aux {")
+		p.P("v, err := ", int64ParseCall(kind, "s"))
+		p.P("if err != nil {")
+		p.P("return err")
+		p.P("}")
+		p.P("m.", goName, "[i] = v")
+		p.P("}")
+		p.P("return nil")
+	} else {
+		p.P("var aux string")
+		p.P("if err := json.Unmarshal(data, &aux); err != nil {")
+		p.P("return err")
+		p.P("}")
+		p.P("v, err := ", int64ParseCall(kind, "aux"))
+		p.P("if err != nil {")
+		p.P("return err")
+		p.P("}")
+		p.P("m.", goName, " = v")
+		p.P("return nil")
+	}
 	p.P("}")
 	p.P()
 }

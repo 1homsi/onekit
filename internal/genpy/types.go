@@ -515,6 +515,8 @@ func (p *Printer) rootUnwrapToExpr(f *onkir.Field) string {
 		return fmt.Sprintf("[%s[v] for v in self.%s]", p.enumToJSONMapRef(f.Type.Enum), f.Name)
 	case f.Repeated && f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarBytes:
 		return fmt.Sprintf("[%s for v in self.%s]", bytesEncodeExpr("", "v"), f.Name)
+	case f.Repeated && needsInt64StringEncoding(f):
+		return fmt.Sprintf("[str(v) for v in self.%s]", f.Name)
 	case f.Repeated:
 		return fmt.Sprintf("list(self.%s)", f.Name)
 	case f.Type.Kind == onkir.KindMap:
@@ -530,6 +532,8 @@ func (p *Printer) rootUnwrapToExpr(f *onkir.Field) string {
 		return fmt.Sprintf("dict(self.%s)", f.Name)
 	case f.Type.Kind == onkir.KindMessage:
 		return fmt.Sprintf("(self.%s.to_dict() if self.%s is not None else None)", f.Name, f.Name)
+	case needsInt64StringEncoding(f) && !f.Optional:
+		return fmt.Sprintf("str(self.%s)", f.Name)
 	default:
 		return "self." + f.Name
 	}
@@ -543,6 +547,8 @@ func (p *Printer) rootUnwrapFromExpr(f *onkir.Field) string {
 		return fmt.Sprintf("[%s[v] for v in d]", p.enumFromJSONMapRef(f.Type.Enum))
 	case f.Repeated && f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarBytes:
 		return fmt.Sprintf("[%s for v in d]", bytesDecodeValueExpr())
+	case f.Repeated && needsInt64StringEncoding(f):
+		return "[int(v) for v in d]"
 	case f.Repeated:
 		return "list(d)"
 	case f.Type.Kind == onkir.KindMap:
@@ -559,6 +565,8 @@ func (p *Printer) rootUnwrapFromExpr(f *onkir.Field) string {
 		return "dict(d)"
 	case f.Type.Kind == onkir.KindMessage:
 		return fmt.Sprintf("(%s.from_dict(d) if d is not None else None)", p.MessageTypeName(f.Type.Message))
+	case needsInt64StringEncoding(f) && !f.Optional:
+		return "int(d)"
 	default:
 		return "d"
 	}
