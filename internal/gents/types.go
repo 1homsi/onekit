@@ -299,7 +299,7 @@ func tsRuntimeTypeExpression(field *onkir.Field, expr string) string {
 		// must be validated numerically; a string-array .includes() check
 		// would reject every legitimate value.
 		if needsEnumNumberEncoding(field) {
-			return fmt.Sprintf("typeof %s === \"number\" && Number.isInteger(%s) && %s >= 0", expr, expr, expr)
+			return fmt.Sprintf("typeof %s === \"number\" && Number.isInteger(%s) && %s >= 0 && %s < %d", expr, expr, expr, expr, len(field.Type.Enum.Values))
 		}
 		values := make([]string, 0, len(field.Type.Enum.Values))
 		for _, value := range field.Type.Enum.Values {
