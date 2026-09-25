@@ -91,9 +91,11 @@ func writePathParser(p *Printer) {
 
 func writeServerService(p *Printer, service *onkir.Service) {
 	traitName := PascalCase(service.Name)
+	writeRustDoc(p, service.Doc)
 	p.P("pub trait ", traitName, ": Send + Sync + 'static {")
 	p.Indent()
 	for _, method := range service.Methods {
+		writeRustDoc(p, method.Doc)
 		requestType := p.MessageTypeName(method.Request)
 		responseType := p.MessageTypeName(method.Response)
 		errorType := serverErrorName(service, method)

@@ -397,11 +397,26 @@ func writeHexDecodeHelper(p *Printer) {
 	p.Blank()
 }
 
+func writeRustDoc(p *Printer, doc string) {
+	if doc = strings.TrimSpace(doc); doc == "" {
+		return
+	}
+	for line := range strings.SplitSeq(doc, "\n") {
+		if line = strings.TrimRight(line, " \t"); line == "" {
+			p.P("///")
+		} else {
+			p.P("/// ", line)
+		}
+	}
+}
+
 func writeEnum(p *Printer, enum *onkir.Enum) {
+	writeRustDoc(p, enum.Doc)
 	p.P("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]")
 	p.P("pub enum ", RustEnumName(enum), " {")
 	p.Indent()
 	for _, value := range enum.Values {
+		writeRustDoc(p, value.Doc)
 		p.P("#[serde(rename = ", strconv.Quote(value.JSONName()), ")]")
 		p.P(PascalCase(value.Name), ",")
 	}
@@ -444,6 +459,7 @@ func writeMessageTree(p *Printer, message *onkir.Message) {
 }
 
 func writeMessage(p *Printer, message *onkir.Message) {
+	writeRustDoc(p, message.Doc)
 	if rootUnwrapField(message) != nil {
 		p.P("#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]")
 		p.P("#[serde(transparent)]")
@@ -475,6 +491,7 @@ func writeMessage(p *Printer, message *onkir.Message) {
 }
 
 func writeField(p *Printer, field *onkir.Field) {
+	writeRustDoc(p, field.Doc)
 	defaultAttribute := "default, "
 	if field.Message != nil && rootUnwrapField(field.Message) == field {
 		defaultAttribute = ""

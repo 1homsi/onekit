@@ -546,6 +546,7 @@ func writeRustWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	// `Type<Args>::method` only parses in type position.
 	socketConstructor := socketName + "::<" + socketArgs + ">"
 
+	writeRustDoc(p, m.Doc)
 	p.P("pub async fn ", methodName, "(&self, req: &", requestType, ") -> Result<", socketType, ", ", errorName, "> {")
 	p.Indent()
 	p.P("req.validate().map_err(", errorName, "::Validation)?;")

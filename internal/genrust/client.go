@@ -75,8 +75,8 @@ func writeClientHelpers(p *Printer) {
 	p.Blank()
 }
 
-func writeClient(p *Printer, service *onkir.Service) {
-	name := PascalCase(service.Name)
+func writeClientStruct(p *Printer, service *onkir.Service, name string) {
+	writeRustDoc(p, service.Doc)
 	p.P("#[derive(Debug, Clone)]")
 	p.P("pub struct ", name, "Client {")
 	p.Indent()
@@ -96,6 +96,11 @@ func writeClient(p *Printer, service *onkir.Service) {
 	p.Dedent()
 	p.P("}")
 	p.Blank()
+}
+
+func writeClient(p *Printer, service *onkir.Service) {
+	name := PascalCase(service.Name)
+	writeClientStruct(p, service, name)
 	p.P("impl ", name, "Client {")
 	p.Indent()
 	wsFrameInit := ""
@@ -209,6 +214,7 @@ func writeClientMethod(
 	path, _ := method.Path()
 	fullPath := service.BasePath + path
 
+	writeRustDoc(p, method.Doc)
 	if method.IsStream() {
 		p.P(
 			"pub async fn ", methodName, "(&self, req: &", requestType,
