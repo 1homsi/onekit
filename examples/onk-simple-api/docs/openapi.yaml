@@ -3,7 +3,6 @@ info:
     title: OnkSimpleAPI
     description: Example service migrated from examples/simple-api to .onk
     version: 1.0.0
-servers: []
 paths:
     /api/v1/users:
         post:

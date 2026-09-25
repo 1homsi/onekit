@@ -739,6 +739,9 @@ func serviceTags(file *onkir.File) []*base.Tag {
 }
 
 func documentServers(urls []string) []*v3.Server {
+	if len(urls) == 0 {
+		return nil
+	}
 	servers := make([]*v3.Server, 0, len(urls))
 	for _, url := range urls {
 		servers = append(servers, &v3.Server{URL: url})
