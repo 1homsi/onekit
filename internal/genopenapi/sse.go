@@ -11,23 +11,25 @@ import (
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
-// sseResponse describes a streaming (@stream) method's success response as an
-// SSE endpoint: a "text/event-stream" body plus an x-sse-event-schema vendor
-// extension pointing at the schema of each individual event, since OpenAPI
-// itself has no native representation for Server-Sent Events.
 func sseResponse(m *onkir.Method) *v3.Response {
 	content := orderedmap.New[string, *v3.MediaType]()
 	content.Set("text/event-stream", &v3.MediaType{
 		Schema: base.CreateSchemaProxy(&base.Schema{
 			Type: []string{"string"},
 			Description: fmt.Sprintf(
-				"SSE stream. Each event contains a JSON-encoded %s in the data field.", m.Response.Name,
+				"SSE stream. Each event contains a JSON-encoded %s in the data field. A failure after the stream starts arrives as an \"error\" event whose data matches one of x-sse-error-schemas.", m.Response.Name,
 			),
 		}),
 	})
 
 	ext := orderedmap.New[string, *yaml.Node]()
 	ext.Set("x-sse-event-schema", schemaRefNode(componentName(m.Response.FullName())))
+	errorSchemas := &yaml.Node{Kind: yaml.SequenceNode}
+	for _, errorType := range m.ErrorTypes {
+		errorSchemas.Content = append(errorSchemas.Content, schemaRefNode(componentName(errorType.FullName())))
+	}
+	errorSchemas.Content = append(errorSchemas.Content, schemaRefNode(errorMessageComponent))
+	ext.Set("x-sse-error-schemas", errorSchemas)
 
 	return &v3.Response{
 		Description: "Server-Sent Events stream",
