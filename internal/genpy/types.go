@@ -186,11 +186,30 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) []byt
 	return p.Bytes()
 }
 
+func writePyDoc(p *Printer, doc string) {
+	if doc = strings.TrimSpace(doc); doc == "" {
+		return
+	}
+	doc = strings.ReplaceAll(strings.ReplaceAll(doc, "\\", "\\\\"), `"""`, `\"""`)
+	lines := strings.Split(doc, "\n")
+	if len(lines) == 1 {
+		p.P(`"""`, lines[0], `"""`)
+		return
+	}
+	p.P(`"""`, lines[0])
+	for _, line := range lines[1:] {
+		p.P(strings.TrimRight(line, " \t"))
+	}
+	p.P(`"""`)
+}
+
 func writeEnum(p *Printer, e *onkir.Enum) {
 	p.P("class ", e.Name, "(IntEnum):")
 	p.Indent()
+	writePyDoc(p, e.Doc)
 	for i, v := range e.Values {
 		p.P(v.Name, " = ", strconv.Itoa(i))
+		writePyDoc(p, v.Doc)
 	}
 	p.Dedent()
 	p.Blank()
@@ -661,7 +680,9 @@ func writeRootUnwrapClass(p *Printer, m *onkir.Message, f *onkir.Field) {
 	p.P("@dataclass")
 	p.P("class ", m.Name, ":")
 	p.Indent()
+	writePyDoc(p, m.Doc)
 	writeFieldDecl(p, f)
+	writePyDoc(p, f.Doc)
 	p.Blank()
 
 	p.P("def to_dict(self) -> object:")
@@ -698,11 +719,13 @@ func writeMessage(p *Printer, m *onkir.Message) {
 	p.P("@dataclass")
 	p.P("class ", m.Name, ":")
 	p.Indent()
-	if len(m.Fields) == 0 {
+	writePyDoc(p, m.Doc)
+	if len(m.Fields) == 0 && strings.TrimSpace(m.Doc) == "" {
 		p.P("pass")
 	}
 	for _, f := range m.Fields {
 		writeFieldDecl(p, f)
+		writePyDoc(p, f.Doc)
 	}
 	p.Blank()
 
@@ -873,6 +896,7 @@ func isPyNumeric(kind onkir.ScalarKind) bool {
 func writeErrorClass(p *Printer, m *onkir.Message) {
 	p.P("class ", m.Name, "(Exception):")
 	p.Indent()
+	writePyDoc(p, m.Doc)
 	p.P("def __init__(self", p.errorInitArgs(m), ") -> None:")
 	p.Indent()
 	for _, f := range m.Fields {

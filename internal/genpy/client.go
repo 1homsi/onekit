@@ -93,6 +93,7 @@ func localReferencedTypeNames(file *onkir.File, resolver PackageResolver) []stri
 func writeClientClass(p *Printer, s *onkir.Service) {
 	p.P("class ", s.Name, "Client:")
 	p.Indent()
+	writePyDoc(p, s.Doc)
 	hasWS := false
 	for _, m := range s.Methods {
 		hasWS = hasWS || m.IsWebSocket()
@@ -136,6 +137,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	fullPath := s.BasePath + path
 	p.P("def ", SnakeCase(m.Name), "(self, req: ", p.MessageTypeName(m.Request), ") -> Iterator[", p.MessageTypeName(m.Response), "]:")
 	p.Indent()
+	writePyDoc(p, m.Doc)
 	p.P("if hasattr(req, \"validate\"): req.validate()")
 	p.P(fmt.Sprintf("path = %q", fullPath))
 	writePyPathParams(p, path, m.Request)
@@ -196,6 +198,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("def ", SnakeCase(m.Name), "(self, req: ", p.MessageTypeName(m.Request),
 		") -> ", p.MessageTypeName(m.Response), ":")
 	p.Indent()
+	writePyDoc(p, m.Doc)
 	p.P("if hasattr(req, \"validate\"): req.validate()")
 
 	p.P(fmt.Sprintf("path = %q", fullPath))
