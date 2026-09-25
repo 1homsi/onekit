@@ -563,11 +563,32 @@ JSON mapping is supported through `@flatten`, root-level `@unwrap`, and `@encode
 ## AI agents and language servers
 
 `onek mcp` exposes compiler-backed validation, symbols, definitions, references,
-and hover information to Codex and Claude Code. `onek lsp` offers the same
-navigation plus diagnostics for unsaved editor buffers. Repository-local MCP
-configuration and a Claude Code LSP plugin are included; see
-[AI tooling setup](docs/AI_TOOLING.md) for installation, project selection, and
-supported capabilities.
+and hover to any MCP client. `onek lsp` is a stdio language server with the same
+navigation plus diagnostics for unsaved buffers. Both are read-only, honor
+`schema_root` in `onekit.toml`, and need no API key.
+
+Point your agent at `onek mcp --dir .` from the project root. For example,
+`.mcp.json` (Claude Code, Cursor and most MCP clients):
+
+```json
+{
+  "mcpServers": {
+    "onekit": { "type": "stdio", "command": "onek", "args": ["mcp", "--dir", "."] }
+  }
+}
+```
+
+or `.codex/config.toml` (Codex):
+
+```toml
+[mcp_servers.onekit]
+command = "onek"
+args = ["mcp", "--dir", "."]
+```
+
+Editors attach `onek lsp` (optionally `--dir` to pick one schema project in a
+monorepo) to `.onk` files. Tool positions are zero-based lines and UTF-16
+columns. Type-reference bindings are withheld until the schema compiles.
 
 ## License
 
