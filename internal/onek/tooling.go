@@ -41,8 +41,21 @@ func Format(dir string, check bool) error {
 	if len(paths) == 0 {
 		return fmt.Errorf("no .onk files found under %s", dir)
 	}
+	return FormatFiles(paths, check)
+}
+
+func FormatFiles(paths []string, check bool) error {
 	var changed []string
-	for _, path := range paths {
+	for _, original := range paths {
+		path := original
+		dir, err := filepath.Abs(filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		if resolved, resolveErr := filepath.EvalSymlinks(dir); resolveErr == nil {
+			dir = resolved
+		}
+		path = filepath.Join(dir, filepath.Base(path))
 		data, err := readRegularFile(path)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", path, err)
@@ -61,7 +74,7 @@ func Format(dir string, check bool) error {
 			continue
 		}
 		if check {
-			changed = append(changed, path)
+			changed = append(changed, original)
 			continue
 		}
 		if err := writeFile(path, formatted); err != nil {
