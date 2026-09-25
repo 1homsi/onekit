@@ -370,6 +370,7 @@ func writePyWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("def ", SnakeCase(m.Name), "(self, req: ", p.MessageTypeName(m.Request), ") -> ", socketType, ":")
 	p.Indent()
 	writePyDoc(p, m.Doc)
+	writePyDeprecation(p, m)
 	p.P(`if hasattr(req, "validate"): req.validate()`)
 	p.P(fmt.Sprintf("path = %q", fullPath))
 	writePyPathParams(p, wsPath, m.Request)

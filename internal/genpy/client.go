@@ -25,6 +25,7 @@ func GenerateClientWithResolver(file *onkir.File, typesModule string, resolver P
 	p.P()
 	p.P("import builtins as _builtins")
 	p.P("import json")
+	p.P("import warnings")
 	p.P("import urllib.error")
 	p.P("import urllib.parse")
 	p.P("import urllib.request")
@@ -138,6 +139,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("def ", SnakeCase(m.Name), "(self, req: ", p.MessageTypeName(m.Request), ") -> Iterator[", p.MessageTypeName(m.Response), "]:")
 	p.Indent()
 	writePyDoc(p, m.Doc)
+	writePyDeprecation(p, m)
 	p.P("if hasattr(req, \"validate\"): req.validate()")
 	p.P(fmt.Sprintf("path = %q", fullPath))
 	writePyPathParams(p, path, m.Request)
@@ -199,6 +201,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		") -> ", p.MessageTypeName(m.Response), ":")
 	p.Indent()
 	writePyDoc(p, m.Doc)
+	writePyDeprecation(p, m)
 	p.P("if hasattr(req, \"validate\"): req.validate()")
 
 	p.P(fmt.Sprintf("path = %q", fullPath))

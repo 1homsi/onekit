@@ -186,6 +186,18 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) []byt
 	return p.Bytes()
 }
 
+func writePyDeprecation(p *Printer, m *onkir.Method) {
+	reason, ok := m.Deprecated()
+	if !ok {
+		return
+	}
+	message := SnakeCase(m.Name) + " is deprecated"
+	if reason != "" {
+		message += ": " + reason
+	}
+	p.P("warnings.warn(", fmt.Sprintf("%q", message), ", DeprecationWarning, stacklevel=2)")
+}
+
 func writePyDoc(p *Printer, doc string) {
 	if doc = strings.TrimSpace(doc); doc == "" {
 		return

@@ -36,6 +36,7 @@ Two things `.onk` does that protobuf couldn't:
 
 - **RPC error unions** — `-> User | NotFoundError | ValidationError` makes a method's possible errors part of the schema, so generated clients can produce exhaustive, statically-typed error handling instead of "parse the body as any `*Error`."
 - **Doc comments** (`///`) that flow straight into generated Go doc comments, TS/Python docstrings, and OpenAPI descriptions.
+  Mark fields and RPCs with `@deprecated` or `@deprecated("reason")` to get `Deprecated:` notes in Go, `@deprecated` in TypeScript, `#[deprecated]` in Rust, a `DeprecationWarning` from Python client calls, and `deprecated: true` in OpenAPI.
 
 ## What it generates
 

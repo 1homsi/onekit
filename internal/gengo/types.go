@@ -376,6 +376,20 @@ func writeDoc(p *Printer, doc string) {
 	}
 }
 
+func deprecatedDoc(doc string, deprecated func() (string, bool)) string {
+	reason, ok := deprecated()
+	if !ok {
+		return doc
+	}
+	if reason == "" {
+		reason = "no longer supported."
+	}
+	if doc = strings.TrimSpace(doc); doc != "" {
+		doc += "\n\n"
+	}
+	return doc + "Deprecated: " + reason
+}
+
 func writeEnum(p *Printer, e *onkir.Enum) {
 	writeDoc(p, e.Doc)
 	p.P("type ", e.Name, " int32")
@@ -627,7 +641,7 @@ func writeErrorMethod(p *Printer, m *onkir.Message) {
 
 func writeField(p *Printer, m *onkir.Message, f *onkir.Field) {
 	goName := PascalCase(f.Name)
-	writeDoc(p, f.Doc)
+	writeDoc(p, deprecatedDoc(f.Doc, f.Deprecated))
 	if f.Oneof != nil {
 		p.P(goName, " ", OneofInterfaceName(m, f), " `json:\"", f.Name, ",omitempty\"`")
 		return

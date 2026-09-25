@@ -547,6 +547,7 @@ func writeRustWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	socketConstructor := socketName + "::<" + socketArgs + ">"
 
 	writeRustDoc(p, m.Doc)
+	writeRustDeprecated(p, m.Deprecated)
 	p.P("pub async fn ", methodName, "(&self, req: &", requestType, ") -> Result<", socketType, ", ", errorName, "> {")
 	p.Indent()
 	p.P("req.validate().map_err(", errorName, "::Validation)?;")

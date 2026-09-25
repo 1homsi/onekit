@@ -124,7 +124,21 @@ func (h *Header) Example() (string, bool) {
 
 // Deprecated returns the header's deprecation notice, if any.
 func (h *Header) Deprecated() (string, bool) {
-	d, ok := h.Decorator("deprecated")
+	return deprecation(h.Decorators)
+}
+
+// Deprecated reports @deprecated on the field and its optional reason.
+func (f *Field) Deprecated() (string, bool) {
+	return deprecation(f.Decorators)
+}
+
+// Deprecated reports @deprecated on the RPC and its optional reason.
+func (m *Method) Deprecated() (string, bool) {
+	return deprecation(m.Decorators)
+}
+
+func deprecation(decorators []Decorator) (string, bool) {
+	d, ok := FindDecorator(decorators, "deprecated")
 	if !ok {
 		return "", false
 	}

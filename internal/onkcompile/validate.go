@@ -100,7 +100,7 @@ var (
 		"min_items": {minArgs: 1, maxArgs: 1}, "max_items": {minArgs: 1, maxArgs: 1},
 		flattenDecorator: {minArgs: 0, maxArgs: 1}, "encode": {minArgs: 1, maxArgs: 1},
 		"empty": {minArgs: 1, maxArgs: 1}, "query": {minArgs: 0, maxArgs: 1},
-		wsIDDecorator: {}, "raw": {}, "ws_timeout": {},
+		wsIDDecorator: {}, "raw": {}, "ws_timeout": {}, "deprecated": {maxArgs: 1},
 	}
 	headerDecorators = map[string]decoratorRule{
 		"required": {}, "format": {minArgs: 1, maxArgs: 1}, "example": {minArgs: 1, maxArgs: 1},
@@ -643,6 +643,10 @@ func validateRPC(path string, rpc *onklang.RPCDecl) (string, string, error) {
 		case "body":
 			if len(decorator.Args) > 1 {
 				return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@body accepts at most one argument"}
+			}
+		case "deprecated":
+			if len(decorator.Args) > 1 {
+				return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@deprecated accepts at most one reason"}
 			}
 		default:
 			return "", "", &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("unknown RPC decorator @%s", decorator.Name)}

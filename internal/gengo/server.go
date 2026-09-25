@@ -410,7 +410,7 @@ func writeServiceInterface(p *Printer, s *onkir.Service) {
 	writeDoc(p, s.Doc)
 	p.P("type ", s.Name, "Server interface {")
 	for _, m := range s.Methods {
-		writeDoc(p, m.Doc)
+		writeDoc(p, deprecatedDoc(m.Doc, m.Deprecated))
 		switch {
 		case m.IsWebSocket():
 			outType := "WSOut[" + p.MessageTypeName(m.Response) + "]"

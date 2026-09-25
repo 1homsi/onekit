@@ -233,7 +233,7 @@ func writeHandlerInterface(p *Printer, s *onkir.Service) {
 	writeJSDoc(p, s.Doc)
 	p.P("export interface ", s.Name, "Handler {")
 	for _, m := range s.Methods {
-		writeJSDoc(p, m.Doc)
+		writeJSDoc(p, tsDeprecatedDoc(m.Doc, m.Deprecated))
 		switch {
 		case m.IsWebSocket():
 			outType := "WSOut<" + p.MessageTypeName(m.Response) + ">"

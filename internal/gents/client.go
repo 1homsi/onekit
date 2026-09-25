@@ -264,7 +264,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	fullPath := s.BasePath + path
 	bodyBearing := onkir.IsBodyBearingVerb(verb)
 
-	writeJSDoc(p, m.Doc)
+	writeJSDoc(p, tsDeprecatedDoc(m.Doc, m.Deprecated))
 	p.P("async ", CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request),
 		", opts?: RequestOptions): Promise<", p.MessageTypeName(m.Response), "> {")
 	validator := p.MessageCodecName(m.Request, "validate")
