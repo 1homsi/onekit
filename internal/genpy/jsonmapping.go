@@ -124,6 +124,13 @@ func fileNeedsBase64Import(file *onkir.File) bool {
 			if containsBytes(f.Type) {
 				return true
 			}
+			if f.Oneof != nil {
+				for _, v := range f.Oneof.Variants {
+					if containsBytes(v.Type) {
+						return true
+					}
+				}
+			}
 		}
 		for _, nested := range m.Nested {
 			if walk(nested) {

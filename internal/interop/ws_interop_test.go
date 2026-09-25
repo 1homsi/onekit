@@ -655,11 +655,19 @@ func buildRustHarness(t *testing.T) string {
 }
 
 const pyClientHarness = `
-import base64
 import sys
 
 from client import RuntimeClient, WsTimeoutError
-from models import Frame
+from models import (
+    Frame,
+    FramePayloadHostCall,
+    FramePayloadHostResult,
+    FramePayloadRun,
+    FramePayloadRunResult,
+    HostCall,
+    HostResult,
+    RunRequest,
+)
 
 BIG = '{"k":"v\\n"},' * (30 * 1024)
 
@@ -669,51 +677,57 @@ def fail(*args):
     sys.exit(1)
 
 
+def answer(call):
+    return Frame(payload=FramePayloadHostResult(host_result=HostResult(id=call.id, value="answer")))
+
+
+def run(code):
+    return Frame(payload=FramePayloadRun(run=RunRequest(code=code)))
+
+
 def until_result(sock):
     while True:
         payload = sock.receive(timeout=20).payload
-        if payload["type"] == "host_call":
-            call = payload["host_call"]
-            if call.get("method") != "doThing":
-                fail("host_call body did not decode:", call)
-            sock.send(Frame(payload={"type": "host_result", "host_result": {"id": call["id"], "value": "answer"}}))
+        if isinstance(payload, FramePayloadHostCall):
+            if payload.host_call.method != "doThing":
+                fail("host_call body did not decode:", payload.host_call)
+            sock.send(answer(payload.host_call))
             continue
-        if payload["type"] == "run_result":
-            return payload["run_result"]
+        if isinstance(payload, FramePayloadRunResult):
+            return payload.run_result
         fail("unexpected frame:", payload)
 
 
-sock = RuntimeClient(sys.argv[1]).execute(Frame(payload={"type": "run", "run": {"code": BIG}}))
-sock.send(Frame(payload={"type": "run", "run": {"code": BIG}}))
+sock = RuntimeClient(sys.argv[1]).execute(run(BIG))
+sock.send(run(BIG))
 result = until_result(sock)
-chunks = [base64.b64decode(c.get("data") or "") for c in result.get("chunks", [])]
-if result.get("exit_code") != 7 or result.get("result_json") != "R:" + BIG:
-    fail("raw string did not round trip:", len(result.get("result_json") or ""))
+chunks = [c.data for c in result.chunks]
+if result.exit_code != 7 or result.result_json != "R:" + BIG:
+    fail("raw string did not round trip:", len(result.result_json or ""))
 if chunks != [bytes([0, 1, 2]), b"", bytes([0xFF]) * 1000]:
     fail("raw bytes did not round trip:", [len(c) for c in chunks])
 
 huge = "h" * (20 << 20)
-sock.send(Frame(payload={"type": "run", "run": {"code": huge}}))
-if until_result(sock).get("result_json") != "R:" + huge:
+sock.send(run(huge))
+if until_result(sock).result_json != "R:" + huge:
     fail("chunked round trip failed")
 
 try:
-    sock.call("c-1", Frame(payload={"type": "host_call", "host_call": {"id": "c-1", "method": "slow"}}), timeout=0.1)
+    sock.call("c-1", Frame(payload=FramePayloadHostCall(host_call=HostCall(id="c-1", method="slow"))), timeout=0.1)
     fail("abandoned call returned")
 except WsTimeoutError:
     pass
 after = sock.receive(timeout=10).payload
-if after.get("type") != "run_result" or after["run_result"].get("exit_code") != 9:
+if not isinstance(after, FramePayloadRunResult) or after.run_result.exit_code != 9:
     fail("server never saw the cancel:", after)
 sock.close()
 
 with RuntimeClient(sys.argv[1]).execute(Frame()) as second:
-    second.send(Frame(payload={"type": "run", "run": {"code": "x"}}))
+    second.send(run("x"))
     for frame in second:
-        if frame.payload["type"] == "host_call":
-            call = frame.payload["host_call"]
-            second.send(Frame(payload={"type": "host_result", "host_result": {"id": call["id"], "value": "answer"}}))
-        if frame.payload["type"] == "run_result":
+        if isinstance(frame.payload, FramePayloadHostCall):
+            second.send(answer(frame.payload.host_call))
+        if isinstance(frame.payload, FramePayloadRunResult):
             break
     else:
         fail("iteration ended before run_result")
