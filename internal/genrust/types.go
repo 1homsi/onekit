@@ -519,6 +519,9 @@ func fieldSerdeOptions(field *onkir.Field) string {
 	if field.Repeated && !rootUnwrap {
 		options = append(options, `skip_serializing_if = "Vec::is_empty"`)
 	}
+	if isStringTimestamp(field) && !field.Optional && !field.Repeated && !rootUnwrap {
+		options = append(options, `skip_serializing_if = "String::is_empty"`)
+	}
 	if field.Type != nil && field.Type.Kind == onkir.KindMap && !rootUnwrap {
 		options = append(options, `skip_serializing_if = "std::collections::HashMap::is_empty"`)
 	}
@@ -718,6 +721,14 @@ func writeEnumNumberModule(p *Printer, field *onkir.Field) {
 	p.Dedent()
 	p.P("}")
 	p.Blank()
+}
+
+func isStringTimestamp(field *onkir.Field) bool {
+	if field.Type == nil || field.Type.Kind != onkir.KindScalar || field.Type.Scalar != onkir.ScalarTimestamp {
+		return false
+	}
+	encoding := fieldEncoding(field)
+	return encoding == "" || encoding == "date"
 }
 
 func fieldEncoding(field *onkir.Field) string {
@@ -957,14 +968,10 @@ func writePatternHelpers(p *Printer, funcs map[string]string) {
 }
 
 func writeTimestampValidation(p *Printer, field *onkir.Field, access string) {
-	if field.Type == nil || field.Type.Kind != onkir.KindScalar || field.Type.Scalar != onkir.ScalarTimestamp || field.Repeated {
+	if !isStringTimestamp(field) || field.Repeated {
 		return
 	}
-	encoding := fieldEncoding(field)
-	if encoding != "" && encoding != "date" {
-		return
-	}
-	dateOnly := strconv.FormatBool(encoding == "date")
+	dateOnly := strconv.FormatBool(fieldEncoding(field) == "date")
 	fail := "return Err(" + p.validationError + " { field: " + strconv.Quote(field.Name) + ", message: \"must be a valid timestamp\".into() });"
 	if field.Optional {
 		p.P("if let Some(value) = &", access, " { if !valid_timestamp(value, ", dateOnly, ") { ", fail, " } }")
