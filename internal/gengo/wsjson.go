@@ -95,6 +95,9 @@ func fastJSONEligible(m *onkir.Message) bool {
 			return false
 		}
 		if f.Oneof != nil {
+			if f.Oneof.Flatten() {
+				return false
+			}
 			for _, v := range f.Oneof.Variants {
 				if k, _ := typeFastKind(v.Type, nil, true); k == fkUnsupported {
 					return false

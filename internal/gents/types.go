@@ -583,11 +583,11 @@ func decodeOneofExpr(p *Printer, f *onkir.Field, expr string) string {
 	for _, variant := range f.Oneof.Variants {
 		tag := variant.Tag()
 		variantKey := variant.Name
-		decoded := decodeExpr(
-			p,
-			&onkir.Field{Type: variant.Type, Message: f.Message},
-			fmt.Sprintf("ov.%s", variantKey),
-		)
+		source := fmt.Sprintf("ov.%s", variantKey)
+		if flatten {
+			source = "ov"
+		}
+		decoded := decodeExpr(p, &onkir.Field{Type: variant.Type, Message: f.Message}, source)
 		if flatten {
 			fmt.Fprintf(&b, "case %q: return { %s: ov.%s, ...%s };\n", tag, disc, disc, decoded)
 		} else {
@@ -618,6 +618,10 @@ func encodeOneofExpr(p *Printer, f *onkir.Field, expr string) string {
 			valueExpr = "ov." + CamelCase(variantKey)
 		}
 		encoded := encodeExpr(p, &onkir.Field{Type: variant.Type, Message: f.Message}, valueExpr)
+		if flatten {
+			fmt.Fprintf(&b, "case %q: return { ...(%s as Record<string, unknown>), %s: %q };\n", tag, encoded, disc, tag)
+			continue
+		}
 		fmt.Fprintf(&b, "case %q: return { %s: %q, %s: %s };\n", tag, disc, tag, variantKey, encoded)
 	}
 	b.WriteString("default: return {};\n")

@@ -1,6 +1,7 @@
 package gengo
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -488,6 +489,9 @@ func oneofWireFieldType(p *Printer, variant *onkir.OneofVariant) string {
 // copied the payload at every level, making a large frame several times
 // slower than the same payload in a plain struct.
 func writeOneofWireType(p *Printer, m *onkir.Message, f *onkir.Field) {
+	if f.Oneof.Flatten() {
+		return
+	}
 	p.P("type ", oneofWireName(m, f), " struct {")
 	p.P("Tag string `json:\"", oneofDiscriminatorName(f), "\"`")
 	for _, variant := range f.Oneof.Variants {
@@ -503,6 +507,10 @@ func writeOneofWireType(p *Printer, m *onkir.Message, f *onkir.Field) {
 // encoding/json can't handle alone, and its wire struct.
 func writeOneofMarshalField(p *Printer, m *onkir.Message, f *onkir.Field) {
 	goName := PascalCase(f.Name)
+	if f.Oneof.Flatten() {
+		writeFlatOneofMarshalField(p, m, f)
+		return
+	}
 	p.P("switch v := m.", goName, ".(type) {")
 	for _, variant := range f.Oneof.Variants {
 		typeName := OneofVariantTypeName(m, f, variant)
@@ -516,8 +524,55 @@ func writeOneofMarshalField(p *Printer, m *onkir.Message, f *onkir.Field) {
 	p.P("}")
 }
 
+func writeFlatOneofMarshalField(p *Printer, m *onkir.Message, f *onkir.Field) {
+	goName := PascalCase(f.Name)
+	head, _ := json.Marshal(oneofDiscriminatorName(f))
+	p.P("switch v := m.", goName, ".(type) {")
+	for _, variant := range f.Oneof.Variants {
+		tag, _ := json.Marshal(variant.Tag())
+		p.P("case *", OneofVariantTypeName(m, f, variant), ":")
+		p.P("body, err := json.Marshal(v.", PascalCase(variant.Name), ")")
+		p.P("if err != nil {")
+		p.P("return nil, err")
+		p.P("}")
+		p.P("head := []byte(", fmt.Sprintf("%q", "{"+string(head)+":"+string(tag)), ")")
+		p.P("if len(body) > 2 && body[0] == '{' {")
+		p.P("aux.", goName, " = append(append(head, ','), body[1:]...)")
+		p.P("} else {")
+		p.P("aux.", goName, " = append(head, '}')")
+		p.P("}")
+	}
+	p.P("}")
+}
+
+func writeFlatOneofUnmarshalField(p *Printer, m *onkir.Message, f *onkir.Field) {
+	goName := PascalCase(f.Name)
+	p.P("if raw := aux.", goName, "; len(raw) > 0 && string(raw) != \"null\" {")
+	p.P("var tag struct {")
+	p.P("Tag string `json:\"", oneofDiscriminatorName(f), "\"`")
+	p.P("}")
+	p.P("if err := json.Unmarshal(raw, &tag); err != nil {")
+	p.P("return err")
+	p.P("}")
+	p.P("switch tag.Tag {")
+	for _, variant := range f.Oneof.Variants {
+		p.P("case ", fmt.Sprintf("%q", variant.Tag()), ":")
+		p.P("value := new(", strings.TrimPrefix(p.GoFieldType(variant.Type), "*"), ")")
+		p.P("if err := json.Unmarshal(raw, value); err != nil {")
+		p.P("return err")
+		p.P("}")
+		p.P("m.", goName, " = &", OneofVariantTypeName(m, f, variant), "{", PascalCase(variant.Name), ": value}")
+	}
+	p.P("}")
+	p.P("}")
+}
+
 func writeOneofUnmarshalField(p *Printer, m *onkir.Message, f *onkir.Field) {
 	goName := PascalCase(f.Name)
+	if f.Oneof.Flatten() {
+		writeFlatOneofUnmarshalField(p, m, f)
+		return
+	}
 	p.P("if w := aux.", goName, "; w != nil {")
 	p.P("switch w.Tag {")
 	for _, variant := range f.Oneof.Variants {

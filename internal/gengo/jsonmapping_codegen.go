@@ -124,6 +124,10 @@ func bytesDecodeCall(encoding, expr string) string {
 // empty-behavior only affects the marshal side (see emptyBehaviorValue).
 func writeAuxFieldDecls(p *Printer, m *onkir.Message, c fieldCategories, includeEmpty bool) {
 	for _, f := range c.oneofs {
+		if f.Oneof.Flatten() {
+			p.P(PascalCase(f.Name), " json.RawMessage `json:\"", f.Name, ",omitempty\"`")
+			continue
+		}
 		p.P(PascalCase(f.Name), " *", oneofWireName(m, f), " `json:\"", f.Name, ",omitempty\"`")
 	}
 	for _, f := range c.int64s {
