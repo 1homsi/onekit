@@ -695,7 +695,18 @@ func writeTSDuplexClass(p *Printer, m *onkir.Method) {
 	if correlated {
 		writeTSDuplexCall(p, m, reqRef, resRef)
 	}
-	p.P("close(): void { this.ws.close(); }")
+	p.P("close(code: number = 1000, reason?: string): void { this.ws.close(code, reason); }")
+	p.P()
+	p.P("async *[Symbol.asyncIterator](): AsyncGenerator<", resRef, "> {")
+	p.P("for (;;) {")
+	p.P("try {")
+	p.P("yield await this.receive();")
+	p.P("} catch (err) {")
+	p.P("if (err instanceof WSClosedError && (err.code === undefined || err.code === 1000 || err.code === 1005)) return;")
+	p.P("throw err;")
+	p.P("}")
+	p.P("}")
+	p.P("}")
 	p.P("}")
 	p.P()
 }
