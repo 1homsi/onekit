@@ -234,7 +234,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	fullPath := s.BasePath + path
 
 	p.P("func (c *", s.Name, "Client) ", PascalCase(m.Name),
-		"(ctx context.Context, req *", p.MessageTypeName(m.Request), ") (*EventStream[",
+		"(ctx context.Context, req *", p.MessageTypeName(m.Request), ", opts ...CallOption) (*EventStream[",
 		p.MessageTypeName(m.Response), "], error) {")
 	p.P(`if validator, ok := any(req).(interface{ Validate() error }); ok { if err := validator.Validate(); err != nil { return nil, fmt.Errorf("validate request: %w", err) } }`)
 
@@ -258,6 +258,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("for k, v := range c.Headers {")
 	p.P("httpReq.Header.Set(k, v)")
 	p.P("}")
+	p.P("applyCallOptions(httpReq, opts)")
 
 	p.P("resp, err := c.HTTPClient.Do(httpReq)")
 	p.P("if err != nil {")
