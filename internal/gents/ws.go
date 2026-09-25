@@ -786,6 +786,7 @@ func writeTSWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	wsPath, _ := m.WebSocketPath()
 	fullPath := s.BasePath + wsPath
 
+	writeJSDoc(p, m.Doc)
 	p.P("async ", CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request), "): Promise<", tsDuplexName(m), "> {")
 	p.P("const violations = ", p.MessageCodecName(m.Request, "validate"), "(req);")
 	p.P(`if (violations.length > 0) throw new RequestValidationError("invalid request", violations);`)
