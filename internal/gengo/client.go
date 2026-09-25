@@ -127,9 +127,7 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	if hasWS {
 		p.P(`"sync"`)
 	}
-	if hasWS || fileHasWSCancel(file, func(m *onkir.Method) *onkir.Message { return m.Request }) {
-		p.P(`"time"`)
-	}
+	p.P(`"time"`)
 	if hasWS {
 		p.P(`"github.com/coder/websocket"`)
 	}
@@ -210,7 +208,7 @@ func writeClientType(p *Printer, s *onkir.Service) {
 	p.P("for len(baseURL) > 0 && baseURL[len(baseURL)-1] == '/' {")
 	p.P("baseURL = baseURL[:len(baseURL)-1]")
 	p.P("}")
-	p.P("return &", s.Name, "Client{BaseURL: baseURL, HTTPClient: http.DefaultClient, Headers: map[string]string{}, MaxResponseBodyBytes: defaultMaxResponseBodyBytes, MaxSSELineBytes: defaultMaxSSELineBytes}")
+	p.P("return &", s.Name, "Client{BaseURL: baseURL, HTTPClient: defaultHTTPClient, Headers: map[string]string{}, MaxResponseBodyBytes: defaultMaxResponseBodyBytes, MaxSSELineBytes: defaultMaxSSELineBytes}")
 	p.P("}")
 	p.P()
 }
@@ -326,6 +324,12 @@ func writeResponseBodyRuntime(p *Printer) {
 	p.P("func (e *UnexpectedStatusError) Error() string {")
 	p.P(`return fmt.Sprintf("unexpected status %d: %s", e.StatusCode, e.Body)`)
 	p.P("}")
+	p.P()
+	p.P("var defaultHTTPClient = func() *http.Client {")
+	p.P("transport := http.DefaultTransport.(*http.Transport).Clone()")
+	p.P("transport.ResponseHeaderTimeout = 30 * time.Second")
+	p.P("return &http.Client{Transport: transport}")
+	p.P("}()")
 	p.P()
 	p.P("const defaultMaxResponseBodyBytes int64 = 8 << 20")
 	p.P("const defaultMaxSSELineBytes = 1 << 20")
@@ -470,23 +474,6 @@ func serviceHasWS(s *onkir.Service) bool {
 	for _, m := range s.Methods {
 		if m.IsWebSocket() {
 			return true
-		}
-	}
-	return false
-}
-
-// fileHasWSCancel reports whether any @ws method's frames in the direction
-// sent picks out declare a @ws_cancel variant - the only case where a
-// generated Call needs a timer to send one.
-func fileHasWSCancel(file *onkir.File, sent func(*onkir.Method) *onkir.Message) bool {
-	for _, s := range file.Services {
-		for _, m := range s.Methods {
-			if !m.IsWebSocket() {
-				continue
-			}
-			if _, _, _, ok := onkir.WSCancelVariant(sent(m)); ok {
-				return true
-			}
 		}
 	}
 	return false
