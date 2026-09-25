@@ -209,7 +209,8 @@ jobs:
         run: make build
 
       - name: Run tests with the race detector
-        run: go test -race -timeout 25m $(go list ./... | grep -v '/cmd/')
+        run: go list ./... | grep -v '/cmd/' | xargs go test -race -timeout 25m
+        shell: bash
 
   coverage:
     name: Coverage Analysis
