@@ -597,9 +597,14 @@ func cleanupStaleGeneratedOutputs(cfg *Config, idx *sourceIndex) error {
 	if err != nil {
 		return err
 	}
-	roots := make([]string, 0, len(expectedByRoot))
+	roots := make([]string, 0, len(expectedByRoot)+len(ownedByRoot))
 	for root := range expectedByRoot {
 		roots = append(roots, root)
+	}
+	for root := range ownedByRoot {
+		if _, current := expectedByRoot[root]; !current {
+			roots = append(roots, root)
+		}
 	}
 	sort.Strings(roots)
 	for _, root := range roots {
