@@ -89,7 +89,7 @@ service Beta {
 		got[i] = f.Path + ": " + f.Message
 	}
 	joined := strings.Join(got, "\n")
-	if !strings.Contains(joined, "api.Alpha") || !strings.Contains(joined, "HTTP binding, headers, errors, or payload contract changed") {
+	if !strings.Contains(joined, "api.Alpha") || !strings.Contains(joined, "api.Alpha get /fin/users: response message changed") {
 		t.Fatalf("expected Alpha's payload change to be detected regardless of service collisions, got:\n%s", joined)
 	}
 }

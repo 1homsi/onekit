@@ -13,6 +13,8 @@ import (
 type Finding struct {
 	Path    string `json:"path"`
 	Message string `json:"message"`
+	Before  string `json:"before,omitempty"`
+	After   string `json:"after,omitempty"`
 }
 
 func Compare(previous, current *onkir.Package) []Finding {
@@ -46,9 +48,7 @@ func Compare(previous, current *onkir.Package) []Finding {
 			findings = append(findings, Finding{Path: key, Message: "HTTP route was removed or changed"})
 			continue
 		}
-		if old != newer {
-			findings = append(findings, Finding{Path: key, Message: "HTTP binding, headers, errors, or payload contract changed"})
-		}
+		findings = append(findings, compareRoute(key, old, newer)...)
 	}
 	sort.Slice(findings, func(i, j int) bool {
 		if findings[i].Path == findings[j].Path {
@@ -261,8 +261,8 @@ func typeName(typ *onkir.Type) string {
 // time uniqueness is scoped by declared base_path/package but comparison
 // uses post-inference paths) cannot silently overwrite each other's entry -
 // which previously made detection depend on file iteration order.
-func routes(pkg *onkir.Package) map[string]string {
-	out := map[string]string{}
+func routes(pkg *onkir.Package) map[string][]string {
+	out := map[string][]string{}
 	if pkg == nil {
 		return out
 	}
@@ -291,7 +291,51 @@ func routeKey(pkg, service, verb, fullPath string) string {
 	return pkg + "." + service + " " + verb + " " + fullPath
 }
 
-func methodSignature(service *onkir.Service, method *onkir.Method) string {
+var routePartLabels = map[string]string{
+	"service":  "service name",
+	"method":   "method name",
+	"request":  "request message",
+	"response": "response message",
+	"stream":   "streaming mode",
+	"body":     "body field",
+	"query":    "query parameters",
+	"header":   "headers",
+	"error":    "error responses",
+}
+
+func compareRoute(key string, old, current []string) []Finding {
+	group := func(parts []string) map[string][]string {
+		out := map[string][]string{}
+		for _, part := range parts {
+			kind, value, _ := strings.Cut(part, "=")
+			out[kind] = append(out[kind], value)
+		}
+		return out
+	}
+	oldParts, newParts := group(old), group(current)
+	kinds := map[string]bool{}
+	for kind := range oldParts {
+		kinds[kind] = true
+	}
+	for kind := range newParts {
+		kinds[kind] = true
+	}
+	var findings []Finding
+	for kind := range kinds {
+		before, after := strings.Join(oldParts[kind], ", "), strings.Join(newParts[kind], ", ")
+		if before == after {
+			continue
+		}
+		label := routePartLabels[kind]
+		if label == "" {
+			label = kind
+		}
+		findings = append(findings, Finding{Path: key, Message: label + " changed", Before: before, After: after})
+	}
+	return findings
+}
+
+func methodSignature(service *onkir.Service, method *onkir.Method) []string {
 	parts := []string{
 		"service=" + service.Name,
 		"method=" + method.Name,
@@ -327,7 +371,7 @@ func methodSignature(service *onkir.Service, method *onkir.Method) string {
 		parts = append(parts, fmt.Sprintf("error=%s:%d", errorType.FullName(), status))
 	}
 	sort.Strings(parts)
-	return strings.Join(parts, "|")
+	return parts
 }
 
 func headerSignature(header *onkir.Header) string {

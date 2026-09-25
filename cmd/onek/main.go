@@ -358,7 +358,11 @@ func runCompat(args []string) error {
 		return nil
 	}
 	for _, finding := range findings {
-		if _, err := fmt.Fprintln(os.Stdout, finding.Path+": "+finding.Message); err != nil {
+		line := finding.Path + ": " + finding.Message
+		if finding.Before != "" || finding.After != "" {
+			line += fmt.Sprintf(" (%q -> %q)", finding.Before, finding.After)
+		}
+		if _, err := fmt.Fprintln(os.Stdout, line); err != nil {
 			return err
 		}
 	}
