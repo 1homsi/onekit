@@ -505,12 +505,20 @@ func (im *importer) stringFieldType(schema map[string]any, suggested string) fie
 		}
 		name := im.uniqueName(base)
 		var lines []string
+		seenMembers := map[string]bool{}
 		for _, v := range values {
 			raw := textOf(v)
 			member := upperSnake(raw)
 			if member == "" {
 				continue
 			}
+			if member[0] >= '0' && member[0] <= '9' {
+				member = "V_" + member
+			}
+			for base, i := member, 2; seenMembers[member]; i++ {
+				member = base + "_" + strconv.Itoa(i)
+			}
+			seenMembers[member] = true
 			if member != raw {
 				lines = append(lines, member+" @json("+strconv.Quote(raw)+")")
 			} else {
