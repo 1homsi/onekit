@@ -282,7 +282,9 @@ func writeFastEncodeOneof(p *Printer, m *onkir.Message, f *onkir.Field, field, k
 func writeFastDecode(p *Printer, m *onkir.Message, name string) {
 	p.P("func (m *", name, ") wsDecodeJSON(d *wsJSON) {")
 	p.P("if !d.open('{') { return }")
-	p.P("var seen uint64")
+	if len(m.Fields) > 0 {
+		p.P("var seen uint64")
+	}
 	p.P("for i := 0; d.next(i, '}'); i++ {")
 	p.P("key := d.key()")
 	p.P("if d.err != nil { return }")
