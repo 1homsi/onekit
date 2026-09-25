@@ -44,12 +44,13 @@ type importer struct {
 	root map[string]any
 	opts Options
 
-	warnings  []string
-	messages  map[string][]string // name -> field lines; nil while converting
-	orderMsg  []string
-	errorMsgs map[string]bool
-	enums     map[string][]string // name -> member lines
-	orderEnum []string
+	warnings    []string
+	messages    map[string][]string // name -> field lines; nil while converting
+	orderMsg    []string
+	errorMsgs   map[string]bool
+	errorStatus map[string]int
+	enums       map[string][]string // name -> member lines
+	orderEnum   []string
 
 	usedNames map[string]bool
 	refDone   map[string]fieldType
@@ -81,14 +82,15 @@ func Import(data []byte, opts Options) (*Result, error) {
 		service = Pascal(pkg) + "Service"
 	}
 	im := &importer{
-		root:      root,
-		opts:      Options{Package: pkg, Service: service},
-		messages:  map[string][]string{},
-		errorMsgs: map[string]bool{},
-		enums:     map[string][]string{},
-		usedNames: map[string]bool{},
-		refDone:   map[string]fieldType{},
-		refActive: map[string]bool{},
+		root:        root,
+		opts:        Options{Package: pkg, Service: service},
+		messages:    map[string][]string{},
+		errorMsgs:   map[string]bool{},
+		errorStatus: map[string]int{},
+		enums:       map[string][]string{},
+		usedNames:   map[string]bool{},
+		refDone:     map[string]fieldType{},
+		refActive:   map[string]bool{},
 	}
 	rpcs, err := im.convertPaths()
 	if err != nil {
@@ -286,10 +288,14 @@ func (im *importer) responsePieces(opName string, responses map[string]any) (str
 		codes = append(codes, code)
 	}
 	sort.Strings(codes)
+	seenStatus := map[int]bool{}
 	for _, code := range codes {
-		status, err := strconv.Atoi(code)
-		if err != nil || status < 400 || status > 599 {
+		status, ok := errorStatus(code)
+		if !ok || seenStatus[status] {
 			continue
+		}
+		if code != strconv.Itoa(status) {
+			im.warnf("%s: response %q imported as status %d", opName, code, status)
 		}
 		errSchema, ok := im.jsonSchema(asMap(im.deref(asMap(responses[code]))["content"]))
 		if !ok {
@@ -299,16 +305,39 @@ func (im *importer) responsePieces(opName string, responses map[string]any) (str
 		if ft, ok2 := im.schemaTypeExpr(errSchema, errName, 1); ok2 && im.isDecl(ft.expr) {
 			errName = ft.expr
 		} else {
-			im.registerMessage(errName)
+			errName = im.registerMessage(errName)
 			im.messages[errName] = []string{"message: string"}
 		}
-		if !im.errorMsgs[errName] {
-			im.errorMsgs[errName] = true
-			im.decorateStatus(errName, status)
-			union = append(union, errName)
-		}
+		errName = im.errorWithStatus(errName, status)
+		seenStatus[status] = true
+		union = append(union, errName)
 	}
 	return respName, union
+}
+
+func errorStatus(code string) (int, bool) {
+	switch strings.ToUpper(code) {
+	case "4XX":
+		return 400, true
+	case "5XX", "DEFAULT":
+		return 500, true
+	}
+	status, err := strconv.Atoi(code)
+	return status, err == nil && status >= 400 && status <= 599
+}
+
+func (im *importer) errorWithStatus(name string, status int) string {
+	if existing, ok := im.errorStatus[name]; ok && existing != status {
+		alias := im.registerMessage(name + strconv.Itoa(status))
+		im.messages[alias] = append([]string(nil), im.messages[name][1:]...)
+		name = alias
+	}
+	if _, ok := im.errorStatus[name]; !ok {
+		im.errorStatus[name] = status
+		im.errorMsgs[name] = true
+		im.decorateStatus(name, status)
+	}
+	return name
 }
 
 func (im *importer) decorateStatus(name string, status int) {
@@ -321,7 +350,7 @@ func pickSuccess(responses map[string]any) string {
 			return code
 		}
 	}
-	for _, code := range []string{"2XX", "default"} {
+	for _, code := range []string{"2XX"} {
 		if _, ok := responses[code]; ok {
 			return code
 		}
