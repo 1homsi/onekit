@@ -66,6 +66,8 @@ still requires the client's trust/setup step; it does not install the binary.
 | `onekit_definition` | Resolved declaration at a source position |
 | `onekit_references` | Type references to the declaration at a source position |
 | `onekit_hover` | Declaration signature, documentation, and location |
+| `onekit_check_source` | Diagnostics for proposed file contents, without saving them |
+| `onekit_format` | The `onek fmt` result for a source string |
 
 All tools accept optional `project`, relative to the server's startup root.
 It must stay inside that root. File `path` arguments are relative to the

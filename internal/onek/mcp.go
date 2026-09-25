@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/1homsi/onekit/internal/onklang"
 )
 
 type projectInput struct {
@@ -41,22 +43,29 @@ func NewLanguageMCPServer(dir, version string) (*mcp.Server, error) {
 		return nil, err
 	}
 	server := mcp.NewServer(&mcp.Implementation{Name: "onekit", Version: version}, nil)
-	snapshot := func(ctx context.Context, project string) (*LanguageSnapshot, error) {
+	projectDir := func(ctx context.Context, project string) (string, error) {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return "", err
 		}
 		if project == "" {
 			project = "."
 		}
 		if filepath.IsAbs(project) {
-			return nil, errors.New("project must be relative to the server root")
+			return "", errors.New("project must be relative to the server root")
 		}
 		path, err := canonicalProjectDir(filepath.Join(root, project))
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 		if path != root && !pathWithin(root, path) {
-			return nil, errors.New("project must remain inside the server root")
+			return "", errors.New("project must remain inside the server root")
+		}
+		return path, nil
+	}
+	snapshot := func(ctx context.Context, project string) (*LanguageSnapshot, error) {
+		path, err := projectDir(ctx, project)
+		if err != nil {
+			return nil, err
 		}
 		return AnalyzeLanguage(path, nil)
 	}
@@ -113,5 +122,56 @@ func NewLanguageMCPServer(dir, version string) (*mcp.Server, error) {
 			return nil, out, nil
 		})
 	}
+	addSourceTools(server, tool, projectDir)
 	return server, nil
+}
+
+func addSourceTools(server *mcp.Server, tool func(name, description string) *mcp.Tool, projectDir func(context.Context, string) (string, error)) {
+	mcp.AddTool(server, tool("onekit_check_source", "Validate proposed .onk source for a file without saving it. The source replaces the file's saved contents (or adds a new file) for this check only; the rest of the project is read from disk. Returns compiler diagnostics."), func(ctx context.Context, _ *mcp.CallToolRequest, in sourceInput) (*mcp.CallToolResult, *sourceCheckOutput, error) {
+		dir, err := projectDir(ctx, in.Project)
+		if err != nil {
+			return nil, nil, err
+		}
+		path, err := languagePath(dir, in.Path)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(in.Source) > maxInputFileBytes {
+			return nil, nil, errors.New("source exceeds input limit")
+		}
+		s, err := AnalyzeLanguage(dir, map[string]string{path: in.Source})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, &sourceCheckOutput{Diagnostics: s.Diagnostics}, nil
+	})
+	mcp.AddTool(server, tool("onekit_format", "Format .onk source text the way onek fmt would and return it. Does not read or write files."), func(ctx context.Context, _ *mcp.CallToolRequest, in formatInput) (*mcp.CallToolResult, *formatOutput, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+		formatted, err := onklang.Format(in.Source)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, &formatOutput{Formatted: string(formatted), Changed: string(formatted) != in.Source}, nil
+	})
+}
+
+type sourceInput struct {
+	Project string `json:"project,omitempty" jsonschema:"Project directory relative to the server root."`
+	Path    string `json:"path" jsonschema:".onk file path relative to the selected project."`
+	Source  string `json:"source" jsonschema:"Complete proposed contents of the file."`
+}
+
+type sourceCheckOutput struct {
+	Diagnostics []Diagnostic `json:"diagnostics"`
+}
+
+type formatInput struct {
+	Source string `json:"source" jsonschema:".onk source text to format."`
+}
+
+type formatOutput struct {
+	Formatted string `json:"formatted"`
+	Changed   bool   `json:"changed"`
 }
