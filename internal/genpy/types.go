@@ -169,6 +169,8 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) []byt
 		p.P("import ", ref.ModulePath, " as ", ref.Alias)
 	}
 	p.P()
+	p.P(`_UUID_PATTERN = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")`)
+	p.P()
 
 	for _, e := range file.Enums {
 		writeEnum(p, e)
@@ -717,11 +719,7 @@ func writePyValidateFunc(p *Printer, m *onkir.Message) {
 				p.P("if ", formatPresent, " and ('@' not in ", accessor, " or '.' not in ", accessor, ".split('@')[-1]): violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid email"), ")")
 			}
 			if f.HasDecorator("uuid") {
-				p.P("if ", formatPresent, ":")
-				p.Indent()
-				p.P("try: uuid.UUID(", accessor, ")")
-				p.P("except (ValueError, AttributeError): violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid UUID"), ")")
-				p.Dedent()
+				p.P("if ", formatPresent, " and not (isinstance(", accessor, ", str) and _UUID_PATTERN.fullmatch(", accessor, ")): violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid UUID"), ")")
 			}
 			if f.HasDecorator("uri") {
 				p.P("if ", formatPresent, " and not urllib.parse.urlparse(", accessor, ").scheme: violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid URI"), ")")
