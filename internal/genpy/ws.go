@@ -395,7 +395,7 @@ _WS_CHUNK_THRESHOLD = 16 << 20
 _WS_CLOSED = object()
 
 
-class WsClosedError(ConnectionError):
+class WsClosedError(_builtins.ConnectionError):
     def __init__(self, code=None, reason=""):
         detail = "" if code is None else " (" + str(code) + (": " + reason if reason else "") + ")"
         super().__init__("websocket closed" + detail)
@@ -403,7 +403,7 @@ class WsClosedError(ConnectionError):
         self.reason = reason
 
 
-class WsTimeoutError(TimeoutError):
+class WsTimeoutError(_builtins.TimeoutError):
     def __init__(self):
         super().__init__("websocket call timed out")
 
@@ -595,7 +595,7 @@ class WsFrameSocket:
         while True:
             try:
                 data = self._connection.recv(timeout=timeout)
-            except TimeoutError as exc:
+            except _builtins.TimeoutError as exc:
                 raise WsTimeoutError() from exc
             except self._closed_error as exc:
                 raise _ws_closed(exc) from exc
