@@ -527,6 +527,8 @@ incompatible header/auth contracts are rejected before generation. Add
 fields. `onek compat` compares nested types, fields, enums, oneofs, validators,
 routes, bindings, headers, streams, and typed errors, including configured
 route prefixes; `onek compat --json` emits stable machine-readable findings.
+Accept an intentional break with `--allow app.User.email` (repeatable; a
+message or service name also covers its fields and routes).
 Successful builds write an ignored `.onekit/manifest.json` containing the
 schema fingerprint and expected generated outputs.
 
