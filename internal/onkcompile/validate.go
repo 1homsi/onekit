@@ -8,6 +8,8 @@ import (
 	"regexp/syntax"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/1homsi/onekit/internal/onkir"
 	"github.com/1homsi/onekit/internal/onklang"
@@ -839,6 +841,9 @@ func validateDeclarationName(path string, line int, name string) error {
 	}
 	if reservedDeclarationNames[strings.ToLower(name)] {
 		return &Error{Path: path, Line: line, Msg: fmt.Sprintf("declaration name %q is reserved in a generated target language", name)}
+	}
+	if first, _ := utf8.DecodeRuneInString(name); !unicode.IsUpper(first) {
+		return &Error{Path: path, Line: line, Msg: fmt.Sprintf("declaration name %q must start with an uppercase letter so generated Go code exports it", name)}
 	}
 	return nil
 }
