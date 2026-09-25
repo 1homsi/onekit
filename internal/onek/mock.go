@@ -450,6 +450,13 @@ func mockSingleValue(field *onkir.Field, depth int) any {
 }
 
 func mockBoundedNumber[T int | float64](field *onkir.Field, fallback T, integer bool) float64 {
+	if d, ok := field.Decorator("in"); ok {
+		if raw, ok := d.Arg(0); ok {
+			if value, err := strconv.ParseFloat(raw, 64); err == nil {
+				return value
+			}
+		}
+	}
 	bound := func(name string, index int) (float64, bool) {
 		d, ok := field.Decorator(name)
 		if !ok {

@@ -245,6 +245,13 @@ func writeValidateFunc(p *Printer, m *onkir.Message) {
 		}
 		if isTSNumeric(field.Type.Scalar) {
 			numericAccessor := "Number(" + accessor + ")"
+			if d, ok := field.Decorator("in"); ok {
+				values := make([]string, 0, len(d.Args))
+				for _, arg := range d.Args {
+					values = append(values, arg.Value)
+				}
+				p.P("if (", present, " && ![", strings.Join(values, ", "), "].includes(", numericAccessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be one of the allowed values"), ");")
+			}
 			if d, ok := field.Decorator("range"); ok && len(d.Args) == 2 {
 				p.P("if (", present, " && (", numericAccessor, " < ", d.Args[0].Value, " || ", numericAccessor, " > ", d.Args[1].Value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" violates @range"), ");")
 			}

@@ -275,8 +275,12 @@ func applyFieldValidation(schema *base.Schema, field *onkir.Field) {
 		case "gt", "gte", "lt", "lte", "range":
 			applyNumericValidation(schema, decorator)
 		case "in":
+			tag := "!!str"
+			if len(schema.Type) > 0 && schema.Type[0] == "integer" {
+				tag = "!!int"
+			}
 			for _, arg := range decorator.Args {
-				schema.Enum = append(schema.Enum, &yaml.Node{Kind: yaml.ScalarNode, Value: arg.Value})
+				schema.Enum = append(schema.Enum, &yaml.Node{Kind: yaml.ScalarNode, Tag: tag, Value: arg.Value})
 			}
 		}
 	}

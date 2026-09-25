@@ -847,6 +847,13 @@ func writePyValidateFunc(p *Printer, m *onkir.Message) {
 			}
 		}
 		if isPyNumeric(f.Type.Scalar) {
+			if d, ok := f.Decorator("in"); ok {
+				values := make([]string, 0, len(d.Args))
+				for _, arg := range d.Args {
+					values = append(values, arg.Value)
+				}
+				p.P("if ", present, " and ", accessor, " not in (", strings.Join(values, ", "), ",): violations.append(", fmt.Sprintf("%q", f.Name+" must be one of the allowed values"), ")")
+			}
 			if d, ok := f.Decorator("range"); ok {
 				p.P("if ", present, " and not (", d.Args[0].Value, " <= ", accessor, " <= ", d.Args[1].Value, "): violations.append(", fmt.Sprintf("%q", f.Name+" violates @range"), ")")
 			}

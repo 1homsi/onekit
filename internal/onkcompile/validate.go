@@ -287,6 +287,64 @@ func validateOneofArgs(path string, line int, args []onklang.Arg) error {
 	return nil
 }
 
+func validateFieldDecoratorType(filePath string, field *onklang.FieldDecl, name string) error {
+	switch name {
+	case "in":
+		if !acceptsIn(field) {
+			return &Error{Path: filePath, Line: field.Line, Msg: "@in requires a non-repeated string or integer field"}
+		}
+	case "email", "uuid", "uri", "pattern", "len":
+		if !isScalarNamed(field.Type, "string") || field.Repeated {
+			return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@%s requires a non-repeated string field", name)}
+		}
+	case "gt", "gte", "lt", "lte", "range":
+		if !isNumericTypeRef(field.Type) || field.Repeated {
+			return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@%s requires a non-repeated numeric field", name)}
+		}
+	case "min_items", "max_items":
+		if !field.Repeated {
+			return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@%s requires a repeated field", name)}
+		}
+	case "ws_timeout", "raw":
+		if err := validateWSFieldDecorator(filePath, field, name); err != nil {
+			return err
+		}
+	case wsIDDecorator:
+		if !isWSIDTypeRef(field.Type) || field.Repeated {
+			return &Error{Path: filePath, Line: field.Line, Msg: "@ws_id requires a non-repeated string or integer field"}
+		}
+	case flattenDecorator, "empty":
+		if field.Repeated || field.Type.IsMap || isScalarTypeRef(field.Type) {
+			return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@%s requires a non-repeated message field", name)}
+		}
+		// The two wire-mapping strategies are mutually exclusive: every
+		// backend either inlines the child under a prefix or rewrites
+		// its empty encoding - combining them produces conflicting
+		// generated code (duplicate aux fields in Go, conflicting serde
+		// attributes in Rust).
+		if hasDecorator(field.Decorators, flattenDecorator) && hasDecorator(field.Decorators, "empty") {
+			return &Error{Path: filePath, Line: field.Line, Msg: "@flatten cannot be combined with @empty; choose one JSON mapping for the field"}
+		}
+	case "unwrap":
+		if field.Optional {
+			return &Error{Path: filePath, Line: field.Line, Msg: "@unwrap cannot be optional"}
+		}
+	case "encode":
+		if field.Repeated || field.Type.IsMap {
+			return &Error{Path: filePath, Line: field.Line, Msg: "@encode does not support repeated or map fields"}
+		}
+	}
+	return nil
+}
+
+func acceptsIn(field *onklang.FieldDecl) bool {
+	if field.Type.IsMap || field.Repeated {
+		return false
+	}
+	_, integer := integerBounds[field.Type.Name]
+	return integer || isScalarNamed(field.Type, "string")
+}
+
 func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl, options CompileOptions) error {
 	if field.Type == nil {
 		return nil
@@ -301,47 +359,8 @@ func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl, 
 		return &Error{Path: filePath, Line: field.Line, Msg: "@query supports string, bool, integer, and float scalar fields"}
 	}
 	for _, decorator := range field.Decorators {
-		switch decorator.Name {
-		case "email", "uuid", "uri", "pattern", "len", "in":
-			if !isScalarNamed(field.Type, "string") || field.Repeated {
-				return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@%s requires a non-repeated string field", decorator.Name)}
-			}
-		case "gt", "gte", "lt", "lte", "range":
-			if !isNumericTypeRef(field.Type) || field.Repeated {
-				return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@%s requires a non-repeated numeric field", decorator.Name)}
-			}
-		case "min_items", "max_items":
-			if !field.Repeated {
-				return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@%s requires a repeated field", decorator.Name)}
-			}
-		case "ws_timeout", "raw":
-			if err := validateWSFieldDecorator(filePath, field, decorator.Name); err != nil {
-				return err
-			}
-		case wsIDDecorator:
-			if !isWSIDTypeRef(field.Type) || field.Repeated {
-				return &Error{Path: filePath, Line: field.Line, Msg: "@ws_id requires a non-repeated string or integer field"}
-			}
-		case flattenDecorator, "empty":
-			if field.Repeated || field.Type.IsMap || isScalarTypeRef(field.Type) {
-				return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@%s requires a non-repeated message field", decorator.Name)}
-			}
-			// The two wire-mapping strategies are mutually exclusive: every
-			// backend either inlines the child under a prefix or rewrites
-			// its empty encoding - combining them produces conflicting
-			// generated code (duplicate aux fields in Go, conflicting serde
-			// attributes in Rust).
-			if hasDecorator(field.Decorators, flattenDecorator) && hasDecorator(field.Decorators, "empty") {
-				return &Error{Path: filePath, Line: field.Line, Msg: "@flatten cannot be combined with @empty; choose one JSON mapping for the field"}
-			}
-		case "unwrap":
-			if field.Optional {
-				return &Error{Path: filePath, Line: field.Line, Msg: "@unwrap cannot be optional"}
-			}
-		case "encode":
-			if field.Repeated || field.Type.IsMap {
-				return &Error{Path: filePath, Line: field.Line, Msg: "@encode does not support repeated or map fields"}
-			}
+		if err := validateFieldDecoratorType(filePath, field, decorator.Name); err != nil {
+			return err
 		}
 		if err := validateDecoratorValue(filePath, field.Line, decorator); err != nil {
 			return err

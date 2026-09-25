@@ -201,6 +201,16 @@ func syntheticFieldLiteral(f *onkir.Field, depth int) string {
 		if literal, ok := stringScalarExample(f); ok {
 			return literal
 		}
+	case f.Type.Kind == onkir.KindScalar && f.HasDecorator("in"):
+		d, _ := f.Decorator("in")
+		if value, ok := d.Arg(0); ok {
+			if f.Type.Scalar == onkir.ScalarInt64 || f.Type.Scalar == onkir.ScalarUint64 {
+				if !needsInt64NumberEncoding(f) {
+					return strconv.Quote(value)
+				}
+			}
+			return value
+		}
 	}
 	return typeLiteral(f.Type, depth)
 }
