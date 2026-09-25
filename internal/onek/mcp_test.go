@@ -30,7 +30,7 @@ func TestMCPTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Tools) != 5 {
+	if len(listed.Tools) != 7 {
 		t.Fatalf("tools: %+v", listed.Tools)
 	}
 	for _, tool := range listed.Tools {
