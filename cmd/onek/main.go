@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -350,6 +351,11 @@ func runCompat(args []string) error {
 	fs.SetOutput(os.Stderr)
 	asJSON := fs.Bool("json", false, "emit machine-readable JSON")
 	against := fs.String("against", "", "git ref to use as the previous schema (for example origin/main)")
+	var allowed []string
+	fs.Func("allow", "accept findings for this path or anything under it (repeatable)", func(value string) error {
+		allowed = append(allowed, value)
+		return nil
+	})
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -370,6 +376,7 @@ func runCompat(args []string) error {
 	if err != nil {
 		return err
 	}
+	findings = withoutAllowed(findings, allowed)
 	if *asJSON {
 		if encodeErr := json.NewEncoder(os.Stdout).Encode(findings); encodeErr != nil {
 			return encodeErr
@@ -392,6 +399,21 @@ func runCompat(args []string) error {
 		return compatibilityExitError{}
 	}
 	return nil
+}
+
+func withoutAllowed(findings []onkcompat.Finding, allowed []string) []onkcompat.Finding {
+	if len(allowed) == 0 {
+		return findings
+	}
+	kept := findings[:0]
+	for _, finding := range findings {
+		if !slices.ContainsFunc(allowed, func(path string) bool {
+			return finding.Path == path || strings.HasPrefix(finding.Path, path+".") || strings.HasPrefix(finding.Path, path+" ")
+		}) {
+			kept = append(kept, finding)
+		}
+	}
+	return kept
 }
 
 type compatibilityExitError struct{}
