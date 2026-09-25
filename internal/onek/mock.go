@@ -160,6 +160,10 @@ func (m *MockServer) Handler() http.Handler {
 
 // Run serves until ctx is cancelled or the listener fails.
 func (m *MockServer) Run(ctx context.Context, addr string, out io.Writer) error {
+	return serveMock(ctx, addr, m.Handler(), m.routes, out)
+}
+
+func serveMock(ctx context.Context, addr string, handler http.Handler, routes int, out io.Writer) error {
 	if addr == "" {
 		addr = "127.0.0.1:8080"
 	}
@@ -168,11 +172,11 @@ func (m *MockServer) Run(ctx context.Context, addr string, out io.Writer) error 
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", addr, err)
 	}
-	httpServer := &http.Server{Handler: m.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	httpServer := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpServer.Serve(listener) }()
 	if out != nil {
-		_, _ = fmt.Fprintf(out, "onekit mock: serving %d route(s) on http://%s\n", m.routes, listener.Addr())
+		_, _ = fmt.Fprintf(out, "onekit mock: serving %d route(s) on http://%s\n", routes, listener.Addr())
 	}
 	select {
 	case <-ctx.Done():

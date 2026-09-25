@@ -473,7 +473,9 @@ onek mock --dir api --addr :8080 \
 
 Fixtures are pure functions of the schema: identical schemas produce
 byte-identical responses across runs and machines, keeping frontend
-snapshot tests stable.
+snapshot tests stable. Add `--watch` to pick up schema and config edits
+without restarting; a schema that fails to compile is reported and the
+previous routes keep serving.
 
 Go client and server targets must use the same output directory because they
 share one generated types package. Successful builds remove obsolete OneKit-
