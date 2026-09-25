@@ -398,12 +398,18 @@ func (c *compiler) buildOneof(od *onklang.OneofDecl, field *onkir.Field, path st
 		if err != nil {
 			return nil, err
 		}
-		oneof.Variants = append(oneof.Variants, &onkir.OneofVariant{
+		variant := &onkir.OneofVariant{
 			Name:       vd.Name,
 			Type:       typ,
 			Decorators: convertDecorators(vd.Decorators),
 			Oneof:      oneof,
-		})
+		}
+		if oneof.Flatten() && typ.Kind != onkir.KindMessage {
+			return nil, &Error{Path: path, Line: vd.Line, Column: vd.Col, Msg: fmt.Sprintf(
+				"oneof variant %q must be a message to use flatten: true; its fields are merged next to the discriminator", vd.Name,
+			)}
+		}
+		oneof.Variants = append(oneof.Variants, variant)
 	}
 	return oneof, nil
 }
