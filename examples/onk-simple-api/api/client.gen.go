@@ -75,6 +75,7 @@ func NewUserServiceClient(baseURL string) *UserServiceClient {
 	return &UserServiceClient{BaseURL: baseURL, HTTPClient: http.DefaultClient, Headers: map[string]string{}, MaxResponseBodyBytes: defaultMaxResponseBodyBytes, MaxSSELineBytes: defaultMaxSSELineBytes}
 }
 
+// Create a new user.
 func (c *UserServiceClient) CreateUser(ctx context.Context, req *CreateUserRequest, opts ...CallOption) (*User, error) {
 	if validator, ok := any(req).(interface{ Validate() error }); ok {
 		if err := validator.Validate(); err != nil {
@@ -115,6 +116,7 @@ func (c *UserServiceClient) CreateUser(ctx context.Context, req *CreateUserReque
 	return result, nil
 }
 
+// Get a user by ID.
 func (c *UserServiceClient) GetUser(ctx context.Context, req *GetUserRequest, opts ...CallOption) (*User, error) {
 	if validator, ok := any(req).(interface{ Validate() error }); ok {
 		if err := validator.Validate(); err != nil {
@@ -155,6 +157,7 @@ func (c *UserServiceClient) GetUser(ctx context.Context, req *GetUserRequest, op
 	return result, nil
 }
 
+// Login with different authentication methods.
 func (c *UserServiceClient) Login(ctx context.Context, req *LoginRequest, opts ...CallOption) (*LoginResponse, error) {
 	if validator, ok := any(req).(interface{ Validate() error }); ok {
 		if err := validator.Validate(); err != nil {

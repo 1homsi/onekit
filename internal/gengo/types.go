@@ -363,12 +363,27 @@ func hasEnumsAnywhere(file *onkir.File) bool {
 	return false
 }
 
+func writeDoc(p *Printer, doc string) {
+	if doc = strings.TrimSpace(doc); doc == "" {
+		return
+	}
+	for line := range strings.SplitSeq(doc, "\n") {
+		if line = strings.TrimRight(line, " \t"); line == "" {
+			p.P("//")
+		} else {
+			p.P("// ", line)
+		}
+	}
+}
+
 func writeEnum(p *Printer, e *onkir.Enum) {
+	writeDoc(p, e.Doc)
 	p.P("type ", e.Name, " int32")
 	p.P()
 	p.P("const (")
 	for i, v := range e.Values {
 		constName := e.Name + PascalCase(strings.ToLower(v.Name))
+		writeDoc(p, v.Doc)
 		if i == 0 {
 			p.P(constName, " ", e.Name, " = iota")
 		} else {
@@ -424,6 +439,7 @@ func writeEnum(p *Printer, e *onkir.Enum) {
 }
 
 func writeMessage(p *Printer, m *onkir.Message) {
+	writeDoc(p, m.Doc)
 	p.P("type ", m.Name, " struct {")
 	for _, f := range m.Fields {
 		writeField(p, m, f)
@@ -611,6 +627,7 @@ func writeErrorMethod(p *Printer, m *onkir.Message) {
 
 func writeField(p *Printer, m *onkir.Message, f *onkir.Field) {
 	goName := PascalCase(f.Name)
+	writeDoc(p, f.Doc)
 	if f.Oneof != nil {
 		p.P(goName, " ", OneofInterfaceName(m, f), " `json:\"", f.Name, ",omitempty\"`")
 		return
