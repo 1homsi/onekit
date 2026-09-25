@@ -828,6 +828,11 @@ func boxedVariant(owner *onkir.Message, variant *onkir.OneofVariant) bool {
 	return reaches(variant.Type.Message)
 }
 
+func isInt64Variant(variant *onkir.OneofVariant) bool {
+	return variant.Type != nil && variant.Type.Kind == onkir.KindScalar &&
+		(variant.Type.Scalar == onkir.ScalarInt64 || variant.Type.Scalar == onkir.ScalarUint64)
+}
+
 func isBytesVariant(variant *onkir.OneofVariant) bool {
 	return variant.Type != nil && variant.Type.Kind == onkir.KindScalar && variant.Type.Scalar == onkir.ScalarBytes
 }
@@ -855,6 +860,8 @@ func writeOneofSerialize(p *Printer, name string, field *onkir.Field) {
 			p.P("object.extend(fields.clone());")
 		case isBytesVariant(variant):
 			p.P("object.insert(", strconv.Quote(variant.Name), ".into(), serde_json::Value::String(base64::engine::general_purpose::STANDARD.encode(value)));")
+		case isInt64Variant(variant):
+			p.P("object.insert(", strconv.Quote(variant.Name), ".into(), serde_json::Value::String(value.to_string()));")
 		default:
 			p.P("object.insert(", strconv.Quote(variant.Name), ".into(), serde_json::to_value(value).map_err(serde::ser::Error::custom)?);")
 		}
@@ -895,10 +902,16 @@ func writeOneofDeserialize(p *Printer, name string, field *onkir.Field) {
 			p.P("let value = serde_json::from_value(serde_json::Value::Object(object)).map_err(serde::de::Error::custom)?;")
 		} else {
 			p.P("let raw = object.remove(", strconv.Quote(variant.Name), ").ok_or_else(|| serde::de::Error::custom(", strconv.Quote("missing oneof value "+variant.Name), "))?;")
-			if isBytesVariant(variant) {
+			switch {
+			case isBytesVariant(variant):
 				p.P("let text = raw.as_str().ok_or_else(|| serde::de::Error::custom(", strconv.Quote(variant.Name+" must be a base64 string"), "))?;")
 				p.P("let value = base64::engine::general_purpose::STANDARD.decode(text).map_err(serde::de::Error::custom)?;")
-			} else {
+			case isInt64Variant(variant):
+				p.P("let value = match raw {")
+				p.P("serde_json::Value::String(text) => text.parse().map_err(serde::de::Error::custom)?,")
+				p.P("other => serde_json::from_value(other).map_err(serde::de::Error::custom)?,")
+				p.P("};")
+			default:
 				p.P("let value = serde_json::from_value(raw).map_err(serde::de::Error::custom)?;")
 			}
 		}
