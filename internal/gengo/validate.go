@@ -357,6 +357,9 @@ func writeValidate(p *Printer, m *onkir.Message) {
 	p.P("if m == nil { return nil }")
 	p.P("var violations []string")
 	for _, f := range m.Fields {
+		if f.Oneof != nil && f.HasDecorator("required") {
+			p.P("if m.", PascalCase(f.Name), " == nil { violations = append(violations, ", fmt.Sprintf("%q", f.Name+" is required"), ") }")
+		}
 		for _, rule := range fieldValidationRules(m, f) {
 			p.P(rule)
 		}

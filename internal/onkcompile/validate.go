@@ -165,6 +165,11 @@ func validateFieldDecl(path string, field *onklang.FieldDecl, options CompileOpt
 	if err := validateOneofArgs(path, field.Line, field.Oneof.Args); err != nil {
 		return err
 	}
+	for _, decorator := range field.Decorators {
+		if decorator.Name != "required" {
+			return &Error{Path: path, Line: field.Line, Msg: fmt.Sprintf("@%s is not supported on oneof field %q; only @required is", decorator.Name, field.Name)}
+		}
+	}
 	if len(field.Oneof.Variants) == 0 {
 		return &Error{Path: path, Line: field.Line, Msg: fmt.Sprintf("oneof %q must declare at least one variant", field.Name)}
 	}
