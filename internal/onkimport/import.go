@@ -181,10 +181,7 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 		if field != name && in == paramInPath {
 			im.warnf("%s: path parameter %q renamed to %q", opName, name, field)
 		}
-		ft, ok := im.schemaTypeExpr(param["schema"], reqName+Pascal(field), 1)
-		if !ok || ft.expr == "" {
-			ft = fieldType{expr: "string"}
-		}
+		ft := im.parameterFieldType(param["schema"], reqName+Pascal(field), opName, name)
 		optional := !truthy(param["required"]) && in != paramInPath
 		line := composeFieldLine(field, ft, optional, opName, name)
 		switch in {
@@ -356,6 +353,31 @@ func pickSuccess(responses map[string]any) string {
 		}
 	}
 	return ""
+}
+
+func (im *importer) parameterFieldType(raw any, suggested, opName, name string) fieldType {
+	schema := asMap(raw)
+	if ref := text(schema, "$ref"); ref != "" {
+		if resolved := im.lookupRef(ref); resolved != nil {
+			schema = resolved
+		}
+	}
+	if values := asSlice(schema["enum"]); len(values) > 0 && text(schema, "type") == scalarString {
+		quoted := make([]string, 0, len(values))
+		for _, value := range values {
+			quoted = append(quoted, strconv.Quote(textOf(value)))
+		}
+		return fieldType{expr: scalarString, suffix: " @in(" + strings.Join(quoted, ", ") + ")"}
+	}
+	ft, ok := im.schemaTypeExpr(schema, suggested, 1)
+	if !ok || ft.expr == "" {
+		return fieldType{expr: scalarString}
+	}
+	if isScalarExpr(ft.expr) && ft.expr != "timestamp" && ft.expr != "json" {
+		return ft
+	}
+	im.warnf("%s: parameter %q has type %s, which cannot bind to a URL; imported as string", opName, name, ft.expr)
+	return fieldType{expr: scalarString}
 }
 
 func (im *importer) jsonSchema(content map[string]any) (map[string]any, bool) {
