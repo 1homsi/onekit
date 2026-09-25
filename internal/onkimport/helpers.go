@@ -229,6 +229,8 @@ const (
 
 const paramInPath = "path"
 
+const schemaObject = "object"
+
 func isScalarExpr(expr string) bool {
 	switch expr {
 	case scalarString, "bool", "int32", scalarInt64, "uint32", "uint64",

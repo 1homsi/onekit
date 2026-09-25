@@ -383,7 +383,7 @@ func schemaTypeName(schema map[string]any) (string, bool) {
 	if typ == "" {
 		switch {
 		case schema["properties"] != nil || schema["additionalProperties"] != nil || schema["required"] != nil:
-			typ = "object"
+			typ = schemaObject
 		case schema["items"] != nil:
 			typ = "array"
 		}
@@ -415,7 +415,7 @@ func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldT
 			props[k] = v
 		}
 		merged := map[string]any{
-			"type":       "object",
+			"type":       schemaObject,
 			"properties": props,
 		}
 		if required := append(im.allOfRequired(allOf), asSlice(schema["required"])...); len(required) > 0 {
@@ -444,7 +444,7 @@ func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldT
 			im.warnf("schema %q has int64 array items; onekit sends repeated int64 values as JSON strings", suggested)
 		}
 		return fieldType{expr: item.expr + "[]"}, true
-	case "object":
+	case schemaObject:
 		props := asMap(schema["properties"])
 		additional, hasAdditional := schema["additionalProperties"]
 		switch {
@@ -631,7 +631,7 @@ func (im *importer) resolveRef(ref, suggested string, depth int) (fieldType, boo
 	if strings.HasPrefix(ref, "#/components/schemas/") {
 		suggested = refCanonicalName(ref)
 	}
-	if strings.HasPrefix(ref, "#/components/schemas/") && text(target, "type") == "object" && len(asMap(target["properties"])) > 0 {
+	if strings.HasPrefix(ref, "#/components/schemas/") && text(target, "type") == schemaObject && len(asMap(target["properties"])) > 0 {
 		name := im.registerMessage(suggested)
 		im.refDone[ref] = fieldType{expr: name}
 		im.fillObject(name, target, depth+1)
