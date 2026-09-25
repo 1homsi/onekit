@@ -267,7 +267,7 @@ func (m *MockServer) stream(w http.ResponseWriter, r *http.Request, method *onki
 // holds the connection open discarding inbound frames until the peer closes.
 func (m *MockServer) handleWebSocket(method *onkir.Method) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Accept(w, r, nil)
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: m.cors})
 		if err != nil {
 			return
 		}
