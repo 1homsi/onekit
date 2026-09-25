@@ -166,7 +166,7 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) []byt
 	p.P("from dataclasses import dataclass")
 	p.P("from enum import IntEnum")
 	for _, ref := range collectExternalRefs(file, resolver) {
-		p.P("import ", ref.ModulePath, " as ", ref.Alias)
+		writePyModuleImport(p, ref)
 	}
 	p.P()
 

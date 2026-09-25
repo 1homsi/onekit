@@ -9,8 +9,9 @@ import (
 // PackageRef identifies another generated Python module that a cross-package
 // type reference needs to import.
 type PackageRef struct {
-	Alias      string // Python identifier used for the import alias and as the qualifier prefix
-	ModulePath string // dotted Python module path, e.g. "common.models"
+	Alias           string // Python identifier used for the import alias and as the qualifier prefix
+	ModulePath      string // dotted Python module path, e.g. "common.models"
+	RelativePackage string
 }
 
 // PackageResolver tells the generator whether a message/enum belongs to a
@@ -124,4 +125,19 @@ func collectServiceExternalRefs(file *onkir.File, resolver PackageResolver) []Pa
 		}
 	}
 	return c.sorted()
+}
+
+func writePyModuleImport(p *Printer, ref PackageRef) {
+	if ref.RelativePackage == "" {
+		p.P("import ", ref.ModulePath, " as ", ref.Alias)
+		return
+	}
+	p.P("try:")
+	p.Indent()
+	p.P("from ", ref.RelativePackage, " import models as ", ref.Alias)
+	p.Dedent()
+	p.P("except ImportError:")
+	p.Indent()
+	p.P("import ", ref.ModulePath, " as ", ref.Alias)
+	p.Dedent()
 }
