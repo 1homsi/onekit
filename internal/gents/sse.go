@@ -108,11 +108,11 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		}
 	}
 
-	p.P("const decoded = decode", m.Request.Name, "(body);")
-	p.P("const violations = validate", m.Request.Name, "(decoded);")
+	p.P("const decoded = ", p.MessageCodecName(m.Request, "decode"), "(body);")
+	p.P("const violations = ", p.MessageCodecName(m.Request, "validate"), "(decoded);")
 	p.P("if (violations.length > 0) throw new HttpError(400, { message: violations.join(\"; \") });")
 	p.P("const stream = handler.", CamelCase(m.Name), "(decoded, { request: req, headers: req.headers });")
-	p.P("return await sseResponse(stream, encode", m.Response.Name, ");")
+	p.P("return await sseResponse(stream, ", p.MessageCodecName(m.Response, "encode"), ");")
 	p.P("} catch (err) {")
 	p.P("return errorResponse(err);")
 	p.P("}")
@@ -169,7 +169,7 @@ func writeSSEClientReadLoop(p *Printer, m *onkir.Method) {
 	p.P("data = [];")
 	p.P("if (!hasData) continue;")
 	p.P(`if (kind === "error") throw new Error("stream error: " + payload);`)
-	p.P("yield decode", m.Response.Name, "(JSON.parse(payload));")
+	p.P("yield ", p.MessageCodecName(m.Response, "decode"), "(JSON.parse(payload));")
 	p.P("continue;")
 	p.P("}")
 	p.P(`if (line.startsWith(":")) continue;`)

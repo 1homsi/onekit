@@ -404,8 +404,8 @@ func WriteTSWSSocketRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 			}
 		}
 	}
-	p.P("const connection = decode", m.Request.Name, "(body);")
-	p.P("const connectionViolations = validate", m.Request.Name, "(connection);")
+	p.P("const connection = ", p.MessageCodecName(m.Request, "decode"), "(body);")
+	p.P("const connectionViolations = ", p.MessageCodecName(m.Request, "validate"), "(connection);")
 	p.P(`if (connectionViolations.length > 0) return new Response(JSON.stringify({ message: connectionViolations.join("; ") }), { status: 400, headers: { "Content-Type": "application/json" } });`)
 
 	p.P("const pair = new (globalThis as any).WebSocketPair();")

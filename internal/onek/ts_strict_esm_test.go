@@ -54,6 +54,27 @@ service Runtime {
 }
 `
 
+const strictESMSharedOnk = `
+package common
+
+message Lookup { id: string }
+message Tick { id: string at: timestamp }
+message NotFound @status(404) { code: string }
+`
+
+const strictESMCatalogOnk = `
+package hub.catalog
+
+service CatalogService {
+  base_path: "/catalog/v1"
+
+  getPrice(Lookup) -> Money | NotFound @get("/prices/{id}")
+  setPrice(Money) -> Money | NotFound @post("/prices")
+  watchPrice(Lookup) -> Tick | NotFound @get("/prices/{id}/watch") @stream
+  live(Lookup) -> Tick @ws("/live")
+}
+`
+
 // strictESMHarness imports every compiled module in real Node ESM, which
 // resolves relative specifiers exactly as written - an extensionless
 // "./types" fails here even when a bundler or tsc would have accepted it.
@@ -97,6 +118,8 @@ func TestBuildTSCompilesUnderStrictNodeESM(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "common", "money.onk"), commonMoneyOnk)
 	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.onk"), businessServiceOnk)
 	writeTestFile(t, filepath.Join(dir, "rt", "runtime.onk"), strictESMRuntimeOnk)
+	writeTestFile(t, filepath.Join(dir, "common", "shared.onk"), strictESMSharedOnk)
+	writeTestFile(t, filepath.Join(dir, "hub", "catalog", "v1", "service.onk"), strictESMCatalogOnk)
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build error: %v", err)
 	}
