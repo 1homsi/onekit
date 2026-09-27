@@ -325,7 +325,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	// path; this is the success path catching up. Emptiness is tested rather
 	// than the status code, so it covers 204 and an empty 200 alike.
 	p.P("const text = await readResponseText(res, this.options.maxResponseBodyBytes);")
-	p.P("return decode", m.Response.Name, `(text.trim() === "" ? {} : JSON.parse(text));`)
+	p.P("return ", p.MessageCodecName(m.Response, "decode"), `(text.trim() === "" ? {} : JSON.parse(text));`)
 	p.P("}")
 	p.P()
 }
@@ -365,7 +365,7 @@ func writeClientErrorHandling(p *Printer, m *onkir.Method) {
 		}
 		p.P(fmt.Sprintf("if (res.status === %d) {", status))
 		p.P("try {")
-		p.P("throw new TypedApiError(res.status, body, ", fmt.Sprintf("%q", errType.Name), ", decode", errType.Name, "(JSON.parse(body)));")
+		p.P("throw new TypedApiError(res.status, body, ", fmt.Sprintf("%q", errType.Name), ", ", p.MessageCodecName(errType, "decode"), "(JSON.parse(body)));")
 		p.P("} catch (err) {")
 		p.P("if (!(err instanceof SyntaxError)) throw err;")
 		p.P("}")
