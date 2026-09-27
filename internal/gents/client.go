@@ -301,9 +301,9 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	if bodyBearing {
 		p.P(`headers: { "Content-Type": "application/json", ...this.options.defaultHeaders, ...opts?.headers },`)
 		if bodyField, ok := m.BodyField(); ok {
-			p.P("body: JSON.stringify(encode", m.Request.Name, "(req)[", fmt.Sprintf("%q", bodyField), "]),")
+			p.P("body: JSON.stringify(", p.MessageCodecName(m.Request, "encode"), "(req)[", fmt.Sprintf("%q", bodyField), "]),")
 		} else {
-			p.P("body: JSON.stringify(encode", m.Request.Name, "(req)),")
+			p.P("body: JSON.stringify(", p.MessageCodecName(m.Request, "encode"), "(req)),")
 		}
 	} else {
 		p.P("headers: { ...this.options.defaultHeaders, ...opts?.headers },")

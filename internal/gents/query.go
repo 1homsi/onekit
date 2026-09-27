@@ -31,6 +31,9 @@ func GenerateReactQueryWithResolver(file *onkir.File, resolver PackageResolver) 
 	if names := referencedTypeNames(file, resolver); len(names) > 0 {
 		p.P(`import type { `, strings.Join(names, ", "), ` } from "./types.js";`)
 	}
+	for _, ref := range collectServiceExternalRefs(file, resolver) {
+		p.P(`import type * as `, ref.Alias, ` from "`, ref.ImportPath, `";`)
+	}
 	p.P(`import { ApiError } from "./client.js";`)
 	for _, s := range file.Services {
 		p.P(`import { `, s.Name, `Client } from "./client.js";`)
