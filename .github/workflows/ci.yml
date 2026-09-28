@@ -300,7 +300,7 @@ jobs:
 
       - name: Comment PR with coverage
         if: github.event_name == 'pull_request'
-        uses: fgrosse/go-coverage-report@e432de98ee94a276e8f666d25bfd76347665f75b # v1.3.1
+        uses: fgrosse/go-coverage-report@2eb52af4e808426e2d4edd850ff8c9ca14fce029 # v1.4.0
         continue-on-error: true  # Don't fail on coverage reporting issues
         with:
           coverage-artifact-name: coverage-reports
