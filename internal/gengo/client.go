@@ -51,7 +51,7 @@ func clientImportsNeeded(file *onkir.File) clientImports {
 						switch bytesEncodingValue(field) {
 						case bytesEncodeHex:
 							imp.hex = true
-						case bytesEncodeBase64Raw, bytesEncodeBase64URL, bytesEncodeBase64URLRaw:
+						case bytesEncodeBase64, bytesEncodeBase64Raw, bytesEncodeBase64URL, bytesEncodeBase64URLRaw:
 							imp.base64 = true
 						}
 					}

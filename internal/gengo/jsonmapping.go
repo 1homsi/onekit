@@ -8,6 +8,7 @@ const (
 	encodeNumber = "number"
 
 	bytesEncodeHex          = "hex"
+	bytesEncodeBase64       = "base64"
 	bytesEncodeBase64Raw    = "base64_raw"
 	bytesEncodeBase64URL    = "base64url"
 	bytesEncodeBase64URLRaw = "base64url_raw"
@@ -189,7 +190,7 @@ func fileNeedsEncodingImports(file *onkir.File) encodingImports {
 			switch bytesEncodingValue(f) {
 			case bytesEncodeHex:
 				imp.hex = true
-			case bytesEncodeBase64Raw, bytesEncodeBase64URL, bytesEncodeBase64URLRaw:
+			case bytesEncodeBase64, bytesEncodeBase64Raw, bytesEncodeBase64URL, bytesEncodeBase64URLRaw:
 				imp.base64 = true
 			}
 		}

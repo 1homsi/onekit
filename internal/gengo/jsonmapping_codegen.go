@@ -89,10 +89,17 @@ func int64ParseCall(kind onkir.ScalarKind, expr string) string {
 	return fmt.Sprintf("strconv.ParseInt(%s, 10, 64)", expr)
 }
 
+// bytesEncodeCall returns the expression converting a []byte field to its wire
+// form. Every value the validator accepts on a bytes field must appear here:
+// an unhandled case silently returns the raw []byte, which then fails to
+// compile against the string aux field. "base64" is padded standard base64,
+// the same wire form encoding/json uses for an unannotated bytes field.
 func bytesEncodeCall(encoding, expr string) string {
 	switch encoding {
 	case bytesEncodeHex:
 		return fmt.Sprintf("hex.EncodeToString(%s)", expr)
+	case bytesEncodeBase64:
+		return fmt.Sprintf("base64.StdEncoding.EncodeToString(%s)", expr)
 	case bytesEncodeBase64Raw:
 		return fmt.Sprintf("base64.RawStdEncoding.EncodeToString(%s)", expr)
 	case bytesEncodeBase64URL:
@@ -104,10 +111,15 @@ func bytesEncodeCall(encoding, expr string) string {
 	}
 }
 
+// bytesDecodeCall is the inverse of bytesEncodeCall and must stay in sync
+// with it: it always yields the (value, error) pair the generated unmarshal
+// expects.
 func bytesDecodeCall(encoding, expr string) string {
 	switch encoding {
 	case bytesEncodeHex:
 		return fmt.Sprintf("hex.DecodeString(%s)", expr)
+	case bytesEncodeBase64:
+		return fmt.Sprintf("base64.StdEncoding.DecodeString(%s)", expr)
 	case bytesEncodeBase64Raw:
 		return fmt.Sprintf("base64.RawStdEncoding.DecodeString(%s)", expr)
 	case bytesEncodeBase64URL:
