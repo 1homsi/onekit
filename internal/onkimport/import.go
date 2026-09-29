@@ -252,7 +252,7 @@ func (im *importer) responsePieces(opName string, responses map[string]any) (str
 		if successCode == "" {
 			im.warnf("%s: no 2xx response declared; empty response used", opName)
 		}
-		im.registerMessage(respName)
+		im.declareReserved(respName)
 	default:
 		ft, ok := im.schemaTypeExpr(schema, respName, 1)
 		if !ok {
@@ -263,7 +263,7 @@ func (im *importer) responsePieces(opName string, responses map[string]any) (str
 			respName = ft.expr
 		case strings.HasSuffix(ft.expr, "[]") || strings.HasPrefix(ft.expr, "map[") ||
 			isScalarExpr(ft.expr):
-			im.registerMessage(respName)
+			im.declareReserved(respName)
 			im.messages[respName] = []string{"data: " + ft.expr}
 		default:
 			// Inline object schema already registered itself under respName.
@@ -562,6 +562,14 @@ func (im *importer) registerMessage(base string) string {
 	im.messages[candidate] = nil
 	im.orderMsg = append(im.orderMsg, candidate)
 	return candidate
+}
+
+// declareReserved queues a declaration for a name that uniqueName has already
+// reserved. Unlike registerMessage it must not disambiguate, or the emitted
+// declaration would not match the name the RPC references.
+func (im *importer) declareReserved(name string) {
+	im.messages[name] = nil
+	im.orderMsg = append(im.orderMsg, name)
 }
 
 func (im *importer) isDecl(name string) bool {
