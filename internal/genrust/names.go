@@ -25,6 +25,30 @@ const (
 	fallbackSerdeOwner = "message"
 )
 
+// rustNonRawKeywords lists the four keywords Rust refuses to spell in raw
+// identifier form. `r#self`, `r#Self`, `r#super` and `r#crate` are all hard
+// parse errors ("`self` cannot be a raw identifier"), so they are the only
+// keywords that cannot be escaped with a `r#` prefix.
+//
+//nolint:gochecknoglobals // Immutable language keyword lookup shared by all naming helpers.
+var rustNonRawKeywords = map[string]bool{
+	"self":  true,
+	"Self":  true,
+	"super": true,
+	"crate": true,
+}
+
+// nonRawIdentifierSuffix is appended to the rustNonRawKeywords names. Suffixing
+// (rather than any other rewrite) is safe because every generated field and
+// enum variant already carries a serde rename pinning the original wire name,
+// so the Rust-side spelling is purely cosmetic.
+const nonRawIdentifierSuffix = "_"
+
+// rustKeywords holds the Rust keywords that are legal in raw identifier form
+// (r#fn, r#type, ...) and therefore need no rewriting beyond the r# prefix.
+// rustNonRawKeywords is deliberately NOT a subset of this set: those four
+// names cannot be spelled with r# and must be mangled by suffix instead.
+//
 //nolint:gochecknoglobals // Immutable language keyword lookup shared by all naming helpers.
 var rustKeywords = map[string]bool{
 	"as":       true,
@@ -33,7 +57,6 @@ var rustKeywords = map[string]bool{
 	"break":    true,
 	"const":    true,
 	"continue": true,
-	"crate":    true,
 	"dyn":      true,
 	"else":     true,
 	"enum":     true,
@@ -53,11 +76,8 @@ var rustKeywords = map[string]bool{
 	"pub":      true,
 	"ref":      true,
 	"return":   true,
-	"self":     true,
-	"Self":     true,
 	"static":   true,
 	"struct":   true,
-	"super":    true,
 	"trait":    true,
 	"true":     true,
 	"type":     true,
@@ -82,7 +102,22 @@ var rustKeywords = map[string]bool{
 	"yield":    true,
 }
 
-var rustNonRawKeywords = map[string]bool{"self": true, "Self": true, "super": true, "crate": true}
+// mangleNonRawKeyword makes a generated identifier legal Rust. The four
+// keywords that cannot use the r# escape form get a trailing underscore
+// instead; every other keyword keeps the r# prefix.
+//
+// A single pass is enough and there is no recursion: appending the suffix
+// always lands outside rustNonRawKeywords, so mangling is idempotent and
+// cannot loop.
+func mangleNonRawKeyword(ident string) string {
+	if rustNonRawKeywords[ident] {
+		return ident + nonRawIdentifierSuffix
+	}
+	if rustKeywords[ident] {
+		return "r#" + ident
+	}
+	return ident
+}
 
 func SnakeCase(value string) string {
 	var out strings.Builder
@@ -117,13 +152,7 @@ func RustIdent(value string) string {
 	if ident[0] >= '0' && ident[0] <= '9' {
 		ident = "_" + ident
 	}
-	if rustNonRawKeywords[ident] {
-		return ident + "_"
-	}
-	if rustKeywords[ident] {
-		return "r#" + ident
-	}
-	return ident
+	return mangleNonRawKeyword(ident)
 }
 
 // ErrorVariantNames maps each of a method's error types to its Rust enum
@@ -159,6 +188,9 @@ func ErrorVariantNames(errorTypes []*onkir.Message) []string {
 	return names
 }
 
+// PascalCase converts a schema name to the Rust type / enum variant spelling.
+// The result is passed through mangleNonRawKeyword because `self` PascalCases to
+// `Self`, one of the four keywords that cannot be raw-escaped.
 func PascalCase(value string) string {
 	var out strings.Builder
 	parts := strings.FieldsFunc(value, func(r rune) bool {
@@ -177,10 +209,7 @@ func PascalCase(value string) string {
 			out.WriteRune(r)
 		}
 	}
-	if out.String() == "Self" {
-		return "Self_"
-	}
-	return out.String()
+	return mangleNonRawKeyword(out.String())
 }
 
 func RustMessageName(message *onkir.Message) string {
