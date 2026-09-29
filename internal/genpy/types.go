@@ -402,6 +402,16 @@ func writeToDictField(p *Printer, f *onkir.Field) {
 		p.Indent()
 		p.P("d[", key, "] = str(self.", f.Name, ")")
 		p.Dedent()
+	case f.Type != nil && f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarJSON:
+		// A json field is an arbitrary JSON value, so every falsy value
+		// (false, 0, "", [], {}) is a real payload and must be sent.
+		// gengo models this as json.RawMessage, whose `omitempty` drops only
+		// len == 0, so RawMessage("0") is transmitted; a truthiness test here
+		// would silently discard the value on every server.
+		p.P("if self.", f.Name, " is not None:")
+		p.Indent()
+		p.P("d[", key, "] = self.", f.Name)
+		p.Dedent()
 	case f.Optional:
 		p.P("if self.", f.Name, " is not None:")
 		p.Indent()
