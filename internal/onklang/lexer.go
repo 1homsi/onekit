@@ -263,6 +263,14 @@ func (l *Lexer) lexString(line, col int, doc string, comments []string) (Token, 
 		l.advance()
 	}
 	raw := l.src[start:l.pos]
+	// strconv.Unquote decodes with utf8.DecodeRuneInString and treats a
+	// decoding error as a valid RuneError, so malformed bytes come back as
+	// U+FFFD with a nil error. Reject them here instead: accepting them would
+	// let Format rewrite the file with the mangled bytes and exit 0, and the
+	// original is unrecoverable.
+	if !utf8.ValidString(raw) {
+		return Token{}, &Error{Line: line, Column: col, Message: "invalid UTF-8 in string literal"}
+	}
 	value, err := strconv.Unquote(raw)
 	if err != nil {
 		return Token{}, &Error{Line: line, Column: col, Message: fmt.Sprintf("invalid string literal: %v", err)}
