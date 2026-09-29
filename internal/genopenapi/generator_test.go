@@ -187,8 +187,10 @@ service QueryService {
 	if !ok || path.Get == nil || len(path.Get.Parameters) != 2 {
 		t.Fatalf("unexpected query operation: %+v", path)
 	}
+	found := false
 	for _, parameter := range path.Get.Parameters {
 		if parameter.Name == "tag" {
+			found = true
 			if parameter.Style != "form" || parameter.Explode == nil || !*parameter.Explode {
 				t.Fatalf("repeated query parameter lacks form/explode contract: %+v", parameter)
 			}
@@ -196,6 +198,9 @@ service QueryService {
 				t.Fatalf("repeated query parameter is not an array schema: %+v", parameter.Schema)
 			}
 		}
+	}
+	if !found {
+		t.Fatalf(`no query parameter named "tag" (the @query("tag") wire name); got %+v`, path.Get.Parameters)
 	}
 }
 
