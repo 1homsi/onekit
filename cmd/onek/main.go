@@ -18,6 +18,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/1homsi/onekit/internal/onek"
+	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkimport"
 	"github.com/1homsi/onekit/internal/onklang"
 )
@@ -234,10 +235,19 @@ func runImport(args []string) error {
 	for _, warning := range result.Warnings {
 		fmt.Fprintln(os.Stderr, "onek import:", warning)
 	}
-	// Never write output that does not parse - a broken import is worse than
-	// a failed one.
-	if _, err := onklang.Parse(string(result.Source)); err != nil {
+	// Never write output the toolchain cannot use - a broken import is worse
+	// than a failed one. Parsing is not sufficient: an enum-valued @query
+	// parameter, a @query on a body-bearing verb, a @body on GET, or two
+	// property names that collide only after target-language conversion all
+	// parse cleanly and are rejected by the compiler. Without this gate the
+	// command exits 0 with "0 warnings" and writes a schema that `onek check`
+	// then refuses.
+	ast, err := onklang.Parse(string(result.Source))
+	if err != nil {
 		return fmt.Errorf("internal: imported schema does not parse: %w", err)
+	}
+	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: result.Package + ".onk", AST: ast}}); err != nil {
+		return fmt.Errorf("internal: imported schema does not compile: %w", err)
 	}
 	if err := os.MkdirAll(*outDir, 0o750); err != nil {
 		return fmt.Errorf("create %s: %w", *outDir, err)
