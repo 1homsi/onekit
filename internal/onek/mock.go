@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -37,7 +38,12 @@ type MockOptions struct {
 // produce byte-identical bodies - while rng drives only latency jitter and
 // error-injection draws.
 type MockServer struct {
-	mux       *http.ServeMux
+	mux *http.ServeMux
+	// rngMu guards rng: handle runs as an http.HandlerFunc, so net/http calls
+	// it from one goroutine per request, and *rand.Rand is not safe for
+	// concurrent use. Draws stay serialized, so the seeded stream remains
+	// reproducible across runs.
+	rngMu     sync.Mutex
 	rng       *rand.Rand
 	errorRate float64
 	latency   time.Duration
@@ -136,12 +142,27 @@ func (m *MockServer) Run(ctx context.Context, addr string, out io.Writer) error 
 	}
 }
 
+// drawInt64N and drawFloat64 serialize access to the shared seeded stream so
+// concurrent requests cannot corrupt the PCG state. Holding the lock only for
+// the draw (never across I/O) keeps the mock's throughput unaffected.
+func (m *MockServer) drawInt64N(n int64) int64 {
+	m.rngMu.Lock()
+	defer m.rngMu.Unlock()
+	return m.rng.Int64N(n)
+}
+
+func (m *MockServer) drawFloat64() float64 {
+	m.rngMu.Lock()
+	defer m.rngMu.Unlock()
+	return m.rng.Float64()
+}
+
 func (m *MockServer) handle(method *onkir.Method) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if m.latency > 0 {
-			time.Sleep(time.Duration(m.rng.Int64N(int64(m.latency) + 1)))
+			time.Sleep(time.Duration(m.drawInt64N(int64(m.latency) + 1)))
 		}
-		injectError := m.errorRate > 0 && m.rng.Float64() < m.errorRate && len(method.ErrorTypes) > 0
+		injectError := m.errorRate > 0 && m.drawFloat64() < m.errorRate && len(method.ErrorTypes) > 0
 
 		w.Header().Set("Content-Type", "application/json")
 		if method.IsStream() {
