@@ -26,6 +26,13 @@ type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 }
+
+// rpcOutcome is the reply of a single request: a result, an error, or neither.
+type rpcOutcome struct {
+	result any
+	err    *rpcError
+}
+
 type lspDocument struct {
 	URI     string `json:"uri"`
 	Text    string `json:"text"`
@@ -82,7 +89,9 @@ func RunLSP(in io.Reader, out io.Writer, dir string) error {
 		case req.JSONRPC != "2.0" || req.Method == "":
 			callErr = &rpcError{-32600, "invalid request"}
 		case req.Method == "initialize" && !initialized:
-			result, callErr = server.initialize(req.Params, dir)
+			outcome := &rpcOutcome{}
+			server.respond(outcome, func() (any, *rpcError) { return server.initialize(req.Params, dir) })
+			result, callErr = outcome.result, outcome.err
 			initialized = callErr == nil
 		case !initialized:
 			callErr = &rpcError{-32002, "server not initialized"}
@@ -92,18 +101,40 @@ func RunLSP(in io.Reader, out io.Writer, dir string) error {
 			shutdown = true
 		case req.Method == "initialized" || req.Method == "$/cancelRequest":
 		default:
-			result, callErr = server.handle(req)
+			outcome := &rpcOutcome{}
+			server.respond(outcome, func() (any, *rpcError) { return server.handle(req) })
+			result, callErr = outcome.result, outcome.err
 		}
 		if hasID || (callErr != nil && callErr.Code == -32600) {
 			if err := writeRPC(out, req.ID, result, callErr); err != nil {
 				return err
 			}
 		} else if callErr != nil {
-			if err := writeLSPMessage(out, map[string]any{"jsonrpc": "2.0", "method": "window/logMessage", "params": map[string]any{"type": 1, "message": callErr.Message}}); err != nil {
+			if err := writeLSPMessage(out, logMessage(callErr.Message)); err != nil {
 				return err
 			}
 		}
 	}
+}
+
+// respond runs one request handler into outcome and turns a panic into an
+// InternalError. The editor owns this process for as long as the workspace is
+// open, so a bug in a handler has to cost the user one failed request rather
+// than the session and whatever they had not saved yet. The panic is reported
+// through the client log because a bare "internal error" is otherwise
+// undiagnosable. outcome is filled in place because a panicking handler never
+// reaches its return statement, so nothing would carry the replacement back.
+func (s *languageServer) respond(outcome *rpcOutcome, handle func() (any, *rpcError)) {
+	defer func() {
+		if failure := recover(); failure != nil {
+			*outcome = rpcOutcome{err: &rpcError{-32603, "internal error"}}
+			_ = writeLSPMessage(s.out, logMessage(fmt.Sprintf("onekit: handler panic: %v", failure)))
+		}
+	}()
+	outcome.result, outcome.err = handle()
+}
+func logMessage(message string) map[string]any {
+	return map[string]any{"jsonrpc": "2.0", "method": "window/logMessage", "params": map[string]any{"type": 1, "message": message}}
 }
 
 func (s *languageServer) handle(req rpcRequest) (any, *rpcError) {
@@ -125,6 +156,12 @@ func (s *languageServer) handle(req rpcRequest) (any, *rpcError) {
 		if root, err := resolveSchemaTree(s.root); err == nil && !pathWithin(root, path) {
 			return nil, &rpcError{-32602, "document is outside the configured schema root"}
 		}
+	}
+	// Validate the position before dispatch, not after: every position-taking
+	// method goes through here, and a negative line or character used to reach
+	// decoratorCompletion, which then indexed before the start of the line.
+	if p.Position.Line < 0 || p.Position.Character < 0 {
+		return nil, &rpcError{-32602, "negative position"}
 	}
 	changed := false
 	switch req.Method {
@@ -176,9 +213,6 @@ func (s *languageServer) handle(req rpcRequest) (any, *rpcError) {
 			return nil, &rpcError{-32603, err.Error()}
 		}
 		return nil, nil
-	}
-	if p.Position.Line < 0 || p.Position.Character < 0 {
-		return nil, &rpcError{-32602, "negative position"}
 	}
 	symbol := snapshot.SymbolAt(path, p.Position)
 	switch req.Method {
@@ -388,7 +422,10 @@ func (s *languageServer) decoratorCompletion(path string, position Position) []m
 		text = string(data)
 	}
 	lines := strings.Split(text, "\n")
-	if position.Line < 0 || position.Line >= len(lines) {
+	// Positions outside the document, negative ones included, have no decorator
+	// to complete: answering with an empty list keeps this handler total no
+	// matter which caller reaches it with which position.
+	if position.Line < 0 || position.Line >= len(lines) || position.Character < 0 {
 		return []map[string]any{}
 	}
 	line := []rune(lines[position.Line])
