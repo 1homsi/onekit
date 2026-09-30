@@ -33,5 +33,6 @@ fn main() {
 `
 
 func TestGeneratedRustEncodesBytesOneofVariantsAsBase64(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustBytesOneofFixture, "onekit-rust-bytes-oneof", rustBytesOneofMain, true)
 }

@@ -39,5 +39,6 @@ async fn main() {
 `
 
 func TestGeneratedRustServerAccepts8MiBBodies(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustBodyLimitFixture, "onekit-rust-body-limit", rustBodyLimitMain, true)
 }

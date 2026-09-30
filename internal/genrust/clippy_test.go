@@ -12,6 +12,7 @@ import (
 )
 
 func TestGeneratedRustIsWarningFree(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("cargo"); err != nil {
 		t.Skip("cargo toolchain not available")
 	}

@@ -33,5 +33,6 @@ fn main() {
 `
 
 func TestGeneratedRustBoxesRecursiveOneofVariants(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustRecursiveOneofFixture, "onekit-rust-recursive-oneof", rustRecursiveOneofMain, true)
 }

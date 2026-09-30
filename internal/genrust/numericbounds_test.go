@@ -36,5 +36,6 @@ fn main() {
 `
 
 func TestGeneratedRustNumericBoundsCompileForEveryScalar(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustNumericBoundsFixture, "onekit-rust-numeric-bounds", rustNumericBoundsMain, true)
 }

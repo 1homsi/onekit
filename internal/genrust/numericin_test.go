@@ -28,5 +28,6 @@ fn main() {
 `
 
 func TestGeneratedRustIntegerInValidation(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustNumericInFixture, "onekit-rust-numeric-in", rustNumericInMain, true)
 }

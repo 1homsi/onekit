@@ -33,5 +33,6 @@ fn main() {
 `
 
 func TestGeneratedRustValidatesTimestamps(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustTimestampFixture, "onekit-rust-timestamps", rustTimestampMain, true)
 }

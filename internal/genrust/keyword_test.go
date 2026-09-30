@@ -300,6 +300,7 @@ mod generated_tests {
 // types, server and client must build under a real rustc, and the mangled Rust
 // identifiers must still speak the original JSON wire format.
 func TestGeneratedRustKeywordsCompile(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("cargo"); err != nil {
 		t.Skip("cargo toolchain not available")
 	}
@@ -323,9 +324,7 @@ func TestGeneratedRustKeywordsCompile(t *testing.T) {
 		}
 	}
 
-	cmd := exec.Command("cargo", "test", "--quiet")
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := cargoCommand(dir, "test", "--quiet").CombinedOutput(); err != nil {
 		t.Fatalf("generated Rust crate for keyword names failed: %v\n%s", err, out)
 	}
 }

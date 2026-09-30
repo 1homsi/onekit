@@ -29,5 +29,6 @@ fn main() {
 `
 
 func TestGeneratedRustUUIDMatchesGoFormat(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustUUIDFixture, "onekit-rust-uuid", rustUUIDMain, true)
 }

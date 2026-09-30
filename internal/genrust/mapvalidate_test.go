@@ -30,5 +30,6 @@ fn main() {
 `
 
 func TestGeneratedRustValidatesMapMessageValues(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustMapValidateFixture, "onekit-rust-map-validate", rustMapValidateMain, true)
 }

@@ -34,5 +34,6 @@ async fn main() {
 `
 
 func TestGeneratedRustClientTimesOut(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustTimeoutFixture, "onekit-rust-timeout", rustTimeoutMain, true)
 }

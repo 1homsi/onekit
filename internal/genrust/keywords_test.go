@@ -34,5 +34,6 @@ fn main() {
 `
 
 func TestGeneratedRustEscapesKeywordIdentifiers(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustKeywordFixture, "onekit-rust-keywords", rustKeywordMain, true)
 }
