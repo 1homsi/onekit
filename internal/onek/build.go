@@ -1041,12 +1041,9 @@ func buildTSServer(cfg *Config, idx *sourceIndex) error {
 
 func buildPythonClient(cfg *Config, idx *sourceIndex) error {
 	outRoot := cfg.resolve(cfg.Generate.PythonClient.Out)
-	return eachGroup(idx, func(g *sourceGroup) error {
+	err := eachGroup(idx, func(g *sourceGroup) error {
 		pyDir := pythonRelDir(g.relDir)
 		outDir := groupOutDir(outRoot, pyDir)
-		if err := writePythonInitFiles(outRoot, pyDir); err != nil {
-			return err
-		}
 		resolver := &pyResolver{currentDir: g.relDir, idx: idx}
 		err := writeFile(filepath.Join(outDir, "models.py"), genpy.GenerateTypesWithResolver(g.file, resolver))
 		if err != nil {
@@ -1060,6 +1057,15 @@ func buildPythonClient(cfg *Config, idx *sourceIndex) error {
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	for _, g := range idx.groups {
+		if err := writePythonInitFiles(outRoot, pythonRelDir(g.relDir)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func buildDartClient(cfg *Config, idx *sourceIndex) error {
