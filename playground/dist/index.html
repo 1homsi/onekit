@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OneKit Playground</title>
+<style>
+:root {
+  --bg: #f7f7f5;
+  --panel: #ffffff;
+  --text: #1c1c1a;
+  --muted: #6b6b66;
+  --line: #deded8;
+  --accent: #1f6feb;
+  --accent-text: #ffffff;
+  --error: #c62828;
+  --error-bg: #fdecea;
+  --code-bg: #fbfbfa;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141413;
+    --panel: #1c1c1a;
+    --text: #ececE8;
+    --muted: #9a9a93;
+    --line: #2f2f2c;
+    --accent: #4c8dff;
+    --accent-text: #0b0b0a;
+    --error: #ff8a80;
+    --error-bg: #3a1f1d;
+    --code-bg: #181817;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141413;
+  --panel: #1c1c1a;
+  --text: #ececE8;
+  --muted: #9a9a93;
+  --line: #2f2f2c;
+  --accent: #4c8dff;
+  --accent-text: #0b0b0a;
+  --error: #ff8a80;
+  --error-bg: #3a1f1d;
+  --code-bg: #181817;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+header {
+  padding: 14px 16px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+}
+h1 { margin: 0; font-size: 18px; }
+header p { margin: 0; color: var(--muted); font-size: 13px; }
+main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 0 16px 16px;
+}
+@media (max-width: 820px) {
+  main { grid-template-columns: minmax(0, 1fr); grid-auto-rows: minmax(360px, auto); }
+}
+section {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.bar .spacer { flex: 1; }
+button, select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+button:hover, select:hover { border-color: var(--accent); }
+button[aria-selected="true"] {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+textarea, pre {
+  margin: 0;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  padding: 12px;
+  background: var(--code-bg);
+  color: var(--text);
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  resize: none;
+  overflow: auto;
+  tab-size: 2;
+  outline: none;
+  border-radius: 0 0 8px 8px;
+}
+pre { white-space: pre; }
+#diagnostics {
+  max-height: 30%;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+}
+#diagnostics:empty { display: none; }
+.diagnostic {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 0;
+  background: var(--error-bg);
+  color: var(--error);
+  padding: 8px 12px;
+  font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+#status { color: var(--muted); font-size: 12px; }
+.empty { color: var(--muted); padding: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>OneKit playground</h1>
+  <p>Write a <code>.onk</code> schema and see the Go, TypeScript, Python, Dart, Rust and OpenAPI it generates. Everything runs in your browser.</p>
+</header>
+<main>
+  <section aria-label="Schema">
+    <div class="bar">
+      <select id="example" aria-label="Load an example"></select>
+      <button id="format" type="button">Format</button>
+      <button id="share" type="button">Copy link</button>
+      <span class="spacer"></span>
+      <span id="status">Loading…</span>
+    </div>
+    <textarea id="schema" spellcheck="false" aria-label="Schema source"></textarea>
+    <div id="diagnostics" role="alert"></div>
+  </section>
+  <section aria-label="Generated code">
+    <div class="bar" id="targets" role="tablist" aria-label="Target"></div>
+    <div class="bar" id="files" role="tablist" aria-label="File"></div>
+    <pre id="output" tabindex="0"></pre>
+    <div class="bar">
+      <button id="copy" type="button">Copy file</button>
+    </div>
+  </section>
+</main>
+<script src="wasm_exec.js"></script>
+<script>
+"use strict";
+
+const TARGET_LABELS = {
+  go: "Go", typescript: "TypeScript", python: "Python",
+  dart: "Dart", rust: "Rust", openapi: "OpenAPI",
+};
+
+const EXAMPLES = {
+  "Todo service": `package example.todos
+
+enum Status {
+  OPEN
+  DONE
+}
+
+message Todo {
+  id: string
+  title: string @required @len(1, 200)
+  status: Status
+  created_at: timestamp
+}
+
+message ListTodosRequest {
+  status: string? @query
+  limit: int32? @query @range(1, 100)
+}
+
+message ListTodosResponse {
+  todos: Todo[]
+}
+
+message CreateTodoRequest {
+  title: string @required @len(1, 200)
+}
+
+message GetTodoRequest {
+  id: string @required
+}
+
+message NotFound @status(404) {
+  message: string
+}
+
+service TodoService {
+  base_path: "/v1"
+
+  listTodos(ListTodosRequest) -> ListTodosResponse @get("/todos")
+  createTodo(CreateTodoRequest) -> Todo @post("/todos")
+  getTodo(GetTodoRequest) -> Todo | NotFound @get("/todos/{id}")
+  watchTodos(ListTodosRequest) -> Todo @get("/watch/todos") @stream
+}
+`,
+  "Wire encodings": `package example.wire
+
+message Event {
+  id: int64
+  counter: uint64 @encode("number")
+  payload: bytes @encode("hex")
+  at: timestamp
+  day: timestamp @encode("date")
+  labels: map[string, string]
+  body: oneof(discriminator: "kind") {
+    text: string @tag("text")
+    count: int64 @tag("count")
+  }
+}
+
+message Ack { id: int64 }
+
+service Events {
+  publish(Event) -> Ack @post("/events")
+}
+`,
+  "Chat over WebSocket": `package example.chat
+
+message Frame {
+  payload: oneof(discriminator: "type") {
+    say: Say @tag("say")
+    joined: Joined @tag("joined")
+  }
+}
+
+message Say { text: string }
+message Joined { user: string }
+
+service Chat {
+  base_path: "/v1"
+
+  room(Frame) -> Frame @ws("/room")
+}
+`,
+};
+
+const els = {
+  schema: document.getElementById("schema"),
+  example: document.getElementById("example"),
+  format: document.getElementById("format"),
+  share: document.getElementById("share"),
+  status: document.getElementById("status"),
+  diagnostics: document.getElementById("diagnostics"),
+  targets: document.getElementById("targets"),
+  files: document.getElementById("files"),
+  output: document.getElementById("output"),
+  copy: document.getElementById("copy"),
+};
+
+const state = { files: [], target: "go", file: "" };
+let timer = 0;
+
+function encodeShare(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function decodeShare(value) {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+function setStatus(text) {
+  els.status.textContent = text;
+}
+
+function makeButton(label, selected, onClick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.setAttribute("role", "tab");
+  button.setAttribute("aria-selected", String(selected));
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function renderDiagnostics(diagnostics) {
+  els.diagnostics.replaceChildren();
+  for (const d of diagnostics) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "diagnostic";
+    item.textContent = (d.line ? d.line + ":" + (d.column || 1) + "  " : "") + d.message;
+    if (d.line) item.addEventListener("click", () => focusLine(d.line));
+    els.diagnostics.appendChild(item);
+  }
+}
+
+function focusLine(line) {
+  const lines = els.schema.value.split("\n");
+  let offset = 0;
+  for (let i = 0; i < Math.min(line - 1, lines.length); i++) offset += lines[i].length + 1;
+  els.schema.focus();
+  els.schema.setSelectionRange(offset, offset + (lines[line - 1] || "").length);
+}
+
+function renderOutput() {
+  const targets = [...new Set(state.files.map((f) => f.target))];
+  if (!targets.includes(state.target)) state.target = targets[0] || "";
+  els.targets.replaceChildren(...targets.map((t) => makeButton(TARGET_LABELS[t] || t, t === state.target, () => {
+    state.target = t;
+    renderOutput();
+  })));
+  const files = state.files.filter((f) => f.target === state.target);
+  if (!files.some((f) => f.name === state.file)) state.file = files[0] ? files[0].name : "";
+  els.files.replaceChildren(...files.map((f) => makeButton(f.name, f.name === state.file, () => {
+    state.file = f.name;
+    renderOutput();
+  })));
+  const current = files.find((f) => f.name === state.file);
+  els.output.textContent = current ? current.content : "";
+  els.copy.disabled = !current;
+}
+
+function generate() {
+  const started = performance.now();
+  const result = JSON.parse(globalThis.onekGenerate(els.schema.value));
+  renderDiagnostics(result.diagnostics);
+  if (result.files.length > 0 || result.diagnostics.length === 0) {
+    state.files = result.files;
+    renderOutput();
+  }
+  const ms = Math.round(performance.now() - started);
+  setStatus(result.diagnostics.length > 0 ? result.diagnostics.length + " problem(s)" : "Generated in " + ms + " ms");
+}
+
+function scheduleGenerate() {
+  clearTimeout(timer);
+  timer = setTimeout(generate, 250);
+}
+
+function loadExample(name) {
+  els.schema.value = EXAMPLES[name];
+  history.replaceState(null, "", location.pathname + location.search);
+  generate();
+}
+
+function start() {
+  for (const name of Object.keys(EXAMPLES)) {
+    const option = document.createElement("option");
+    option.textContent = name;
+    els.example.appendChild(option);
+  }
+  let initial = EXAMPLES["Todo service"];
+  const match = /^#s=(.+)$/.exec(location.hash);
+  if (match) {
+    try {
+      initial = decodeShare(match[1]);
+    } catch (err) {
+      setStatus("The shared link could not be read");
+    }
+  }
+  els.schema.value = initial;
+  els.example.addEventListener("change", () => loadExample(els.example.value));
+  els.schema.addEventListener("input", scheduleGenerate);
+  els.schema.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab") return;
+    event.preventDefault();
+    const { selectionStart, selectionEnd, value } = els.schema;
+    els.schema.value = value.slice(0, selectionStart) + "  " + value.slice(selectionEnd);
+    els.schema.setSelectionRange(selectionStart + 2, selectionStart + 2);
+    scheduleGenerate();
+  });
+  els.format.addEventListener("click", () => {
+    const result = JSON.parse(globalThis.onekFormat(els.schema.value));
+    if (result.diagnostic) {
+      renderDiagnostics([result.diagnostic]);
+      setStatus("Fix the error before formatting");
+      return;
+    }
+    els.schema.value = result.formatted;
+    generate();
+  });
+  els.share.addEventListener("click", async () => {
+    history.replaceState(null, "", "#s=" + encodeShare(els.schema.value));
+    try {
+      await navigator.clipboard.writeText(location.href);
+      setStatus("Link copied");
+    } catch (err) {
+      setStatus("Copy the address bar to share");
+    }
+  });
+  els.copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(els.output.textContent);
+      setStatus("File copied");
+    } catch (err) {
+      setStatus("Select the text to copy it");
+    }
+  });
+  generate();
+}
+
+async function boot() {
+  const go = new Go();
+  let instance;
+  try {
+    const streamed = await WebAssembly.instantiateStreaming(fetch("onek.wasm"), go.importObject);
+    instance = streamed.instance;
+  } catch (err) {
+    const buffer = await (await fetch("onek.wasm")).arrayBuffer();
+    instance = (await WebAssembly.instantiate(buffer, go.importObject)).instance;
+  }
+  go.run(instance);
+  start();
+}
+
+boot().catch((err) => {
+  setStatus("Could not load the compiler");
+  els.output.textContent = String(err);
+});
+</script>
+</body>
+</html>

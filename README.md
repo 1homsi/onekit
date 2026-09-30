@@ -152,12 +152,26 @@ contain query strings, fragments, percent escapes, or path parameters.
 onek check   # parse + compile every .onk file, no codegen - fast validation
 onek build   # parse + compile + generate everything configured in onekit.toml
 onek fmt     # canonicalize .onk files (use --check in CI)
-onek init ./my-api
+onek init ./my-api                          # Go server and client
+onek init --template fullstack ./my-app     # Go server + TypeScript, Flutter and Swift clients
+onek init --list-templates                  # every starter project
 onek watch   # rebuild on schema/config changes until interrupted
 onek mock    # dev server serving schema-derived fixtures for every route
 onek import api.yaml        # convert an OpenAPI 3.x document into .onk
 onek import service.proto   # convert a Protocol Buffers service into .onk
 ```
+
+`onek init` writes `onekit.toml` and a working `api.onk` you can `onek build`
+straight away. `--template` picks the stack: `go` (the default), `web` (Go
+server plus a TypeScript client), `fullstack` (that plus Dart/Flutter and Swift
+clients), `mobile` (Flutter and Swift clients for a backend you already run),
+`ts` (TypeScript server and client), and `rust` (axum server and client).
+Every template except `go` starts from the same small Todo service (list,
+create, get with a typed `NotFound`, and an SSE stream). The starters are
+deliberately unopinionated: the generated TypeScript depends on nothing but
+`fetch`. Zod schemas, TanStack Query hooks and MSW handlers are opt-in flags
+(`zod`, `react_query`, `msw`) on `[generate.ts-client]` for projects that want
+them.
 
 `onek build` is incremental: it keeps a small per-project record of the last
 successful build in your user cache directory (outside the repository). When
