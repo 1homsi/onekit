@@ -247,6 +247,7 @@ func writeServerOptions(p *Printer, hasWS bool) {
 	p.P(`}`)
 	p.P()
 	p.P(`func WithAuthorizer(authorizer Authorizer) ServerOption { return func(o *serverOptions) { o.authorizer = authorizer } }`)
+	writeScopesOption(p)
 	p.P(`func WithRequestObserver(observer RequestObserver) ServerOption { return func(o *serverOptions) { o.observer = observer } }`)
 	p.P(`func WithMaxRequestBodyBytes(limit int64) ServerOption { return func(o *serverOptions) { o.maxRequestBodyBytes = limit } }`)
 	if hasWS {
@@ -293,6 +294,29 @@ func writeServerOptions(p *Printer, hasWS bool) {
 	p.P(`func (w *statusResponseWriter) Write(data []byte) (int, error) { if !w.wroteHeader { w.WriteHeader(http.StatusOK) }; return w.ResponseWriter.Write(data) }`)
 	p.P(`func (w *statusResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }`)
 	p.P(`func (w *statusResponseWriter) Flush() { if flusher, ok := w.ResponseWriter.(http.Flusher); ok { flusher.Flush() } }`)
+	p.P()
+}
+
+func writeScopesOption(p *Printer) {
+	p.P()
+	p.P(`// WithScopes installs an authorizer that enforces @requires: granted returns the`)
+	p.P(`// scopes the caller holds (return an error to reject the request, for example a`)
+	p.P(`// 401), and any scope a route requires but the caller lacks produces a *ScopeError.`)
+	p.P(`// It replaces a previous WithAuthorizer; to combine both, read RequestMetadata.Scopes`)
+	p.P(`// inside your own Authorizer.`)
+	p.P(`func WithScopes(granted func(context.Context, *http.Request) ([]string, error)) ServerOption {`)
+	p.P(`return WithAuthorizer(func(ctx context.Context, metadata RequestMetadata, r *http.Request) error {`)
+	p.P(`if len(metadata.Scopes) == 0 { return nil }`)
+	p.P(`have, err := granted(ctx, r)`)
+	p.P(`if err != nil { return err }`)
+	p.P(`held := make(map[string]bool, len(have))`)
+	p.P(`for _, scope := range have { held[scope] = true }`)
+	p.P(`var missing []string`)
+	p.P(`for _, scope := range metadata.Scopes { if !held[scope] { missing = append(missing, scope) } }`)
+	p.P(`if len(missing) > 0 { return &ScopeError{Missing: missing} }`)
+	p.P(`return nil`)
+	p.P(`})`)
+	p.P(`}`)
 	p.P()
 }
 
@@ -627,7 +651,21 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("return")
 	p.P("}")
 	p.P("writeJSON(w, control.status, resp)")
-	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", strings.ToUpper(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), "}))")
+	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", strings.ToUpper(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), ", Scopes: ", scopesLiteral(m), "}))")
+}
+
+const goNilLiteral = "nil"
+
+func scopesLiteral(m *onkir.Method) string {
+	scopes := m.RequiredScopes()
+	if len(scopes) == 0 {
+		return goNilLiteral
+	}
+	quoted := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		quoted = append(quoted, fmt.Sprintf("%q", scope))
+	}
+	return "[]string{" + strings.Join(quoted, ", ") + "}"
 }
 
 // authSchemeNamePattern strips characters that are unsafe in generated
@@ -651,7 +689,7 @@ func authSchemesLiteral(s *onkir.Service, m *onkir.Method) string {
 		names = append(names, name+"Auth")
 	}
 	if len(names) == 0 {
-		return "nil"
+		return goNilLiteral
 	}
 	quoted := make([]string, 0, len(names))
 	for _, name := range names {

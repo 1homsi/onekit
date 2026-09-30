@@ -5,6 +5,25 @@ type RequestMetadata struct {
 	HTTPMethod  string
 	Route       string
 	AuthSchemes []string
+	Scopes      []string
+}
+
+// ScopeError is returned by WithScopes when a caller lacks scopes the route
+// declares with @requires. It renders as 403 with a public message.
+type ScopeError struct{ Missing []string }
+
+func (e *ScopeError) Error() string          { return e.PublicMessage() }
+func (e *ScopeError) HTTPStatusCode() int    { return http.StatusForbidden }
+func (e *ScopeError) PublicMessage() string {
+	message := "missing required scope"
+	for i, scope := range e.Missing {
+		if i == 0 {
+			message += ": " + scope
+		} else {
+			message += ", " + scope
+		}
+	}
+	return message
 }
 
 type requestMetadataContextKey struct{}

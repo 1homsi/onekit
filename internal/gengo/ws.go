@@ -684,7 +684,7 @@ func writeWSRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	}
 	p.P("queue.push(frame)")
 	p.P("}")
-	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", "GET"), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), "}))")
+	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", "GET"), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), ", Scopes: ", scopesLiteral(m), "}))")
 }
 
 var _ = strings.ToUpper // reserved for future verb normalization in WS metadata

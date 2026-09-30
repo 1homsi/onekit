@@ -414,6 +414,7 @@ var decoratorDocs = map[string]string{
 	"required":   "@required: the field must be present and non-empty.",
 	"query":      "@query(name): bind the field to a URL query parameter.",
 	"flatten":    "@flatten(prefix): inline the child message's fields into this message on the wire.",
+	"requires":   "@requires(scope, ...): the scopes a caller must hold for this RPC (all of them). Servers expose them to your authorization hook, OpenAPI lists them under the auth scheme, and onek compat reports changes.",
 }
 
 func withDecoratorDocs(doc string, decorators []onklang.Decorator) string {

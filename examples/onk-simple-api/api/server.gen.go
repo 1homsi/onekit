@@ -141,6 +141,25 @@ type RequestMetadata struct {
 	HTTPMethod  string
 	Route       string
 	AuthSchemes []string
+	Scopes      []string
+}
+
+// ScopeError is returned by WithScopes when a caller lacks scopes the route
+// declares with @requires. It renders as 403 with a public message.
+type ScopeError struct{ Missing []string }
+
+func (e *ScopeError) Error() string       { return e.PublicMessage() }
+func (e *ScopeError) HTTPStatusCode() int { return http.StatusForbidden }
+func (e *ScopeError) PublicMessage() string {
+	message := "missing required scope"
+	for i, scope := range e.Missing {
+		if i == 0 {
+			message += ": " + scope
+		} else {
+			message += ", " + scope
+		}
+	}
+	return message
 }
 
 type requestMetadataContextKey struct{}
@@ -233,6 +252,38 @@ func WithRequestIDGenerator(headerName string, generate RequestIDGenerator) Serv
 func WithAuthorizer(authorizer Authorizer) ServerOption {
 	return func(o *serverOptions) { o.authorizer = authorizer }
 }
+
+// WithScopes installs an authorizer that enforces @requires: granted returns the
+// scopes the caller holds (return an error to reject the request, for example a
+// 401), and any scope a route requires but the caller lacks produces a *ScopeError.
+// It replaces a previous WithAuthorizer; to combine both, read RequestMetadata.Scopes
+// inside your own Authorizer.
+func WithScopes(granted func(context.Context, *http.Request) ([]string, error)) ServerOption {
+	return WithAuthorizer(func(ctx context.Context, metadata RequestMetadata, r *http.Request) error {
+		if len(metadata.Scopes) == 0 {
+			return nil
+		}
+		have, err := granted(ctx, r)
+		if err != nil {
+			return err
+		}
+		held := make(map[string]bool, len(have))
+		for _, scope := range have {
+			held[scope] = true
+		}
+		var missing []string
+		for _, scope := range metadata.Scopes {
+			if !held[scope] {
+				missing = append(missing, scope)
+			}
+		}
+		if len(missing) > 0 {
+			return &ScopeError{Missing: missing}
+		}
+		return nil
+	})
+}
+
 func WithRequestObserver(observer RequestObserver) ServerOption {
 	return func(o *serverOptions) { o.observer = observer }
 }
@@ -402,7 +453,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			return
 		}
 		writeJSON(w, control.status, resp)
-	}), RequestMetadata{Service: "UserService", Method: "createUser", HTTPMethod: "POST", Route: "/api/v1/users", AuthSchemes: nil}))
+	}), RequestMetadata{Service: "UserService", Method: "createUser", HTTPMethod: "POST", Route: "/api/v1/users", AuthSchemes: nil, Scopes: nil}))
 	mux.Handle("POST /api/v1/users/get", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := new(GetUserRequest)
 		if r.Body != nil {
@@ -441,7 +492,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			return
 		}
 		writeJSON(w, control.status, resp)
-	}), RequestMetadata{Service: "UserService", Method: "getUser", HTTPMethod: "POST", Route: "/api/v1/users/get", AuthSchemes: nil}))
+	}), RequestMetadata{Service: "UserService", Method: "getUser", HTTPMethod: "POST", Route: "/api/v1/users/get", AuthSchemes: nil, Scopes: nil}))
 	mux.Handle("POST /api/v1/auth/login", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := new(LoginRequest)
 		if r.Body != nil {
@@ -491,6 +542,6 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			return
 		}
 		writeJSON(w, control.status, resp)
-	}), RequestMetadata{Service: "UserService", Method: "login", HTTPMethod: "POST", Route: "/api/v1/auth/login", AuthSchemes: nil}))
+	}), RequestMetadata{Service: "UserService", Method: "login", HTTPMethod: "POST", Route: "/api/v1/auth/login", AuthSchemes: nil, Scopes: nil}))
 	return nil
 }

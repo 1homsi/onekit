@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -175,7 +176,7 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 	}
 	boundPath := map[string]bool{}
 	var queryLines, otherLines []string
-	headers := im.securityHeaders(op, opName)
+	headers, scopes := im.securityHeaders(op, opName)
 	route := pathKey
 	for _, rawParam := range params {
 		param := im.deref(asMap(rawParam))
@@ -253,6 +254,13 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 	if stream {
 		rpc.WriteString(" @stream")
 	}
+	if len(scopes) > 0 {
+		quoted := make([]string, 0, len(scopes))
+		for _, scope := range scopes {
+			quoted = append(quoted, strconv.Quote(scope))
+		}
+		rpc.WriteString(" @requires(" + strings.Join(quoted, ", ") + ")")
+	}
 	if len(headers) > 0 {
 		rpc.WriteString(" {\n    headers: {\n")
 		for _, header := range headers {
@@ -297,14 +305,14 @@ func headerDecorators(param map[string]any) string {
 	return out
 }
 
-func (im *importer) securityHeaders(op map[string]any, opName string) []importedHeader {
+func (im *importer) securityHeaders(op map[string]any, opName string) ([]importedHeader, []string) {
 	requirements, ok := op["security"]
 	if !ok {
 		requirements = im.root["security"]
 	}
 	options := asSlice(requirements)
 	if len(options) == 0 {
-		return nil
+		return nil, nil
 	}
 	required := true
 	var alternatives []map[string]any
@@ -316,7 +324,7 @@ func (im *importer) securityHeaders(op map[string]any, opName string) []imported
 		}
 	}
 	if len(alternatives) == 0 {
-		return nil
+		return nil, nil
 	}
 	if len(alternatives) > 1 {
 		im.warnf("%s: alternative security requirements are not supported; kept the first one", opName)
@@ -332,8 +340,10 @@ func (im *importer) securityHeaders(op map[string]any, opName string) []imported
 	sort.Strings(names)
 	schemes := asMap(asMap(im.root["components"])["securitySchemes"])
 	var headers []importedHeader
+	var scopes []string
 	for _, name := range names {
 		scheme := im.deref(asMap(schemes[name]))
+		expressed := true
 		switch kind := text(scheme, "type"); {
 		case kind == "apiKey" && text(scheme, "in") == "header":
 			headers = appendHeader(headers, text(scheme, "name"), " @required @auth(\"api_key\") @auth_scheme_name(\""+name+"\")")
@@ -342,10 +352,43 @@ func (im *importer) securityHeaders(op map[string]any, opName string) []imported
 		case kind == "http" && strings.EqualFold(text(scheme, "scheme"), "basic"):
 			headers = appendHeader(headers, "Authorization", " @required @auth(\"basic\") @auth_scheme_name(\""+name+"\")")
 		default:
+			expressed = false
 			im.warnf("%s: security scheme %q (%s) cannot be expressed as a header and was dropped", opName, name, kind)
 		}
+		if expressed {
+			scopes = im.appendScopes(scopes, asSlice(chosen[name]), opName)
+		}
 	}
-	return headers
+	return headers, scopes
+}
+
+func (im *importer) appendScopes(scopes []string, raw []any, opName string) []string {
+	for _, item := range raw {
+		scope, ok := item.(string)
+		if !ok || scope == "" {
+			continue
+		}
+		if !validScope(scope) {
+			im.warnf("%s: security scope %q contains characters @requires does not allow and was dropped", opName, scope)
+			continue
+		}
+		if !slices.Contains(scopes, scope) {
+			scopes = append(scopes, scope)
+		}
+	}
+	return scopes
+}
+
+func validScope(scope string) bool {
+	for _, r := range scope {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case strings.ContainsRune(":_.-/", r):
+		default:
+			return false
+		}
+	}
+	return scope != ""
 }
 
 func (im *importer) operationName(op map[string]any, method, pathKey string) string {
