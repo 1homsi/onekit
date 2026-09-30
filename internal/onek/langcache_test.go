@@ -17,7 +17,7 @@ func langTempDir(t *testing.T) string {
 	return dir
 }
 
-func langCacheProject(t *testing.T, withBroken bool) (string, string, string) {
+func langCacheProject(t *testing.T, withBroken bool) (string, string) {
 	t.Helper()
 	dir := langTempDir(t)
 	good := filepath.Join(dir, "a", "good.onk")
@@ -37,7 +37,7 @@ func langCacheProject(t *testing.T, withBroken bool) (string, string, string) {
 			t.Fatal(err)
 		}
 	}
-	return dir, good, other
+	return dir, good
 }
 
 func hasSymbol(s *LanguageSnapshot, qualified string) bool {
@@ -59,7 +59,7 @@ func snapshotJSON(t *testing.T, s *LanguageSnapshot) string {
 }
 
 func TestParseCacheGivesTheSameSnapshotAsAFreshAnalysis(t *testing.T) {
-	dir, _, _ := langCacheProject(t, true)
+	dir, _ := langCacheProject(t, true)
 	fresh, err := AnalyzeLanguage(dir, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestParseCacheGivesTheSameSnapshotAsAFreshAnalysis(t *testing.T) {
 }
 
 func TestParseCacheNoticesEditedFiles(t *testing.T) {
-	dir, good, _ := langCacheProject(t, false)
+	dir, good := langCacheProject(t, false)
 	if _, err := AnalyzeLanguage(dir, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestParseCacheRereadsRecentFilesEvenWhenSizeAndMtimeMatch(t *testing.T) {
 }
 
 func TestParseCacheStillAppliesOverlaysAndRejectsSymlinks(t *testing.T) {
-	dir, good, _ := langCacheProject(t, false)
+	dir, good := langCacheProject(t, false)
 	if _, err := AnalyzeLanguage(dir, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestParseCacheStillAppliesOverlaysAndRejectsSymlinks(t *testing.T) {
 }
 
 func TestLanguageServerReusesSnapshotForReadOnlyRequests(t *testing.T) {
-	dir, good, _ := langCacheProject(t, false)
+	dir, good := langCacheProject(t, false)
 	server := &languageServer{root: dir, overlays: map[string]string{}, versions: map[string]int{}, published: map[string]bool{}}
 	first, err := server.analyze(false)
 	if err != nil {
