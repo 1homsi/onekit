@@ -173,3 +173,38 @@ func TestInitDefaultsToTheGoTemplate(t *testing.T) {
 		t.Fatalf("default template changed: %v\n%s", err, config)
 	}
 }
+
+func TestInitTemplatesStayUnopinionatedAboutFrontendLibraries(t *testing.T) {
+	for _, template := range InitTemplates() {
+		dir := initTemplateDir(t, template.Name)
+		if err := InitTemplateProject(dir, false, template.Name); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := LoadConfig(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ts := cfg.Generate.TSClient; ts != nil && (ts.Zod || ts.ReactQuery || ts.MSW) {
+			t.Errorf("%s template enables a frontend library by default: %+v", template.Name, *ts)
+		}
+	}
+}
+
+func TestPlainTypeScriptTemplateOutputNeedsOnlyTheTypeScriptCompiler(t *testing.T) {
+	if _, err := exec.LookPath("tsc"); err != nil {
+		t.Skip("tsc not available")
+	}
+	dir := initTemplateDir(t, "plainweb")
+	if err := InitTemplateProject(dir, false, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Build(dir); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(dir, "tsconfig.json"), `{"compilerOptions":{"target":"ES2022","module":"ESNext","moduleResolution":"bundler","strict":true,"noEmit":true,"lib":["ES2022","DOM"]},"include":["web/src/api/*.ts"]}`)
+	cmd := exec.Command("tsc", "-p", "tsconfig.json")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("the starter's TypeScript must compile with no packages installed: %v\n%s", err, out)
+	}
+}

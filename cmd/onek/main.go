@@ -36,13 +36,8 @@ func usage(w io.Writer) {
   onek fmt [--check] [--dir DIR | FILE.onk... | -]
   onek watch [--interval DURATION] [--dir DIR]
   onek mock [--addr ADDR] [--seed N] [--error-rate FLOAT] [--latency DURATION] [--watch] [--dir DIR]
-<<<<<<< HEAD
-  onek init [--force] [DIR]
-  onek import [--out DIR] [--package NAME] [--service NAME] [--force] [--stdout] OPENAPI-OR-PROTO-FILE
-=======
   onek init [--force] [--template NAME | --list-templates] [DIR]
-  onek import [--out DIR] [--package NAME] [--service NAME] [--force] [--stdout] OPENAPI-FILE
->>>>>>> 7144fdb (wip: init templates)
+  onek import [--out DIR] [--package NAME] [--service NAME] [--force] [--stdout] OPENAPI-OR-PROTO-FILE
   onek compat [--json] PREVIOUS-DIR CURRENT-DIR
   onek compat [--json] --against GIT-REF [CURRENT-DIR]
   onek mcp [--dir DIR]

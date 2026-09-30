@@ -73,7 +73,7 @@ var initTemplates = []InitTemplate{
 	},
 	{
 		Name:        "web",
-		Description: "Go server with a React-ready TypeScript client (zod, TanStack Query, MSW) and OpenAPI",
+		Description: "Go server with a dependency-free TypeScript client (plain fetch) and OpenAPI",
 		config: `module = "example.com/%s/gen/go"
 
 [generate.go-server]
@@ -84,9 +84,6 @@ out = "./gen/go"
 
 [generate.ts-client]
 out = "./web/src/api"
-zod = true
-react_query = true
-msw = true
 ` + goOpenAPITail,
 		schema: todoSchema,
 	},
@@ -103,9 +100,6 @@ out = "./gen/go"
 
 [generate.ts-client]
 out = "./web/src/api"
-zod = true
-react_query = true
-msw = true
 
 [generate.dart-client]
 out = "./mobile/lib/api"
@@ -138,7 +132,6 @@ out = "./server/src/api"
 
 [generate.ts-client]
 out = "./web/src/api"
-zod = true
 ` + goOpenAPITail,
 		schema: todoSchema,
 	},
