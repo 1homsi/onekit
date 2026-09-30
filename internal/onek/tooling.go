@@ -188,14 +188,21 @@ func ensureGitignoreEntry(path, entry string) error {
 	return writeFile(path, append(data, entry+"\n"...))
 }
 
+const stampSettleWindow = 2 * time.Second
+
 type fileStamp struct {
-	path   string
-	size   int64
-	mtime  int64
-	digest [sha256.Size]byte
+	path     string
+	size     int64
+	mtime    int64
+	hashedAt int64
+	digest   [sha256.Size]byte
 }
 
-func projectSnapshot(dir string) ([]fileStamp, error) {
+func (f fileStamp) settled() bool {
+	return f.hashedAt-f.mtime > int64(stampSettleWindow)
+}
+
+func projectSnapshot(dir string, previous []fileStamp) ([]fileStamp, error) {
 	schemaRoot, err := resolveSchemaTree(dir)
 	if err != nil {
 		return nil, err
@@ -211,17 +218,26 @@ func projectSnapshot(dir string) ([]fileStamp, error) {
 		return nil, statErr
 	}
 	sort.Strings(paths)
+	known := make(map[string]fileStamp, len(previous))
+	for _, stamp := range previous {
+		known[stamp.path] = stamp
+	}
 	stamps := make([]fileStamp, 0, len(paths))
 	for _, path := range paths {
+		hashedAt := time.Now().UnixNano()
 		info, err := os.Stat(path)
 		if err != nil {
 			return nil, err
+		}
+		if prior, ok := known[path]; ok && prior.settled() && prior.size == info.Size() && prior.mtime == info.ModTime().UnixNano() {
+			stamps = append(stamps, prior)
+			continue
 		}
 		data, err := readRegularFile(path)
 		if err != nil {
 			return nil, err
 		}
-		stamps = append(stamps, fileStamp{path: path, size: info.Size(), mtime: info.ModTime().UnixNano(), digest: sha256.Sum256(data)})
+		stamps = append(stamps, fileStamp{path: path, size: info.Size(), mtime: info.ModTime().UnixNano(), hashedAt: hashedAt, digest: sha256.Sum256(data)})
 	}
 	return stamps, nil
 }
@@ -231,7 +247,7 @@ func sameSnapshot(left, right []fileStamp) bool {
 		return false
 	}
 	for i := range left {
-		if left[i] != right[i] {
+		if left[i].path != right[i].path || left[i].size != right[i].size || left[i].mtime != right[i].mtime || left[i].digest != right[i].digest {
 			return false
 		}
 	}
@@ -248,7 +264,7 @@ func Watch(ctx context.Context, dir string, interval time.Duration, out io.Write
 	if err := Build(dir); err != nil {
 		return err
 	}
-	previous, err := projectSnapshot(dir)
+	previous, err := projectSnapshot(dir, nil)
 	if err != nil {
 		return err
 	}
@@ -259,7 +275,7 @@ func Watch(ctx context.Context, dir string, interval time.Duration, out io.Write
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			current, snapshotErr := projectSnapshot(dir)
+			current, snapshotErr := projectSnapshot(dir, previous)
 			if snapshotErr != nil {
 				if out != nil {
 					_, _ = fmt.Fprintf(out, "onekit: watch snapshot failed: %v\n", snapshotErr)
