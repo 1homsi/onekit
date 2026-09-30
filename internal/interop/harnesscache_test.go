@@ -2,14 +2,15 @@ package interop
 
 import (
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 )
 
 var (
 	harnessMu    sync.Mutex
+	harnessRoot  string
 	harnessPaths = map[string]string{}
-	harnessDirs  []string
 )
 
 func cachedHarness(t *testing.T, name string, build func(t *testing.T, dir string) string) string {
@@ -19,13 +20,11 @@ func cachedHarness(t *testing.T, name string, build func(t *testing.T, dir strin
 		harnessMu.Unlock()
 		return path
 	}
-	dir, err := os.MkdirTemp("", "onekit-interop-"+name+"-")
-	if err != nil {
-		harnessMu.Unlock()
+	harnessMu.Unlock()
+	dir := filepath.Join(harnessRoot, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("create harness dir: %v", err)
 	}
-	harnessDirs = append(harnessDirs, dir)
-	harnessMu.Unlock()
 	path := build(t, dir)
 	harnessMu.Lock()
 	harnessPaths[name] = path
@@ -34,9 +33,12 @@ func cachedHarness(t *testing.T, name string, build func(t *testing.T, dir strin
 }
 
 func TestMain(m *testing.M) {
-	code := m.Run()
-	for _, dir := range harnessDirs {
-		_ = os.RemoveAll(dir)
+	root, err := os.MkdirTemp("", "onekit-interop-")
+	if err != nil {
+		panic(err)
 	}
+	harnessRoot = root
+	code := m.Run()
+	_ = os.RemoveAll(root)
 	os.Exit(code)
 }
