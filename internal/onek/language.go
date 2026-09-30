@@ -108,23 +108,39 @@ func AnalyzeLanguage(dir string, overlays map[string]string) (*LanguageSnapshot,
 	if len(paths) == 0 {
 		return fail(fmt.Errorf("no .onk files found under %s", root))
 	}
-	sources := []onkcompile.Source{}
-	for _, path := range paths {
-		text, ok := overlays[path]
+	type parsedFile struct {
+		text     string
+		readErr  error
+		ast      *onklang.File
+		parseErr error
+	}
+	parsed := make([]parsedFile, len(paths))
+	parallelFor(len(paths), func(i int) {
+		text, ok := overlays[paths[i]]
 		if !ok {
-			data, readErr := readRegularFile(path)
+			data, readErr := readRegularFile(paths[i])
 			if readErr != nil {
-				return fail(readErr)
+				parsed[i].readErr = readErr
+				return
 			}
 			text = string(data)
 		}
+		parsed[i].text = text
+		parsed[i].ast, parsed[i].parseErr = onklang.Parse(text)
+	})
+	sources := []onkcompile.Source{}
+	for i, path := range paths {
+		if parsed[i].readErr != nil {
+			return fail(parsed[i].readErr)
+		}
+		text := parsed[i].text
 		s.texts[path] = text
 		s.lines[path] = strings.Split(text, "\n")
-		ast, parseErr := onklang.Parse(text)
-		if parseErr != nil {
-			s.Diagnostics = append(s.Diagnostics, Diagnostics(&ParseDiagnosticError{Path: path, Err: parseErr})...)
+		if parsed[i].parseErr != nil {
+			s.Diagnostics = append(s.Diagnostics, Diagnostics(&ParseDiagnosticError{Path: path, Err: parsed[i].parseErr})...)
 			continue
 		}
+		ast := parsed[i].ast
 		sources = append(sources, onkcompile.Source{Path: path, AST: ast})
 		imports := append([]string{}, ast.Imports...)
 		s.Files = append(s.Files, LanguageFile{Path: path, Package: ast.Package, Imports: imports})

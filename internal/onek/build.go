@@ -25,56 +25,6 @@ import (
 	"github.com/1homsi/onekit/internal/onklang"
 )
 
-func discoverOnkFiles(dir string) ([]string, error) {
-	root, err := canonicalProjectDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	var files []string
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if d.IsDir() {
-			if path != root && skippedSchemaDir(d.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if d.Type()&os.ModeSymlink != 0 {
-			if strings.HasSuffix(path, ".onk") {
-				return fmt.Errorf("refusing symlinked schema file: %s", path)
-			}
-			return nil
-		}
-		if strings.HasSuffix(path, ".onk") {
-			info, infoErr := d.Info()
-			if infoErr != nil {
-				return infoErr
-			}
-			if !info.Mode().IsRegular() {
-				return fmt.Errorf("schema input %s is not a regular file", path)
-			}
-			if info.Size() > maxInputFileBytes {
-				return fmt.Errorf("schema input %s exceeds the %d-byte limit", path, maxInputFileBytes)
-			}
-			if err := validateSchemaPath(root, path); err != nil {
-				return err
-			}
-			files = append(files, path)
-			if len(files) > maxInputFileCount {
-				return fmt.Errorf("project contains more than %d schema files", maxInputFileCount)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("walk %s: %w", dir, err)
-	}
-	sort.Strings(files)
-	return files, nil
-}
-
 func skippedSchemaDir(name string) bool {
 	if strings.HasPrefix(name, ".") {
 		return true
@@ -87,17 +37,25 @@ func skippedSchemaDir(name string) bool {
 }
 
 func parseSources(paths []string) ([]onkcompile.Source, error) {
-	var sources []onkcompile.Source
-	for _, path := range paths {
-		data, err := readRegularFile(path)
+	sources := make([]onkcompile.Source, len(paths))
+	errs := make([]error, len(paths))
+	parallelFor(len(paths), func(i int) {
+		data, err := readRegularFile(paths[i])
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", path, err)
+			errs[i] = fmt.Errorf("read %s: %w", paths[i], err)
+			return
 		}
 		ast, err := onklang.Parse(string(data))
 		if err != nil {
-			return nil, &ParseDiagnosticError{Path: path, Err: err}
+			errs[i] = &ParseDiagnosticError{Path: paths[i], Err: err}
+			return
 		}
-		sources = append(sources, onkcompile.Source{Path: path, AST: ast})
+		sources[i] = onkcompile.Source{Path: paths[i], AST: ast}
+	})
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
 	}
 	return sources, nil
 }
