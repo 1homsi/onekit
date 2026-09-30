@@ -10,6 +10,7 @@ import (
 	"github.com/1homsi/onekit/internal/gengo"
 	"github.com/1homsi/onekit/internal/genpy"
 	"github.com/1homsi/onekit/internal/genrust"
+	"github.com/1homsi/onekit/internal/genswift"
 	"github.com/1homsi/onekit/internal/gents"
 	"github.com/1homsi/onekit/internal/onkir"
 )
@@ -776,6 +777,7 @@ func httpContractClients() []httpContractClient {
 			expectOK(t, dir, python, "harness.py", baseURL)
 		}},
 		{"rust", func(t *testing.T, baseURL string) { expectOK(t, "", buildHTTPRustClient(t), baseURL) }},
+		{"swift", func(t *testing.T, baseURL string) { expectOK(t, "", buildHTTPSwiftClient(t), baseURL) }},
 		{"dart", func(t *testing.T, baseURL string) {
 			if _, err := exec.LookPath("dart"); err != nil {
 				t.Skip("dart not available")
@@ -805,4 +807,92 @@ func TestHTTPContractMatrix(t *testing.T) {
 			}
 		})
 	}
+}
+
+const swiftHTTPClientHarness = `import Foundation
+
+func fail(_ message: String) -> Never {
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+    exit(1)
+}
+
+func sample(_ id: String) -> Note {
+    Note(
+        id: id, count: 3, big: -9007199254740993, huge: 18446744073709551615, ratio: 1.5,
+        tags: ["a", "b"], data: Data([1, 2, 3]), hex: Data([0xff, 0x01]),
+        at: Date(timeIntervalSince1970: 1767323045.000006),
+        day: Date(timeIntervalSince1970: 1767312000),
+        secs: Date(timeIntervalSince1970: 1767323045),
+        vis: .publicView, visNum: .publicView,
+        meta: Meta(owner: "a@b.io"), flat: Meta(owner: "c@d.io"), labels: ["x": "y"],
+        rawJson: ["free": [1, true] as [Any]], body: .n(42)
+    )
+}
+
+let client = NotesClient(CommandLine.arguments[1])
+
+let wide = Wide(
+    nums: [-9007199254740993, 0, 9007199254740993], ids: [18446744073709551615, 1],
+    byName: ["a": -1, "b": 9007199254740991],
+    stamps: [Date(timeIntervalSince1970: 1767323045.000006), Date(timeIntervalSince1970: 946684799)],
+    blobs: [Data([1]), Data([2, 3])], levels: [.publicView, .private_],
+    metas: [Meta(owner: "x"), Meta(owner: "y")], metaMap: ["k": Meta(owner: "z")],
+    optNum: -9007199254740993, flag: true, optFlag: false, small: -7, f32: 0.5
+)
+let wideEcho = try await client.echoWide(wide)
+if wideEcho != wide { fail("wide mismatch:\n  sent \(wide)\n  got  \(wideEcho)") }
+
+let note = sample("n-1")
+note.maybe = "set"
+let echoed = try await client.create(note)
+if echoed != note { fail("echo mismatch:\n  sent \(note)\n  got  \(echoed)") }
+
+let fetched = try await client.fetch(Fetch(id: "n-1", limit: 5, tags: ["p", "q"]))
+let expected = try await client.create(sample("n-1|5|p,q"))
+if fetched != expected { fail("fetch mismatch:\n  got  \(fetched)\n  want \(expected)") }
+
+do {
+    _ = try await client.fetch(Fetch(id: "missing", limit: 1))
+    fail("expected NotFound")
+} catch let error as NotFound {
+    if error.code != "gone" { fail("typed error: \(error)") }
+}
+
+var ids: [String] = []
+do {
+    for try await event in client.watch(Fetch(id: "w", limit: 1)) {
+        let want = try await client.create(sample(event.id))
+        if event != want { fail("stream event mismatch: \(event)") }
+        ids.append(event.id)
+    }
+    fail("expected stream error")
+} catch OnekitError.stream(let payload) {
+    let code = (payload as? [String: Any])?["code"] as? String
+    if code != "done" { fail("stream error payload: \(String(describing: payload))") }
+}
+if ids != ["one", "two"] { fail("stream events: \(ids)") }
+print("OK")
+`
+
+func buildHTTPSwiftClient(t *testing.T) string {
+	t.Helper()
+	return cachedHarness(t, "http-swift-client", buildHTTPSwiftClientIn)
+}
+
+func buildHTTPSwiftClientIn(t *testing.T, dir string) string {
+	t.Helper()
+	if runtime.GOOS != "darwin" {
+		t.Skip("the Swift client targets Apple platforms")
+	}
+	if _, err := exec.LookPath("swiftc"); err != nil {
+		t.Skip("swiftc not available")
+	}
+	file := compileHTTPWireSchema(t)
+	writeFile(t, filepath.Join(dir, "Onekit.swift"), string(genswift.GenerateRuntime()))
+	writeFile(t, filepath.Join(dir, "Models.swift"), string(genswift.GenerateTypes(file)))
+	writeFile(t, filepath.Join(dir, "Client.swift"), string(genswift.GenerateClient(file)))
+	writeFile(t, filepath.Join(dir, "main.swift"), swiftHTTPClientHarness)
+	bin := filepath.Join(dir, "harness")
+	run(t, dir, "swiftc", "-o", bin, "Onekit.swift", "Models.swift", "Client.swift", "main.swift")
+	return bin
 }
