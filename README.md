@@ -2,7 +2,7 @@
 
 onekit is a from-scratch schema language and toolchain for building HTTP APIs — no protobuf, no buf, no protoc.
 
-Define your API once in `.onk` files, and generate the boring pieces around it: Go HTTP servers and clients, TypeScript clients and server routes, Python clients, Rust clients and Axum servers, and OpenAPI 3.1 documents. Every generator is built from scratch against a native intermediate representation (`internal/onkir`) — there is no `google.golang.org/protobuf` dependency anywhere in this repository.
+Define your API once in `.onk` files, and generate the boring pieces around it: Go HTTP servers and clients, TypeScript clients and server routes, Python clients, Dart/Flutter clients, Rust clients and Axum servers, and OpenAPI 3.1 documents. Every generator is built from scratch against a native intermediate representation (`internal/onkir`) — there is no `google.golang.org/protobuf` dependency anywhere in this repository.
 
 ## The `.onk` language
 
@@ -35,8 +35,8 @@ No explicit field numbers, no wire-format baggage, no separate options-extension
 Two things `.onk` does that protobuf couldn't:
 
 - **RPC error unions** — `-> User | NotFoundError | ValidationError` makes a method's possible errors part of the schema, so generated clients can produce exhaustive, statically-typed error handling instead of "parse the body as any `*Error`."
-- **Doc comments** (`///`) that flow straight into generated Go doc comments, TS/Python docstrings, and OpenAPI descriptions.
-  Mark fields and RPCs with `@deprecated` or `@deprecated("reason")` to get `Deprecated:` notes in Go, `@deprecated` in TypeScript, `#[deprecated]` in Rust, a `DeprecationWarning` from Python client calls, and `deprecated: true` in OpenAPI.
+- **Doc comments** (`///`) that flow straight into generated Go and Dart doc comments, TS/Python docstrings, and OpenAPI descriptions.
+  Mark fields and RPCs with `@deprecated` or `@deprecated("reason")` to get `Deprecated:` notes in Go, `@deprecated` in TypeScript, `#[deprecated]` in Rust, `@Deprecated` in Dart, a `DeprecationWarning` from Python client calls, and `deprecated: true` in OpenAPI.
 
 ## What it generates
 
@@ -46,6 +46,7 @@ Two things `.onk` does that protobuf couldn't:
 | `internal/gents` | TypeScript types, a `fetch`-based client, and framework-agnostic server routes (Web Fetch API); opt-in zod schemas, TanStack Query/SSE hooks, and MSW handlers |
 | `internal/genpy` | Python `@dataclass` models, `IntEnum` enums, and a stdlib (`urllib`) client |
 | `internal/genrust` | Rust Serde models and validation, a `reqwest` client, and an Axum server/router |
+| `internal/gendart` | Dart models (enhanced enums, sealed-class oneofs) and validation, a `package:http` client with SSE streams, and `web_socket_channel` sockets for Flutter and Dart |
 | `internal/genopenapi` | OpenAPI 3.1 documents (via `pb33f/libopenapi`) |
 
 All target languages and formats are driven off the same compiled schema (`internal/onkir`), produced by parsing `.onk` (`internal/onklang`) and resolving cross-references (`internal/onkcompile`).
@@ -92,6 +93,9 @@ out = "./api"
 
 [generate.ts-client]
 out = "./web/client"
+
+[generate.dart-client]
+out = "./mobile/lib/api"
 
 [generate.rust-client]
 out = "./src/generated"
@@ -168,14 +172,49 @@ service ChatService {
 - Servers validate every inbound frame; protocol violations receive an
   `{"error": ...}` frame followed by close code 1008.
 - Generated clients return a duplex handle (Go: `Send`/`Receive`/`Close`;
-  TypeScript: promise-based `receive()`; Python/Rust: `send`/`receive`)
+  TypeScript: promise-based `receive()`; Python/Rust/Dart: `send`/`receive`)
   instead of a one-shot response.
 
 Peer dependencies per target, only when the schema uses `@ws`: Go needs
-`github.com/coder/websocket`, Python needs `websockets>=12`, the Rust client
+`github.com/coder/websocket`, Python needs `websockets>=12`, Dart needs
+`web_socket_channel`, the Rust client
 needs `tokio-tungstenite`; servers reuse their existing framework sockets
 (axum / Web-standard `WebSocketPair`), except the TypeScript Node adapter
 below, which needs the `ws` package.
+
+### Using the Dart client from Flutter
+
+`dart-client` writes a shared runtime (`onekit.dart`, plus `onekit_ws*.dart`
+when the schema uses `@ws`) at the output root and a `models.dart` and
+`client.dart` per schema package. Point `out` inside your app's `lib/` and add
+the dependencies:
+
+```yaml
+dependencies:
+  http: ^1.2.0
+  web_socket_channel: ^3.0.0   # only when the schema uses @ws
+```
+
+```dart
+import 'package:mobile/api/user/v1/client.dart';
+
+final client = UserServiceClient('https://api.example.com', headers: {'authorization': 'Bearer $token'});
+final user = await client.getUser(GetUserRequest(id: id), timeout: const Duration(seconds: 5));
+await for (final event in client.watchUser(GetUserRequest(id: id))) {
+  print(event.name);
+}
+```
+
+Messages are plain classes with `toJson`/`fromJson` and `validate()`, so no
+`build_runner` step is needed. Enums are enhanced Dart enums, oneofs are sealed
+classes you can `switch` over, timestamps are `DateTime`, bytes are
+`Uint8List`, and `uint64` is `BigInt`. Declared error types are thrown as typed
+exceptions, other failures as `UnexpectedStatusException`, and requests time
+out after 30 seconds unless `timeout` says otherwise. The same code runs on
+Flutter web, with two browser limits: browsers cannot send custom headers on
+a WebSocket handshake, so `@ws` methods throw `UnsupportedError` there when the
+client has headers (pass credentials as `@query` fields instead), and `int`
+holds exact integers only up to 2^53.
 
 ### Deploying a generated TypeScript `@ws` server
 
@@ -551,12 +590,12 @@ go install github.com/1homsi/onekit/cmd/onek@latest
 | `internal/onkcompile/` | Compiles parsed `.onk` files into the IR, resolving cross-file type references |
 | `internal/onkir/` | The native intermediate representation every generator consumes |
 | `internal/onek/` | `onekit.toml` parsing and the `build`/`check` orchestration |
-| `internal/gengo/`, `internal/gents/`, `internal/genpy/`, `internal/genrust/`, `internal/genopenapi/` | Generator backends |
+| `internal/gengo/`, `internal/gents/`, `internal/genpy/`, `internal/gendart/`, `internal/genrust/`, `internal/genopenapi/` | Generator backends |
 | `examples/onk-simple-api/` | A complete, working example with committed generated output |
 
 ## Status
 
-This is a young project that has completed its migration from the earlier protobuf-based design. It supports messages (scalars including arbitrary `json`, repeated, optional, maps, nested types), enums, discriminated oneofs, field validation (`@email`, `@uuid`, `@uri`, `@pattern`, `@len`, `@range`, `@in` on strings and integers, `@required`, item counts), HTTP path/query/body binding, typed headers and error unions, SSE clients in Go, TypeScript, Python, and Rust, and Go/TypeScript/Python/Rust/OpenAPI generators.
+This is a young project that has completed its migration from the earlier protobuf-based design. It supports messages (scalars including arbitrary `json`, repeated, optional, maps, nested types), enums, discriminated oneofs, field validation (`@email`, `@uuid`, `@uri`, `@pattern`, `@len`, `@range`, `@in` on strings and integers, `@required`, item counts), HTTP path/query/body binding, typed headers and error unions, SSE clients in Go, TypeScript, Python, Dart, and Rust, and Go/TypeScript/Python/Dart/Rust/OpenAPI generators.
 
 JSON mapping is supported through `@flatten`, root-level `@unwrap`, and `@encode(...)` for safe integer, enum, timestamp, and byte representations. Map-value messages must not use `@unwrap`; `onek check` rejects that shape consistently instead of allowing generators to diverge. Generated clients validate requests before sending, generated servers validate decoded requests, and nested validation is emitted consistently across targets. Generated Go servers also provide functional registration options for mux selection, middleware, request IDs, authorization, route metadata, and lifecycle observation.
 

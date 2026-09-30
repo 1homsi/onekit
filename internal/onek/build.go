@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/1homsi/onekit/internal/gendart"
 	"github.com/1homsi/onekit/internal/gengo"
 	"github.com/1homsi/onekit/internal/genpy"
 	"github.com/1homsi/onekit/internal/genrust"
@@ -190,6 +191,15 @@ type sourceIndex struct {
 	groups       []*sourceGroup
 	dirByMessage map[*onkir.Message]string
 	dirByEnum    map[*onkir.Enum]string
+}
+
+func (idx *sourceIndex) hasWS() bool {
+	for _, g := range idx.groups {
+		if onkir.FileHasWSMethods(g.file) {
+			return true
+		}
+	}
+	return false
 }
 
 func indexMessage(idx *sourceIndex, m *onkir.Message, relDir string) {
@@ -496,6 +506,7 @@ func Build(dir string) error {
 		{cfg.Generate.TSClient != nil, func() error { return buildTSClient(cfg, idx) }},
 		{cfg.Generate.TSServer != nil, func() error { return buildTSServer(cfg, idx) }},
 		{cfg.Generate.PythonClient != nil, func() error { return buildPythonClient(cfg, idx) }},
+		{cfg.Generate.DartClient != nil, func() error { return buildDartClient(cfg, idx) }},
 		{cfg.Generate.RustClient != nil || cfg.Generate.RustServer != nil, func() error { return buildRust(cfg, idx) }},
 		{cfg.Generate.OpenAPI != nil, func() error { return buildOpenAPI(cfg, idx) }},
 	}
@@ -702,6 +713,19 @@ func expectedGeneratedOutputs(cfg *Config, idx *sourceIndex) map[string]map[stri
 			root := cfg.resolve(cfg.Generate.TSServer.Out)
 			add(root, filepath.Join(rel, "types.ts"))
 			add(root, filepath.Join(rel, "server.ts"))
+		}
+		if cfg.Generate.DartClient != nil {
+			root := cfg.resolve(cfg.Generate.DartClient.Out)
+			add(root, "onekit.dart")
+			if idx.hasWS() {
+				add(root, "onekit_ws.dart")
+				add(root, "onekit_ws_io.dart")
+				add(root, "onekit_ws_web.dart")
+			}
+			add(root, filepath.Join(rel, "models.dart"))
+			if len(group.file.Services) > 0 {
+				add(root, filepath.Join(rel, "client.dart"))
+			}
 		}
 		if cfg.Generate.PythonClient != nil {
 			root := cfg.resolve(cfg.Generate.PythonClient.Out)
@@ -1029,6 +1053,35 @@ func buildPythonClient(cfg *Config, idx *sourceIndex) error {
 		err = writeFile(filepath.Join(outDir, "client.py"), clientSrc)
 		if err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func buildDartClient(cfg *Config, idx *sourceIndex) error {
+	outRoot := cfg.resolve(cfg.Generate.DartClient.Out)
+	runtimeFiles := map[string][]byte{"onekit.dart": gendart.GenerateRuntime()}
+	if idx.hasWS() {
+		runtimeFiles["onekit_ws.dart"] = gendart.GenerateWSRuntime()
+		runtimeFiles["onekit_ws_io.dart"] = gendart.GenerateWSConnectIO()
+		runtimeFiles["onekit_ws_web.dart"] = gendart.GenerateWSConnectWeb()
+	}
+	for name, src := range runtimeFiles {
+		if err := writeFile(filepath.Join(outRoot, name), src); err != nil {
+			return err
+		}
+	}
+	for _, g := range idx.groups {
+		outDir := groupOutDir(outRoot, g.relDir)
+		resolver := &dartResolver{currentDir: g.relDir, idx: idx}
+		runtimeDir := dartRuntimeDir(g.relDir)
+		if err := writeFile(filepath.Join(outDir, "models.dart"), gendart.GenerateTypesWithResolver(g.file, resolver, runtimeDir+"onekit.dart")); err != nil {
+			return err
+		}
+		if client := gendart.GenerateClientWithResolver(g.file, resolver, runtimeDir); client != nil {
+			if err := writeFile(filepath.Join(outDir, "client.dart"), client); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
