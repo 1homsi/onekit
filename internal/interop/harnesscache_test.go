@@ -32,6 +32,10 @@ func cachedHarness(t *testing.T, name string, build func(t *testing.T, dir strin
 	return path
 }
 
+func cargoTargetDir() string {
+	return filepath.Join(harnessRoot, "cargo-target")
+}
+
 func TestMain(m *testing.M) {
 	root, err := os.MkdirTemp("", "onekit-interop-")
 	if err != nil {

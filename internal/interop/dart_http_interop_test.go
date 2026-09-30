@@ -6,7 +6,6 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/1homsi/onekit/internal/gendart"
 	"github.com/1homsi/onekit/internal/gengo"
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
@@ -43,11 +42,28 @@ message Note {
     n: int64 @tag("n")
   }
 }
+message Wide {
+  nums: int64[]
+  ids: uint64[]
+  by_name: map[string, int64]
+  stamps: timestamp[]
+  blobs: bytes[]
+  levels: Visibility[]
+  metas: Meta[]
+  meta_map: map[string, Meta]
+  opt_num: int64?
+  flag: bool
+  opt_flag: bool?
+  small: int32
+  f32: float32
+  zero_str: string
+}
 message Fetch { id: string limit: int32? @query tags: string[] @query }
 message NotFound @status(404) { code: string }
 
 service Notes {
   create(Note) -> Note @post("/notes")
+  echoWide(Wide) -> Wide @post("/wide")
   fetch(Fetch) -> Note | NotFound @get("/notes/{id}")
   watch(Fetch) -> Note | NotFound @get("/watch/{id}") @stream
 }
@@ -85,6 +101,8 @@ func sample() *notes.Note {
 }
 
 func (impl) Create(ctx context.Context, req *notes.Note) (*notes.Note, error) { return req, nil }
+
+func (impl) EchoWide(ctx context.Context, req *notes.Wide) (*notes.Wide, error) { return req, nil }
 
 func (impl) Fetch(ctx context.Context, req *notes.Fetch) (*notes.Note, error) {
 	if req.Id == "missing" {
@@ -156,6 +174,23 @@ Note sample(String id) => Note(
 
 Future<void> main(List<String> args) async {
   final client = NotesClient(args[0]);
+  final wide = Wide(
+    nums: [-9007199254740993, 0, 9007199254740993],
+    ids: [BigInt.parse('18446744073709551615'), BigInt.one],
+    byName: {'a': -1, 'b': 9007199254740991},
+    stamps: [DateTime.utc(2026, 1, 2, 3, 4, 5, 0, 6), DateTime.utc(1999, 12, 31, 23, 59, 59)],
+    blobs: [Uint8List.fromList([1]), Uint8List.fromList([2, 3])],
+    levels: [Visibility.publicView, Visibility.private],
+    metas: [Meta(owner: 'x'), Meta(owner: 'y')],
+    metaMap: {'k': Meta(owner: 'z')},
+    optNum: -9007199254740993,
+    flag: true,
+    optFlag: false,
+    small: -7,
+    f32: 0.5,
+  );
+  final wideEcho = await client.echoWide(wide);
+  if (wideEcho != wide) fail('wide mismatch:\n  sent $wide\n  got  $wideEcho');
   final note = sample('n-1')..maybe = 'set';
   final echoed = await client.create(note);
   if (echoed != note) fail('echo mismatch:\n  sent $note\n  got  $echoed');
@@ -196,14 +231,17 @@ func compileHTTPWireSchema(t *testing.T) *onkir.File {
 	return pkg.Files[0]
 }
 
-func TestHTTPDartClientGoServer(t *testing.T) {
-	for _, tool := range []string{"go", "dart"} {
-		if _, err := exec.LookPath(tool); err != nil {
-			t.Skip(tool + " not available")
-		}
+func buildHTTPGoServer(t *testing.T) string {
+	t.Helper()
+	return cachedHarness(t, "http-go-server", buildHTTPGoServerIn)
+}
+
+func buildHTTPGoServerIn(t *testing.T, goDir string) string {
+	t.Helper()
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go not available")
 	}
 	file := compileHTTPWireSchema(t)
-	goDir := t.TempDir()
 	for name, generate := range map[string]func(*onkir.File) ([]byte, error){
 		"notes/server.go":       gengo.GenerateServer,
 		"notes/types.gen.go":    gengo.GenerateTypes,
@@ -222,15 +260,5 @@ func TestHTTPDartClientGoServer(t *testing.T) {
 		bin += ".exe"
 	}
 	run(t, goDir, "go", "build", "-o", bin, ".")
-
-	dir := t.TempDir()
-	lib := filepath.Join(dir, "lib")
-	writeFile(t, filepath.Join(dir, "pubspec.yaml"), dartPubspec)
-	writeFile(t, filepath.Join(lib, "onekit.dart"), string(gendart.GenerateRuntime()))
-	writeFile(t, filepath.Join(lib, "models.dart"), string(gendart.GenerateTypes(file)))
-	writeFile(t, filepath.Join(lib, "client.dart"), string(gendart.GenerateClient(file)))
-	writeFile(t, filepath.Join(dir, "bin", "harness.dart"), dartHTTPHarness)
-	run(t, dir, "dart", "pub", "get")
-	port := startServer(t, "", bin)
-	expectOK(t, dir, "dart", "run", "bin/harness.dart", "http://127.0.0.1:"+port)
+	return bin
 }

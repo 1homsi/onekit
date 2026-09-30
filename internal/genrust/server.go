@@ -218,8 +218,12 @@ func serviceHasWS(service *onkir.Service) bool {
 }
 
 //nolint:nestif // Extractor and response branches directly mirror the schema HTTP binding matrix.
-func writeRequestExtractor(p *Printer, method *onkir.Method, requestType string, bodyBearing bool) (string, string) {
+func writeRequestExtractor(p *Printer, method *onkir.Method, requestType string, bodyBearing bool, pairQuery bool) (string, string) {
 	if !bodyBearing {
+		if pairQuery {
+			p.P("query: Result<Query<Vec<(String, String)>>, axum::extract::rejection::QueryRejection>,")
+			return "", ""
+		}
 		p.P("query: Result<Query<", requestType, ">, axum::extract::rejection::QueryRejection>,")
 		return "", ""
 	}
@@ -235,7 +239,26 @@ func writeRequestExtractor(p *Printer, method *onkir.Method, requestType string,
 	return "mut req", requestType
 }
 
-func writeRequestDecode(p *Printer, errorName, binding, typ string) {
+func repeatedQueryFields(method *onkir.Method, pathFields []string) []wsQueryField {
+	fields := wsQueryFields(method.Request, pathFields)
+	for _, q := range fields {
+		if q.field.Repeated {
+			return fields
+		}
+	}
+	return nil
+}
+
+func writeRequestDecode(p *Printer, errorName, binding, typ, requestType string, pairQuery []wsQueryField) {
+	if binding == "" && len(pairQuery) > 0 {
+		p.P("let query = match query {")
+		p.P("Ok(Query(value)) => value,")
+		p.P(`Err(error) => return `, errorName, `::InvalidRequest(format!("invalid query: {}", error.body_text())).into_response(),`)
+		p.P("};")
+		p.P("let mut req = ", requestType, "::default();")
+		writeWSQueryBinding(p, errorName, pairQuery)
+		return
+	}
 	if binding == "" {
 		p.P("let mut req = match query {")
 		p.P("Ok(Query(value)) => value,")
@@ -273,13 +296,17 @@ func writeHandler(
 	if len(pathFields) > 0 {
 		p.P("Path(path): Path<std::collections::HashMap<String, String>>,")
 	}
-	bodyBinding, bodyType := writeRequestExtractor(p, method, requestType, bodyBearing)
+	var pairQuery []wsQueryField
+	if !bodyBearing {
+		pairQuery = repeatedQueryFields(method, pathFields)
+	}
+	bodyBinding, bodyType := writeRequestExtractor(p, method, requestType, bodyBearing, len(pairQuery) > 0)
 	p.Dedent()
 	p.P(") -> Response {")
 	p.Indent()
 
 	errorName := serverErrorName(service, method)
-	writeRequestDecode(p, errorName, bodyBinding, bodyType)
+	writeRequestDecode(p, errorName, bodyBinding, bodyType, requestType, pairQuery)
 	if verb == queryVerb {
 		writeQueryMethodGuard(p)
 	}

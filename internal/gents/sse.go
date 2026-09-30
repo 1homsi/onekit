@@ -39,7 +39,7 @@ func writeSSEResponseHelper(p *Printer) {
 	p.P("current = await reader.read();")
 	p.P("}")
 	p.P("} catch (err) {")
-	p.P(`const errBody = { message: "internal server error" };`)
+	p.P(`const errBody = err instanceof HttpError ? err.body : { message: "internal server error" };`)
 	p.P(`controller.enqueue(encoder.encode("event: error\ndata: " + JSON.stringify(errBody) + "\n\n"));`)
 	p.P("} finally {")
 	p.P("controller.close();")
