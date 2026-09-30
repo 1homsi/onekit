@@ -1,9 +1,12 @@
 package gengo
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"go/format"
 	"strings"
+	"sync"
 
 	"github.com/1homsi/onekit/internal/onkir"
 )
@@ -24,8 +27,38 @@ func (p *Printer) P(args ...any) {
 	p.b.WriteByte('\n')
 }
 
+const formatMemoLimit = 64 << 20
+
+var formatMemo = struct {
+	sync.Mutex
+	entries map[[sha256.Size]byte][]byte
+	size    int
+}{entries: map[[sha256.Size]byte][]byte{}}
+
 func (p *Printer) Format() ([]byte, error) {
-	return format.Source([]byte(p.b.String()))
+	src := []byte(p.b.String())
+	key := sha256.Sum256(src)
+	formatMemo.Lock()
+	cached, ok := formatMemo.entries[key]
+	formatMemo.Unlock()
+	if ok {
+		return bytes.Clone(cached), nil
+	}
+	out, err := format.Source(src)
+	if err != nil {
+		return nil, err
+	}
+	formatMemo.Lock()
+	if formatMemo.size+len(out) > formatMemoLimit {
+		clear(formatMemo.entries)
+		formatMemo.size = 0
+	}
+	if _, dup := formatMemo.entries[key]; !dup {
+		formatMemo.entries[key] = bytes.Clone(out)
+		formatMemo.size += len(out)
+	}
+	formatMemo.Unlock()
+	return out, nil
 }
 
 func (p *Printer) Raw() string {
