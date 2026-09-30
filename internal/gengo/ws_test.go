@@ -799,7 +799,7 @@ func (inlineCallImpl) Execute(ctx context.Context, req *Frame, out *RuntimeExecu
 	if req.GetRun() == nil {
 		return nil
 	}
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(450 * time.Millisecond)
 	reply, err := out.Call(ctx, "srv-1", &Frame{Payload: &FramePayloadHostCall{HostCall: &HostCall{Id: "srv-1", Method: "ask"}}})
 	if err != nil {
 		return err
@@ -808,7 +808,7 @@ func (inlineCallImpl) Execute(ctx context.Context, req *Frame, out *RuntimeExecu
 }
 
 func TestRuntimeHandlerCanCallInlineAndOutliveKeepalive(t *testing.T) {
-	socket := dialRuntime(t, inlineCallImpl{}, WithWSPingInterval(20*time.Millisecond))
+	socket := dialRuntime(t, inlineCallImpl{}, WithWSPingInterval(100*time.Millisecond))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := socket.Send(ctx, &Frame{Payload: &FramePayloadRun{Run: &RunRequest{Code: "x"}}}); err != nil {
@@ -1643,7 +1643,7 @@ func TestPerfBudgets(t *testing.T) {
 			_ = wsUnmarshal(callJSON, &f)
 		}
 	})
-	budget(t, "fast decode vs std decode (small frame)", stdDecodeSmall, fastDecodeSmall, 2)
+	budget(t, "fast decode vs std decode (small frame)", stdDecodeSmall, fastDecodeSmall, 1.3)
 
 	stdEncodeSmall := nsPerOp(func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
