@@ -68,7 +68,7 @@ func TestParseAcceptsValidUTF8InStringLiteral(t *testing.T) {
 	if !strings.Contains(string(formatted), jp) {
 		t.Errorf("expected the literal to survive formatting, got %q", formatted)
 	}
-	if !utf8.ValidString(string(formatted)) {
+	if !utf8.Valid(formatted) {
 		t.Error("formatted output is not valid UTF-8")
 	}
 }
