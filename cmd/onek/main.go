@@ -511,6 +511,10 @@ func runBuildWithSummary(dir string, quiet bool) error {
 		fmt.Fprintln(os.Stderr, "onek: no [generate.*] targets in onekit.toml; nothing was generated")
 		return nil
 	}
+	if summary.Cached {
+		fmt.Fprintf(os.Stderr, "onek: up to date: %d files for %s\n", summary.Files, strings.Join(summary.Targets, ", "))
+		return nil
+	}
 	fmt.Fprintf(os.Stderr, "onek: wrote %d files for %s\n", summary.Files, strings.Join(summary.Targets, ", "))
 	return nil
 }

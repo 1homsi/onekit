@@ -376,6 +376,7 @@ func writeFile(path string, data []byte) error {
 		writtenFiles.Add(1)
 	}
 	if unchangedOnDisk(path, data) {
+		recordOutput(path, data)
 		return nil
 	}
 	err := os.MkdirAll(filepath.Dir(path), genDirPerm)
@@ -402,6 +403,7 @@ func writeFile(path string, data []byte) error {
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("replace %s: %w", path, err)
 	}
+	recordOutput(path, data)
 	return nil
 }
 
@@ -464,12 +466,13 @@ func groupOutDir(outRoot, relDir string) string {
 type BuildSummary struct {
 	Targets []string
 	Files   int
+	Cached  bool
 }
 
 func BuildWithSummary(dir string) (BuildSummary, error) {
 	writtenFiles.Store(0)
-	err := Build(dir)
-	summary := BuildSummary{Files: int(writtenFiles.Load())}
+	cached, err := build(dir)
+	summary := BuildSummary{Files: int(writtenFiles.Load()), Cached: cached}
 	if cfg, cfgErr := LoadConfig(dir); cfgErr == nil {
 		summary.Targets = cfg.EnabledTargets()
 	}
@@ -484,22 +487,52 @@ var (
 // Build parses and compiles every .onk file under dir, then generates every
 // target configured in onekit.toml.
 func Build(dir string) error {
+	_, err := build(dir)
+	return err
+}
+
+func build(dir string) (bool, error) {
 	resetSymlinkCheckCache()
 	cfg, err := LoadConfig(dir)
 	if err != nil {
-		return err
+		return false, err
+	}
+
+	startFiles := writtenFiles.Load()
+	fingerprint := ""
+	if captured == nil {
+		if sum, sumErr := buildFingerprint(cfg); sumErr == nil {
+			fingerprint = sum
+		}
+	}
+	if fingerprint != "" && tryCachedBuild(cfg, fingerprint) {
+		return true, nil
+	}
+	recording := fingerprint != ""
+	exeHash := make(chan string, 1)
+	if recording {
+		go func() {
+			hash, _ := executableHash()
+			exeHash <- hash
+		}()
+		startRecordingOutputs()
+		defer func() {
+			if recording {
+				stopRecordingOutputs()
+			}
+		}()
 	}
 
 	pkg, err := CompileWithOptions(cfg.SchemaDir(), onkcompile.CompileOptions{
 		AllowLegacyContracts: cfg.AllowLegacyContracts,
 	})
 	if err != nil {
-		return err
+		return false, err
 	}
 	applyRoutePrefix(pkg, cfg.RoutePrefix)
 	idx, err := groupByDirectory(pkg, cfg.SchemaDir())
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	steps := []struct {
@@ -520,16 +553,24 @@ func Build(dir string) error {
 		}
 		err = step.run()
 		if err != nil {
-			return err
+			return false, err
 		}
 	}
 	if captured != nil {
-		return nil
+		return false, nil
 	}
 	if err := cleanupStaleGeneratedOutputs(cfg, idx); err != nil {
-		return err
+		return false, err
 	}
-	return writeGenerationManifest(cfg, idx)
+	if err := writeGenerationManifest(cfg, idx); err != nil {
+		return false, err
+	}
+	if recording {
+		digests := stopRecordingOutputs()
+		recording = false
+		saveBuildCache(cfg, fingerprint, <-exeHash, digests, int(writtenFiles.Load()-startFiles))
+	}
+	return false, nil
 }
 
 type generationManifest struct {
