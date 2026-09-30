@@ -37,7 +37,7 @@ func usage(w io.Writer) {
   onek watch [--interval DURATION] [--dir DIR]
   onek mock [--addr ADDR] [--seed N] [--error-rate FLOAT] [--latency DURATION] [--watch] [--dir DIR]
   onek init [--force] [DIR]
-  onek import [--out DIR] [--package NAME] [--service NAME] [--force] [--stdout] OPENAPI-FILE
+  onek import [--out DIR] [--package NAME] [--service NAME] [--force] [--stdout] OPENAPI-OR-PROTO-FILE
   onek compat [--json] PREVIOUS-DIR CURRENT-DIR
   onek compat [--json] --against GIT-REF [CURRENT-DIR]
   onek mcp [--dir DIR]
@@ -304,13 +304,18 @@ func runImport(args []string) error {
 		return err
 	}
 	if len(fs.Args()) != 1 {
-		return errors.New("import requires exactly one OpenAPI file")
+		return errors.New("import requires exactly one OpenAPI (.yaml, .json) or Protocol Buffers (.proto) file")
 	}
 	data, err := os.ReadFile(fs.Arg(0))
 	if err != nil {
 		return fmt.Errorf("read %s: %w", fs.Arg(0), err)
 	}
-	result, err := onkimport.Import(data, onkimport.Options{Package: *pkg, Service: *service})
+	var result *onkimport.Result
+	if strings.EqualFold(filepath.Ext(fs.Arg(0)), ".proto") {
+		result, err = onkimport.ImportProto(data, onkimport.Options{Package: *pkg})
+	} else {
+		result, err = onkimport.Import(data, onkimport.Options{Package: *pkg, Service: *service})
+	}
 	if err != nil {
 		return err
 	}

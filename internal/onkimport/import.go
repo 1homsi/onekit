@@ -164,7 +164,7 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 	// body before emitting any parameters: query params on body-bearing
 	// operations must fold into plain fields.
 	requestBody := im.deref(asMap(op["requestBody"]))
-	if requestBody != nil && method != "post" && method != "put" && method != "patch" {
+	if requestBody != nil && method != methodPost && method != methodPut && method != methodPatch {
 		im.warnf("%s: request body on %s is not supported by onekit and was dropped", opName, strings.ToUpper(method))
 		requestBody = nil
 	}
@@ -722,7 +722,7 @@ func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldT
 		return fieldType{expr: "float64"}, true
 	case "boolean":
 		return fieldType{expr: "bool"}, true
-	case "string":
+	case scalarString:
 		return im.stringFieldType(schema, suggested), true
 	default:
 		im.warnf("schema %q uses unsupported composition (%s); mapped to json", suggested, strings.Join(mapKeys(schema), ","))
