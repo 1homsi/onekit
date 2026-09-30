@@ -84,7 +84,7 @@ func openAPIServiceFile(service *onkir.Service) *onkir.File {
 
 func buildOpenAPI(cfg *Config, idx *sourceIndex) error {
 	opts := genopenapi.Options{Title: cfg.Generate.OpenAPI.Title, Version: cfg.Generate.OpenAPI.Version, Description: cfg.Generate.OpenAPI.Description, Servers: cfg.Generate.OpenAPI.Servers}
-	for _, group := range idx.groups {
+	return eachGroup(idx, func(group *sourceGroup) error {
 		for _, service := range group.file.Services {
 			file := openAPIServiceFile(service)
 			base := filepath.Join(cfg.resolve(cfg.Generate.OpenAPI.Out), openAPIBasePath(group, service))
@@ -103,6 +103,6 @@ func buildOpenAPI(cfg *Config, idx *sourceIndex) error {
 				return err
 			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
