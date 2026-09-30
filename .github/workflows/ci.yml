@@ -148,6 +148,11 @@ jobs:
         with:
           node-version: '24'
 
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+        with:
+          sdk: '3.13.4'
+
       - name: Install TypeScript compiler
         run: npm install --global --ignore-scripts typescript@7.0.2
 
@@ -201,6 +206,11 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24'
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+        with:
+          sdk: '3.13.4'
 
       - name: Install TypeScript compiler
         run: npm install --global --ignore-scripts typescript@7.0.2

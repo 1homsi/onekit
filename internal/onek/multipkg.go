@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/1homsi/onekit/internal/gendart"
 	"github.com/1homsi/onekit/internal/genpy"
 	"github.com/1homsi/onekit/internal/genrust"
 	"github.com/1homsi/onekit/internal/gents"
@@ -48,6 +49,43 @@ func (r *tsResolver) ResolveMessage(m *onkir.Message) (gents.PackageRef, bool) {
 }
 
 func (r *tsResolver) ResolveEnum(e *onkir.Enum) (gents.PackageRef, bool) {
+	dir, ok := r.idx.dirByEnum[e]
+	return r.resolve(dir, ok)
+}
+
+func dartRuntimeDir(relDir string) string {
+	if relDir == "." || relDir == "" {
+		return ""
+	}
+	return strings.Repeat("../", len(strings.Split(filepath.ToSlash(relDir), "/")))
+}
+
+type dartResolver struct {
+	currentDir string
+	idx        *sourceIndex
+}
+
+func (r *dartResolver) resolve(dir string, ok bool) (gendart.PackageRef, bool) {
+	if !ok || dir == r.currentDir {
+		return gendart.PackageRef{}, false
+	}
+	from := r.currentDir
+	if from == "." {
+		from = ""
+	}
+	rel, err := filepath.Rel(filepath.FromSlash("/"+from), filepath.FromSlash("/"+dir))
+	if err != nil {
+		rel = dir
+	}
+	return gendart.PackageRef{Alias: goPackageAlias(dir) + "_models", ImportPath: filepath.ToSlash(rel) + "/models.dart"}, true
+}
+
+func (r *dartResolver) ResolveMessage(m *onkir.Message) (gendart.PackageRef, bool) {
+	dir, ok := r.idx.dirByMessage[m]
+	return r.resolve(dir, ok)
+}
+
+func (r *dartResolver) ResolveEnum(e *onkir.Enum) (gendart.PackageRef, bool) {
 	dir, ok := r.idx.dirByEnum[e]
 	return r.resolve(dir, ok)
 }
