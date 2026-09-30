@@ -48,6 +48,8 @@ message Awkward {
   stamps: timestamp[]
 }
 message Ids { v: int64[] @unwrap }
+message Blob { data: json @unwrap }
+message Bag { items: json[] extra: map[string, json] }
 message Lookup { v: map[string, Inner] @unwrap }
 message Wrapped { v: Inner @unwrap }
 message Problem @status(409) { reasons: string[] details: map[string, string] }
@@ -152,6 +154,10 @@ for want in [
 check(Awkward(size: 10, alt: .blob(Data()), must: "", mustList: ["a"], mustInner: Inner()).validate().contains("must is required"), "empty required string")
 
 check(onekitJSONEquals(Ids(v: [1]).toJSONValue(), ["1"]), "unwrap list")
+check(onekitJSONEquals(Blob(data: ["k": 1] as [String: Any]).toJSONValue(), ["k": 1]), "unwrap json")
+check(try Blob(json: ["k": 1]).data != nil && Blob(json: NSNull()).data == nil, "unwrap json decode")
+let bag = try Bag(json: ["items": [1, "a", ["x": true]], "extra": ["k": [1, 2]]])
+check(bag.items.count == 3 && bag.extra["k"] != nil, "json collections decode")
 check(onekitJSONEquals(Lookup(v: ["k": Inner(note: "z")]).toJSONValue(), ["k": ["note": "z"]]), "unwrap map")
 check(try Lookup(json: ["k": ["note": "z"]]).v["k"]?.note == "z", "unwrap map decode")
 check(onekitJSONEquals(Wrapped(v: Inner(note: "w")).toJSONValue(), ["note": "w"]), "unwrap message")

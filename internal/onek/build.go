@@ -1162,22 +1162,34 @@ func swiftHasClient(file *onkir.File) bool {
 }
 
 func checkSwiftNamesUnique(idx *sourceIndex) error {
-	owner := map[string]string{}
+	namespaces := map[string]string{}
+	var rootNames map[string]bool
 	for _, g := range idx.groups {
 		label := g.relDir
 		if label == "." || label == "" {
 			label = "the schema root"
 		}
+		namespace := genswift.Namespace(g.relDir)
+		if namespace != "" {
+			if other, ok := namespaces[namespace]; ok {
+				return fmt.Errorf("swift-client: %s and %s both map to the Swift namespace %q; rename one of the directories", other, label, namespace)
+			}
+			namespaces[namespace] = label
+		}
 		seen := map[string]bool{}
 		for _, name := range genswift.DeclaredNames(g.file) {
 			if seen[name] {
-				return fmt.Errorf("swift-client: %q is declared more than once in %s; Swift needs every generated type name to be unique", name, label)
+				return fmt.Errorf("swift-client: %q is declared more than once in %s; Swift needs every generated type name in a package to be unique", name, label)
 			}
 			seen[name] = true
-			if other, ok := owner[name]; ok {
-				return fmt.Errorf("swift-client: %q is declared in both %s and %s; Swift generates every package into one module, so rename one of them", name, other, label)
-			}
-			owner[name] = label
+		}
+		if namespace == "" {
+			rootNames = seen
+		}
+	}
+	for namespace, label := range namespaces {
+		if rootNames[namespace] {
+			return fmt.Errorf("swift-client: the schema root declares %q, which is also the Swift namespace for %s; rename one of them", namespace, label)
 		}
 	}
 	return nil
@@ -1194,10 +1206,12 @@ func buildSwiftClient(cfg *Config, idx *sourceIndex) error {
 	return eachGroup(idx, func(g *sourceGroup) error {
 		outDir := groupOutDir(outRoot, g.relDir)
 		models, clientName := swiftFileNames(g.relDir)
-		if err := writeFile(filepath.Join(outDir, models), genswift.GenerateTypes(g.file)); err != nil {
+		namespace := genswift.Namespace(g.relDir)
+		resolver := &swiftResolver{currentDir: g.relDir, idx: idx}
+		if err := writeFile(filepath.Join(outDir, models), genswift.GenerateTypesInNamespace(g.file, namespace, resolver)); err != nil {
 			return err
 		}
-		if client := genswift.GenerateClient(g.file); client != nil {
+		if client := genswift.GenerateClientInNamespace(g.file, namespace, resolver); client != nil {
 			return writeFile(filepath.Join(outDir, clientName), client)
 		}
 		return nil

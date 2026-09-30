@@ -7,6 +7,7 @@ import (
 	"github.com/1homsi/onekit/internal/gendart"
 	"github.com/1homsi/onekit/internal/genpy"
 	"github.com/1homsi/onekit/internal/genrust"
+	"github.com/1homsi/onekit/internal/genswift"
 	"github.com/1homsi/onekit/internal/gents"
 	"github.com/1homsi/onekit/internal/onkir"
 )
@@ -86,6 +87,28 @@ func (r *dartResolver) ResolveMessage(m *onkir.Message) (gendart.PackageRef, boo
 }
 
 func (r *dartResolver) ResolveEnum(e *onkir.Enum) (gendart.PackageRef, bool) {
+	dir, ok := r.idx.dirByEnum[e]
+	return r.resolve(dir, ok)
+}
+
+type swiftResolver struct {
+	currentDir string
+	idx        *sourceIndex
+}
+
+func (r *swiftResolver) resolve(dir string, ok bool) (string, bool) {
+	if !ok || dir == r.currentDir {
+		return "", false
+	}
+	return genswift.Namespace(dir), true
+}
+
+func (r *swiftResolver) ResolveMessage(m *onkir.Message) (string, bool) {
+	dir, ok := r.idx.dirByMessage[m]
+	return r.resolve(dir, ok)
+}
+
+func (r *swiftResolver) ResolveEnum(e *onkir.Enum) (string, bool) {
 	dir, ok := r.idx.dirByEnum[e]
 	return r.resolve(dir, ok)
 }
