@@ -583,6 +583,40 @@ message or service name also covers its fields and routes).
 Successful builds write an ignored `.onekit/manifest.json` containing the
 schema fingerprint and expected generated outputs.
 
+### Catching breaking schema changes in pull requests
+
+The repository ships a GitHub Action that runs `onek compat` against the pull
+request's base branch, comments on the PR with a table of breaking changes (and
+which generated targets ship the affected contract), and fails the job. When
+the schema is clean it stays silent, and it updates its own comment instead of
+adding a new one on every push.
+
+```yaml
+on: pull_request
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  schema-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: 1homsi/onekit@v0.21.0
+        with:
+          allow: |
+            app.User.legacy_email
+```
+
+Inputs: `directory` (project dir, default `.`), `against` (default: the PR base
+branch), `version` (onek release to install, default `latest`; the download is
+verified against the published checksums), `allow` (newline-separated paths to
+accept), `comment` and `fail-on-breaking` (both default `true`). The action
+runs on Linux and macOS runners, and exposes a `breaking` output with the
+number of findings. PRs from forks cannot comment with the default token; the
+job summary and the failing status still report the result.
+
 Install the CLI:
 
 ```bash

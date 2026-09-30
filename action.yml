@@ -1,0 +1,95 @@
+name: OneKit schema compatibility
+description: Fail or comment on a pull request when a .onk schema change breaks the contract of the base branch.
+author: 1homsi
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  directory:
+    description: Project directory containing onekit.toml.
+    default: "."
+  against:
+    description: Git ref to compare against. Defaults to the pull request base branch.
+    default: ""
+  version:
+    description: onek release to install ("latest" or a version such as 0.20.1).
+    default: latest
+  allow:
+    description: Newline-separated schema paths whose breaking changes are accepted.
+    default: ""
+  comment:
+    description: Post or update a sticky comment on the pull request.
+    default: "true"
+  fail-on-breaking:
+    description: Fail the job when breaking changes are found.
+    default: "true"
+  github-token:
+    description: Token used to download onek and to post the comment.
+    default: ${{ github.token }}
+
+outputs:
+  breaking:
+    description: Number of breaking changes found.
+    value: ${{ steps.report.outputs.breaking }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install onek
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        ONEK_VERSION: ${{ inputs.version }}
+      run: ${{ github.action_path }}/scripts/install-onek.sh
+
+    - name: Resolve base ref
+      id: base
+      shell: bash
+      env:
+        INPUT_AGAINST: ${{ inputs.against }}
+        BASE_REF: ${{ github.base_ref }}
+      run: |
+        ref="$INPUT_AGAINST"
+        if [ -z "$ref" ] && [ -n "$BASE_REF" ]; then
+          ref="origin/$BASE_REF"
+        fi
+        if [ -z "$ref" ]; then
+          echo "::error::Set the against input, or run this action on a pull_request event"
+          exit 1
+        fi
+        if ! git rev-parse --verify --quiet "$ref^{commit}" >/dev/null; then
+          git fetch --no-tags --depth=1 origin "${ref#origin/}:refs/remotes/origin/${ref#origin/}"
+        fi
+        echo "ref=$ref" >>"$GITHUB_OUTPUT"
+
+    - name: Check schema compatibility
+      id: report
+      shell: bash
+      env:
+        ONEK_DIR: ${{ inputs.directory }}
+        ONEK_AGAINST: ${{ steps.base.outputs.ref }}
+        ONEK_ALLOW: ${{ inputs.allow }}
+        REPORT_FILE: ${{ runner.temp }}/onek-compat-report.md
+      run: ${{ github.action_path }}/scripts/compat-report.sh
+
+    - name: Comment on pull request
+      if: inputs.comment == 'true' && github.event_name == 'pull_request'
+      continue-on-error: true
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPORT_FILE: ${{ steps.report.outputs.report }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPOSITORY: ${{ github.repository }}
+        BREAKING: ${{ steps.report.outputs.breaking }}
+      run: ${{ github.action_path }}/scripts/compat-comment.sh
+
+    - name: Fail on breaking changes
+      if: inputs.fail-on-breaking == 'true' && steps.report.outputs.breaking != '0'
+      shell: bash
+      env:
+        BREAKING: ${{ steps.report.outputs.breaking }}
+      run: |
+        echo "::error::$BREAKING breaking schema change(s) found"
+        exit 1
