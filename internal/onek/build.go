@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/1homsi/onekit/internal/gendart"
 	"github.com/1homsi/onekit/internal/gengo"
@@ -356,7 +358,9 @@ const (
 
 func writeFile(path string, data []byte) error {
 	if captured != nil {
+		captureWriteMu.Lock()
 		captured[path] = data
+		captureWriteMu.Unlock()
 		return nil
 	}
 	if err := rejectSymlinkPath(path); err != nil {
@@ -369,7 +373,7 @@ func writeFile(path string, data []byte) error {
 		return nil
 	}
 	if filepath.Base(filepath.Dir(path)) != ".onekit" {
-		writtenFiles++
+		writtenFiles.Add(1)
 	}
 	if unchangedOnDisk(path, data) {
 		return nil
@@ -397,6 +401,28 @@ func writeFile(path string, data []byte) error {
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("replace %s: %w", path, err)
+	}
+	return nil
+}
+
+func eachGroup(idx *sourceIndex, fn func(*sourceGroup) error) error {
+	errs := make([]error, len(idx.groups))
+	limit := make(chan struct{}, runtime.GOMAXPROCS(0))
+	var wg sync.WaitGroup
+	for i, g := range idx.groups {
+		wg.Add(1)
+		limit <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-limit }()
+			errs[i] = fn(g)
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -441,16 +467,19 @@ type BuildSummary struct {
 }
 
 func BuildWithSummary(dir string) (BuildSummary, error) {
-	writtenFiles = 0
+	writtenFiles.Store(0)
 	err := Build(dir)
-	summary := BuildSummary{Files: writtenFiles}
+	summary := BuildSummary{Files: int(writtenFiles.Load())}
 	if cfg, cfgErr := LoadConfig(dir); cfgErr == nil {
 		summary.Targets = cfg.EnabledTargets()
 	}
 	return summary, err
 }
 
-var writtenFiles int
+var (
+	writtenFiles   atomic.Int64
+	captureWriteMu sync.Mutex
+)
 
 // Build parses and compiles every .onk file under dir, then generates every
 // target configured in onekit.toml.
@@ -901,7 +930,7 @@ func buildGo(cfg *Config, idx *sourceIndex) error {
 	typesOutRoot := cfg.resolve(out.Out)
 	goRefs := buildGoPackageRefs(cfg.Module, idx.groups)
 
-	for _, g := range idx.groups {
+	return eachGroup(idx, func(g *sourceGroup) error {
 		outDir := groupOutDir(typesOutRoot, g.relDir)
 		g.file.Package = goPackageIdent(lastPathSegment(outDir))
 		resolver := &goResolver{currentDir: g.relDir, idx: idx, packages: goRefs}
@@ -921,8 +950,8 @@ func buildGo(cfg *Config, idx *sourceIndex) error {
 				return err
 			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func writeGoTypesAndValidation(merged *onkir.File, outDir string, resolver gengo.PackageResolver) error {
@@ -963,7 +992,7 @@ func writeGoClient(merged *onkir.File, outDir string, resolver gengo.PackageReso
 // inference, and cross-directory import resolution.
 func buildTSClient(cfg *Config, idx *sourceIndex) error {
 	outRoot := cfg.resolve(cfg.Generate.TSClient.Out)
-	for _, g := range idx.groups {
+	return eachGroup(idx, func(g *sourceGroup) error {
 		outDir := groupOutDir(outRoot, g.relDir)
 		resolver := &tsResolver{currentDir: g.relDir, idx: idx}
 		err := writeFile(filepath.Join(outDir, "types.ts"), gents.GenerateTypesWithResolver(g.file, resolver))
@@ -989,13 +1018,13 @@ func buildTSClient(cfg *Config, idx *sourceIndex) error {
 				return err
 			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func buildTSServer(cfg *Config, idx *sourceIndex) error {
 	outRoot := cfg.resolve(cfg.Generate.TSServer.Out)
-	for _, g := range idx.groups {
+	return eachGroup(idx, func(g *sourceGroup) error {
 		outDir := groupOutDir(outRoot, g.relDir)
 		resolver := &tsResolver{currentDir: g.relDir, idx: idx}
 		err := writeFile(filepath.Join(outDir, "types.ts"), gents.GenerateTypesWithResolver(g.file, resolver))
@@ -1006,18 +1035,15 @@ func buildTSServer(cfg *Config, idx *sourceIndex) error {
 		if err != nil {
 			return err
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func buildPythonClient(cfg *Config, idx *sourceIndex) error {
 	outRoot := cfg.resolve(cfg.Generate.PythonClient.Out)
-	for _, g := range idx.groups {
+	err := eachGroup(idx, func(g *sourceGroup) error {
 		pyDir := pythonRelDir(g.relDir)
 		outDir := groupOutDir(outRoot, pyDir)
-		if err := writePythonInitFiles(outRoot, pyDir); err != nil {
-			return err
-		}
 		resolver := &pyResolver{currentDir: g.relDir, idx: idx}
 		err := writeFile(filepath.Join(outDir, "models.py"), genpy.GenerateTypesWithResolver(g.file, resolver))
 		if err != nil {
@@ -1027,6 +1053,15 @@ func buildPythonClient(cfg *Config, idx *sourceIndex) error {
 		clientSrc := genpy.GenerateClientWithResolver(g.file, typesModule, resolver)
 		err = writeFile(filepath.Join(outDir, "client.py"), clientSrc)
 		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for _, g := range idx.groups {
+		if err := writePythonInitFiles(outRoot, pythonRelDir(g.relDir)); err != nil {
 			return err
 		}
 	}
@@ -1046,7 +1081,7 @@ func buildDartClient(cfg *Config, idx *sourceIndex) error {
 			return err
 		}
 	}
-	for _, g := range idx.groups {
+	return eachGroup(idx, func(g *sourceGroup) error {
 		outDir := groupOutDir(outRoot, g.relDir)
 		resolver := &dartResolver{currentDir: g.relDir, idx: idx}
 		runtimeDir := dartRuntimeDir(g.relDir)
@@ -1058,8 +1093,8 @@ func buildDartClient(cfg *Config, idx *sourceIndex) error {
 				return err
 			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 type rustTarget struct {
@@ -1093,7 +1128,7 @@ func buildRust(cfg *Config, idx *sourceIndex) error {
 	sort.Strings(orderedRoots)
 	for _, root := range orderedRoots {
 		target := targets[root]
-		for _, group := range idx.groups {
+		err := eachGroup(idx, func(group *sourceGroup) error {
 			outDir := groupOutDir(target.outRoot, group.relDir)
 			resolver := &rustResolver{currentDir: group.relDir, idx: idx}
 			if err := writeFile(filepath.Join(outDir, "types.rs"), genrust.GenerateTypesWithResolver(group.file, resolver)); err != nil {
@@ -1109,6 +1144,10 @@ func buildRust(cfg *Config, idx *sourceIndex) error {
 					return err
 				}
 			}
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 		if err := writeRustModuleFiles(target.outRoot, idx.groups, target.client, target.server); err != nil {
 			return err
