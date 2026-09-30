@@ -51,6 +51,28 @@ type languageServer struct {
 	versions  map[string]int
 	published map[string]bool
 	out       io.Writer
+	analysis  analysisCache
+}
+
+type analysisCache struct {
+	stamps   []fileStamp
+	snapshot *LanguageSnapshot
+}
+
+func (s *languageServer) analyze(changed bool) (*LanguageSnapshot, error) {
+	if changed {
+		s.analysis = analysisCache{}
+		return AnalyzeLanguage(s.root, s.overlays)
+	}
+	stamps, stampErr := projectSnapshot(s.root, s.analysis.stamps)
+	if stampErr == nil && s.analysis.snapshot != nil && sameSnapshot(s.analysis.stamps, stamps) {
+		return s.analysis.snapshot, nil
+	}
+	snapshot, err := AnalyzeLanguage(s.root, s.overlays)
+	if err == nil && stampErr == nil {
+		s.analysis = analysisCache{stamps: stamps, snapshot: snapshot}
+	}
+	return snapshot, err
 }
 
 // RunLSP serves one workspace over stdio, with full-document synchronization.
@@ -199,7 +221,7 @@ func (s *languageServer) handle(req rpcRequest) (any, *rpcError) {
 	default:
 		return nil, &rpcError{-32601, "method not found"}
 	}
-	snapshot, err := AnalyzeLanguage(s.root, s.overlays)
+	snapshot, err := s.analyze(changed)
 	if err != nil {
 		return nil, &rpcError{-32603, err.Error()}
 	}
