@@ -1,0 +1,11 @@
+// RequestMetadata identifies the generated route handling a request.
+type RequestMetadata struct {
+	Service     string
+	Method      string
+	HTTPMethod  string
+	Route       string
+	AuthSchemes []string
+}
+
+type requestMetadataContextKey struct{}
+type requestIDContextKey struct{}

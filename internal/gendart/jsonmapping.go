@@ -1,33 +1,26 @@
 package gendart
 
-import "github.com/1homsi/onekit/internal/onkir"
+import (
+	"github.com/1homsi/onekit/internal/genshared"
+	"github.com/1homsi/onekit/internal/onkir"
+)
 
 const (
-	encodeNumber = "number"
-
 	emptyBehaviorNull     = "null"
 	emptyBehaviorPreserve = "preserve"
 )
 
 func fieldEncodeValue(f *onkir.Field) string {
-	d, ok := f.Decorator("encode")
-	if !ok {
-		return ""
-	}
-	v, _ := d.Value()
+	v, _ := genshared.FieldEncodeValue(f)
 	return v
 }
 
-func isInt64Kind(k onkir.ScalarKind) bool {
-	return k == onkir.ScalarInt64 || k == onkir.ScalarUint64
-}
-
 func int64AsString(f *onkir.Field) bool {
-	return f != nil && f.Type != nil && f.Type.Kind == onkir.KindScalar && isInt64Kind(f.Type.Scalar) && fieldEncodeValue(f) != encodeNumber
+	return genshared.NeedsInt64StringEncoding(f)
 }
 
 func enumAsNumber(f *onkir.Field) bool {
-	return f != nil && f.Type != nil && f.Type.Kind == onkir.KindEnum && fieldEncodeValue(f) == encodeNumber
+	return genshared.NeedsEnumNumberEncoding(f)
 }
 
 func bytesEncoding(f *onkir.Field) string {
@@ -45,54 +38,23 @@ func timestampEncoding(f *onkir.Field) string {
 }
 
 func flattenPrefix(f *onkir.Field) (string, bool) {
-	if f.Type == nil || f.Type.Kind != onkir.KindMessage || f.Repeated {
-		return "", false
-	}
-	d, ok := f.Decorator("flatten")
-	if !ok {
-		return "", false
-	}
-	prefix, _ := d.NamedArg("prefix")
-	return prefix, true
+	return genshared.FlattenPrefix(f)
 }
 
 func emptyBehavior(f *onkir.Field) string {
-	if f.Type == nil || f.Type.Kind != onkir.KindMessage || f.Repeated {
-		return ""
-	}
-	d, ok := f.Decorator("empty")
-	if !ok {
-		return ""
-	}
-	v, _ := d.Value()
-	return v
+	return genshared.EmptyBehavior(f)
 }
 
 func rootUnwrapField(m *onkir.Message) *onkir.Field {
-	if len(m.Fields) == 1 && m.Fields[0].HasDecorator("unwrap") {
-		return m.Fields[0]
-	}
-	return nil
+	return genshared.RootUnwrapField(m)
 }
 
 func oneofDiscriminator(f *onkir.Field) string {
-	if disc, ok := f.Oneof.Discriminator(); ok && disc != "" {
-		return disc
-	}
-	return "type"
+	return genshared.OneofDiscriminator(f)
 }
 
 func fileMessagesDeep(file *onkir.File) []*onkir.Message {
-	var out []*onkir.Message
-	var walk func([]*onkir.Message)
-	walk = func(ms []*onkir.Message) {
-		for _, m := range ms {
-			out = append(out, m)
-			walk(m.Nested)
-		}
-	}
-	walk(file.Messages)
-	return out
+	return genshared.FileMessagesDeep(file)
 }
 
 func fileEnumsDeep(file *onkir.File) []*onkir.Enum {

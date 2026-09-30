@@ -1,0 +1,40 @@
+type wsFrameQueue[T any] struct {
+	mu     sync.Mutex
+	items  []T
+	signal chan struct{}
+}
+
+func newWSFrameQueue[T any]() *wsFrameQueue[T] {
+	return &wsFrameQueue[T]{signal: make(chan struct{}, 1)}
+}
+
+func (q *wsFrameQueue[T]) push(v T) {
+	q.mu.Lock()
+	q.items = append(q.items, v)
+	q.mu.Unlock()
+	select {
+	case q.signal <- struct{}{}:
+	default:
+	}
+}
+
+func (q *wsFrameQueue[T]) pop(ctx context.Context) (T, bool) {
+	for {
+		q.mu.Lock()
+		if len(q.items) > 0 {
+			v := q.items[0]
+			var zero T
+			q.items[0] = zero
+			q.items = q.items[1:]
+			q.mu.Unlock()
+			return v, true
+		}
+		q.mu.Unlock()
+		select {
+		case <-q.signal:
+		case <-ctx.Done():
+			var zero T
+			return zero, false
+		}
+	}
+}

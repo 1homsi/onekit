@@ -1,0 +1,11 @@
+type Middleware func(http.Handler) http.Handler
+type RequestIDGenerator func() string
+type Authorizer func(context.Context, RequestMetadata, *http.Request) error
+type RequestResult struct {
+	StatusCode int
+	Duration   time.Duration
+}
+type RequestObserver interface {
+	RequestStarted(context.Context, RequestMetadata) context.Context
+	RequestFinished(context.Context, RequestMetadata, RequestResult)
+}

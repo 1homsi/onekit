@@ -1,11 +1,13 @@
 package genrust
 
 import (
+	_ "embed"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/1homsi/onekit/internal/genshared"
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
@@ -117,21 +119,8 @@ func writeValidationError(p *Printer) {
 	p.Blank()
 }
 
-const rustTimestampValidatorSource = `#[allow(dead_code)]
-fn valid_timestamp(value: &str, date_only: bool) -> bool {
-let b = value.as_bytes();
-let digits = |range: std::ops::Range<usize>| b.get(range).is_some_and(|part| part.iter().all(u8::is_ascii_digit));
-if !(digits(0..4) && b.get(4) == Some(&b'-') && digits(5..7) && b.get(7) == Some(&b'-') && digits(8..10)) { return false; }
-if date_only { return b.len() == 10; }
-if !(matches!(b.get(10), Some(b'T' | b't')) && digits(11..13) && b.get(13) == Some(&b':') && digits(14..16) && b.get(16) == Some(&b':') && digits(17..19)) { return false; }
-let mut i = 19;
-if b.get(i) == Some(&b'.') { i += 1; let start = i; while b.get(i).is_some_and(u8::is_ascii_digit) { i += 1; } if i == start { return false; } }
-match b.get(i) {
-Some(b'Z' | b'z') => i + 1 == b.len(),
-Some(b'+' | b'-') => digits(i + 1..i + 3) && b.get(i + 3) == Some(&b':') && digits(i + 4..i + 6) && i + 6 == b.len(),
-_ => false,
-}
-}`
+//go:embed runtime/timestamp_validator.rs
+var rustTimestampValidatorSource string
 
 func writeSerdeHelpers(p *Printer, features typeFeatures) {
 	if features.intString {
@@ -673,8 +662,7 @@ func writeMapBytesModule(p *Printer, field *onkir.Field) {
 }
 
 func needsEnumNumberEncoding(field *onkir.Field) bool {
-	return field.Type != nil && field.Type.Kind == onkir.KindEnum && !field.Repeated &&
-		fieldEncoding(field) == rustEncodeNumber
+	return genshared.NeedsEnumNumberEncoding(field)
 }
 
 // enumNumberModuleName names the serde_with module for a @encode(number)
@@ -774,39 +762,19 @@ func fieldEncoding(field *onkir.Field) string {
 }
 
 func needsInt64StringEncoding(field *onkir.Field) bool {
-	if field.Type == nil || field.Type.Kind != onkir.KindScalar ||
-		(field.Type.Scalar != onkir.ScalarInt64 && field.Type.Scalar != onkir.ScalarUint64) {
-		return false
-	}
-	return fieldEncoding(field) != rustEncodeNumber
+	return genshared.NeedsInt64StringEncoding(field)
 }
 
 func flattenPrefix(field *onkir.Field) (string, bool) {
-	if field.Type == nil || field.Type.Kind != onkir.KindMessage || field.Repeated {
-		return "", false
-	}
-	decorator, ok := field.Decorator("flatten")
-	if !ok {
-		return "", false
-	}
-	prefix, _ := decorator.NamedArg("prefix")
-	return prefix, true
+	return genshared.FlattenPrefix(field)
 }
 
 func emptyBehavior(field *onkir.Field) string {
-	decorator, ok := field.Decorator("empty")
-	if !ok {
-		return ""
-	}
-	value, _ := decorator.Value()
-	return value
+	return genshared.EmptyBehavior(field)
 }
 
 func rootUnwrapField(message *onkir.Message) *onkir.Field {
-	if len(message.Fields) == 1 && message.Fields[0].HasDecorator("unwrap") {
-		return message.Fields[0]
-	}
-	return nil
+	return genshared.RootUnwrapField(message)
 }
 
 func writeOneof(p *Printer, message *onkir.Message, field *onkir.Field) {
