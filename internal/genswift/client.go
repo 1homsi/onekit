@@ -6,6 +6,8 @@ import (
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
+const swiftNil = "nil"
+
 const availability = "@available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)"
 
 func GenerateClient(file *onkir.File) []byte {
@@ -209,7 +211,7 @@ func writeRequestBuild(p *Printer, s *onkir.Service, m *onkir.Method, bodyBearin
 	writePathAndQuery(p, s.BasePath+route, m.Request, !bodyBearing)
 	timeoutExpr := "onekitTimeout(self.timeout, timeout)"
 	if stream {
-		timeoutExpr = "nil"
+		timeoutExpr = swiftNil
 	}
 	mutable := "let"
 	if bodyBearing || stream {

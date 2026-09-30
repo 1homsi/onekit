@@ -195,16 +195,14 @@ public func onekitBool(_ value: Any?) throws -> Bool {
 }
 
 public func onekitInt64(_ value: Any?) throws -> Int64 {
-    if let number = value as? Int64 { return number }
+    if let number = value as? NSNumber, let exact = Int64(exactly: number) { return exact }
     if let text = value as? String, let number = Int64(text) { return number }
-    if let real = value as? Double, real == real.rounded(), abs(real) < 9.2e18 { return Int64(real) }
     throw OnekitError.decoding("expected an integer")
 }
 
 public func onekitUInt64(_ value: Any?) throws -> UInt64 {
-    if let number = value as? UInt64 { return number }
+    if let number = value as? NSNumber, let exact = UInt64(exactly: number) { return exact }
     if let text = value as? String, let number = UInt64(text) { return number }
-    if let real = value as? Double, real == real.rounded(), real >= 0, real < 1.8e19 { return UInt64(real) }
     throw OnekitError.decoding("expected an unsigned integer")
 }
 
@@ -219,7 +217,7 @@ public func onekitUInt32(_ value: Any?) throws -> UInt32 {
 }
 
 public func onekitDouble(_ value: Any?) throws -> Double {
-    if let number = value as? Double { return number }
+    if let number = value as? NSNumber { return number.doubleValue }
     if let text = value as? String, let number = Double(text) { return number }
     throw OnekitError.decoding("expected a number")
 }

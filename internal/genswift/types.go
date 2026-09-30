@@ -21,6 +21,18 @@ func GenerateTypes(file *onkir.File) []byte {
 	return p.Bytes()
 }
 
+func isDeprecatedField(f *onkir.Field) bool {
+	_, ok := f.Deprecated()
+	return ok
+}
+
+func storageName(f *onkir.Field) string {
+	if isDeprecatedField(f) {
+		return "_" + Ident(f.Name)
+	}
+	return Ident(f.Name)
+}
+
 func writeDoc(p *Printer, doc string) {
 	if doc = strings.TrimSpace(doc); doc == "" {
 		return
@@ -161,7 +173,7 @@ func defaultValue(t *onkir.Type) string {
 	return "nil"
 }
 
-func initDefault(m *onkir.Message, f *onkir.Field) string {
+func initDefault(f *onkir.Field) string {
 	switch {
 	case isNullableKind(f):
 		return "nil"
@@ -291,7 +303,17 @@ func writeMessage(p *Printer, m *onkir.Message) {
 	p.Indent()
 	for _, f := range m.Fields {
 		writeDoc(p, f.Doc)
-		writeDeprecated(p, f.Deprecated)
+		if isDeprecatedField(f) {
+			p.P("private var ", storageName(f), ": ", fieldType(m, f))
+			writeDeprecated(p, f.Deprecated)
+			p.P("public var ", Ident(f.Name), ": ", fieldType(m, f), " {")
+			p.Indent()
+			p.P("get { ", storageName(f), " }")
+			p.P("set { ", storageName(f), " = newValue }")
+			p.Dedent()
+			p.P("}")
+			continue
+		}
 		p.P("public var ", Ident(f.Name), ": ", fieldType(m, f))
 	}
 	if len(m.Fields) > 0 {
@@ -299,7 +321,7 @@ func writeMessage(p *Printer, m *onkir.Message) {
 	}
 	writeInit(p, m)
 	if root != nil {
-		writeRootUnwrapCodec(p, m, root)
+		writeRootUnwrapCodec(p, root)
 	} else {
 		writeFromJSON(p, m)
 		writeToJSON(p, m)
@@ -335,13 +357,13 @@ func writeInit(p *Printer, m *onkir.Message) {
 		if i == len(m.Fields)-1 {
 			sep = ""
 		}
-		p.P(Ident(f.Name), ": ", fieldType(m, f), " = ", initDefault(m, f), sep)
+		p.P(Ident(f.Name), ": ", fieldType(m, f), " = ", initDefault(f), sep)
 	}
 	p.Dedent()
 	p.P(") {")
 	p.Indent()
 	for _, f := range m.Fields {
-		p.P("self.", Ident(f.Name), " = ", Ident(f.Name))
+		p.P("self.", storageName(f), " = ", Ident(f.Name))
 	}
 	p.Dedent()
 	p.P("}")
@@ -380,7 +402,7 @@ func zeroCheck(f *onkir.Field, id string) string {
 }
 
 func writeToJSONField(p *Printer, f *onkir.Field) {
-	id := "self." + Ident(f.Name)
+	id := "self." + storageName(f)
 	key := swiftString(f.Name)
 	if f.Oneof != nil {
 		p.P("if let value = ", id, " { json[", key, "] = value.toJSON() }")
@@ -405,7 +427,7 @@ func writeToJSONField(p *Printer, f *onkir.Field) {
 }
 
 func writeMessageFieldToJSON(p *Printer, f *onkir.Field) {
-	id := "self." + Ident(f.Name)
+	id := "self." + storageName(f)
 	key := swiftString(f.Name)
 	if prefix, ok := flattenPrefix(f); ok {
 		p.P("if let value = ", id, ", let object = value.toJSONValue() as? [String: Any] {")
@@ -453,7 +475,7 @@ func writeFromJSON(p *Printer, m *onkir.Message) {
 	p.Indent()
 	p.P("let json = try onekitObject(value)")
 	for _, f := range m.Fields {
-		p.P("self.", Ident(f.Name), " = ", fromJSONExpr(m, f))
+		p.P("self.", storageName(f), " = ", fromJSONExpr(m, f))
 	}
 	p.Dedent()
 	p.P("}")
@@ -484,8 +506,8 @@ func fromJSONExpr(m *onkir.Message, f *onkir.Field) string {
 	return "try onekitIsNull(" + raw + ") ? " + defaultValue(f.Type) + " : " + decoded
 }
 
-func writeRootUnwrapCodec(p *Printer, m *onkir.Message, f *onkir.Field) {
-	id := "self." + Ident(f.Name)
+func writeRootUnwrapCodec(p *Printer, f *onkir.Field) {
+	id := "self." + storageName(f)
 	p.P("public func toJSONValue() -> Any {")
 	p.Indent()
 	if isNullableKind(f) {
@@ -502,13 +524,13 @@ func writeRootUnwrapCodec(p *Printer, m *onkir.Message, f *onkir.Field) {
 	decoded := fieldFromWire(f, "value")
 	switch {
 	case isNullableKind(f):
-		p.P("self.", Ident(f.Name), " = try onekitIsNull(value) ? nil : ", decoded)
+		p.P("self.", storageName(f), " = try onekitIsNull(value) ? nil : ", decoded)
 	case f.Repeated:
-		p.P("self.", Ident(f.Name), " = try onekitIsNull(value) ? [] : ", decoded)
+		p.P("self.", storageName(f), " = try onekitIsNull(value) ? [] : ", decoded)
 	case f.Type.Kind == onkir.KindMap:
-		p.P("self.", Ident(f.Name), " = try onekitIsNull(value) ? [:] : ", decoded)
+		p.P("self.", storageName(f), " = try onekitIsNull(value) ? [:] : ", decoded)
 	default:
-		p.P("self.", Ident(f.Name), " = try onekitIsNull(value) ? ", defaultValue(f.Type), " : ", decoded)
+		p.P("self.", storageName(f), " = try onekitIsNull(value) ? ", defaultValue(f.Type), " : ", decoded)
 	}
 	p.Dedent()
 	p.P("}")
@@ -569,9 +591,7 @@ func writeOneof(p *Printer, m *onkir.Message, f *onkir.Field) {
 				p.P("return .", variantCaseName(v), "(onekitNonNull(", raw, "))")
 			} else {
 				missing := defaultValue(v.Type)
-				if strings.HasPrefix(missing, "try ") {
-					missing = strings.TrimPrefix(missing, "try ")
-				}
+				missing = strings.TrimPrefix(missing, "try ")
 				p.P("return .", variantCaseName(v), "(try onekitIsNull(", raw, ") ? ", missing, " : ", decodeValue(v.Type, synthetic, raw, false), ")")
 			}
 		}
@@ -600,7 +620,7 @@ func writeValidate(p *Printer, m *onkir.Message) {
 	p.Indent()
 	var body []func()
 	for _, f := range m.Fields {
-		body = append(body, validateField(p, m, f)...)
+		body = append(body, validateField(p, f)...)
 	}
 	if len(body) == 0 {
 		p.P("[]")
@@ -619,9 +639,9 @@ func writeValidate(p *Printer, m *onkir.Message) {
 	p.P()
 }
 
-func validateField(p *Printer, m *onkir.Message, f *onkir.Field) []func() {
+func validateField(p *Printer, f *onkir.Field) []func() {
 	var out []func()
-	id := "self." + Ident(f.Name)
+	id := "self." + storageName(f)
 	nested := func(expr string) {
 		p.P("for issue in ", expr, ".validate() { violations.append(", swiftString(f.Name+": "), " + issue) }")
 	}

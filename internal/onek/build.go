@@ -777,9 +777,10 @@ func expectedGeneratedOutputs(cfg *Config, idx *sourceIndex) map[string]map[stri
 		if cfg.Generate.SwiftClient != nil {
 			root := cfg.resolve(cfg.Generate.SwiftClient.Out)
 			add(root, "Onekit.swift")
-			add(root, filepath.Join(rel, "Models.swift"))
+			models, client := swiftFileNames(filepath.ToSlash(rel))
+			add(root, filepath.Join(rel, models))
 			if swiftHasClient(group.file) {
-				add(root, filepath.Join(rel, "Client.swift"))
+				add(root, filepath.Join(rel, client))
 			}
 		}
 		if cfg.Generate.PythonClient != nil {
@@ -1148,22 +1149,56 @@ func buildDartClient(cfg *Config, idx *sourceIndex) error {
 	})
 }
 
+func swiftFileNames(relDir string) (string, string) {
+	slug := strings.Trim(strings.ReplaceAll(filepath.ToSlash(relDir), "/", "__"), "._")
+	if slug == "" {
+		slug = "Root"
+	}
+	return slug + "__Models.swift", slug + "__Client.swift"
+}
+
 func swiftHasClient(file *onkir.File) bool {
 	return genswift.GenerateClient(file) != nil
 }
 
+func checkSwiftNamesUnique(idx *sourceIndex) error {
+	owner := map[string]string{}
+	for _, g := range idx.groups {
+		label := g.relDir
+		if label == "." || label == "" {
+			label = "the schema root"
+		}
+		seen := map[string]bool{}
+		for _, name := range genswift.DeclaredNames(g.file) {
+			if seen[name] {
+				return fmt.Errorf("swift-client: %q is declared more than once in %s; Swift needs every generated type name to be unique", name, label)
+			}
+			seen[name] = true
+			if other, ok := owner[name]; ok {
+				return fmt.Errorf("swift-client: %q is declared in both %s and %s; Swift generates every package into one module, so rename one of them", name, other, label)
+			}
+			owner[name] = label
+		}
+	}
+	return nil
+}
+
 func buildSwiftClient(cfg *Config, idx *sourceIndex) error {
+	if err := checkSwiftNamesUnique(idx); err != nil {
+		return err
+	}
 	outRoot := cfg.resolve(cfg.Generate.SwiftClient.Out)
 	if err := writeFile(filepath.Join(outRoot, "Onekit.swift"), genswift.GenerateRuntime()); err != nil {
 		return err
 	}
 	return eachGroup(idx, func(g *sourceGroup) error {
 		outDir := groupOutDir(outRoot, g.relDir)
-		if err := writeFile(filepath.Join(outDir, "Models.swift"), genswift.GenerateTypes(g.file)); err != nil {
+		models, clientName := swiftFileNames(g.relDir)
+		if err := writeFile(filepath.Join(outDir, models), genswift.GenerateTypes(g.file)); err != nil {
 			return err
 		}
 		if client := genswift.GenerateClient(g.file); client != nil {
-			return writeFile(filepath.Join(outDir, "Client.swift"), client)
+			return writeFile(filepath.Join(outDir, clientName), client)
 		}
 		return nil
 	})

@@ -125,3 +125,26 @@ func swiftString(s string) string {
 	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`, "\t", `\t`)
 	return `"` + r.Replace(s) + `"`
 }
+
+func DeclaredNames(file *onkir.File) []string {
+	var names []string
+	for _, e := range fileEnumsDeep(file) {
+		names = append(names, EnumName(e))
+	}
+	for _, m := range fileMessagesDeep(file) {
+		names = append(names, MessageName(m))
+		for _, f := range m.Fields {
+			if f.Oneof != nil {
+				names = append(names, OneofTypeName(m, f))
+			}
+		}
+	}
+	if hasHTTPMethods(file) {
+		for _, s := range file.Services {
+			if serviceHasHTTP(s) {
+				names = append(names, s.Name+"Client")
+			}
+		}
+	}
+	return names
+}

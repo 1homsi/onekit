@@ -2,7 +2,7 @@
 
 onekit is a from-scratch schema language and toolchain for building HTTP APIs — no protobuf, no buf, no protoc.
 
-Define your API once in `.onk` files, and generate the boring pieces around it: Go HTTP servers and clients, TypeScript clients and server routes, Python clients, Dart/Flutter clients, Rust clients and Axum servers, and OpenAPI 3.1 documents. Every generator is built from scratch against a native intermediate representation (`internal/onkir`) — there is no `google.golang.org/protobuf` dependency anywhere in this repository.
+Define your API once in `.onk` files, and generate the boring pieces around it: Go HTTP servers and clients, TypeScript clients and server routes, Python clients, Dart/Flutter clients, Swift clients, Rust clients and Axum servers, and OpenAPI 3.1 documents. Every generator is built from scratch against a native intermediate representation (`internal/onkir`) — there is no `google.golang.org/protobuf` dependency anywhere in this repository.
 
 ## The `.onk` language
 
@@ -47,6 +47,7 @@ Two things `.onk` does that protobuf couldn't:
 | `internal/genpy` | Python `@dataclass` models, `IntEnum` enums, and a stdlib (`urllib`) client |
 | `internal/genrust` | Rust Serde models and validation, a `reqwest` client, and an Axum server/router |
 | `internal/gendart` | Dart models (enhanced enums, sealed-class oneofs) and validation, a `package:http` client with SSE streams, and `web_socket_channel` sockets for Flutter and Dart |
+| `internal/genswift` | Swift models (final classes, enums with associated-value oneofs) and validation, and an `async`/`await` `URLSession` client with SSE streams, for iOS and macOS |
 | `internal/genopenapi` | OpenAPI 3.1 documents (via `pb33f/libopenapi`) |
 
 All target languages and formats are driven off the same compiled schema (`internal/onkir`), produced by parsing `.onk` (`internal/onklang`) and resolving cross-references (`internal/onkcompile`).
@@ -96,6 +97,9 @@ out = "./web/client"
 
 [generate.dart-client]
 out = "./mobile/lib/api"
+
+[generate.swift-client]
+out = "./ios/Sources/Api"
 
 [generate.rust-client]
 out = "./src/generated"
@@ -223,6 +227,37 @@ Flutter web, with two browser limits: browsers cannot send custom headers on
 a WebSocket handshake, so `@ws` methods throw `UnsupportedError` there when the
 client has headers (pass credentials as `@query` fields instead), and `int`
 holds exact integers only up to 2^53.
+
+### Using the Swift client from iOS and macOS
+
+`swift-client` writes a shared runtime (`Onekit.swift`) at the output root and
+a `<package>__Models.swift` and `<package>__Client.swift` per schema package
+(Swift needs unique file names across a module, so the file name carries the
+package path). Point `out` at a SwiftPM target's `Sources/<Target>` directory;
+there are no dependencies beyond Foundation and it needs iOS 15 / macOS 12 or
+newer.
+
+```swift
+let client = UserServiceClient("https://api.example.com", headers: ["authorization": "Bearer \(token)"])
+let user = try await client.getUser(GetUserRequest(id: id), timeout: 5)
+for try await event in client.watchUser(GetUserRequest(id: id)) {
+    print(event.name)
+}
+```
+
+Messages are `final class`es (so recursive messages work) with
+`init(json:)`, `toJSONValue()` and `validate()`. Enums are `String` raw-value
+enums, oneofs are enums with associated values you can `switch` over,
+timestamps are `Date`, bytes are `Data`, and `int64`/`uint64` are `Int64` and
+`UInt64`. Declared error types are thrown as typed errors, validation failures
+as `OnekitError.validation`, and other failures as
+`OnekitError.unexpectedStatus`. Requests time out after 30 seconds unless
+`timeout` says otherwise; responses are read with a size limit.
+
+Limits of this first version: `@ws` methods are not generated (a schema with
+only `@ws` methods gets no client file), and because Swift places every
+package in one module, a type name may not be declared in two different schema
+packages (the build stops with a message naming both).
 
 ### Deploying a generated TypeScript `@ws` server
 
@@ -658,7 +693,7 @@ go install github.com/1homsi/onekit/cmd/onek@latest
 | `internal/onkcompile/` | Compiles parsed `.onk` files into the IR, resolving cross-file type references |
 | `internal/onkir/` | The native intermediate representation every generator consumes |
 | `internal/onek/` | `onekit.toml` parsing and the `build`/`check` orchestration |
-| `internal/gengo/`, `internal/gents/`, `internal/genpy/`, `internal/gendart/`, `internal/genrust/`, `internal/genopenapi/` | Generator backends |
+| `internal/gengo/`, `internal/gents/`, `internal/genpy/`, `internal/gendart/`, `internal/genswift/`, `internal/genrust/`, `internal/genopenapi/` | Generator backends |
 | `examples/onk-simple-api/` | A complete, working example with committed generated output |
 
 ## Status
