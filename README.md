@@ -151,6 +151,8 @@ onek fmt     # canonicalize .onk files (use --check in CI)
 onek init ./my-api
 onek watch   # rebuild on schema/config changes until interrupted
 onek mock    # dev server serving schema-derived fixtures for every route
+onek import api.yaml        # convert an OpenAPI 3.x document into .onk
+onek import service.proto   # convert a Protocol Buffers service into .onk
 ```
 
 `onek build` is incremental: it keeps a small per-project record of the last
@@ -160,6 +162,32 @@ generated file is still exactly as it was written, the build is skipped and
 reports `up to date`. Editing, deleting, or re-checking-out any generated file
 triggers a normal rebuild. `onek build --check` never uses the cache. Set
 `ONEK_NO_CACHE=1` to disable it, or `ONEK_CACHE_DIR` to relocate it.
+
+### Importing an existing API
+
+`onek import` turns an OpenAPI 3.x document or a `.proto` file into a `.onk`
+schema you can check and build, and prints a warning for everything it cannot
+express instead of dropping it silently. It refuses to write a schema that does
+not pass `onek check`.
+
+For Protocol Buffers it has no dependency on protobuf tooling. It converts
+messages (nested ones are flattened to `OuterInner`), enums, `repeated`,
+`optional`, `map<,>` fields, `oneof`, `google.protobuf` well-known types
+(`Timestamp` becomes `timestamp`, `Struct` and `Value` become `json`, wrappers
+become optional scalars, `Empty` becomes an empty message), doc comments, and
+`deprecated` options. Services become onekit services: `google.api.http` rules
+give each RPC its verb, path and `body`; an RPC without one becomes
+`POST /<package>.<Service>/<Method>` with all fields in the body. Server
+streaming becomes `@stream` (which needs a GET, so the request fields become
+query parameters). Client and bidirectional streaming have no HTTP mapping and
+are skipped with a warning.
+
+Things to know before relying on the result: onekit's oneofs use a
+discriminated encoding that differs from protobuf JSON, field names keep their
+`snake_case` form where protobuf JSON defaults to `lowerCamelCase`, and
+imported `.proto` files are not followed (their types become `json` with a
+warning). Regenerate both ends from the converted schema rather than mixing
+generated code with an existing gRPC-JSON gateway.
 
 ## Bidirectional WebSocket streaming
 
