@@ -1,6 +1,7 @@
 package onek
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -411,6 +413,9 @@ func writeFile(path string, data []byte) error {
 	if filepath.Base(filepath.Dir(path)) != ".onekit" {
 		writtenFiles++
 	}
+	if unchangedOnDisk(path, data) {
+		return nil
+	}
 	err := os.MkdirAll(filepath.Dir(path), genDirPerm)
 	if err != nil {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
@@ -436,6 +441,18 @@ func writeFile(path string, data []byte) error {
 		return fmt.Errorf("replace %s: %w", path, err)
 	}
 	return nil
+}
+
+func unchangedOnDisk(path string, data []byte) bool {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() != int64(len(data)) {
+		return false
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != genFilePerm {
+		return false
+	}
+	existing, err := os.ReadFile(path)
+	return err == nil && bytes.Equal(existing, data)
 }
 
 func lastPathSegment(p string) string {
