@@ -21,7 +21,7 @@ func newMockReloader(dir string, opts MockOptions) (*mockReloader, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	snapshot, err := projectSnapshot(dir)
+	snapshot, err := projectSnapshot(dir, nil)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -36,7 +36,7 @@ func (r *mockReloader) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *mockReloader) reload(out io.Writer) {
-	current, err := projectSnapshot(r.dir)
+	current, err := projectSnapshot(r.dir, r.snapshot)
 	if err != nil || sameSnapshot(r.snapshot, current) {
 		return
 	}
