@@ -148,3 +148,28 @@ func DeclaredNames(file *onkir.File) []string {
 	}
 	return names
 }
+
+// Namespace returns the Swift namespace for a schema directory: the PascalCase
+// of its path segments ("crm/dashboard/v1" -> "CrmDashboardV1"), or "" for the
+// schema root, whose types stay at module level.
+func Namespace(relDir string) string {
+	relDir = strings.Trim(strings.ReplaceAll(relDir, "\\", "/"), "/")
+	if relDir == "" || relDir == "." {
+		return ""
+	}
+	var b strings.Builder
+	for _, segment := range strings.Split(relDir, "/") {
+		b.WriteString(PascalCase(segment))
+	}
+	name := b.String()
+	if name == "" {
+		return "Pkg"
+	}
+	if unicode.IsDigit([]rune(name)[0]) {
+		name = "N" + name
+	}
+	if swiftReserved[strings.ToLower(name)] {
+		name += "_"
+	}
+	return name
+}

@@ -306,10 +306,16 @@ as `OnekitError.validation`, and other failures as
 `OnekitError.unexpectedStatus`. Requests time out after 30 seconds unless
 `timeout` says otherwise; responses are read with a size limit.
 
-Limits of this first version: `@ws` methods are not generated (a schema with
-only `@ws` methods gets no client file), and because Swift places every
-package in one module, a type name may not be declared in two different schema
-packages (the build stops with a message naming both).
+Packages in subdirectories get a namespace named after the directory, so the
+same message name can exist in several packages: `crm/dashboard/v1` becomes
+`CrmDashboardV1` and its types are `CrmDashboardV1.GetDashboardRequest`; other
+packages refer to it the same way. Types at the schema root stay at module
+level, so a single-package project has no namespace at all. The build stops
+with a clear message if a root type is named like a namespace, or if two
+directories map to the same namespace.
+
+Limit of the Swift target so far: `@ws` methods are not generated (a schema
+with only `@ws` methods gets no client file).
 
 ### Deploying a generated TypeScript `@ws` server
 
