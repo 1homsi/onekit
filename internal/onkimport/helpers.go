@@ -53,6 +53,7 @@ func mapKeys(m map[string]any) []string {
 	for k := range m {
 		keys = append(keys, k)
 	}
+	sort.Strings(keys)
 	return keys
 }
 
