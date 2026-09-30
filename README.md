@@ -198,7 +198,7 @@ generated code with an existing gRPC-JSON gateway.
 `make playground` builds a static page into `playground/dist` (`index.html`,
 `onek.wasm`, `wasm_exec.js`): the real compiler and generators, compiled to
 WebAssembly, so you can edit a schema and read the Go, TypeScript, Python,
-Dart, Rust and OpenAPI output with no install. Serve the folder with any static
+Dart, Swift, Rust and OpenAPI output with no install. Serve the folder with any static
 file server (for example `python3 -m http.server -d playground/dist`). It
 formats schemas, shows diagnostics with line and column, and shares a schema as
 a link (the schema travels in the URL fragment and never leaves the browser).

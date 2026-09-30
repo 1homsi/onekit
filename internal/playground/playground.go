@@ -9,6 +9,7 @@ import (
 	"github.com/1homsi/onekit/internal/genopenapi"
 	"github.com/1homsi/onekit/internal/genpy"
 	"github.com/1homsi/onekit/internal/genrust"
+	"github.com/1homsi/onekit/internal/genswift"
 	"github.com/1homsi/onekit/internal/gents"
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
@@ -99,6 +100,10 @@ func Run(schema string) Output {
 
 	add("dart", "models.dart", gendart.GenerateTypes(file), nil)
 	add("dart", "client.dart", gendart.GenerateClient(file), nil)
+
+	add("swift", "Onekit.swift", genswift.GenerateRuntime(), nil)
+	add("swift", "Models.swift", genswift.GenerateTypes(file), nil)
+	add("swift", "Client.swift", genswift.GenerateClient(file), nil)
 
 	add("rust", "types.rs", genrust.GenerateTypes(file), nil)
 	add("rust", "server.rs", genrust.GenerateServer(file), nil)

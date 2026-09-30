@@ -46,6 +46,7 @@ func TestRunGeneratesEveryTarget(t *testing.T) {
 		"typescript/types.ts", "typescript/client.ts", "typescript/server.ts",
 		"python/models.py", "python/client.py",
 		"dart/models.dart", "dart/client.dart",
+		"swift/Onekit.swift", "swift/Models.swift", "swift/Client.swift",
 		"rust/types.rs", "rust/server.rs", "rust/client.rs",
 		"openapi/openapi.yaml",
 	} {
