@@ -28,5 +28,6 @@ fn main() {
 `
 
 func TestGeneratedRustOmitsUnsetTimestamps(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustEmptyTimestampFixture, "onekit-rust-empty-timestamp", rustEmptyTimestampMain, true)
 }

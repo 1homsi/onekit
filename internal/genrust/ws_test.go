@@ -187,6 +187,7 @@ validator = "0.20"
 // impl block, and a client return type that referenced a type nothing
 // defined) that made this codegen non-compiling from the start.
 func TestGeneratedRustWSCompiles(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustWSFixture, "onekit-rust-ws-fixture-plain", rustBuildOnlyMain, false)
 }
 
@@ -194,6 +195,7 @@ func TestGeneratedRustWSCompiles(t *testing.T) {
 // correlation path (WsPending/WsCallSink/WsCallSocket, the restructured
 // multi-frame read loop, and the WsCorrelated trait impls in types.rs).
 func TestGeneratedRustWSCorrelatedCompiles(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustWSCorrelatedFixture, "onekit-rust-ws-fixture-correlated", rustBuildOnlyMain, false)
 }
 
@@ -490,6 +492,7 @@ async fn main() {
 `
 
 func TestGeneratedRustWSCorrelatedRuntimeRoutesMultipleVariants(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustWSCorrelatedFixture, "onekit-rust-ws-fixture-runtime", rustWSCorrelatedRuntimeMain, true)
 }
 

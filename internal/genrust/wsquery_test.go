@@ -50,5 +50,6 @@ async fn main() {
 `
 
 func TestGeneratedRustWSBindsPathAndQueryIntoFrames(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustWSQueryFixture, "onekit-rust-ws-query", rustWSQueryMain, true)
 }

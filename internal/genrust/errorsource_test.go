@@ -27,5 +27,6 @@ async fn main() {
 `
 
 func TestGeneratedRustClientErrorsExposeSource(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustErrorSourceFixture, "onekit-rust-error-source", rustErrorSourceMain, true)
 }

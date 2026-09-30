@@ -43,5 +43,6 @@ async fn main() {
 `
 
 func TestGeneratedRustWSClientSendsConfiguredHeaders(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustWSHeadersFixture, "onekit-rust-ws-headers", rustWSHeadersMain, true)
 }

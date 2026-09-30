@@ -45,5 +45,6 @@ async fn main() {
 `
 
 func TestGeneratedRustRequestContextCarriesRequestParts(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustContextFixture, "onekit-rust-context", rustContextMain, true)
 }

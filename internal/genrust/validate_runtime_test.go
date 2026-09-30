@@ -32,5 +32,6 @@ fn main() {
 `
 
 func TestGeneratedRustFormatValidatorsSkipEmptyStrings(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustFormatFixture, "onekit-rust-format", rustFormatMain, true)
 }

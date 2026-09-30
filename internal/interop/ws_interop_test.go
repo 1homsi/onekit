@@ -338,11 +338,15 @@ func compileSchema(t *testing.T) *onkir.File {
 // goHarnessMain against it, returning the binary path.
 func buildGoHarness(t *testing.T) string {
 	t.Helper()
+	return cachedHarness(t, "go", buildGoHarnessIn)
+}
+
+func buildGoHarnessIn(t *testing.T, dir string) string {
+	t.Helper()
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
 	file := compileSchema(t)
-	dir := t.TempDir()
 	generated := map[string]func(*onkir.File) ([]byte, error){
 		"wsc/server.go":       gengo.GenerateServer,
 		"wsc/client.go":       gengo.GenerateClient,
@@ -371,13 +375,17 @@ func buildGoHarness(t *testing.T) string {
 // dependencies, and compiles everything to CommonJS next to the harnesses.
 func buildTSHarness(t *testing.T) string {
 	t.Helper()
+	return cachedHarness(t, "ts", buildTSHarnessIn)
+}
+
+func buildTSHarnessIn(t *testing.T, dir string) string {
+	t.Helper()
 	for _, tool := range []string{"tsc", "npm", "node"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Skip(tool + " not available")
 		}
 	}
 	file := compileSchema(t)
-	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "types.ts"), string(gents.GenerateTypes(file)))
 	writeFile(t, filepath.Join(dir, "server.ts"), string(gents.GenerateServerWithResolver(file, nil)))
 	writeFile(t, filepath.Join(dir, "client.ts"), string(gents.GenerateClientWithResolver(file, nil)))
@@ -635,11 +643,15 @@ func TestWSRustClientGoServer(t *testing.T) {
 
 func buildRustHarness(t *testing.T) string {
 	t.Helper()
+	return cachedHarness(t, "rust", buildRustHarnessIn)
+}
+
+func buildRustHarnessIn(t *testing.T, dir string) string {
+	t.Helper()
 	if _, err := exec.LookPath("cargo"); err != nil {
 		t.Skip("cargo toolchain not available")
 	}
 	file := compileSchema(t)
-	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "Cargo.toml"), rustCargoToml)
 	writeFile(t, filepath.Join(dir, "src", "main.rs"), rustHarnessMain)
 	writeFile(t, filepath.Join(dir, "src", "generated", "mod.rs"), "pub mod types;\npub mod server;\npub mod client;\n")

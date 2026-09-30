@@ -63,5 +63,6 @@ async fn main() {
 `
 
 func TestGeneratedRustSSEClientParsesSplitUTF8CRLFAndBursts(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustSSEFixture, "onekit-rust-sse-client", rustSSEClientMain, true)
 }

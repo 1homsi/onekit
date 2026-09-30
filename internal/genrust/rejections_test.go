@@ -58,5 +58,6 @@ async fn main() {
 `
 
 func TestGeneratedRustServerAnswersBadInputWithJSON400(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustRejectionFixture, "onekit-rust-rejections", rustRejectionMain, true)
 }

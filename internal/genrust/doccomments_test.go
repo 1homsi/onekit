@@ -47,5 +47,6 @@ func TestRustOutputCarriesDocComments(t *testing.T) {
 }
 
 func TestGeneratedRustWithDocCommentsBuilds(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustDocFixture, "onekit-rust-docs", "mod generated;\nfn main() { println!(\"OK\"); }\n", false)
 }

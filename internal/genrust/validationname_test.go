@@ -24,5 +24,6 @@ fn main() {
 `
 
 func TestGeneratedRustKeepsUserValidationErrorMessage(t *testing.T) {
+	t.Parallel()
 	runRustWSCrate(t, rustValidationNameFixture, "onekit-rust-validation-name", rustValidationNameMain, true)
 }
