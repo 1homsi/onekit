@@ -636,6 +636,49 @@ func validHTTPHeaderName(value string) bool {
 	return value != ""
 }
 
+const requiresDecorator = "requires"
+
+func validateRequires(path string, rpc *onklang.RPCDecl, decorator onklang.Decorator) error {
+	if len(decorator.Args) == 0 {
+		return &Error{Path: path, Line: rpc.Line, Msg: "@requires needs at least one scope"}
+	}
+	count := 0
+	for _, other := range rpc.Decorators {
+		if other.Name == requiresDecorator {
+			count++
+		}
+	}
+	if count > 1 {
+		return &Error{Path: path, Line: rpc.Line, Msg: "declare every scope in a single @requires(...)"}
+	}
+	seen := map[string]bool{}
+	for _, arg := range decorator.Args {
+		if !validScopeName(arg.Value) {
+			return &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("invalid @requires scope %q: use letters, digits, and : _ . - /", arg.Value)}
+		}
+		if seen[arg.Value] {
+			return &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("duplicate @requires scope %q", arg.Value)}
+		}
+		seen[arg.Value] = true
+	}
+	return nil
+}
+
+func validScopeName(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case strings.ContainsRune(":_.-/", r):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func validateRPC(path string, rpc *onklang.RPCDecl) (string, string, error) {
 	var verb, route string
 	for _, decorator := range rpc.Decorators {
@@ -669,6 +712,10 @@ func validateRPC(path string, rpc *onklang.RPCDecl) (string, string, error) {
 			if len(decorator.Args) > 1 {
 				return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@deprecated accepts at most one reason"}
 			}
+		case requiresDecorator:
+			if err := validateRequires(path, rpc, decorator); err != nil {
+				return "", "", err
+			}
 		default:
 			return "", "", &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("unknown RPC decorator @%s", decorator.Name)}
 		}
@@ -679,6 +726,9 @@ func validateRPC(path string, rpc *onklang.RPCDecl) (string, string, error) {
 		}
 		if hasDecorator(rpc.Decorators, "stream") {
 			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws is already bidirectional and cannot be combined with @stream"}
+		}
+		if hasDecorator(rpc.Decorators, requiresDecorator) {
+			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@requires is not supported on @ws methods yet; authorize the upgrade request in middleware"}
 		}
 		if bodyName, ok := findDecorator(rpc.Decorators, "body"); ok {
 			_ = bodyName

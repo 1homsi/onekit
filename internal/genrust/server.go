@@ -49,6 +49,18 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 	return p.Bytes()
 }
 
+func rustScopesLiteral(method *onkir.Method) string {
+	scopes := method.RequiredScopes()
+	if len(scopes) == 0 {
+		return "&[]"
+	}
+	quoted := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		quoted = append(quoted, strconv.Quote(scope))
+	}
+	return "&[" + strings.Join(quoted, ", ") + "]"
+}
+
 func writeServerContext(p *Printer) {
 	p.P("#[derive(Debug, Clone)]")
 	p.P("pub struct RequestContext {")
@@ -57,6 +69,17 @@ func writeServerContext(p *Printer) {
 	p.P("pub method: axum::http::Method,")
 	p.P("pub uri: axum::http::Uri,")
 	p.P("pub extensions: axum::http::Extensions,")
+	p.P("pub required_scopes: &'static [&'static str],")
+	p.Dedent()
+	p.P("}")
+	p.Blank()
+	p.P("impl RequestContext {")
+	p.Indent()
+	p.P("pub fn missing_scopes<S: AsRef<str>>(&self, granted: &[S]) -> Vec<&'static str> {")
+	p.Indent()
+	p.P("self.required_scopes.iter().copied().filter(|scope| !granted.iter().any(|held| held.as_ref() == *scope)).collect()")
+	p.Dedent()
+	p.P("}")
 	p.Dedent()
 	p.P("}")
 	p.Blank()
@@ -330,7 +353,7 @@ func writeHandler(
 		}
 	}
 	p.P("if let Err(error) = req.validate() { return ", errorName, "::Validation(error).into_response(); }")
-	p.P("let context = RequestContext { headers, method: parts.method, uri: parts.uri, extensions: parts.extensions };")
+	p.P("let context = RequestContext { headers, method: parts.method, uri: parts.uri, extensions: parts.extensions, required_scopes: ", rustScopesLiteral(method), " };")
 	p.P("match service.", RustIdent(method.Name), "(context, req).await {")
 	p.Indent()
 	if method.IsStream() {

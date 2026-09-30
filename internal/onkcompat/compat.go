@@ -388,6 +388,7 @@ var routePartLabels = map[string]string{
 	"query":    "query parameters",
 	"header":   "headers",
 	"error":    "error responses",
+	"requires": "required scopes",
 }
 
 func compareRoute(key string, old, current []string) []Finding {
@@ -449,6 +450,9 @@ func methodSignature(service *onkir.Service, method *onkir.Method) []string {
 			continue
 		}
 		parts = append(parts, "header="+headerSignature(header))
+	}
+	for _, scope := range method.RequiredScopes() {
+		parts = append(parts, "requires="+scope)
 	}
 	for _, errorType := range method.ErrorTypes {
 		status := 500

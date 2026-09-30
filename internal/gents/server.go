@@ -112,8 +112,8 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 		writeRouteFactory(p, s)
 		if serviceHasHTTPRoutes(s) {
 			writeTSNodeRouteFactory(p, s)
-			p.P("export function create", s.Name, "FetchHandler(handler: ", s.Name, "Handler): (req: Request) => Promise<Response> {")
-			p.P("return fetchRouter(create", s.Name, "Routes(handler));")
+			p.P("export function create", s.Name, "FetchHandler(handler: ", s.Name, "Handler, options?: ServerOptions): (req: Request) => Promise<Response> {")
+			p.P("return fetchRouter(withAuthorization(create", s.Name, "Routes(handler), options));")
 			p.P("}")
 			p.P()
 		}
@@ -124,6 +124,40 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 	}
 
 	return p.Bytes()
+}
+
+func writeAuthorizationRuntime(p *Printer) {
+	p.P("export interface ServerOptions {")
+	p.P("authorize?: (req: Request, route: RouteDescriptor) => void | Promise<void>;")
+	p.P("}")
+	p.P()
+	p.P("export function requireScopes(")
+	p.P("granted: (req: Request) => readonly string[] | Promise<readonly string[]>,")
+	p.P("): (req: Request, route: RouteDescriptor) => Promise<void> {")
+	p.P("return async (req, route) => {")
+	p.P("const required = route.scopes;")
+	p.P("if (!required || required.length === 0) return;")
+	p.P("const held = new Set(await granted(req));")
+	p.P("const missing = required.filter((scope) => !held.has(scope));")
+	p.P(`if (missing.length > 0) throw new HttpError(403, { message: "missing required scope: " + missing.join(", ") });`)
+	p.P("};")
+	p.P("}")
+	p.P()
+	p.P("function withAuthorization(routes: RouteDescriptor[], options?: ServerOptions): RouteDescriptor[] {")
+	p.P("const authorize = options?.authorize;")
+	p.P("if (!authorize) return routes;")
+	p.P("return routes.map((route) => ({")
+	p.P("...route,")
+	p.P("handler: async (req: Request): Promise<Response> => {")
+	p.P("try {")
+	p.P("await authorize(req, route);")
+	p.P("} catch (err) {")
+	p.P("return errorResponse(err);")
+	p.P("}")
+	p.P("return route.handler(req);")
+	p.P("},")
+	p.P("}));")
+	p.P("}")
 }
 
 func writeServerRuntime(p *Printer) {
@@ -146,6 +180,7 @@ func writeServerRuntime(p *Printer) {
 	p.P("export interface RouteDescriptor {")
 	p.P("method: string;")
 	p.P("path: string;")
+	p.P("scopes?: readonly string[];")
 	p.P("handler: (req: Request) => Promise<Response>;")
 	p.P("}")
 	p.P()
@@ -198,6 +233,7 @@ func writeServerRuntime(p *Printer) {
 	p.P("}")
 	p.P(`return jsonResponse({ message: "internal server error" }, 500);`)
 	p.P("}")
+	writeAuthorizationRuntime(p)
 	p.P()
 	p.P("function parseScalar(value: string, kind: string, name: string): string | number | boolean {")
 	p.P("if (kind === \"string\" || kind === \"bytes\" || kind === \"timestamp\") return value;")
@@ -274,6 +310,18 @@ func writeRouteFactory(p *Printer, s *onkir.Service) {
 	p.P()
 }
 
+func writeRouteScopes(p *Printer, m *onkir.Method) {
+	scopes := m.RequiredScopes()
+	if len(scopes) == 0 {
+		return
+	}
+	quoted := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		quoted = append(quoted, fmt.Sprintf("%q", scope))
+	}
+	p.P("scopes: [", strings.Join(quoted, ", "), "],")
+}
+
 func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	verb, _ := m.Verb()
 	path, _ := m.Path()
@@ -284,6 +332,7 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("{")
 	p.P(fmt.Sprintf("method: %q,", strings.ToUpper(verb)))
 	p.P(fmt.Sprintf("path: %q,", fullPath))
+	writeRouteScopes(p, m)
 	p.P("handler: async (req: Request): Promise<Response> => {")
 
 	if hasPathParams || !bodyBearing {
@@ -491,12 +540,12 @@ func writeTSNodeHTTPRuntime(p *Printer) {
 }
 
 func writeTSNodeRouteFactory(p *Printer, s *onkir.Service) {
-	p.P("export function create", s.Name, "NodeHandler(handler: ", s.Name, "Handler): NodeRequestHandler {")
-	p.P("return nodeRouteHandler(create", s.Name, "Routes(handler));")
+	p.P("export function create", s.Name, "NodeHandler(handler: ", s.Name, "Handler, options?: ServerOptions): NodeRequestHandler {")
+	p.P("return nodeRouteHandler(withAuthorization(create", s.Name, "Routes(handler), options));")
 	p.P("}")
 	p.P()
-	p.P("export function attach", s.Name, "NodeHandlers(httpServer: NodeServerLike, handler: ", s.Name, "Handler): void {")
-	p.P("registerNodeRequestHandler(httpServer, create", s.Name, "NodeHandler(handler));")
+	p.P("export function attach", s.Name, "NodeHandlers(httpServer: NodeServerLike, handler: ", s.Name, "Handler, options?: ServerOptions): void {")
+	p.P("registerNodeRequestHandler(httpServer, create", s.Name, "NodeHandler(handler, options));")
 	p.P("}")
 	p.P()
 }

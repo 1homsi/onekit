@@ -540,6 +540,32 @@ contracts feed server checks and OpenAPI security schemes; generated TypeScript
 handlers, Go authorization hooks, and Rust request contexts expose the incoming
 headers for application-level authentication.
 
+### Declaring what a method requires
+
+`@requires("users:read", "users:write")` on an RPC declares the scopes (or
+roles) a caller must hold; every listed scope is required. Onekit does not
+decide where scopes come from, it makes the requirement part of the contract
+and hands it to your authentication code in each target:
+
+```onk
+get(GetUser) -> User @get("/users/{id}") @requires("users:read")
+```
+
+| Target | What you get |
+| --- | --- |
+| Go server | `RequestMetadata.Scopes` in your `Authorizer`, plus `WithScopes(func(ctx, r) ([]string, error))`, which returns `403` with `missing required scope: ...` (a `*ScopeError`) and leaves authentication failures as `401` |
+| TypeScript server | `scopes` on each `RouteDescriptor`, and `{ authorize: requireScopes((req) => grantedScopes) }` on `createXFetchHandler`, `createXNodeHandler` and `attachXNodeHandlers` (or your own `authorize(req, route)`) |
+| Rust server | `context.required_scopes` and `context.missing_scopes(&granted)` on the `RequestContext` passed to every handler |
+| OpenAPI | the scopes are listed under each auth scheme in the operation's `security` requirement (needs an `@auth` header on the service or method) |
+| `onek compat` | adding, removing or changing required scopes is reported as a contract change |
+| `onek import` | scopes in an OpenAPI operation's `security` become `@requires(...)` |
+
+`@requires` is not supported on `@ws` methods yet (the compiler says so rather
+than generating a server that silently skips the check); authorize the
+WebSocket upgrade request in middleware for now. The generated Go, TypeScript
+and Rust clients do not check scopes, since a client does not know what its
+server will grant.
+
 Rust client and server targets may share the same output directory. Onekit
 then writes a complete Rust module tree (`mod.rs`, `types.rs`, `client.rs`,
 and `server.rs`) that can be mounted from the containing crate:

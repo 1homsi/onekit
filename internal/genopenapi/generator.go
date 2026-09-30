@@ -524,9 +524,13 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 	}
 	op.Responses = responses
 	security := orderedmap.New[string, []string]()
+	scopes := m.RequiredScopes()
+	if scopes == nil {
+		scopes = []string{}
+	}
 	for _, header := range slices.Concat(s.Headers, m.Headers) {
 		if _, ok := header.AuthType(); ok {
-			security.Set(authSchemeName(header), []string{})
+			security.Set(authSchemeName(header), scopes)
 		}
 	}
 	addGeneratedErrorResponses(responses, orderedmap.Len(security) > 0)

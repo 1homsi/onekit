@@ -376,7 +376,7 @@ func bodyReaderExpr(bodyBearing bool) string {
 	if bodyBearing {
 		return "bytes.NewReader(body)"
 	}
-	return "nil"
+	return goNilLiteral
 }
 
 func writeClientQueryParams(p *Printer, req *onkir.Message) {

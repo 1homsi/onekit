@@ -200,6 +200,20 @@ func (m *Method) Path() (string, bool) {
 	return d.Value()
 }
 
+// RequiredScopes returns the scopes a caller must hold, declared with
+// @requires("a", "b"). Every listed scope is required.
+func (m *Method) RequiredScopes() []string {
+	d, ok := m.Decorator("requires")
+	if !ok {
+		return nil
+	}
+	scopes := make([]string, 0, len(d.Args))
+	for _, arg := range d.Args {
+		scopes = append(scopes, arg.Value)
+	}
+	return scopes
+}
+
 // IsStream reports whether the method streams its response over SSE.
 func (m *Method) IsStream() bool {
 	return m.HasDecorator("stream")
