@@ -477,6 +477,9 @@ func run(t *testing.T, dir, name string, args ...string) {
 	t.Helper()
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
+	if name == "cargo" {
+		cmd.Env = append(os.Environ(), "CARGO_TARGET_DIR="+cargoTargetDir())
+	}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%s %s: %v\n%s", name, strings.Join(args, " "), err, out)
 	}
@@ -659,7 +662,7 @@ func buildRustHarnessIn(t *testing.T, dir string) string {
 	writeFile(t, filepath.Join(dir, "src", "generated", "server.rs"), string(genrust.GenerateServer(file)))
 	writeFile(t, filepath.Join(dir, "src", "generated", "client.rs"), string(genrust.GenerateClient(file)))
 	run(t, dir, "cargo", "build", "--quiet")
-	bin := filepath.Join(dir, "target", "debug", "interop")
+	bin := filepath.Join(cargoTargetDir(), "debug", "interop")
 	if runtime.GOOS == "windows" {
 		bin += ".exe"
 	}

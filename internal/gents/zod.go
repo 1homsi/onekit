@@ -332,12 +332,19 @@ func zodTypeRefSchema(p *Printer, t *onkir.Type) string {
 	case onkir.KindEnum:
 		return p.zodEnumRef(t.Enum)
 	case onkir.KindMap:
-		return "z.record(z.string(), " + zodTypeRefSchema(p, t.MapValue) + ")"
+		return "z.record(z.string(), " + zodMapValueSchema(p, t.MapValue) + ")"
 	case onkir.KindScalar:
 		return zodScalarSchema(t.Scalar)
 	default:
 		return zodUnknownSchema
 	}
+}
+
+func zodMapValueSchema(p *Printer, t *onkir.Type) string {
+	if t != nil && t.Kind == onkir.KindScalar && (t.Scalar == onkir.ScalarInt64 || t.Scalar == onkir.ScalarUint64) {
+		return "z.number().int().gte(Number.MIN_SAFE_INTEGER).lte(Number.MAX_SAFE_INTEGER)"
+	}
+	return zodTypeRefSchema(p, t)
 }
 
 func zodScalarSchema(kind onkir.ScalarKind) string {

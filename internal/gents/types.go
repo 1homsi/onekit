@@ -318,6 +318,18 @@ func isTSNumeric(kind onkir.ScalarKind) bool {
 
 const tsTrueExpression = "true"
 
+func tsMapValueTypeExpression(value *onkir.Type, expr string) string {
+	if value != nil && value.Kind == onkir.KindScalar {
+		switch value.Scalar {
+		case onkir.ScalarInt64:
+			return fmt.Sprintf("typeof %s === \"number\" && Number.isSafeInteger(%s)", expr, expr)
+		case onkir.ScalarUint64:
+			return fmt.Sprintf("typeof %s === \"number\" && Number.isSafeInteger(%s) && %s >= 0", expr, expr, expr)
+		}
+	}
+	return tsRuntimeTypeExpression(&onkir.Field{Type: value}, expr)
+}
+
 func tsRuntimeTypeExpression(field *onkir.Field, expr string) string {
 	if field == nil {
 		return tsTrueExpression
@@ -334,8 +346,7 @@ func tsRuntimeTypeExpression(field *onkir.Field, expr string) string {
 		return fmt.Sprintf("Array.isArray(%s) && (%s).every((item: any) => %s)", expr, expr, tsRuntimeTypeExpression(item, "item"))
 	}
 	if field.Type.Kind == onkir.KindMap {
-		value := &onkir.Field{Type: field.Type.MapValue}
-		return fmt.Sprintf("typeof %s === \"object\" && %s !== null && !Array.isArray(%s) && Object.values(%s).every((item: any) => %s)", expr, expr, expr, expr, tsRuntimeTypeExpression(value, "item"))
+		return fmt.Sprintf("typeof %s === \"object\" && %s !== null && !Array.isArray(%s) && Object.values(%s).every((item: any) => %s)", expr, expr, expr, expr, tsMapValueTypeExpression(field.Type.MapValue, "item"))
 	}
 	switch field.Type.Kind {
 	case onkir.KindMessage:
@@ -673,6 +684,13 @@ func encodeOneofExpr(p *Printer, f *onkir.Field, expr string) string {
 	return b.String()
 }
 
+func (p *Printer) variantTSType(t *onkir.Type) string {
+	if t != nil && t.Kind == onkir.KindScalar && (t.Scalar == onkir.ScalarInt64 || t.Scalar == onkir.ScalarUint64) {
+		return tsTypeString
+	}
+	return p.TSFieldType(t)
+}
+
 func writeOneof(p *Printer, m *onkir.Message, f *onkir.Field) {
 	discriminator := oneofDiscriminatorKey(f)
 	flatten := f.Oneof.Flatten()
@@ -680,7 +698,7 @@ func writeOneof(p *Printer, m *onkir.Message, f *onkir.Field) {
 	var variants []string
 	for _, v := range f.Oneof.Variants {
 		tag := v.Tag()
-		tsType := p.TSFieldType(v.Type)
+		tsType := p.variantTSType(v.Type)
 		if flatten {
 			variants = append(variants, fmt.Sprintf("({ %s: %q } & %s)", discriminator, tag, tsType))
 		} else {
