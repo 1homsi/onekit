@@ -153,6 +153,14 @@ onek watch   # rebuild on schema/config changes until interrupted
 onek mock    # dev server serving schema-derived fixtures for every route
 ```
 
+`onek build` is incremental: it keeps a small per-project record of the last
+successful build in your user cache directory (outside the repository). When
+the schemas, `onekit.toml` and the `onek` binary are all unchanged, and every
+generated file is still exactly as it was written, the build is skipped and
+reports `up to date`. Editing, deleting, or re-checking-out any generated file
+triggers a normal rebuild. `onek build --check` never uses the cache. Set
+`ONEK_NO_CACHE=1` to disable it, or `ONEK_CACHE_DIR` to relocate it.
+
 ## Bidirectional WebSocket streaming
 
 Alongside SSE (`@stream`), a method can be declared as a bidirectional
