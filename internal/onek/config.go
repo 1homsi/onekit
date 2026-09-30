@@ -44,6 +44,7 @@ type GenerateConfig struct {
 	TSServer     *TargetConfig         `toml:"ts-server"`
 	PythonClient *TargetConfig         `toml:"python-client"`
 	DartClient   *TargetConfig         `toml:"dart-client"`
+	SwiftClient  *TargetConfig         `toml:"swift-client"`
 	RustClient   *TargetConfig         `toml:"rust-client"`
 	RustServer   *TargetConfig         `toml:"rust-server"`
 	OpenAPI      *OpenAPITargetConfig  `toml:"openapi"`
@@ -83,6 +84,7 @@ func (c *Config) EnabledTargets() []string {
 		{"ts-server", c.Generate.TSServer != nil},
 		{"python-client", c.Generate.PythonClient != nil},
 		{"dart-client", c.Generate.DartClient != nil},
+		{"swift-client", c.Generate.SwiftClient != nil},
 		{"rust-client", c.Generate.RustClient != nil},
 		{"rust-server", c.Generate.RustServer != nil},
 		{"openapi", c.Generate.OpenAPI != nil},
@@ -240,7 +242,7 @@ func validateRoutePrefix(prefix string) error {
 
 func validateTargetPaths(cfg *Config) error {
 	targets := []*TargetConfig{
-		cfg.Generate.GoServer, cfg.Generate.GoClient, cfg.Generate.TSServer, cfg.Generate.PythonClient, cfg.Generate.DartClient,
+		cfg.Generate.GoServer, cfg.Generate.GoClient, cfg.Generate.TSServer, cfg.Generate.PythonClient, cfg.Generate.DartClient, cfg.Generate.SwiftClient,
 		cfg.Generate.RustClient, cfg.Generate.RustServer,
 	}
 	for _, target := range targets {

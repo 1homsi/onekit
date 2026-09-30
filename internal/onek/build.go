@@ -20,6 +20,7 @@ import (
 	"github.com/1homsi/onekit/internal/gengo"
 	"github.com/1homsi/onekit/internal/genpy"
 	"github.com/1homsi/onekit/internal/genrust"
+	"github.com/1homsi/onekit/internal/genswift"
 	"github.com/1homsi/onekit/internal/gents"
 	"github.com/1homsi/onekit/internal/onkcompat"
 	"github.com/1homsi/onekit/internal/onkcompile"
@@ -544,6 +545,7 @@ func build(dir string) (bool, error) {
 		{cfg.Generate.TSServer != nil, func() error { return buildTSServer(cfg, idx) }},
 		{cfg.Generate.PythonClient != nil, func() error { return buildPythonClient(cfg, idx) }},
 		{cfg.Generate.DartClient != nil, func() error { return buildDartClient(cfg, idx) }},
+		{cfg.Generate.SwiftClient != nil, func() error { return buildSwiftClient(cfg, idx) }},
 		{cfg.Generate.RustClient != nil || cfg.Generate.RustServer != nil, func() error { return buildRust(cfg, idx) }},
 		{cfg.Generate.OpenAPI != nil, func() error { return buildOpenAPI(cfg, idx) }},
 	}
@@ -770,6 +772,14 @@ func expectedGeneratedOutputs(cfg *Config, idx *sourceIndex) map[string]map[stri
 			add(root, filepath.Join(rel, "models.dart"))
 			if len(group.file.Services) > 0 {
 				add(root, filepath.Join(rel, "client.dart"))
+			}
+		}
+		if cfg.Generate.SwiftClient != nil {
+			root := cfg.resolve(cfg.Generate.SwiftClient.Out)
+			add(root, "Onekit.swift")
+			add(root, filepath.Join(rel, "Models.swift"))
+			if swiftHasClient(group.file) {
+				add(root, filepath.Join(rel, "Client.swift"))
 			}
 		}
 		if cfg.Generate.PythonClient != nil {
@@ -1133,6 +1143,27 @@ func buildDartClient(cfg *Config, idx *sourceIndex) error {
 			if err := writeFile(filepath.Join(outDir, "client.dart"), client); err != nil {
 				return err
 			}
+		}
+		return nil
+	})
+}
+
+func swiftHasClient(file *onkir.File) bool {
+	return genswift.GenerateClient(file) != nil
+}
+
+func buildSwiftClient(cfg *Config, idx *sourceIndex) error {
+	outRoot := cfg.resolve(cfg.Generate.SwiftClient.Out)
+	if err := writeFile(filepath.Join(outRoot, "Onekit.swift"), genswift.GenerateRuntime()); err != nil {
+		return err
+	}
+	return eachGroup(idx, func(g *sourceGroup) error {
+		outDir := groupOutDir(outRoot, g.relDir)
+		if err := writeFile(filepath.Join(outDir, "Models.swift"), genswift.GenerateTypes(g.file)); err != nil {
+			return err
+		}
+		if client := genswift.GenerateClient(g.file); client != nil {
+			return writeFile(filepath.Join(outDir, "Client.swift"), client)
 		}
 		return nil
 	})
