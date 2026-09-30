@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/1homsi/onekit/internal/genshared"
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
@@ -487,10 +488,7 @@ func writeMessage(p *Printer, m *onkir.Message) {
 }
 
 func oneofDiscriminatorName(f *onkir.Field) string {
-	if disc, ok := f.Oneof.Discriminator(); ok && disc != "" {
-		return disc
-	}
-	return "type"
+	return genshared.OneofDiscriminator(f)
 }
 
 // oneofWireName is the unexported struct a oneof field travels as on the

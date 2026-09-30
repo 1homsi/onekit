@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/1homsi/onekit/internal/genshared"
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
@@ -604,11 +605,7 @@ func encodeExpr(p *Printer, f *onkir.Field, expr string) string {
 }
 
 func oneofDiscriminatorKey(f *onkir.Field) string {
-	disc, ok := f.Oneof.Discriminator()
-	if !ok || disc == "" {
-		disc = "type"
-	}
-	return disc
+	return genshared.OneofDiscriminator(f)
 }
 
 // decodeOneofExpr/encodeOneofExpr convert a oneof field's wire shape

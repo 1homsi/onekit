@@ -1,6 +1,7 @@
 package gengo
 
 import (
+	_ "embed"
 	"fmt"
 	"strings"
 
@@ -297,22 +298,8 @@ func writeCallOptionsRuntime(p *Printer) {
 	p.P(callOptionsSource)
 }
 
-const callOptionsSource = `type CallOption func(*http.Request)
-
-func WithHeader(name, value string) CallOption {
-return func(r *http.Request) { r.Header.Set(name, value) }
-}
-
-func WithRequestEditor(edit func(*http.Request)) CallOption {
-return func(r *http.Request) { edit(r) }
-}
-
-func applyCallOptions(r *http.Request, opts []CallOption) {
-for _, opt := range opts {
-if opt != nil { opt(r) }
-}
-}
-`
+//go:embed runtime/call_options.go.tmpl
+var callOptionsSource string
 
 func writeResponseBodyRuntime(p *Printer) {
 	p.P("type UnexpectedStatusError struct {")

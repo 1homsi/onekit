@@ -1,6 +1,7 @@
 package gengo
 
 import (
+	_ "embed"
 	"fmt"
 	"regexp"
 	"slices"
@@ -201,28 +202,12 @@ func writeWSServerOption(p *Printer) {
 }
 
 // writeServerOptions emits runtime hooks shared by every generated server.
-const serverHookTypesSource = `// RequestMetadata identifies the generated route handling a request.
-type RequestMetadata struct {
-Service string
-Method string
-HTTPMethod string
-Route string
-AuthSchemes []string
-}
+//
+//go:embed runtime/server_hooks.go.tmpl
+var serverHookTypesSource string
 
-type requestMetadataContextKey struct{}
-type requestIDContextKey struct{}
-`
-
-const serverMiddlewareTypesSource = `type Middleware func(http.Handler) http.Handler
-type RequestIDGenerator func() string
-type Authorizer func(context.Context, RequestMetadata, *http.Request) error
-type RequestResult struct { StatusCode int; Duration time.Duration }
-type RequestObserver interface {
-RequestStarted(context.Context, RequestMetadata) context.Context
-RequestFinished(context.Context, RequestMetadata, RequestResult)
-}
-`
+//go:embed runtime/server_middleware.go.tmpl
+var serverMiddlewareTypesSource string
 
 func writeServerOptions(p *Printer, hasWS bool) {
 	p.P(serverHookTypesSource)

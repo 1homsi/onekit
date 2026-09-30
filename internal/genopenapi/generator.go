@@ -13,6 +13,7 @@ import (
 	"go.yaml.in/yaml/v4"
 	k8syaml "sigs.k8s.io/yaml"
 
+	"github.com/1homsi/onekit/internal/genshared"
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
@@ -314,12 +315,7 @@ func applyNumericValidation(schema *base.Schema, decorator onkir.Decorator) {
 }
 
 func flattenPrefix(field *onkir.Field) (string, bool) {
-	decorator, ok := field.Decorator("flatten")
-	if !ok {
-		return "", false
-	}
-	prefix, _ := decorator.NamedArg("prefix")
-	return prefix, true
+	return genshared.FlattenPrefix(field)
 }
 
 func componentName(fullName string) string {
