@@ -72,3 +72,4 @@ coverage/
 
 # Temporary test files
 *.generated
+playground/dist/

@@ -207,6 +207,16 @@ imported `.proto` files are not followed (their types become `json` with a
 warning). Regenerate both ends from the converted schema rather than mixing
 generated code with an existing gRPC-JSON gateway.
 
+### Try it in the browser
+
+`make playground` builds a static page into `playground/dist` (`index.html`,
+`onek.wasm`, `wasm_exec.js`): the real compiler and generators, compiled to
+WebAssembly, so you can edit a schema and read the Go, TypeScript, Python,
+Dart, Swift, Rust and OpenAPI output with no install. Serve the folder with any static
+file server (for example `python3 -m http.server -d playground/dist`). It
+formats schemas, shows diagnostics with line and column, and shares a schema as
+a link (the schema travels in the URL fragment and never leaves the browser).
+
 ## Bidirectional WebSocket streaming
 
 Alongside SSE (`@stream`), a method can be declared as a bidirectional
