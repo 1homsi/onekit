@@ -553,7 +553,7 @@ func writeWSVariantTag(p *Printer, frameVar string, message *onkir.Message, tagV
 }
 
 func wsDuplexName(inName, outName string) string {
-	return inName + "To" + outName + "Socket"
+	return strings.ReplaceAll(inName, ".", "") + "To" + strings.ReplaceAll(outName, ".", "") + "Socket"
 }
 
 // --- client ---------------------------------------------------------------

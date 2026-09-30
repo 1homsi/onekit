@@ -11,15 +11,13 @@ import (
 const everyTargetCatalogOnk = `
 package hub.catalog
 
-message Tick2 { id: string at: timestamp }
-
 service CatalogService {
   base_path: "/catalog/v1"
 
   getPrice(Lookup) -> Money | NotFound @get("/prices/{id}")
   setPrice(Money) -> Money | NotFound @post("/prices")
   watchPrice(Lookup) -> Tick | NotFound @get("/prices/{id}/watch") @stream
-  live(Tick2) -> Tick2 @ws("/live")
+  live(Tick) -> Tick @ws("/live")
 }
 `
 
