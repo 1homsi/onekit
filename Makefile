@@ -29,10 +29,20 @@ help:
 	@echo "  test             Run full test script"
 	@echo "  test-fast        Run fast test script"
 	@echo "  vet              Run go vet"
+	@echo "  playground       Build the browser playground into ./playground/dist"
 	@echo "  check-generated Verify committed example output is reproducible"
 	@echo "  check-schema     Verify .onk schema formatting and semantics"
 	@echo ""
 	@echo "Generators: $(BINARIES)"
+
+PLAYGROUND_DIST := ./playground/dist
+
+.PHONY: playground
+playground:
+	mkdir -p $(PLAYGROUND_DIST)
+	GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o $(PLAYGROUND_DIST)/onek.wasm ./playground/wasm
+	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" $(PLAYGROUND_DIST)/wasm_exec.js
+	cp ./playground/index.html $(PLAYGROUND_DIST)/index.html
 
 .PHONY: build
 build: $(BINARY_PATHS)
@@ -47,7 +57,7 @@ $(BIN_DIR):
 .PHONY: clean
 clean:
 	@echo "Cleaning built binaries..."
-	@rm -rf $(BIN_DIR)
+	@rm -rf $(BIN_DIR) $(PLAYGROUND_DIST)
 
 .PHONY: test
 test: check-scripts
