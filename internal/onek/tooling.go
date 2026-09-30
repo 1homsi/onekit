@@ -136,6 +136,14 @@ func initModuleName(dirName string) string {
 
 // Init creates a small, immediately buildable OneKit project.
 func Init(dir string, force bool) error {
+	return InitTemplateProject(dir, force, "go")
+}
+
+func InitTemplateProject(dir string, force bool, template string) error {
+	chosen, err := findInitTemplate(template)
+	if err != nil {
+		return err
+	}
 	root, err := filepath.Abs(dir)
 	if err != nil {
 		return fmt.Errorf("resolve project directory %s: %w", dir, err)
@@ -151,8 +159,8 @@ func Init(dir string, force bool) error {
 		path    string
 		content string
 	}{
-		{path: filepath.Join(root, configFileName), content: fmt.Sprintf(initConfig, initModuleName(filepath.Base(root)))},
-		{path: filepath.Join(root, "api.onk"), content: initSchema},
+		{path: filepath.Join(root, configFileName), content: fmt.Sprintf(chosen.config, initModuleName(filepath.Base(root)))},
+		{path: filepath.Join(root, "api.onk"), content: chosen.schema},
 	}
 	for _, file := range files {
 		path := file.path

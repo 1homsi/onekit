@@ -36,8 +36,13 @@ func usage(w io.Writer) {
   onek fmt [--check] [--dir DIR | FILE.onk... | -]
   onek watch [--interval DURATION] [--dir DIR]
   onek mock [--addr ADDR] [--seed N] [--error-rate FLOAT] [--latency DURATION] [--watch] [--dir DIR]
+<<<<<<< HEAD
   onek init [--force] [DIR]
   onek import [--out DIR] [--package NAME] [--service NAME] [--force] [--stdout] OPENAPI-OR-PROTO-FILE
+=======
+  onek init [--force] [--template NAME | --list-templates] [DIR]
+  onek import [--out DIR] [--package NAME] [--service NAME] [--force] [--stdout] OPENAPI-FILE
+>>>>>>> 7144fdb (wip: init templates)
   onek compat [--json] PREVIOUS-DIR CURRENT-DIR
   onek compat [--json] --against GIT-REF [CURRENT-DIR]
   onek mcp [--dir DIR]
@@ -223,8 +228,16 @@ func runInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	force := fs.Bool("force", false, "overwrite existing starter files")
+	template := fs.String("template", "go", "starter project to create (see --list-templates)")
+	list := fs.Bool("list-templates", false, "print the available starter projects and exit")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *list {
+		for _, t := range onek.InitTemplates() {
+			fmt.Fprintf(os.Stdout, "%-10s %s\n", t.Name, t.Description)
+		}
+		return nil
 	}
 	dir := "."
 	if positional := fs.Args(); len(positional) > 1 {
@@ -232,7 +245,11 @@ func runInit(args []string) error {
 	} else if len(positional) == 1 {
 		dir = positional[0]
 	}
-	return onek.Init(dir, *force)
+	if err := onek.InitTemplateProject(dir, *force, *template); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "onek: created onekit.toml and api.onk (%s template); edit api.onk, then run: onek build --dir %s\n", *template, dir)
+	return nil
 }
 
 func runWatch(args []string) error {
