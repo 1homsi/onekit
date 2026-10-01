@@ -411,6 +411,7 @@ var decoratorDocs = map[string]string{
 	"ws_cancel":  "@ws_cancel: the oneof variant sent when a correlated call is abandoned (cancelled or timed out). Its message must carry the @ws_id; it always reaches the peer's handler.",
 	"ws_timeout": "@ws_timeout: an integer field next to a @ws_id that generated calls fill with the caller's remaining time in milliseconds when they carry a deadline.",
 	"raw":        "@raw: a string or bytes field carried outside the JSON as raw bytes in a binary WebSocket frame, so large payloads are never escaped or scanned.",
+	"rule":       "@rule(expression, message): a validation rule written in the OneKit expression language. On a message it sees self; on a field it sees self and value. It must evaluate to bool, and the message is reported when it is false or cannot be evaluated. Repeatable.",
 	"tag":        "@tag(value): the discriminator value that identifies this oneof variant on the wire.",
 	"encode":     "@encode(kind): the field's wire encoding (number, hex, base64, base64_raw, base64url, base64url_raw, unix_seconds, unix_millis, date).",
 	"required":   "@required: the field must be present and non-empty.",

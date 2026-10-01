@@ -127,6 +127,9 @@ func messageUsage(pkg *onkir.Package) map[string]direction {
 
 func compareMessage(name string, old, current *onkir.Message, use direction) []Finding {
 	var findings []Finding
+	if messageRulesSignature(old) != messageRulesSignature(current) {
+		findings = append(findings, Finding{Path: name, Message: "message rules changed"})
+	}
 	oldFields, newFields := fields(old), fields(current)
 	for fieldName, oldField := range oldFields {
 		path := name + "." + fieldName
@@ -307,6 +310,17 @@ func fieldContractSignature(field *onkir.Field) string {
 			continue
 		}
 		parts = append(parts, decoratorSignature(decorator))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, "|")
+}
+
+func messageRulesSignature(message *onkir.Message) string {
+	var parts []string
+	for _, decorator := range message.Decorators {
+		if decorator.Name == "rule" {
+			parts = append(parts, decoratorSignature(decorator))
+		}
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, "|")
