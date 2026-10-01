@@ -742,6 +742,45 @@ Install the CLI:
 go install github.com/1homsi/onekit/cmd/onek@latest
 ```
 
+## Validation rules
+
+`@rule(expression, message)` attaches a rule written in a small expression language to a message or a field. The compiler type-checks every rule against the schema, so a typo or a type mismatch is a compile error with the line of the decorator and the column inside the expression. Rules are repeatable.
+
+```onk
+message Booking
+  @rule("self.nights * self.rooms <= 60", "at most 60 room-nights per booking")
+  @rule("size(self.guests) <= self.rooms * 4", "at most four guests per room")
+{
+  checkin: string @rule("value.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')", "dates look like 2026-01-31")
+  nights: int32 @rule("value >= 1", "book at least one night")
+  rooms: int32 @rule("value >= 1", "book at least one room")
+  guests: string[]
+  coupon: string? @rule("!has(self.coupon) || size(value) == 8", "coupons have eight characters")
+}
+```
+
+A message rule sees `self`. A field rule sees `self` and `value`, the field itself. A rule must evaluate to `bool`. It is violated when it is false and also when it cannot be evaluated, for example on a division by zero, so a rule can never silently pass.
+
+The language is deliberately small and total: no side effects, no loops other than `all` and `exists`, and identical results in every target.
+
+| | |
+| --- | --- |
+| Types | `bool`, `int` (64-bit, from `int32`, `uint32` and `int64` fields), `double`, `string`, `bytes`, lists, `map<string, T>`, messages, enums. `uint64`, `timestamp`, `json` and `oneof` fields cannot be used in rules yet. |
+| Operators | `\|\|` `&&` `!`, `==` `!=` `<` `<=` `>` `>=`, `in`, `+` `-` `*` `/` `%`, `a ? b : c`, `.field`, `[index]` |
+| Functions | `size(x)`, `has(self.field)`, `int(d)`, `double(i)`, `s.startsWith(p)`, `s.endsWith(p)`, `s.contains(p)`, `s.matches('regex')`, `list.all(x, p)`, `list.exists(x, p)` |
+
+Semantics that differ from what you might assume:
+
+- Integer arithmetic is checked. Overflow is an error, `/` truncates toward zero, `%` takes the sign of the dividend, and dividing by zero is an error. Doubles must stay finite.
+- Comparisons never mix types: `1 == 1.0` is a compile error, write `double(1) == 1.0`. Strings compare only with `==` and `!=`, and by Unicode code point: `size('é')` is 1 whether the text is composed or not, but the composed and decomposed forms are not equal.
+- Unset fields read as their zero value. `has(self.f)` tests presence: set for optional fields and messages, non-zero for other scalars, non-empty for lists, maps and bytes.
+- Enum fields compare to string literals naming a value: `self.status == 'ACTIVE'`, checked against the enum when the schema compiles.
+- A missing map key or an out-of-range index is an error. Test first with `'k' in self.labels` or `size(self.items) > 0`.
+- `matches` must match the whole string and its pattern must be a string literal in a portable regular-expression subset: literals, bracket classes, `|`, `(...)`, `(?:...)`, `* + ?` and `{n,m}`. Anchors, `.`, shorthand classes such as `\d`, lazy quantifiers, lookaround, and repetition of a group that contains `|` or another repetition are rejected, because the supported targets disagree about them. To write a backslash in a pattern inside a `.onk` string, double it twice: `'[0-9]+(\\\\.[0-9]+)?'`.
+- An expression is at most 1024 bytes and 48 levels deep; the message is at most 200 characters.
+
+Changing a rule counts as a breaking change in `onek compat`. This release checks rules at compile time and ships the reference evaluator; generated code enforces them target by target.
+
 ## Repository layout
 
 | Path | Contents |

@@ -86,6 +86,7 @@ type decoratorRule struct {
 var (
 	messageDecorators = map[string]decoratorRule{
 		"status": {minArgs: 1, maxArgs: 1},
+		"rule":   {minArgs: 2, maxArgs: 2},
 	}
 	// allowedEncodeValues is the closed set of @encode(...) wire encodings.
 	allowedEncodeValues = map[string]bool{
@@ -103,6 +104,7 @@ var (
 		flattenDecorator: {minArgs: 0, maxArgs: 1}, "encode": {minArgs: 1, maxArgs: 1},
 		"empty": {minArgs: 1, maxArgs: 1}, "query": {minArgs: 0, maxArgs: 1},
 		wsIDDecorator: {}, "raw": {}, "ws_timeout": {}, "deprecated": {maxArgs: 1},
+		"rule": {minArgs: 2, maxArgs: 2},
 	}
 	headerDecorators = map[string]decoratorRule{
 		"required": {}, "format": {minArgs: 1, maxArgs: 1}, "example": {minArgs: 1, maxArgs: 1},
@@ -821,7 +823,7 @@ func validateDecorators(path string, line int, decorators []onklang.Decorator, r
 		if !ok {
 			return &Error{Path: path, Line: line, Column: col, Msg: fmt.Sprintf("unknown decorator @%s", decorator.Name)}
 		}
-		if seen[decorator.Name] {
+		if seen[decorator.Name] && decorator.Name != "rule" {
 			return &Error{Path: path, Line: line, Column: col, Msg: fmt.Sprintf("duplicate decorator @%s", decorator.Name)}
 		}
 		seen[decorator.Name] = true

@@ -232,6 +232,10 @@ func CompileWithOptions(sources []Source, options CompileOptions) (*onkir.Packag
 		}
 	}
 
+	if err := c.validateRules(sources); err != nil {
+		return nil, err
+	}
+
 	pkg := &onkir.Package{Files: files}
 	if err := validateContract(pkg, options); err != nil {
 		return nil, err
