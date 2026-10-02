@@ -92,7 +92,7 @@ func buildOpenAPI(cfg *Config, idx *sourceIndex) error {
 			if err != nil {
 				return fmt.Errorf("generate openapi for %s: %w", service.Name, err)
 			}
-			jsonData, err := genopenapi.GenerateJSON(file, opts)
+			jsonData, err := genopenapi.JSONFromYAML(data)
 			if err != nil {
 				return fmt.Errorf("generate openapi json for %s: %w", service.Name, err)
 			}

@@ -712,6 +712,10 @@ func GenerateJSON(file *onkir.File, opts Options) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return JSONFromYAML(yamlData)
+}
+
+func JSONFromYAML(yamlData []byte) ([]byte, error) {
 	jsonData, err := k8syaml.YAMLToJSON(yamlData)
 	if err != nil {
 		return nil, fmt.Errorf("convert to json: %w", err)

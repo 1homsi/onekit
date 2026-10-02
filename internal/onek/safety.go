@@ -78,6 +78,7 @@ var verifiedNonSymlinkDirs sync.Map
 
 func resetSymlinkCheckCache() {
 	verifiedNonSymlinkDirs = sync.Map{}
+	createdOutputDirs = sync.Map{}
 }
 
 // rejectSymlinkPath checks every existing component of a path. It is used
