@@ -13,9 +13,11 @@ type PackageResolver interface {
 }
 
 type Printer struct {
-	b        strings.Builder
-	indent   int
-	resolver PackageResolver
+	b         strings.Builder
+	indent    int
+	resolver  PackageResolver
+	rules     *swiftRuleState
+	namespace string
 }
 
 func newPrinter(resolver PackageResolver) *Printer { return &Printer{resolver: resolver} }
