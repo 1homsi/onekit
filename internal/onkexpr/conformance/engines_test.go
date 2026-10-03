@@ -67,7 +67,7 @@ func TestPortablePatternsBehaveTheSameInEveryEngine(t *testing.T) {
 	}
 	engines := map[string][][]bool{
 		"node":    runEngine(t, "node", []string{"-e", nodeEngine}, payload),
-		"python3": runEngine(t, "python3", []string{"-c", pythonEngine}, payload),
+		"python3": runEngine(t, "python3", []string{"-X", "utf8", "-c", pythonEngine}, payload),
 	}
 	for name, got := range engines {
 		for i, pattern := range conformance.Patterns {
