@@ -32,6 +32,9 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) []byt
 	if fileHasRawBytes(file) {
 		writeTSBase64Helpers(p)
 	}
+	if p.rules.used {
+		writeTSRuleRuntime(p)
+	}
 	if onkir.FileHasWSMethods(file) {
 		writeTSWSCodecRuntime(p)
 		for _, m := range fileMessagesDeep(file) {
@@ -198,6 +201,7 @@ func writeRootCodecFuncs(p *Printer, m *onkir.Message) {
 	if field := rootUnwrapField(m); field != nil {
 		p.P("if (!(", tsRuntimeTypeExpression(field, "_v as any"), ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid type"), ");")
 	}
+	writeTSRuleChecks(p, m, "_v")
 	p.P("return violations;")
 	p.P("}")
 	p.P()
@@ -302,6 +306,7 @@ func writeValidateFunc(p *Printer, m *onkir.Message) {
 			}
 		}
 	}
+	writeTSRuleChecks(p, m, "v")
 	p.P("return violations;")
 	p.P("}")
 	p.P()
