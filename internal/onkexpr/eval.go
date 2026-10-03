@@ -351,7 +351,7 @@ func intArithmetic(op string, a, b int64) (any, error) {
 }
 
 func (e *evaluator) evalCall(n *Call) (any, error) {
-	if n.Fn == "has" {
+	if n.Fn == fnHas {
 		sel, ok := n.Args[0].(*Select)
 		if !ok {
 			return nil, evalErr("has() needs a field")
@@ -367,7 +367,7 @@ func (e *evaluator) evalCall(n *Call) (any, error) {
 		args[i] = v
 	}
 	switch n.Fn {
-	case "size":
+	case fnSize:
 		return sizeOf(args[0]), nil
 	case fnInt:
 		return toInt(args[0])
@@ -376,13 +376,13 @@ func (e *evaluator) evalCall(n *Call) (any, error) {
 			return float64(i), nil
 		}
 		return args[0], nil
-	case "startsWith":
+	case fnStartsWith:
 		return strings.HasPrefix(asString(args[0]), asString(args[1])), nil
-	case "endsWith":
+	case fnEndsWith:
 		return strings.HasSuffix(asString(args[0]), asString(args[1])), nil
-	case "contains":
+	case fnContains:
 		return strings.Contains(asString(args[0]), asString(args[1])), nil
-	case "matches":
+	case fnMatches:
 		return fullMatch(n.Regex, asString(args[0])), nil
 	}
 	return nil, evalErr("unknown function %s", n.Fn)

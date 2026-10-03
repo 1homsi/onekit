@@ -790,7 +790,8 @@ Changing a rule counts as a breaking change in `onek compat`.
 | Go (`go-server`, `go-client`) | Enforced by the generated `Validate()`. Servers answer `400` with the failed rule messages in `violations`, and clients refuse to send an invalid request. |
 | TypeScript (`ts-client`, `ts-server`) | Enforced by the generated `validate<Message>()`, which returns the failed rule messages. Clients throw `RequestValidationError` and servers answer `400`. Integers are evaluated as `bigint`, so the target must be ES2020 or newer, as the generated server already requires. |
 | Python (`python-client`) | Enforced by the generated `validate()`, which raises `ValueError` with the failed rule messages joined by `"; "`; the generated client validates requests before sending. |
-| Rust, Dart, Swift | Checked at compile time; enforcement is coming target by target. |
+| Rust (`rust-client`, `rust-server`) | Enforced by the generated `validate()`, which returns the first failed rule as a `ValidationError` (the field's name for a field rule, empty for a message rule). `rule_violations()` returns every failed rule. A rule that uses `matches()` needs the `regex` crate, like `@pattern`. |
+| Dart, Swift | Checked at compile time; enforcement is coming target by target. |
 
 Every target is held to the same conformance suite (`internal/onkexpr/conformance`): about a hundred rules run over the same inputs and must fail exactly the rules the reference evaluator fails.
 
