@@ -12,12 +12,14 @@ func GenerateTypes(file *onkir.File) []byte {
 
 func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver, runtimeImport string) []byte {
 	body := newPrinter(resolver)
+	body.prepareRules(file)
 	for _, e := range fileEnumsDeep(file) {
 		writeEnum(body, e)
 	}
 	for _, m := range fileMessagesDeep(file) {
 		writeMessage(body, m)
 	}
+	body.writeRuleSupport()
 	code := string(body.Bytes())
 	p := newPrinter(resolver)
 	writeFileHeader(p, code)
@@ -735,6 +737,7 @@ func writeValidate(p *Printer, m *onkir.Message) {
 			p.P("}")
 		}
 	}
+	p.writeRuleValidateHook(m)
 	p.P("return violations;")
 	p.Dedent()
 	p.P("}")

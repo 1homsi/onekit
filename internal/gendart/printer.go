@@ -11,6 +11,7 @@ type Printer struct {
 	b        strings.Builder
 	indent   int
 	resolver PackageResolver
+	rules    *dartRuleState
 }
 
 func newPrinter(resolver PackageResolver) *Printer {
