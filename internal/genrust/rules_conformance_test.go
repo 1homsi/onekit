@@ -82,7 +82,7 @@ func TestGeneratedRustRulesMatchTheReferenceEvaluator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generated crate failed: %v\n%s", err, out)
 	}
-	got := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
+	got := strings.Split(strings.TrimSuffix(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n"), "\n")
 	if len(got) != len(want) {
 		t.Fatalf("got %d result lines, want %d:\n%s", len(got), len(want), out)
 	}
