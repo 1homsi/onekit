@@ -190,6 +190,7 @@ type Method struct {
 	Decorators []Decorator
 	Headers    []*Header
 	Service    *Service
+	Principal  *Message
 }
 
 // Service is a compiled service with its base path, shared headers, and RPCs.

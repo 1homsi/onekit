@@ -582,3 +582,23 @@ func MessageHasWSTimeout(m *Message) bool {
 	}
 	return false
 }
+
+const (
+	AuthorizeDecorator = "authorize"
+	PrincipalDecorator = "principal"
+)
+
+func (m *Method) AuthorizeRules() []Decorator {
+	var out []Decorator
+	for _, d := range m.Decorators {
+		if d.Name == AuthorizeDecorator {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func (m *Message) IsPrincipal() bool {
+	_, ok := FindDecorator(m.Decorators, PrincipalDecorator)
+	return ok
+}
