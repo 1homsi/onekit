@@ -32,9 +32,10 @@ func (rf *ruleFile) regexVar(pattern string) string {
 }
 
 type ruleCompiler struct {
-	file  *ruleFile
-	field *onkir.Field
-	vars  []string
+	file     *ruleFile
+	field    *onkir.Field
+	vars     []string
+	bindings map[string]string
 }
 
 func messageRules(m *onkir.Message) ([]onkexpr.Rule, error) {
@@ -159,6 +160,9 @@ func (c *ruleCompiler) ident(n *onkexpr.Ident) string {
 		if c.vars[i] == n.Name {
 			return fmt.Sprintf("v%d", i+1)
 		}
+	}
+	if bound, ok := c.bindings[n.Name]; ok {
+		return bound
 	}
 	if n.Name == "value" && c.field != nil {
 		return c.readField("m", c.field)

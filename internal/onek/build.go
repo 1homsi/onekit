@@ -1116,7 +1116,7 @@ func writeGoTypesAndValidation(merged *onkir.File, outDir string, resolver gengo
 		return err
 	}
 
-	validation, err := gengo.GenerateValidation(merged)
+	validation, err := gengo.GenerateValidationWithResolver(merged, resolver)
 	if err != nil {
 		return fmt.Errorf("generate go validation: %w", err)
 	}

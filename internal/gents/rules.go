@@ -29,10 +29,11 @@ func (s *tsRuleState) regexVar(pattern string) string {
 }
 
 type tsRuleCompiler struct {
-	state *tsRuleState
-	self  string
-	field *onkir.Field
-	vars  []string
+	state    *tsRuleState
+	self     string
+	field    *onkir.Field
+	vars     []string
+	bindings map[string]string
 }
 
 func jsString(s string) string {
@@ -110,6 +111,9 @@ func (c *tsRuleCompiler) ident(n *onkexpr.Ident) string {
 		if c.vars[i] == n.Name {
 			return fmt.Sprintf("v%d", i+1)
 		}
+	}
+	if bound, ok := c.bindings[n.Name]; ok {
+		return bound
 	}
 	if n.Name == "value" && c.field != nil {
 		return c.readField(tsMessageView(c.self, c.field.Message), c.field)

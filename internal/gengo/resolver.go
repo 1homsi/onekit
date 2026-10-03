@@ -120,6 +120,7 @@ func collectServiceExternalRefs(file *onkir.File, resolver PackageResolver) []Pa
 		for _, meth := range s.Methods {
 			c.addMessage(meth.Request)
 			c.addMessage(meth.Response)
+			c.addMessage(meth.Principal)
 			for _, errType := range meth.ErrorTypes {
 				c.addMessage(errType)
 			}

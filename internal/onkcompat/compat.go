@@ -393,16 +393,17 @@ func routeKey(pkg, service, verb, fullPath string) string {
 }
 
 var routePartLabels = map[string]string{
-	"service":  "service name",
-	"method":   "method name",
-	"request":  "request message",
-	"response": "response message",
-	"stream":   "streaming mode",
-	"body":     "body field",
-	"query":    "query parameters",
-	"header":   "headers",
-	"error":    "error responses",
-	"requires": "required scopes",
+	"service":   "service name",
+	"method":    "method name",
+	"request":   "request message",
+	"response":  "response message",
+	"stream":    "streaming mode",
+	"body":      "body field",
+	"query":     "query parameters",
+	"header":    "headers",
+	"error":     "error responses",
+	"requires":  "required scopes",
+	"authorize": "authorization rules",
 }
 
 func compareRoute(key string, old, current []string) []Finding {
@@ -467,6 +468,9 @@ func methodSignature(service *onkir.Service, method *onkir.Method) []string {
 	}
 	for _, scope := range method.RequiredScopes() {
 		parts = append(parts, "requires="+scope)
+	}
+	for _, rule := range method.AuthorizeRules() {
+		parts = append(parts, "authorize="+decoratorSignature(rule))
 	}
 	for _, errorType := range method.ErrorTypes {
 		status := 500

@@ -163,6 +163,7 @@ type compiler struct {
 	enumAllByName map[string][]dirEnum
 	declByDir     map[string]map[string]string
 	msgNode       map[*onklang.MessageDecl]*onkir.Message
+	rpcNode       map[*onklang.RPCDecl]*onkir.Method
 	enumNode      map[*onklang.EnumDecl]*onkir.Enum
 	importScopes  map[string]map[string]bool
 }
@@ -191,6 +192,7 @@ func CompileWithOptions(sources []Source, options CompileOptions) (*onkir.Packag
 		enumAllByName: map[string][]dirEnum{},
 		declByDir:     map[string]map[string]string{},
 		msgNode:       map[*onklang.MessageDecl]*onkir.Message{},
+		rpcNode:       map[*onklang.RPCDecl]*onkir.Method{},
 		enumNode:      map[*onklang.EnumDecl]*onkir.Enum{},
 		importScopes:  importScopes,
 	}
@@ -233,6 +235,9 @@ func CompileWithOptions(sources []Source, options CompileOptions) (*onkir.Packag
 	}
 
 	if err := c.validateRules(sources); err != nil {
+		return nil, err
+	}
+	if err := c.validateAuthorize(sources); err != nil {
 		return nil, err
 	}
 
@@ -685,6 +690,8 @@ func (c *compiler) buildMethod(rd *onklang.RPCDecl, s *onkir.Service, path strin
 		Headers:    headers,
 		Service:    s,
 	}
+
+	c.rpcNode[rd] = method
 
 	seenStatuses := map[int]string{}
 	for errIndex, errName := range rd.ErrorTypes {

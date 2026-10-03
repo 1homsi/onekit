@@ -12,8 +12,9 @@ import (
 )
 
 type Printer struct {
-	b        strings.Builder
-	resolver PackageResolver
+	b             strings.Builder
+	resolver      PackageResolver
+	principalType string
 }
 
 func newPrinter(resolver PackageResolver) *Printer {

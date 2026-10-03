@@ -94,6 +94,7 @@ type lowerer struct {
 	field   *onkir.Field
 	regexes *RegexTable
 	vars    []string
+	bound   map[string]bool
 }
 
 func Lower(n Node, field *onkir.Field, regexes *RegexTable) *Op {
@@ -199,6 +200,9 @@ func (l *lowerer) ident(n *Ident) *Op {
 		}
 	}
 	self := &Op{Kind: OpSelf}
+	if l.bound[n.Name] {
+		return &Op{Kind: OpSelect, Name: n.Name, Zero: ZeroMsg, Args: []*Op{self}}
+	}
 	if n.Name == "value" && l.field != nil {
 		return &Op{Kind: OpSelect, Name: l.field.Name, Zero: ZeroFor(l.field), Args: []*Op{self}}
 	}
@@ -286,4 +290,9 @@ func MaxSlot(op *Op) int {
 	}
 	walk(op)
 	return best + 1
+}
+
+func LowerBound(n Node, regexes *RegexTable, bound map[string]bool) *Op {
+	l := &lowerer{regexes: regexes, bound: bound}
+	return l.lower(n)
 }
