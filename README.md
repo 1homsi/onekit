@@ -792,9 +792,9 @@ Changing a rule counts as a breaking change in `onek compat`.
 | Python (`python-client`) | Enforced by the generated `validate()`, which raises `ValueError` with the failed rule messages joined by `"; "`; the generated client validates requests before sending. |
 | Rust (`rust-client`, `rust-server`) | Enforced by the generated `validate()`, which returns the first failed rule as a `ValidationError` (the field's name for a field rule, empty for a message rule). `rule_violations()` returns every failed rule. A rule that uses `matches()` needs the `regex` crate, like `@pattern`. |
 | Dart (`dart-client`) | Enforced by the generated `validate()`, which returns the failed rule messages along with its other violations. Integers use Dart's native 64-bit `int`, so rules need the Dart VM or Flutter on a device; Dart compiled to JavaScript has no 64-bit integers. |
-| Swift | Checked at compile time; enforcement is coming. |
+| Swift (`swift-client`) | Enforced by the generated `validate()`, which returns the failed rule messages along with its other violations. Strings are compared by Unicode scalar rather than by Swift's canonical equivalence, so `"\u{e9}"` and `"e\u{301}"` differ here exactly as they do everywhere else. A rule that reads a `@deprecated` field of a message declared in a different namespace sees that field as unset, because the field's storage is private to its own file. |
 
-Every target is held to the same conformance suite (`internal/onkexpr/conformance`): about a hundred rules run over the same inputs and must fail exactly the rules the reference evaluator fails.
+Every target is held to the same conformance suite (`internal/onkexpr/conformance`): about a hundred rules run over the same inputs and must fail exactly the rules the reference evaluator fails. Go, TypeScript and Python compile each rule to native expressions; Rust, Dart and Swift embed a small evaluator that is a port of the reference one.
 
 ## Repository layout
 
