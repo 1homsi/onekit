@@ -158,6 +158,9 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) []byt
 	if fileNeedsBase64Import(file) {
 		p.P("import base64")
 	}
+	if pyFileHasRules(file) {
+		p.P("import math")
+	}
 	p.P("import re")
 	p.P("import urllib.parse")
 	p.P("import uuid")
@@ -181,6 +184,9 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) []byt
 		} else {
 			writeMessage(p, m)
 		}
+	}
+	if p.rules.used {
+		writePyRuleRuntime(p)
 	}
 
 	return p.Bytes()
@@ -900,6 +906,7 @@ func writePyValidateFunc(p *Printer, m *onkir.Message) {
 			}
 		}
 	}
+	writePyRuleChecks(p, m)
 	p.P("if violations: raise ValueError(\"; \".join(violations))")
 	p.Dedent()
 }
