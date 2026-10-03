@@ -1,9 +1,17 @@
 package conformance
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/1homsi/onekit/internal/onkcompile"
+	"github.com/1homsi/onekit/internal/onkexpr"
+	"github.com/1homsi/onekit/internal/onkir"
+	"github.com/1homsi/onekit/internal/onklang"
 )
 
 const header = `package conformance
@@ -173,4 +181,52 @@ func SchemaSource() string {
 
 func Label(index int) string {
 	return fmt.Sprintf("r%03d", index)
+}
+
+func Compile() (*onkir.Package, *onkir.File, *onkir.Message, error) {
+	ast, err := onklang.Parse(SchemaSource())
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "conformance.onk", AST: ast}})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	for _, f := range pkg.Files {
+		for _, m := range f.Messages {
+			if m.Name == "Subject" {
+				return pkg, f, m, nil
+			}
+		}
+	}
+	return nil, nil, nil, errors.New("the Subject message is missing")
+}
+
+func Expected() ([]string, error) {
+	_, _, subject, err := Compile()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(Inputs))
+	for i, input := range Inputs {
+		var raw any
+		if err := json.Unmarshal([]byte(input), &raw); err != nil {
+			return nil, fmt.Errorf("input %d: %w", i, err)
+		}
+		decoded, err := onkexpr.FromJSON(onkexpr.MessageType(subject), raw)
+		if err != nil {
+			return nil, fmt.Errorf("input %d: %w", i, err)
+		}
+		message, ok := decoded.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("input %d is not an object", i)
+		}
+		failed, err := onkexpr.Violations(subject, message)
+		if err != nil {
+			return nil, err
+		}
+		sort.Strings(failed)
+		out[i] = strings.Join(failed, ",")
+	}
+	return out, nil
 }

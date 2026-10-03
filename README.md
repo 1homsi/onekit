@@ -779,7 +779,18 @@ Semantics that differ from what you might assume:
 - `matches` must match the whole string and its pattern must be a string literal in a portable regular-expression subset: literals, bracket classes, `|`, `(...)`, `(?:...)`, `* + ?` and `{n,m}`. Anchors, `.`, shorthand classes such as `\d`, lazy quantifiers, lookaround, and repetition of a group that contains `|` or another repetition are rejected, because the supported targets disagree about them. To write a backslash in a pattern inside a `.onk` string, double it twice: `'[0-9]+(\\\\.[0-9]+)?'`.
 - An expression is at most 1024 bytes and 48 levels deep; the message is at most 200 characters.
 
-Changing a rule counts as a breaking change in `onek compat`. This release checks rules at compile time and ships the reference evaluator; generated code enforces them target by target.
+`a ? b : c` produces a `bool`, `int`, `double`, `string` or enum, never a list, map or message.
+
+Changing a rule counts as a breaking change in `onek compat`.
+
+### Where rules are enforced
+
+| Target | Status |
+| --- | --- |
+| Go (`go-server`, `go-client`) | Enforced by the generated `Validate()`. Servers answer `400` with the failed rule messages in `violations`, and clients refuse to send an invalid request. |
+| TypeScript, Python, Rust, Dart, Swift | Checked at compile time; enforcement is coming target by target. |
+
+Every target is held to the same conformance suite (`internal/onkexpr/conformance`): about a hundred rules run over the same inputs and must fail exactly the rules the reference evaluator fails.
 
 ## Repository layout
 

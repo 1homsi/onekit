@@ -5,32 +5,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkexpr"
 	"github.com/1homsi/onekit/internal/onkexpr/conformance"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
 )
 
 func subject(t *testing.T) *onkir.Message {
 	t.Helper()
-	file, err := onklang.Parse(conformance.SchemaSource())
+	_, _, m, err := conformance.Compile()
 	if err != nil {
-		t.Fatalf("parse: %v", err)
+		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "conformance.onk", AST: file}})
-	if err != nil {
-		t.Fatalf("compile: %v", err)
-	}
-	for _, f := range pkg.Files {
-		for _, m := range f.Messages {
-			if m.Name == "Subject" {
-				return m
-			}
-		}
-	}
-	t.Fatal("Subject message missing")
-	return nil
+	return m
 }
 
 func TestSchemaCompilesAndEveryRuleIsChecked(t *testing.T) {

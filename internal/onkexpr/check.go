@@ -391,7 +391,11 @@ func (c *checker) inferTernary(n *Ternary) (*Type, error) {
 	if !a.Equal(b) {
 		return nil, c.errorf(n, "both branches of ?: must have one type, but they are %s and %s", a, b)
 	}
-	return a, nil
+	switch a.Kind {
+	case KindBool, KindInt, KindDouble, KindString, KindEnum:
+		return a, nil
+	}
+	return nil, c.errorf(n, "the branches of ?: must be bool, int, double, string or an enum, not %s", a)
 }
 
 func (c *checker) inferBinary(n *Binary) (*Type, error) {

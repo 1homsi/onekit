@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const windowsOS = "windows"
+
 func canonicalTempDir(t *testing.T) string {
 	t.Helper()
 	dir, err := filepath.EvalSymlinks(t.TempDir())
@@ -49,7 +51,7 @@ func TestWriteFileReplacesChangedContentAndWrongMode(t *testing.T) {
 	if got, _ := os.ReadFile(path); string(got) != "package y\n" {
 		t.Fatalf("content = %q", got)
 	}
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == windowsOS {
 		return
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
@@ -106,7 +108,7 @@ func TestWriteFileCreatesNewFilesWithoutLeavingTemporaries(t *testing.T) {
 }
 
 func TestWriteFileRefusesSymlinkedOutputs(t *testing.T) {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == windowsOS {
 		t.Skip("symlinks need privileges on Windows")
 	}
 	dir := canonicalTempDir(t)
