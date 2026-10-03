@@ -16,10 +16,16 @@ func (e *Error) Error() string {
 }
 
 const (
-	fnInt       = "int"
-	fnDouble    = "double"
-	macroAll    = "all"
-	macroExists = "exists"
+	fnInt        = "int"
+	fnDouble     = "double"
+	fnSize       = "size"
+	fnHas        = "has"
+	fnStartsWith = "startsWith"
+	fnEndsWith   = "endsWith"
+	fnContains   = "contains"
+	fnMatches    = "matches"
+	macroAll     = "all"
+	macroExists  = "exists"
 )
 
 type Kind int

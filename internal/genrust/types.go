@@ -40,6 +40,7 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) []byt
 	}
 	p.Blank()
 
+	p.prepareRules(file)
 	writeValidationError(p)
 	writeSerdeHelpers(p, features)
 
@@ -51,6 +52,7 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) []byt
 	}
 	writeWSCorrelatedImpls(p, file)
 	writeWSRawImpls(p, file)
+	p.writeRuleSupport()
 	return p.Bytes()
 }
 
@@ -936,9 +938,11 @@ func writeValidation(p *Printer, message *onkir.Message) {
 	for _, field := range message.Fields {
 		writeFieldValidation(p, field, patternFuncs)
 	}
+	p.writeRuleValidateHook(message)
 	p.P("Ok(())")
 	p.Dedent()
 	p.P("}")
+	p.writeRuleMethods(message)
 	p.Dedent()
 	p.P("}")
 	p.Blank()

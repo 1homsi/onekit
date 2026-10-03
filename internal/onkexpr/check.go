@@ -265,7 +265,7 @@ func (c *checker) inferCall(n *Call) (*Type, error) {
 		}
 	}
 	switch n.Fn {
-	case "size":
+	case fnSize:
 		if err := c.arity(n, 1); err != nil {
 			return nil, err
 		}
@@ -274,7 +274,7 @@ func (c *checker) inferCall(n *Call) (*Type, error) {
 			return typeInt, nil
 		}
 		return nil, c.errorf(n, "size() works on strings, bytes, lists and maps, not %s", n.Args[0].Type())
-	case "has":
+	case fnHas:
 		if err := c.arity(n, 1); err != nil {
 			return nil, err
 		}
@@ -309,7 +309,7 @@ func (c *checker) inferCall(n *Call) (*Type, error) {
 			}
 		}
 		return typeBool, nil
-	case "matches":
+	case fnMatches:
 		return c.inferMatches(n)
 	}
 	return nil, c.errorf(n, "unknown function %q", n.Fn)

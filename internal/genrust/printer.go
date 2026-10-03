@@ -12,6 +12,7 @@ type Printer struct {
 	indent          int
 	resolver        PackageResolver
 	validationError string
+	rules           *rustRuleState
 }
 
 func newPrinter(resolver PackageResolver) *Printer {
