@@ -12,6 +12,7 @@ type Printer struct {
 	resolver   PackageResolver
 	zodEmitted map[*onkir.Message]bool
 	zodLazy    map[*onkir.Message]bool
+	rules      tsRuleState
 }
 
 func newPrinter(resolver PackageResolver) *Printer {
