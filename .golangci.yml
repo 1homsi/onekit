@@ -159,6 +159,11 @@ linters:
 
   # All settings can be found here https://github.com/golangci/golangci-lint/blob/HEAD/.golangci.reference.yml
   settings:
+    goconst:
+      exclude-types:
+        - Call
+        - CompositeLit
+
     cyclop:
       # The maximal code complexity to report.
       # Default: 10

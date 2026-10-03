@@ -1,3 +1,3 @@
 module github.com/1homsi/onekit/examples/onk-simple-api
 
-go 1.26.0
+go 1.27.0
