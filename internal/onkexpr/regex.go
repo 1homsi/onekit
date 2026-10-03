@@ -3,6 +3,7 @@ package onkexpr
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -126,7 +127,7 @@ func (p *regexParser) atom(depth int) (regexInfo, error) {
 	case '[':
 		return regexInfo{}, p.class()
 	case '\\':
-		_, err := p.escape()
+		_, err := p.escape(false)
 		return regexInfo{}, err
 	case '.':
 		return regexInfo{}, p.errorf("'.' is not portable; use a bracket class such as [^\\n]")
@@ -141,7 +142,7 @@ func (p *regexParser) atom(depth int) (regexInfo, error) {
 	return regexInfo{}, nil
 }
 
-func (p *regexParser) escape() (rune, error) {
+func (p *regexParser) escape(inClass bool) (rune, error) {
 	p.pos++
 	if p.pos >= len(p.src) {
 		return 0, p.errorf("a pattern cannot end with a backslash")
@@ -155,8 +156,13 @@ func (p *regexParser) escape() (rune, error) {
 		return '\t', nil
 	case 'r':
 		return '\r', nil
-	case '\\', '.', '^', '$', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}', '-', '/':
+	case '\\', '.', '^', '$', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}', '/':
 		return c, nil
+	case '-':
+		if inClass {
+			return c, nil
+		}
+		return 0, p.errorf("write a literal '-' outside a bracket class as -; \\- is only valid inside [...]")
 	}
 	return 0, p.errorf("\\%c is not portable; shorthand classes such as \\d, \\w and \\s differ between languages, so spell them out as [0-9] or [A-Za-z0-9_]", c)
 }
@@ -200,13 +206,17 @@ func (p *regexParser) classChar() (rune, error) {
 	c := p.src[p.pos]
 	switch c {
 	case '\\':
-		return p.escape()
+		return p.escape(true)
 	case '[':
 		return 0, p.errorf("nested brackets and POSIX classes are not allowed")
 	case '-':
 		return 0, p.errorf("write a literal '-' as \\-")
 	case '^':
 		return 0, p.errorf("write a literal '^' inside a class as \\^")
+	case '&', '|', '~':
+		if p.pos > 0 && p.src[p.pos-1] == c {
+			return 0, p.errorf("a doubled %q inside a class is a set operation in some regex engines; split the class", strings.Repeat(string(c), 2))
+		}
 	}
 	p.pos++
 	return c, nil

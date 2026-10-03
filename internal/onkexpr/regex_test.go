@@ -5,14 +5,11 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkexpr"
+	"github.com/1homsi/onekit/internal/onkexpr/conformance"
 )
 
 func TestPortableRegexSubset(t *testing.T) {
-	accepted := []string{
-		`abc`, `[a-z]+`, `[A-Za-z0-9_]*`, `[^a]+`, `a|b|c`, `(ab)+`, `(?:ab)*c?`, `[0-9]{3}`, `[0-9]{2,4}`,
-		`[0-9]+(\.[0-9]+)?`, `[a-z]+(-[a-z]+)?`, `(ab|cd)?x`, `[à-ÿ]+`, `a{0,3}`, `\\`, `\n`, `[\]]`, `\+\*\?`, `x{1000}`,
-		`(a?)b`, `[a-z]{1,63}`,
-	}
+	accepted := conformance.Patterns
 	for _, re := range accepted {
 		if err := onkexpr.ValidateRegex(re); err != nil {
 			t.Errorf("%q should be portable: %v", re, err)
@@ -41,6 +38,12 @@ func TestPortableRegexSubset(t *testing.T) {
 		{`a{3,2}`, "bounds"},
 		{`a{1001}`, "bounds"},
 		{`a{,3}`, "number"},
+		{`a\-b`, "only valid inside"},
+		{`[a&&b]`, "set operation"},
+		{`[a||b]`, "set operation"},
+		{`[a~~b]`, "set operation"},
+		{`a\-b`, "only valid inside"},
+		{`a\-b`, "only valid inside"},
 		{`(a`, "missing"},
 		{`a)`, "unmatched"},
 		{`[a`, "missing ']'"},
