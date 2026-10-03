@@ -42,7 +42,7 @@ func TestGeneratedPythonRulesMatchTheReferenceEvaluator(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "models.py"), string(GenerateTypes(file)))
 	writeFile(t, filepath.Join(dir, "main.py"), pyRulesHarness)
-	cmd := exec.Command("python3", "-W", "error", "main.py")
+	cmd := exec.Command("python3", "-X", "utf8", "-W", "error", "main.py")
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(strings.Join(conformance.Inputs, "\n") + "\n")
 	out, err := cmd.CombinedOutput()
