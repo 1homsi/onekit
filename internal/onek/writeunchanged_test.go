@@ -80,3 +80,91 @@ func TestBuildSummaryCountsUnchangedFiles(t *testing.T) {
 		t.Fatalf("files: first %d, second %d", first.Files, second.Files)
 	}
 }
+
+func TestWriteFileCreatesNewFilesWithoutLeavingTemporaries(t *testing.T) {
+	dir := canonicalTempDir(t)
+	path := filepath.Join(dir, "a", "b", "f.gen.go")
+	if err := writeFile(path, []byte("package x\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFile(path, []byte("package y\n")); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "f.gen.go" {
+		t.Fatalf("unexpected directory contents: %v", entries)
+	}
+	if runtime.GOOS != "windows" {
+		info, _ := os.Stat(path)
+		if info.Mode().Perm() != genFilePerm {
+			t.Fatalf("mode = %v, want %v", info.Mode().Perm(), os.FileMode(genFilePerm))
+		}
+	}
+}
+
+func TestWriteFileRefusesSymlinkedOutputs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	dir := canonicalTempDir(t)
+	target := filepath.Join(dir, "target.go")
+	if err := os.WriteFile(target, []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	live := filepath.Join(dir, "live.gen.go")
+	dangling := filepath.Join(dir, "dangling.gen.go")
+	if err := os.Symlink(target, live); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "missing.go"), dangling); err != nil {
+		t.Fatal(err)
+	}
+	for _, link := range []string{live, dangling} {
+		if err := writeFile(link, []byte("package x\n")); err == nil {
+			t.Fatalf("%s: writing through a symlink should be refused", link)
+		}
+		if err := writeFile(link, nil); err == nil {
+			t.Fatalf("%s: removing a symlink should be refused", link)
+		}
+	}
+	if got, _ := os.ReadFile(target); string(got) != "keep\n" {
+		t.Fatalf("symlink target was modified: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "missing.go")); err == nil {
+		t.Fatal("dangling symlink target was created")
+	}
+}
+
+func TestWriteFileEmptyDataRemovesStaleOutput(t *testing.T) {
+	dir := canonicalTempDir(t)
+	path := filepath.Join(dir, "stale.gen.go")
+	if err := writeFile(path, nil); err != nil {
+		t.Fatalf("removing a missing file should succeed: %v", err)
+	}
+	if err := writeFile(path, []byte("package x\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFile(path, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("stale output still present: %v", err)
+	}
+}
+
+func TestWriteFileRecreatesADirectoryRemovedAfterItWasUsed(t *testing.T) {
+	dir := canonicalTempDir(t)
+	first := filepath.Join(dir, "out", "a.gen.go")
+	if err := writeFile(first, []byte("package x\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(dir, "out")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFile(first, []byte("package x\n")); err != nil {
+		t.Fatalf("directory removed between writes: %v", err)
+	}
+}

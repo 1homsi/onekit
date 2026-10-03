@@ -219,6 +219,25 @@ func TestGenerateJSONProducesValidJSON(t *testing.T) {
 	}
 }
 
+func TestJSONFromYAMLMatchesGenerateJSON(t *testing.T) {
+	file := compileFixture(t)
+	yamlData, err := Generate(file, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromYAML, err := JSONFromYAML(yamlData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	direct, err := GenerateJSON(file, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(fromYAML) != string(direct) {
+		t.Fatalf("JSON differs:\n%s\n%s", fromYAML, direct)
+	}
+}
+
 func TestGenerateCarriesContractSemantics(t *testing.T) {
 	src := `
 package app

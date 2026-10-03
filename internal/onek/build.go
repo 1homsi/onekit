@@ -364,32 +364,127 @@ func writeFile(path string, data []byte) error {
 		captureWriteMu.Unlock()
 		return nil
 	}
-	if err := rejectSymlinkPath(path); err != nil {
+	dir := filepath.Dir(path)
+	if err := rejectSymlinkPath(dir); err != nil {
 		return err
 	}
 	if len(data) == 0 {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove stale generated output %s: %w", path, err)
-		}
-		return nil
+		return removeStaleOutput(path)
 	}
-	if filepath.Base(filepath.Dir(path)) != ".onekit" {
+	if filepath.Base(dir) != ".onekit" {
 		writtenFiles.Add(1)
 	}
-	if unchangedOnDisk(path, data) {
+	if err := ensureOutputDir(dir); err != nil {
+		return err
+	}
+	created, err := createNewOutput(path, data)
+	if errors.Is(err, fs.ErrNotExist) {
+		createdOutputDirs.Delete(dir)
+		if err = ensureOutputDir(dir); err != nil {
+			return err
+		}
+		created, err = createNewOutput(path, data)
+	}
+	if err != nil {
+		return err
+	}
+	if created {
 		recordOutput(path, data)
 		return nil
 	}
-	err := os.MkdirAll(filepath.Dir(path), genDirPerm)
-	if err != nil {
-		return fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
+	info, err := os.Lstat(path)
+	switch {
+	case err == nil && info.Mode()&os.ModeSymlink != 0:
+		return fmt.Errorf("refusing symlink path component %s", path)
+	case err == nil && unchangedOnDisk(path, info, data):
+		recordOutput(path, data)
+		return nil
+	case err != nil && !os.IsNotExist(err):
+		return fmt.Errorf("inspect path %s: %w", path, err)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".onek-*")
+	return replaceOutput(path, dir, data)
+}
+
+func removeStaleOutput(path string) error {
+	info, err := os.Lstat(path)
+	switch {
+	case err == nil && info.Mode()&os.ModeSymlink != 0:
+		return fmt.Errorf("refusing symlink path component %s", path)
+	case err != nil && os.IsNotExist(err):
+		return nil
+	case err != nil:
+		return fmt.Errorf("inspect path %s: %w", path, err)
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale generated output %s: %w", path, err)
+	}
+	return nil
+}
+
+func ensureOutputDir(dir string) error {
+	if _, ok := createdOutputDirs.Load(dir); ok {
+		return nil
+	}
+	if err := os.MkdirAll(dir, genDirPerm); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dir, err)
+	}
+	createdOutputDirs.Store(dir, struct{}{})
+	return nil
+}
+
+func createNewOutput(path string, data []byte) (bool, error) {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, genFilePerm)
+	if errors.Is(err, fs.ErrExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("create %s: %w", path, err)
+	}
+	fail := func(step string, cause error) (bool, error) {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return false, fmt.Errorf("%s %s: %w", step, path, cause)
+	}
+	if err := ensureModeAfterCreate(f); err != nil {
+		return fail("set permissions on", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		return fail("write", err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return false, fmt.Errorf("close %s: %w", path, err)
+	}
+	return true, nil
+}
+
+func ensureModeAfterCreate(f *os.File) error {
+	if createModeTrusted.Load() {
+		return nil
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm() == genFilePerm {
+		createModeTrusted.Store(true)
+		return nil
+	}
+	return f.Chmod(genFilePerm)
+}
+
+func replaceOutput(path, dir string, data []byte) error {
+	tmp, err := os.CreateTemp(dir, ".onek-*")
 	if err != nil {
 		return fmt.Errorf("create temporary output for %s: %w", path, err)
 	}
 	tmpPath := tmp.Name()
-	defer func() { _ = os.Remove(tmpPath) }()
+	renamed := false
+	defer func() {
+		if !renamed {
+			_ = os.Remove(tmpPath)
+		}
+	}()
 	if err := tmp.Chmod(genFilePerm); err != nil {
 		_ = tmp.Close()
 		return fmt.Errorf("set permissions on temporary output for %s: %w", path, err)
@@ -404,9 +499,15 @@ func writeFile(path string, data []byte) error {
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("replace %s: %w", path, err)
 	}
+	renamed = true
 	recordOutput(path, data)
 	return nil
 }
+
+var (
+	createdOutputDirs sync.Map
+	createModeTrusted atomic.Bool
+)
 
 func eachGroup(idx *sourceIndex, fn func(*sourceGroup) error) error {
 	errs := make([]error, len(idx.groups))
@@ -430,9 +531,8 @@ func eachGroup(idx *sourceIndex, fn func(*sourceGroup) error) error {
 	return nil
 }
 
-func unchangedOnDisk(path string, data []byte) bool {
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() != int64(len(data)) {
+func unchangedOnDisk(path string, info os.FileInfo, data []byte) bool {
+	if !info.Mode().IsRegular() || info.Size() != int64(len(data)) {
 		return false
 	}
 	if runtime.GOOS != "windows" && info.Mode().Perm() != genFilePerm {
