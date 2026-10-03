@@ -32,6 +32,7 @@ func TestDiagnosticsPointAtTheOffendingToken(t *testing.T) {
 		{"self.tags.all(t, t)", "t)", "must be bool"},
 		{"x == 1", "x", `unknown name "x"`},
 		{"self.b ? 1 : 'a'", "?", "one type"},
+		{"size(self.b ? self.tags : self.tags) == 0", "?", "must be bool, int, double, string or an enum"},
 		{"self.n == 99999999999999999999", "99999999999999999999", "does not fit in 64 bits"},
 		{"self.data == self.data", "==", "cannot compare bytes"},
 		{"self.data[0] == 1", "[", "cannot index"},
