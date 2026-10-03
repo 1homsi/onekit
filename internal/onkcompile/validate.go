@@ -85,8 +85,9 @@ type decoratorRule struct {
 
 var (
 	messageDecorators = map[string]decoratorRule{
-		"status": {minArgs: 1, maxArgs: 1},
-		"rule":   {minArgs: 2, maxArgs: 2},
+		"status":    {minArgs: 1, maxArgs: 1},
+		"rule":      {minArgs: 2, maxArgs: 2},
+		"principal": {},
 	}
 	// allowedEncodeValues is the closed set of @encode(...) wire encodings.
 	allowedEncodeValues = map[string]bool{
@@ -638,7 +639,11 @@ func validHTTPHeaderName(value string) bool {
 	return value != ""
 }
 
-const requiresDecorator = "requires"
+const (
+	requiresDecorator  = "requires"
+	authorizeDecorator = "authorize"
+	principalDecorator = "principal"
+)
 
 func validateRequires(path string, rpc *onklang.RPCDecl, decorator onklang.Decorator) error {
 	if len(decorator.Args) == 0 {
@@ -714,8 +719,8 @@ func validateRPC(path string, rpc *onklang.RPCDecl) (string, string, error) {
 			if len(decorator.Args) > 1 {
 				return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@deprecated accepts at most one reason"}
 			}
-		case requiresDecorator:
-			if err := validateRequires(path, rpc, decorator); err != nil {
+		case requiresDecorator, authorizeDecorator:
+			if err := validateAuthorization(path, rpc, decorator); err != nil {
 				return "", "", err
 			}
 		default:
@@ -729,8 +734,8 @@ func validateRPC(path string, rpc *onklang.RPCDecl) (string, string, error) {
 		if hasDecorator(rpc.Decorators, "stream") {
 			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws is already bidirectional and cannot be combined with @stream"}
 		}
-		if hasDecorator(rpc.Decorators, requiresDecorator) {
-			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@requires is not supported on @ws methods yet; authorize the upgrade request in middleware"}
+		if err := rejectAuthorizationOnWS(path, rpc); err != nil {
+			return "", "", err
 		}
 		if bodyName, ok := findDecorator(rpc.Decorators, "body"); ok {
 			_ = bodyName
@@ -1439,6 +1444,25 @@ func validateWSFieldDecorator(filePath string, field *onklang.FieldDecl, name st
 	}
 	if name == "raw" && (field.Repeated || field.Optional || !(isScalarNamed(field.Type, "string") || isScalarNamed(field.Type, "bytes"))) {
 		return &Error{Path: filePath, Line: field.Line, Msg: "@raw requires a non-repeated, non-optional string or bytes field"}
+	}
+	return nil
+}
+
+func validateAuthorization(path string, rpc *onklang.RPCDecl, decorator onklang.Decorator) error {
+	if decorator.Name == requiresDecorator {
+		return validateRequires(path, rpc, decorator)
+	}
+	if len(decorator.Args) != 2 {
+		return &Error{Path: path, Line: rpc.Line, Column: decorator.Col, Msg: "@authorize expects an expression and a message"}
+	}
+	return nil
+}
+
+func rejectAuthorizationOnWS(path string, rpc *onklang.RPCDecl) error {
+	for _, name := range []string{requiresDecorator, authorizeDecorator} {
+		if hasDecorator(rpc.Decorators, name) {
+			return &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("@%s is not supported on @ws methods yet; authorize the upgrade request in middleware", name)}
+		}
 	}
 	return nil
 }

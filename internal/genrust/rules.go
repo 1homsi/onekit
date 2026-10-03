@@ -15,6 +15,7 @@ type rustRuleState struct {
 	order      []*onkir.Message
 	hasRules   map[*onkir.Message][]onkexpr.Rule
 	prepareErr error
+	auth       []rustAuthEntry
 }
 
 func hasRuleDecorator(decorators []onkir.Decorator) bool {
@@ -53,6 +54,7 @@ func (p *Printer) prepareRules(file *onkir.File) {
 		state.hasRules[m] = rules
 		state.reach(m)
 	}
+	p.prepareAuthorize(file, state)
 }
 
 func (s *rustRuleState) reach(m *onkir.Message) {
@@ -210,6 +212,7 @@ func (p *Printer) writeRuleSupport() {
 	}
 	p.writeRuleTables()
 	p.writeRuleConverters()
+	p.writeAuthorizeTables()
 	p.writeRuleRegexes()
 	p.P(rustRuleRuntimeSource)
 }

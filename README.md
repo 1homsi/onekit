@@ -659,6 +659,35 @@ WebSocket upgrade request in middleware for now. The generated Go, TypeScript
 and Rust clients do not check scopes, since a client does not know what its
 server will grant.
 
+### Authorizing callers with `@authorize`
+
+`@requires` names scopes and leaves the decision to you. `@authorize(expression, message)` states the decision itself, in the same expression language as `@rule`, and the generated server enforces it:
+
+```onk
+message Principal @principal {
+  user_id: string
+  roles: string[]
+  org: string
+}
+
+service Docs {
+  delete(DeleteDoc) -> Ack @post("/docs/delete")
+    @authorize("'admin' in auth.roles || auth.org == req.owner_org", "not allowed to delete this document")
+}
+```
+
+`@principal` marks the one message that describes the authenticated caller (a project may have only one). In an `@authorize` expression `auth` is that message and `req` is the decoded request, so a rule can compare who is calling with what they are asking for. Both are type-checked when the schema compiles, with the same line and column diagnostics as `@rule`. The decorator is repeatable, and every rule must hold.
+
+The order on the server is: authenticate (`401` when no caller can be identified), decode and validate the request (`400`), then evaluate the rules (`403` with the first failed message in `message` and all of them in `violations`). A rule that cannot be evaluated counts as failed, so it can never silently allow a call. A method without `@authorize` never asks who the caller is, and a server that has an `@authorize` method but no way to identify callers answers `500` instead of letting the call through.
+
+| Target | How callers are identified |
+| --- | --- |
+| Go server | `WithPrincipal(func(ctx, r) (*Principal, error))`; an error is a `401` unless it carries `HTTPStatusCode()`. Handlers read the caller with `PrincipalFromContext(ctx)` |
+| TypeScript server | the `principal` option of `createXFetchHandler`, `createXNodeHandler` and `attachXNodeHandlers`; throw an `HttpError` to choose the status. Handlers read `context.principal` |
+| Rust server | insert the `Principal` as a request extension from your authentication layer (`request.extensions_mut().insert(principal)`); a request without one is a `401`. Handlers read `context.principal` |
+
+`@authorize` is enforced by Go, TypeScript and Rust servers, and is not supported on `@ws` methods yet (the compiler says so). `onek compat` reports a changed, added or removed authorization rule, and an `@authorize` rule on a method is part of the contract the same way a required scope is.
+
 Rust client and server targets may share the same output directory. Onekit
 then writes a complete Rust module tree (`mod.rs`, `types.rs`, `client.rs`,
 and `server.rs`) that can be mounted from the containing crate:

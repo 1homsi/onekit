@@ -72,6 +72,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P(fmt.Sprintf("method: %q,", strings.ToUpper(verb)))
 	p.P(fmt.Sprintf("path: %q,", fullPath))
 	writeRouteScopes(p, m)
+	writeRoutePrincipalFlag(p, m)
 	p.P("handler: async (req: Request): Promise<Response> => {")
 
 	p.P("const url = new URL(req.url);")
@@ -112,7 +113,8 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("const decoded = ", p.MessageCodecName(m.Request, "decode"), "(body);")
 	p.P("const violations = ", p.MessageCodecName(m.Request, "validate"), "(decoded);")
 	p.P("if (violations.length > 0) throw new HttpError(400, { message: violations.join(\"; \") });")
-	p.P("const stream = handler.", CamelCase(m.Name), "(decoded, { request: req, headers: req.headers });")
+	writeRouteAuthorizeCall(p, m)
+	p.P("const stream = handler.", CamelCase(m.Name), "(decoded, ", routeContextLiteral(m), ");")
 	p.P("return await sseResponse(stream, ", p.MessageCodecName(m.Response, "encode"), ");")
 	p.P("} catch (err) {")
 	p.P("return errorResponse(err);")

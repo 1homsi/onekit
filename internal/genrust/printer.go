@@ -13,6 +13,7 @@ type Printer struct {
 	resolver        PackageResolver
 	validationError string
 	rules           *rustRuleState
+	principalType   string
 }
 
 func newPrinter(resolver PackageResolver) *Printer {

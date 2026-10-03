@@ -33,6 +33,9 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 	}
 	p.P("use std::sync::Arc;")
 	p.Blank()
+	if principal := filePrincipal(file); principal != nil {
+		p.principalType = p.MessageTypeName(principal)
+	}
 	writeServerContext(p)
 	writePathParser(p)
 	p.P("pub const DEFAULT_MAX_REQUEST_BODY_BYTES: usize = 8 << 20;")
@@ -70,6 +73,9 @@ func writeServerContext(p *Printer) {
 	p.P("pub uri: axum::http::Uri,")
 	p.P("pub extensions: axum::http::Extensions,")
 	p.P("pub required_scopes: &'static [&'static str],")
+	if p.principalType != "" {
+		p.P("pub principal: Option<", p.principalType, ">,")
+	}
 	p.Dedent()
 	p.P("}")
 	p.Blank()
@@ -306,6 +312,7 @@ func writeHandler(
 	p.Indent()
 
 	errorName := serverErrorName(service, method)
+	p.writeRoutePrincipalLookup(method)
 	writeRequestDecode(p, errorName, bodyBinding, bodyType, requestType, pairQuery)
 	if verb == queryVerb {
 		writeQueryMethodGuard(p)
@@ -380,7 +387,8 @@ func writeHandler(
 		}
 	}
 	p.P("if let Err(error) = req.validate() { return ", errorName, "::Validation(error).into_response(); }")
-	p.P("let context = RequestContext { headers, method: parts.method, uri: parts.uri, extensions: parts.extensions, required_scopes: ", rustScopesLiteral(method), " };")
+	p.writeRouteAuthorizeCall(method)
+	p.P("let context = RequestContext { headers, method: parts.method, uri: parts.uri, extensions: parts.extensions, required_scopes: ", rustScopesLiteral(method), p.contextPrincipalField(method), " };")
 	p.P("match service.", RustIdent(method.Name), "(context, req).await {")
 	p.Indent()
 	if method.IsStream() {

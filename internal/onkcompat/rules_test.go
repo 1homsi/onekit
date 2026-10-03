@@ -1,6 +1,9 @@
 package onkcompat
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestCompareReportsChangedMessageRules(t *testing.T) {
 	findings := compareSchemas(t,
@@ -39,5 +42,29 @@ message Span @rule("self.high < 100", "b") @rule("self.low <= self.high", "a") {
 	findings := compareSchemas(t, b, c)
 	if len(findings) != 1 || findings[0].Path != "app.Span.low" {
 		t.Fatalf("a changed field rule should be reported, got %+v", findings)
+	}
+}
+
+func TestCompareReportsChangedAuthorizationRules(t *testing.T) {
+	base := `package app
+message Principal @principal { org: string roles: string[] }
+message Req { org: string }
+message Resp { ok: bool }
+service S { get(Req) -> Resp @get("/x") %s }`
+	allow := func(rule string) string { return fmt.Sprintf(base, rule) }
+	loose := allow(`@authorize("auth.org == req.org", "wrong org")`)
+	strict := allow(`@authorize("auth.org == req.org && 'admin' in auth.roles", "wrong org")`)
+	for name, pair := range map[string][2]string{
+		"changed": {loose, strict},
+		"added":   {allow(""), loose},
+		"removed": {loose, allow("")},
+	} {
+		findings := compareSchemas(t, pair[0], pair[1])
+		if len(findings) != 1 || findings[0].Message != "authorization rules changed" {
+			t.Fatalf("%s: got %+v", name, findings)
+		}
+	}
+	if findings := compareSchemas(t, loose, loose); len(findings) != 0 {
+		t.Fatalf("an unchanged rule is not a change: %+v", findings)
 	}
 }

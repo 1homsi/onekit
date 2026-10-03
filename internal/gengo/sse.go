@@ -113,6 +113,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	fullPath := s.BasePath + path
 
 	p.P("mux.Handle(", fmt.Sprintf("%q", strings.ToUpper(verb)+" "+fullPath), ", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
+	writePrincipalLookup(p, m)
 	p.P("req := new(", p.MessageTypeName(m.Request), ")")
 
 	writePathParamBinding(p, path, m.Request)
@@ -126,6 +127,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	}
 
 	writeValidateCall(p)
+	writeAuthorizeCall(p, m)
 
 	p.P("sender := newSSESender(w)")
 	p.P("if err := srv.", PascalCase(m.Name), "(withHTTPRequest(r), req, sender); err != nil {")
