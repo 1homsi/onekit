@@ -157,7 +157,10 @@ func writePrincipalRuntime(p *Printer) {
 
 func writeAuthorizationRuntime(p *Printer) {
 	writePrincipalRuntime(p)
+	p.P("const sseHeartbeats = new WeakMap<Request, number>();")
+	p.P()
 	p.P("export interface ServerOptions {")
+	p.P("sseHeartbeatMs?: number;")
 	p.P("authorize?: (req: Request, route: RouteDescriptor) => void | Promise<void>;")
 	p.P("onError?: (error: ServerErrorInfo, req: Request) => Response | Promise<Response>;")
 	if p.principalType != "" {
@@ -188,6 +191,11 @@ func writeAuthorizationRuntime(p *Printer) {
 	p.P("}")
 	p.P()
 	p.P("function withAuthorization(routes: RouteDescriptor[], options?: ServerOptions): RouteDescriptor[] {")
+	p.P("const heartbeat = options?.sseHeartbeatMs;")
+	p.P("if (heartbeat !== undefined) {")
+	p.P("const inner = routes;")
+	p.P("routes = inner.map((route) => ({ ...route, handler: (req: Request) => { sseHeartbeats.set(req, heartbeat); return route.handler(req); } }));")
+	p.P("}")
 	p.P("const authorize = options?.authorize;")
 	p.P("const onError = options?.onError;")
 	if p.principalType != "" {

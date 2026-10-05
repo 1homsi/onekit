@@ -195,8 +195,8 @@ become optional scalars, `Empty` becomes an empty message), doc comments, and
 `deprecated` options. Services become onekit services: `google.api.http` rules
 give each RPC its verb, path and `body`; an RPC without one becomes
 `POST /<package>.<Service>/<Method>` with all fields in the body. Server
-streaming becomes `@stream` (which needs a GET, so the request fields become
-query parameters). Client and bidirectional streaming have no HTTP mapping and
+streaming becomes a GET `@stream` (the request fields become query
+parameters). Client and bidirectional streaming have no HTTP mapping and
 are skipped with a warning.
 
 Things to know before relying on the result: onekit's oneofs use a
@@ -215,6 +215,27 @@ Dart, Swift, Rust and OpenAPI output with no install. Serve the folder with any 
 file server (for example `python3 -m http.server -d playground/dist`). It
 formats schemas, shows diagnostics with line and column, and shares a schema as
 a link (the schema travels in the URL fragment and never leaves the browser).
+
+## Streaming over POST with typed events
+
+`@stream` works with any verb. With a body-bearing verb the request travels as a JSON body, so large requests (messages, images) stream a response without query-string limits:
+
+```onk
+message TurnEvent {
+  payload: oneof(discriminator: "type") {
+    text: Text @tag("text")
+    done: Done @tag("done")
+  }
+}
+
+service Agent {
+  turn(TurnRequest) -> TurnEvent @post("/turn") @stream
+}
+```
+
+When the response message holds a `oneof`, every SSE frame is named after the variant it carries (`event: text`, `event: done`), and `data:` is the response message as usual. Clients in every target still decode each frame into the response type, so a `switch` over the oneof is all a consumer needs. A frame named `error` stays reserved for failures after the stream has started.
+
+Servers send `: ping` comment frames every 15 seconds, which also commits the response headers when the first event is slow, so a client or proxy header timeout (the Go client defaults to 30 seconds) cannot cut off a quiet stream. Tune it with `WithSSEHeartbeat(d)` in Go (0 disables) and `sseHeartbeatMs` in the TypeScript `ServerOptions`. The Rust server uses axum's default keep-alive.
 
 ## Bidirectional WebSocket streaming
 

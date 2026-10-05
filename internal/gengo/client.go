@@ -41,23 +41,16 @@ func clientImportsNeeded(file *onkir.File) clientImports {
 			imp.url = imp.url || len(onkir.PathParamNames(path)) > 0
 			switch {
 			case m.IsStream():
-				imp.url = true
-				imp.strconv = imp.strconv || methodNeedsStrconv(m)
 				imp.bufio = true
 				imp.strings = true
-			case onkir.IsBodyBearingVerb(verb):
-				imp.bytes = true
-				if bodyField, ok := m.BodyField(); ok {
-					if field := onkir.FindField(m.Request, bodyField); field != nil {
-						imp.strconv = imp.strconv || needsInt64StringEncoding(field)
-						switch bytesEncodingValue(field) {
-						case bytesEncodeHex:
-							imp.hex = true
-						case bytesEncodeBase64Raw, bytesEncodeBase64URL, bytesEncodeBase64URLRaw:
-							imp.base64 = true
-						}
-					}
+				if onkir.IsBodyBearingVerb(verb) {
+					noteBodyImports(&imp, m)
+				} else {
+					imp.url = true
+					imp.strconv = imp.strconv || methodNeedsStrconv(m)
 				}
+			case onkir.IsBodyBearingVerb(verb):
+				noteBodyImports(&imp, m)
 			default:
 				imp.url = true
 				imp.strconv = imp.strconv || methodNeedsStrconv(m)
@@ -241,29 +234,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 			goPathEscapeExpr(path, paramName, "req."+PascalCase(paramName)), ")")
 	}
 
-	if bodyBearing {
-		bodyExpr := "req"
-		if bodyField, ok := m.BodyField(); ok {
-			if field := onkir.FindField(m.Request, bodyField); field != nil {
-				if bodyFieldNeedsCustomJSON(field) {
-					writeBodyValue(p, field)
-					p.P("body, err := json.Marshal(bodyValue)")
-				} else {
-					bodyExpr = "req." + GoFieldName(field)
-					p.P("body, err := json.Marshal(", bodyExpr, ")")
-				}
-			} else {
-				p.P("body, err := json.Marshal(", bodyExpr, ")")
-			}
-		} else {
-			p.P("body, err := json.Marshal(", bodyExpr, ")")
-		}
-		p.P("if err != nil {")
-		p.P(`return nil, fmt.Errorf("marshal request: %w", err)`)
-		p.P("}")
-	} else {
-		writeClientQueryParams(p, m.Request)
-	}
+	writeClientBodyOrQuery(p, m, bodyBearing)
 
 	p.P(
 		"httpReq, err := http.NewRequestWithContext(ctx, ",
@@ -488,4 +459,45 @@ func goPathEscapeExpr(path, name, value string) string {
 		return `strings.ReplaceAll(` + escaped + `, "%2F", "/")`
 	}
 	return escaped
+}
+
+func writeClientBodyOrQuery(p *Printer, m *onkir.Method, bodyBearing bool) {
+	if bodyBearing {
+		bodyExpr := "req"
+		if bodyField, ok := m.BodyField(); ok {
+			if field := onkir.FindField(m.Request, bodyField); field != nil {
+				if bodyFieldNeedsCustomJSON(field) {
+					writeBodyValue(p, field)
+					p.P("body, err := json.Marshal(bodyValue)")
+				} else {
+					bodyExpr = "req." + GoFieldName(field)
+					p.P("body, err := json.Marshal(", bodyExpr, ")")
+				}
+			} else {
+				p.P("body, err := json.Marshal(", bodyExpr, ")")
+			}
+		} else {
+			p.P("body, err := json.Marshal(", bodyExpr, ")")
+		}
+		p.P("if err != nil {")
+		p.P(`return nil, fmt.Errorf("marshal request: %w", err)`)
+		p.P("}")
+	} else {
+		writeClientQueryParams(p, m.Request)
+	}
+}
+
+func noteBodyImports(imp *clientImports, m *onkir.Method) {
+	imp.bytes = true
+	if bodyField, ok := m.BodyField(); ok {
+		if field := onkir.FindField(m.Request, bodyField); field != nil {
+			imp.strconv = imp.strconv || needsInt64StringEncoding(field)
+			switch bytesEncodingValue(field) {
+			case bytesEncodeHex:
+				imp.hex = true
+			case bytesEncodeBase64Raw, bytesEncodeBase64URL, bytesEncodeBase64URLRaw:
+				imp.base64 = true
+			}
+		}
+	}
 }

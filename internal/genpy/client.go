@@ -145,8 +145,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("if hasattr(req, \"validate\"): req.validate()")
 	p.P(fmt.Sprintf("path = %q", fullPath))
 	writePyPathParams(p, path, m.Request)
-	writeClientQueryParams(p, m.Request)
-	p.P(fmt.Sprintf("request = urllib.request.Request(self.base_url + path, method=%q)", strings.ToUpper(verb)))
+	writePyRequestBuild(p, m, verb, onkir.IsBodyBearingVerb(verb))
 	p.P(`request.add_header("Accept", "text/event-stream")`)
 	p.P("for k, v in {**self.headers, **(headers or {})}.items():")
 	p.Indent()
@@ -209,28 +208,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P(fmt.Sprintf("path = %q", fullPath))
 	writePyPathParams(p, path, m.Request)
 
-	if !bodyBearing {
-		writeClientQueryParams(p, m.Request)
-	}
-
-	if bodyBearing {
-		if bodyField, ok := m.BodyField(); ok {
-			if field := onkir.FindField(m.Request, bodyField); field != nil {
-				p.P("body = json.dumps(", p.bodyValueExpr(field, "req."+field.Name), ").encode(\"utf-8\")")
-			} else {
-				p.P("body = json.dumps(req.to_dict()[", fmt.Sprintf("%q", bodyField), "]).encode(\"utf-8\")")
-			}
-		} else {
-			p.P("body = json.dumps(req.to_dict()).encode(\"utf-8\")")
-		}
-		p.P(fmt.Sprintf(
-			"request = urllib.request.Request(self.base_url + path, data=body, method=%q)",
-			strings.ToUpper(verb),
-		))
-		p.P(`request.add_header("Content-Type", "application/json")`)
-	} else {
-		p.P(fmt.Sprintf("request = urllib.request.Request(self.base_url + path, method=%q)", strings.ToUpper(verb)))
-	}
+	writePyRequestBuild(p, m, verb, bodyBearing)
 	p.P("for k, v in {**self.headers, **(headers or {})}.items():")
 	p.Indent()
 	p.P("request.add_header(k, v)")
@@ -378,4 +356,29 @@ func pySafeChars(route, name string) string {
 		return "/"
 	}
 	return ""
+}
+
+func writePyRequestBuild(p *Printer, m *onkir.Method, verb string, bodyBearing bool) {
+	if !bodyBearing {
+		writeClientQueryParams(p, m.Request)
+	}
+
+	if bodyBearing {
+		if bodyField, ok := m.BodyField(); ok {
+			if field := onkir.FindField(m.Request, bodyField); field != nil {
+				p.P("body = json.dumps(", p.bodyValueExpr(field, "req."+field.Name), ").encode(\"utf-8\")")
+			} else {
+				p.P("body = json.dumps(req.to_dict()[", fmt.Sprintf("%q", bodyField), "]).encode(\"utf-8\")")
+			}
+		} else {
+			p.P("body = json.dumps(req.to_dict()).encode(\"utf-8\")")
+		}
+		p.P(fmt.Sprintf(
+			"request = urllib.request.Request(self.base_url + path, data=body, method=%q)",
+			strings.ToUpper(verb),
+		))
+		p.P(`request.add_header("Content-Type", "application/json")`)
+	} else {
+		p.P(fmt.Sprintf("request = urllib.request.Request(self.base_url + path, method=%q)", strings.ToUpper(verb)))
+	}
 }

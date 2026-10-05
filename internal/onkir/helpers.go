@@ -374,6 +374,18 @@ func IsWildcardParam(path, name string) bool {
 	return ok && wildcard == name
 }
 
+func (m *Method) StreamEventOneof() *Field {
+	if !m.IsStream() || m.Response == nil {
+		return nil
+	}
+	for _, f := range m.Response.Fields {
+		if f.Oneof != nil {
+			return f
+		}
+	}
+	return nil
+}
+
 // IsBodyBearingVerb reports whether the HTTP verb carries a request body.
 func IsBodyBearingVerb(verb string) bool {
 	return verb == "post" || verb == "put" || verb == "patch" || verb == "query"

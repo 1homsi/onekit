@@ -25,11 +25,40 @@ func writeSSESenderType(p *Printer) {
 	p.P("w http.ResponseWriter")
 	p.P("rc *http.ResponseController")
 	p.P("started bool")
+	p.P("eventName func(any) string")
 	p.P("}")
 	p.P()
 
-	p.P("func newSSESender(w http.ResponseWriter) *sseSender {")
-	p.P("return &sseSender{w: w, rc: http.NewResponseController(w)}")
+	p.P("const defaultSSEHeartbeat = 15 * time.Second")
+	p.P()
+	p.P("func newSSESender(w http.ResponseWriter, eventName func(any) string) *sseSender {")
+	p.P("return &sseSender{w: w, rc: http.NewResponseController(w), eventName: eventName}")
+	p.P("}")
+	p.P()
+
+	p.P("func (s *sseSender) heartbeat(interval time.Duration, set bool) func() {")
+	p.P("if !set { interval = defaultSSEHeartbeat }")
+	p.P("if interval <= 0 { return func() {} }")
+	p.P("done := make(chan struct{})")
+	p.P("var wg sync.WaitGroup")
+	p.P("wg.Add(1)")
+	p.P("go func() {")
+	p.P("defer wg.Done()")
+	p.P("ticker := time.NewTicker(interval)")
+	p.P("defer ticker.Stop()")
+	p.P("for {")
+	p.P("select {")
+	p.P("case <-done:")
+	p.P("return")
+	p.P("case <-ticker.C:")
+	p.P("s.mu.Lock()")
+	p.P("if !s.started { s.start() }")
+	p.P(`if _, err := fmt.Fprint(s.w, ": ping\n\n"); err == nil { _ = s.flush() }`)
+	p.P("s.mu.Unlock()")
+	p.P("}")
+	p.P("}")
+	p.P("}()")
+	p.P("return func() { close(done); wg.Wait() }")
 	p.P("}")
 	p.P()
 
@@ -41,7 +70,9 @@ func writeSSESenderType(p *Printer) {
 	p.P()
 
 	p.P("func (s *sseSender) Send(event any) error {")
-	p.P(`return s.SendWithEvent("", event)`)
+	p.P(`name := ""`)
+	p.P("if s.eventName != nil { name = s.eventName(event) }")
+	p.P("return s.SendWithEvent(name, event)")
 	p.P("}")
 	p.P()
 }
@@ -116,8 +147,14 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writePrincipalLookup(p, m)
 	p.P("req := new(", p.MessageTypeName(m.Request), ")")
 
+	bodyBearing := onkir.IsBodyBearingVerb(verb)
+	if bodyBearing {
+		writeBodyBinding(p, m)
+	}
 	writePathParamBinding(p, path, m.Request)
-	writeQueryParamBinding(p, m.Request)
+	if !bodyBearing {
+		writeQueryParamBinding(p, m.Request)
+	}
 
 	for _, h := range m.Service.Headers {
 		writeHeaderCheck(p, h)
@@ -129,7 +166,9 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeValidateCall(p)
 	writeAuthorizeCall(p, m)
 
-	p.P("sender := newSSESender(w)")
+	p.P("sender := newSSESender(w, ", sseEventNameFunc(p, m), ")")
+	p.P("stopHeartbeat := sender.heartbeat(o.sseHeartbeat, o.sseHeartbeatSet)")
+	p.P("defer stopHeartbeat()")
 	p.P("if err := srv.", PascalCase(m.Name), "(withHTTPRequest(r), req, sender); err != nil {")
 	p.P("if !sender.Sent() {")
 	writeErrorHandling(p, m)
@@ -255,13 +294,17 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		p.P("path = strings.ReplaceAll(path, ", fmt.Sprintf("%q", onkir.PathPlaceholder(path, paramName)), ", ",
 			goPathEscapeExpr(path, paramName, "req."+PascalCase(paramName)), ")")
 	}
-	writeClientQueryParams(p, m.Request)
+	bodyBearing := onkir.IsBodyBearingVerb(verb)
+	writeClientBodyOrQuery(p, m, bodyBearing)
 
 	p.P("httpReq, err := http.NewRequestWithContext(ctx, ",
-		fmt.Sprintf("%q", strings.ToUpper(verb)), ", c.BaseURL+path, nil)")
+		fmt.Sprintf("%q", strings.ToUpper(verb)), ", c.BaseURL+path, ", bodyReaderExpr(bodyBearing), ")")
 	p.P("if err != nil {")
 	p.P(`return nil, fmt.Errorf("build request: %w", err)`)
 	p.P("}")
+	if bodyBearing {
+		p.P(`httpReq.Header.Set("Content-Type", "application/json")`)
+	}
 	p.P(`httpReq.Header.Set("Accept", "text/event-stream")`)
 	p.P("for k, v := range c.Headers {")
 	p.P("httpReq.Header.Set(k, v)")
@@ -295,4 +338,21 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("return newEventStream[", p.MessageTypeName(m.Response), "](resp.Body, c.MaxSSELineBytes), nil")
 	p.P("}")
 	p.P()
+}
+
+func sseEventNameFunc(p *Printer, m *onkir.Method) string {
+	field := m.StreamEventOneof()
+	if field == nil {
+		return "nil"
+	}
+	var b strings.Builder
+	b.WriteString("func(event any) string {\n")
+	b.WriteString("msg, ok := event.(*" + p.MessageTypeName(m.Response) + ")\n")
+	b.WriteString("if !ok || msg == nil { return \"\" }\n")
+	b.WriteString("switch msg." + GoFieldName(field) + ".(type) {\n")
+	for _, variant := range field.Oneof.Variants {
+		b.WriteString("case *" + OneofVariantTypeName(m.Response, field, variant) + ":\nreturn " + fmt.Sprintf("%q", variant.Tag()) + "\n")
+	}
+	b.WriteString("}\nreturn \"\"\n}")
+	return b.String()
 }

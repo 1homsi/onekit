@@ -230,6 +230,8 @@ func writeServerOptions(p *Printer, hasWS bool) {
 	}
 	p.P(`observer RequestObserver`)
 	p.P(`maxRequestBodyBytes int64`)
+	p.P(`sseHeartbeat time.Duration`)
+	p.P(`sseHeartbeatSet bool`)
 	if hasWS {
 		p.P(`maxWSFrameBytes int64`)
 		p.P(`maxWSMessageBytes int64`)
@@ -259,6 +261,7 @@ func writeServerOptions(p *Printer, hasWS bool) {
 	p.P(serverErrorSource)
 	p.P(`func WithRequestObserver(observer RequestObserver) ServerOption { return func(o *serverOptions) { o.observer = observer } }`)
 	p.P(`func WithMaxRequestBodyBytes(limit int64) ServerOption { return func(o *serverOptions) { o.maxRequestBodyBytes = limit } }`)
+	p.P(`func WithSSEHeartbeat(interval time.Duration) ServerOption { return func(o *serverOptions) { o.sseHeartbeat, o.sseHeartbeatSet = interval, true } }`)
 	if hasWS {
 		writeWSServerOption(p)
 	}

@@ -471,17 +471,36 @@ func writeHandler(
 		p.Indent()
 		p.P("let event = match item {")
 		p.Indent()
-		p.P(
-			"Ok(value) => Event::default().json_data(value).unwrap_or_else(",
-			"|error| Event::default().event(\"error\").data(error.to_string())),",
-		)
+		if field := method.StreamEventOneof(); field != nil {
+			disc, _ := field.Oneof.Discriminator()
+			p.P("Ok(value) => match serde_json::to_value(&value) {")
+			p.Indent()
+			p.P("Ok(json) => {")
+			p.Indent()
+			p.P(
+				"let name = json.get(", strconv.Quote(field.Name), ").and_then(|inner| inner.get(", strconv.Quote(disc),
+				")).or_else(|| json.get(", strconv.Quote(disc), ")).and_then(|tag| tag.as_str()).map(str::to_owned);",
+			)
+			p.P("let event = match name { Some(name) => Event::default().event(name), None => Event::default() };")
+			p.P("event.json_data(json).unwrap_or_else(|error| Event::default().event(\"error\").data(error.to_string()))")
+			p.Dedent()
+			p.P("}")
+			p.P("Err(error) => Event::default().event(\"error\").data(error.to_string()),")
+			p.Dedent()
+			p.P("},")
+		} else {
+			p.P(
+				"Ok(value) => Event::default().json_data(value).unwrap_or_else(",
+				"|error| Event::default().event(\"error\").data(error.to_string())),",
+			)
+		}
 		p.P("Err(error) => Event::default().event(\"error\").json_data(error.error_body()).unwrap_or_default(),")
 		p.Dedent()
 		p.P("};")
 		p.P("Ok::<Event, Infallible>(event)")
 		p.Dedent()
 		p.P("});")
-		p.P("Sse::new(events).into_response()")
+		p.P("Sse::new(events).keep_alive(axum::response::sse::KeepAlive::default()).into_response()")
 		p.Dedent()
 		p.P("}")
 	} else {

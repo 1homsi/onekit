@@ -745,9 +745,6 @@ func validateRPC(path string, rpc *onklang.RPCDecl, allowEmptyRoute bool) (strin
 			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@body requires one non-empty request field name"}
 		}
 	}
-	if hasDecorator(rpc.Decorators, "stream") && isBodyBearingVerb(verb) {
-		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@stream cannot be combined with a body-bearing HTTP verb; use @get or @delete for streaming"}
-	}
 	return verb, route, nil
 }
 
