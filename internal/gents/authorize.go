@@ -80,7 +80,7 @@ func writeRouteAuthorizeCall(p *Printer, m *onkir.Method) {
 	}
 	p.P("const principal = principalOf(req) as ", p.MessageTypeName(m.Principal), " | undefined;")
 	p.P("const denied = ", authorizeFuncName(m), "(principal, decoded);")
-	p.P(`if (denied.length > 0) throw new HttpError(403, { message: denied[0], violations: denied });`)
+	p.P(`if (denied.length > 0) throw requestError(403, "forbidden", denied[0] ?? "forbidden", { violations: denied });`)
 }
 
 func routeContextLiteral(m *onkir.Method) string {

@@ -57,9 +57,26 @@ func GoScalarType(k onkir.ScalarKind) string {
 }
 
 func OneofInterfaceName(msg *onkir.Message, field *onkir.Field) string {
-	return msg.Name + PascalCase(field.Name)
+	return msg.Name + GoFieldName(field)
 }
 
 func OneofVariantTypeName(msg *onkir.Message, field *onkir.Field, variant *onkir.OneofVariant) string {
 	return OneofInterfaceName(msg, field) + PascalCase(variant.Name)
+}
+
+// GoFieldName is the Go struct field name for a schema field. It is the
+// PascalCase of the schema name, except where that name would collide with a
+// method the generator puts on the message, which Go rejects: Error on an
+// error message (so an error body can have a field called "error"), and
+// Validate on any message. The collision is resolved with a trailing
+// underscore, the way protoc-gen-go does; the JSON name does not change.
+func GoFieldName(f *onkir.Field) string {
+	name := PascalCase(f.Name)
+	switch {
+	case name == "Validate":
+		return name + "_"
+	case name == "Error" && f.Message != nil && f.Message.IsError():
+		return name + "_"
+	}
+	return name
 }

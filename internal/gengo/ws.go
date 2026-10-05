@@ -517,7 +517,7 @@ func writeWSIDExtraction(p *Printer, frameVar string, message *onkir.Message, id
 				typeName := OneofVariantTypeName(message, f, variant)
 				variantAccessor := "v." + PascalCase(variant.Name)
 				fieldAccessor := variantAccessor + "." + PascalCase(vf.Name)
-				p.P("if v, ok := ", frameVar, ".Get", PascalCase(f.Name), "().(*", typeName, "); ok && v != nil && ", variantAccessor, " != nil {")
+				p.P("if v, ok := ", frameVar, ".Get", GoFieldName(f), "().(*", typeName, "); ok && v != nil && ", variantAccessor, " != nil {")
 				emitReturn(vf, fieldAccessor)
 				p.P(tagVar, " = ", fmt.Sprintf("%q", variant.Tag()))
 				p.P("}")
@@ -527,7 +527,7 @@ func writeWSIDExtraction(p *Printer, frameVar string, message *onkir.Message, id
 		if !f.HasDecorator("ws_id") {
 			continue
 		}
-		emitReturn(f, frameVar+"."+PascalCase(f.Name))
+		emitReturn(f, frameVar+"."+GoFieldName(f))
 	}
 }
 
@@ -547,7 +547,7 @@ func writeWSVariantTag(p *Printer, frameVar string, message *onkir.Message, tagV
 			if _, ok := onkir.WSIDField(variant.Type.Message); !ok {
 				continue
 			}
-			p.P("if _, ok := ", frameVar, ".Get", PascalCase(f.Name), "().(*", OneofVariantTypeName(message, f, variant), "); ok { ", tagVar, " = ", fmt.Sprintf("%q", variant.Tag()), " }")
+			p.P("if _, ok := ", frameVar, ".Get", GoFieldName(f), "().(*", OneofVariantTypeName(message, f, variant), "); ok { ", tagVar, " = ", fmt.Sprintf("%q", variant.Tag()), " }")
 		}
 	}
 }
@@ -712,12 +712,12 @@ func goWSBoundFields(m *onkir.Method) []string {
 	var names []string
 	for _, name := range onkir.PathParamNames(path) {
 		if field := onkir.FindField(m.Request, name); field != nil {
-			names = append(names, PascalCase(field.Name))
+			names = append(names, GoFieldName(field))
 		}
 	}
 	for _, field := range m.Request.Fields {
 		if _, ok := field.Decorator("query"); ok && !slices.Contains(onkir.PathParamNames(path), field.Name) {
-			names = append(names, PascalCase(field.Name))
+			names = append(names, GoFieldName(field))
 		}
 	}
 	return names

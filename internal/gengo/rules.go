@@ -261,7 +261,7 @@ func (c *ruleCompiler) call(n *onkexpr.Call) string {
 func (c *ruleCompiler) has(sel *onkexpr.Select) string {
 	f := sel.Field
 	base := c.expr(sel.X)
-	goName := PascalCase(f.Name)
+	goName := GoFieldName(f)
 	pointerBacked := !f.Repeated && (f.Optional || f.Type.Kind == onkir.KindMessage)
 	if pointerBacked {
 		return fmt.Sprintf("func() bool { b := %s; return b != nil && b.%s != nil }()", base, goName)

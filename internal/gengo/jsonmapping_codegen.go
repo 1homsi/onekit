@@ -158,55 +158,55 @@ func bytesDecodeCall(encoding, expr string) string {
 func writeAuxFieldDecls(p *Printer, m *onkir.Message, c fieldCategories, includeEmpty bool) {
 	for _, f := range c.oneofs {
 		if f.Oneof.Flatten() {
-			p.P(PascalCase(f.Name), " json.RawMessage `json:\"", f.Name, ",omitempty\"`")
+			p.P(GoFieldName(f), " json.RawMessage `json:\"", f.Name, ",omitempty\"`")
 			continue
 		}
-		p.P(PascalCase(f.Name), " *", oneofWireName(m, f), " `json:\"", f.Name, ",omitempty\"`")
+		p.P(GoFieldName(f), " *", oneofWireName(m, f), " `json:\"", f.Name, ",omitempty\"`")
 	}
 	for _, f := range c.int64s {
-		p.P(PascalCase(f.Name), " string `json:\"", f.Name, fieldTagOptions(f), "\"`")
+		p.P(GoFieldName(f), " string `json:\"", f.Name, fieldTagOptions(f), "\"`")
 	}
 	for _, f := range c.int64Opts {
-		p.P(PascalCase(f.Name), " *string `json:\"", f.Name, ",omitempty\"`")
+		p.P(GoFieldName(f), " *string `json:\"", f.Name, ",omitempty\"`")
 	}
 	for _, f := range c.int64Reps {
-		p.P(PascalCase(f.Name), " []string `json:\"", f.Name, fieldTagOptions(f), "\"`")
+		p.P(GoFieldName(f), " []string `json:\"", f.Name, fieldTagOptions(f), "\"`")
 	}
 	for _, f := range c.enums {
 		if f.Optional {
-			p.P(PascalCase(f.Name), " *int32 `json:\"", f.Name, ",omitempty\"`")
+			p.P(GoFieldName(f), " *int32 `json:\"", f.Name, ",omitempty\"`")
 			continue
 		}
 		// Non-optional number-encoded enums must not be omitempty: enum
 		// member 0 is a legitimate wire value and would otherwise vanish.
-		p.P(PascalCase(f.Name), " int32 `json:\"", f.Name, "\"`")
+		p.P(GoFieldName(f), " int32 `json:\"", f.Name, "\"`")
 	}
 	for _, f := range c.bytesF {
 		auxType := "string"
 		if f.Optional {
 			auxType = "*string"
 		}
-		p.P(PascalCase(f.Name), " ", auxType, " `json:\"", f.Name, fieldTagOptions(f), "\"`")
+		p.P(GoFieldName(f), " ", auxType, " `json:\"", f.Name, fieldTagOptions(f), "\"`")
 	}
 	for _, f := range c.timestamps {
 		auxType := timestampAuxType(timestampEncodingValue(f))
 		if f.Optional {
-			p.P(PascalCase(f.Name), " *", auxType, " `json:\"", f.Name, ",omitempty\"`")
+			p.P(GoFieldName(f), " *", auxType, " `json:\"", f.Name, ",omitempty\"`")
 			continue
 		}
 		// Non-optional unix encodings must not be omitempty: epoch zero is
 		// a legitimate wire value and would otherwise vanish.
-		p.P(PascalCase(f.Name), " ", auxType, " `json:\"", f.Name, "\"`")
+		p.P(GoFieldName(f), " ", auxType, " `json:\"", f.Name, "\"`")
 	}
 	for _, f := range c.flattens {
-		p.P(PascalCase(f.Name), " json.RawMessage `json:\"", f.Name, ",omitempty\"`")
+		p.P(GoFieldName(f), " json.RawMessage `json:\"", f.Name, ",omitempty\"`")
 	}
 	if includeEmpty {
 		for _, f := range c.emptys {
-			p.P(PascalCase(f.Name), " json.RawMessage `json:\"", f.Name, ",omitempty\"`")
+			p.P(GoFieldName(f), " json.RawMessage `json:\"", f.Name, ",omitempty\"`")
 		}
 		for _, f := range c.zeroCollections {
-			p.P(PascalCase(f.Name), " ", zeroCollectionType(p, f), " `json:\"", f.Name, "\"`")
+			p.P(GoFieldName(f), " ", zeroCollectionType(p, f), " `json:\"", f.Name, "\"`")
 		}
 	}
 }
@@ -220,7 +220,7 @@ func zeroCollectionType(p *Printer, f *onkir.Field) string {
 
 func writeZeroCollectionAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.zeroCollections {
-		goName := PascalCase(f.Name)
+		goName := GoFieldName(f)
 		typ := zeroCollectionType(p, f)
 		p.P("aux.", goName, " = m.", goName)
 		p.P("if aux.", goName, " == nil {")
@@ -231,7 +231,7 @@ func writeZeroCollectionAssignments(p *Printer, c fieldCategories) {
 
 func writeInt64MarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.int64s {
-		goName := PascalCase(f.Name)
+		goName := GoFieldName(f)
 		if f.Type.Scalar == onkir.ScalarUint64 {
 			p.P("aux.", goName, " = strconv.FormatUint(m.", goName, ", 10)")
 		} else {
@@ -239,14 +239,14 @@ func writeInt64MarshalAssignments(p *Printer, c fieldCategories) {
 		}
 	}
 	for _, f := range c.int64Opts {
-		goName := PascalCase(f.Name)
+		goName := GoFieldName(f)
 		p.P("if m.", goName, " != nil {")
 		p.P("encoded", goName, " := ", int64FormatCall(f.Type.Scalar, "*m."+goName))
 		p.P("aux.", goName, " = &encoded", goName)
 		p.P("}")
 	}
 	for _, f := range c.int64Reps {
-		goName := PascalCase(f.Name)
+		goName := GoFieldName(f)
 		p.P("aux.", goName, " = make([]string, len(m.", goName, "))")
 		p.P("for i, v := range m.", goName, " {")
 		if f.Type.Scalar == onkir.ScalarUint64 {
@@ -260,7 +260,7 @@ func writeInt64MarshalAssignments(p *Printer, c fieldCategories) {
 
 func writeEnumMarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.enums {
-		goName := PascalCase(f.Name)
+		goName := GoFieldName(f)
 		if f.Optional {
 			p.P("if m.", goName, " != nil {")
 			p.P("v := int32(*m.", goName, ")")
@@ -274,7 +274,7 @@ func writeEnumMarshalAssignments(p *Printer, c fieldCategories) {
 
 func writeBytesMarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.bytesF {
-		goName := PascalCase(f.Name)
+		goName := GoFieldName(f)
 		if f.Optional {
 			p.P("if m.", goName, " != nil {")
 			p.P("encoded", goName, " := ", bytesEncodeCall(bytesEncodingValue(f), "*m."+goName))
@@ -288,7 +288,7 @@ func writeBytesMarshalAssignments(p *Printer, c fieldCategories) {
 
 func writeTimestampMarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.timestamps {
-		goName := PascalCase(f.Name)
+		goName := GoFieldName(f)
 		if f.Optional {
 			p.P("if m.", goName, " != nil {")
 			p.P("encoded", goName, " := ", timestampEncodeExpr(timestampEncodingValue(f), "m."+goName))
@@ -316,7 +316,7 @@ func writeFlattenMarshalMerge(p *Printer, c fieldCategories) {
 	p.P("return nil, err")
 	p.P("}")
 	for _, f := range c.flattens {
-		goName := PascalCase(f.Name)
+		goName := GoFieldName(f)
 		prefix, _ := flattenPrefix(f)
 		p.P("if m.", goName, " != nil {")
 		p.P("childBytes, err := json.Marshal(m.", goName, ")")
@@ -366,7 +366,7 @@ func writeCustomMarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
 }
 
 func writeEmptyMarshalField(p *Printer, f *onkir.Field, behavior string) {
-	goName := PascalCase(f.Name)
+	goName := GoFieldName(f)
 	nullLiteral := `json.RawMessage("null")`
 	varName := CamelCase(f.Name) + "Bytes"
 
@@ -391,7 +391,7 @@ func writeEmptyMarshalField(p *Printer, f *onkir.Field, behavior string) {
 
 func writeInt64UnmarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.int64s {
-		goName := PascalCase(f.Name)
+		goName := GoFieldName(f)
 		p.P("if aux.", goName, " != \"\" {")
 		if f.Type.Scalar == onkir.ScalarUint64 {
 			p.P("v, err := strconv.ParseUint(aux.", goName, ", 10, 64)")
@@ -405,7 +405,7 @@ func writeInt64UnmarshalAssignments(p *Printer, c fieldCategories) {
 		p.P("}")
 	}
 	for _, f := range c.int64Opts {
-		goName := PascalCase(f.Name)
+		goName := GoFieldName(f)
 		p.P("if aux.", goName, " != nil {")
 		p.P("v, err := ", int64ParseCall(f.Type.Scalar, "*aux."+goName))
 		p.P("if err != nil {")
@@ -415,7 +415,7 @@ func writeInt64UnmarshalAssignments(p *Printer, c fieldCategories) {
 		p.P("}")
 	}
 	for _, f := range c.int64Reps {
-		goName := PascalCase(f.Name)
+		goName := GoFieldName(f)
 		p.P("if aux.", goName, " != nil {")
 		p.P("m.", goName, " = make([]", p.GoFieldType(f.Type), ", len(aux.", goName, "))")
 		p.P("for i, s := range aux.", goName, " {")
@@ -435,7 +435,7 @@ func writeInt64UnmarshalAssignments(p *Printer, c fieldCategories) {
 
 func writeEnumUnmarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.enums {
-		goName := PascalCase(f.Name)
+		goName := GoFieldName(f)
 		if f.Optional {
 			p.P("if aux.", goName, " != nil {")
 			p.P("v := ", p.GoFieldType(f.Type), "(*aux.", goName, ")")
@@ -449,7 +449,7 @@ func writeEnumUnmarshalAssignments(p *Printer, c fieldCategories) {
 
 func writeBytesUnmarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.bytesF {
-		goName := PascalCase(f.Name)
+		goName := GoFieldName(f)
 		valueExpr := "aux." + goName
 		if f.Optional {
 			p.P("if aux.", goName, " != nil {")
@@ -472,7 +472,7 @@ func writeBytesUnmarshalAssignments(p *Printer, c fieldCategories) {
 
 func writeTimestampUnmarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.timestamps {
-		goName := PascalCase(f.Name)
+		goName := GoFieldName(f)
 		encoding := timestampEncodingValue(f)
 		if f.Optional {
 			p.P("if aux.", goName, " != nil {")
@@ -524,7 +524,7 @@ func writeFlattenUnmarshalAssignments(p *Printer, c fieldCategories) {
 	p.P("return err")
 	p.P("}")
 	for _, f := range c.flattens {
-		goName := PascalCase(f.Name)
+		goName := GoFieldName(f)
 		prefix, _ := flattenPrefix(f)
 		childType := p.GoFieldType(f.Type)
 		p.P("{")
@@ -586,7 +586,7 @@ func writeCustomUnmarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
 // it would need the enclosing map field's own codegen to know about this
 // message's internal shape.
 func writeRootUnwrapJSON(p *Printer, m *onkir.Message, field *onkir.Field) {
-	goName := PascalCase(field.Name)
+	goName := GoFieldName(field)
 	if needsInt64StringEncoding(field) && !field.Optional {
 		writeRootUnwrapInt64JSON(p, m, field)
 		return
@@ -611,7 +611,7 @@ func writeRootUnwrapJSON(p *Printer, m *onkir.Message, field *onkir.Field) {
 }
 
 func writeRootUnwrapInt64JSON(p *Printer, m *onkir.Message, field *onkir.Field) {
-	goName := PascalCase(field.Name)
+	goName := GoFieldName(field)
 	kind := field.Type.Scalar
 	p.P("func (m *", m.Name, ") MarshalJSON() ([]byte, error) {")
 	if field.Repeated {

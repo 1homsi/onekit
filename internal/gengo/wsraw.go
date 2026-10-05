@@ -280,7 +280,7 @@ func writeWSTimeoutMethod(p *Printer, m *onkir.Message) {
 	p.P("if m == nil || ms <= 0 { return m }")
 	p.P("c := *m")
 	if f := onkir.WSTimeoutField(m); f != nil {
-		field := "c." + PascalCase(f.Name)
+		field := "c." + GoFieldName(f)
 		p.P("if ", field, " == 0 { ", field, " = ", p.GoFieldType(f.Type), "(ms) }")
 	}
 	for _, f := range m.Fields {
@@ -296,7 +296,7 @@ func writeWSTimeoutMethod(p *Printer, m *onkir.Message) {
 		if len(cases) == 0 {
 			continue
 		}
-		p.P("switch v := c.", PascalCase(f.Name), ".(type) {")
+		p.P("switch v := c.", GoFieldName(f), ".(type) {")
 		for _, v := range cases {
 			vName := PascalCase(v.Name)
 			tf := onkir.WSTimeoutField(v.Type.Message)
@@ -304,7 +304,7 @@ func writeWSTimeoutMethod(p *Printer, m *onkir.Message) {
 			p.P("if v.", vName, " != nil && v.", vName, ".", PascalCase(tf.Name), " == 0 {")
 			p.P("inner := *v.", vName)
 			p.P("inner.", PascalCase(tf.Name), " = ", p.GoFieldType(tf.Type), "(ms)")
-			p.P("c.", PascalCase(f.Name), " = &", OneofVariantTypeName(m, f, v), "{", vName, ": &inner}")
+			p.P("c.", GoFieldName(f), " = &", OneofVariantTypeName(m, f, v), "{", vName, ": &inner}")
 			p.P("}")
 		}
 		p.P("}")
