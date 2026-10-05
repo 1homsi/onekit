@@ -8,8 +8,10 @@ import (
 
 func TestLoadConfigSuggestsKnownKeys(t *testing.T) {
 	tests := map[string]string{
-		"module = \"x\"\n[generate.python]\nout = \"./py\"\n":               "generate.python (did you mean generate.python-client?)",
-		"module = \"x\"\n[generate.go-server]\nout = \"./a\"\nzod = true\n": "generate.go-server.zod",
+		"module = \"x\"\n[generate.ts-client]\nout = \"./a\"\nzod = true\n":         "generate.ts-client.zod (the zod schema generator was removed",
+		"module = \"x\"\n[generate.ts-client]\nout = \"./a\"\nreact_query = true\n": "generate.ts-client.react_query (the TanStack Query hook generator was removed",
+		"module = \"x\"\n[generate.python]\nout = \"./py\"\n":                       "generate.python (did you mean generate.python-client?)",
+		"module = \"x\"\n[generate.go-server]\nout = \"./a\"\nzod = true\n":         "generate.go-server.zod",
 		"modul = \"x\"\n":                          "modul (did you mean module?)",
 		"module = \"x\"\nroute_prefx = \"/api\"\n": "route_prefx (did you mean route_prefix?)",
 	}

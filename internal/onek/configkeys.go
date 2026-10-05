@@ -28,6 +28,11 @@ func knownConfigKeys() []string {
 	return keys
 }
 
+var removedConfigKeys = map[string]string{
+	"generate.ts-client.zod":         "the zod schema generator was removed; the generated validate<Message>() functions cover the same constraints without a dependency",
+	"generate.ts-client.react_query": "the TanStack Query hook generator was removed; call the generated client from your own hooks",
+}
+
 func describeUnknownKeys(unknown []string) []string {
 	reported := map[string]bool{}
 	var out []string
@@ -46,6 +51,10 @@ func describeUnknownKeys(unknown []string) []string {
 			continue
 		}
 		reported[key] = true
+		if reason, removed := removedConfigKeys[key]; removed {
+			out = append(out, key+" ("+reason+")")
+			continue
+		}
 		if suggestion := closestConfigKey(key, known); suggestion != "" {
 			key += " (did you mean " + suggestion + "?)"
 		}

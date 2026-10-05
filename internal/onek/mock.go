@@ -501,7 +501,7 @@ func mockBoundedNumber[T int | float64](field *onkir.Field, fallback T, integer 
 }
 
 // mockConstrainedString derives validator-satisfying strings so fixtures
-// pass client-side zod schemas unchanged.
+// pass client-side validation unchanged.
 const mockEmail = "user@example.com"
 
 func mockConstrainedString(field *onkir.Field) string {

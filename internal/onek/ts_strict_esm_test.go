@@ -13,8 +13,6 @@ module = "example.com/strict/gen/go"
 
 [generate.ts-client]
 out = "./gen/client"
-zod = true
-react_query = true
 msw = true
 
 [generate.ts-server]
@@ -97,7 +95,7 @@ console.log("OK " + files.length);
 `
 
 // TestBuildTSCompilesUnderStrictNodeESM compiles every generated TS output
-// (types, client, server, zod, react-query, msw; single-package, cross-package
+// (types, client, server, msw; single-package, cross-package
 // and @ws) with the settings a strict modern Node project uses, then loads
 // each module in Node ESM.
 func TestBuildTSCompilesUnderStrictNodeESM(t *testing.T) {
@@ -148,7 +146,7 @@ func TestBuildTSCompilesUnderStrictNodeESM(t *testing.T) {
 `)
 	writeTestFile(t, filepath.Join(gen, "check.mjs"), strictESMHarness)
 	runIn(t, gen, "npm", "install", "--no-audit", "--no-fund",
-		"ws", "@types/ws", "@types/node", "zod", "react", "@types/react", "@tanstack/react-query", "msw")
+		"ws", "@types/ws", "@types/node", "msw")
 	runIn(t, gen, "tsc", "-p", "tsconfig.json")
 	out := runIn(t, gen, "node", "check.mjs")
 	if !strings.HasPrefix(strings.TrimSpace(out), "OK ") {

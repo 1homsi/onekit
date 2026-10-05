@@ -270,7 +270,7 @@ func scalarLiteral(kind onkir.ScalarKind) string {
 }
 
 // stringScalarExample derives constrained string fixtures from validators so
-// mocked responses pass client-side zod schemas unchanged.
+// mocked responses pass client-side validation unchanged.
 func stringScalarExample(f *onkir.Field) (string, bool) {
 	if d, ok := f.Decorator("in"); ok {
 		value, _ := d.Arg(0)
