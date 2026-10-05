@@ -436,6 +436,10 @@ func writeToJSONField(p *Printer, f *onkir.Field) {
 	}
 	switch {
 	case f.Repeated, f.Type.Kind == onkir.KindMap:
+		if f.EmitZero {
+			p.P("json[", key, "] = ", fieldWireValue(f, id))
+			return
+		}
 		p.P("if !", id, ".isEmpty { json[", key, "] = ", fieldWireValue(f, id), " }")
 	case f.Type.Kind == onkir.KindMessage:
 		writeMessageFieldToJSON(p, f)
@@ -448,6 +452,10 @@ func writeToJSONField(p *Printer, f *onkir.Field) {
 	case f.Type.Kind == onkir.KindScalar && (f.Type.Scalar == onkir.ScalarTimestamp || f.Type.Scalar == onkir.ScalarJSON):
 		p.P("if let value = ", id, " { json[", key, "] = ", encodeValue(f.Type, f, "value", false), " }")
 	default:
+		if f.EmitZero {
+			p.P("json[", key, "] = ", encodeValue(f.Type, f, id, false))
+			return
+		}
 		p.P("if ", zeroCheck(f, id), " { json[", key, "] = ", encodeValue(f.Type, f, id, false), " }")
 	}
 }

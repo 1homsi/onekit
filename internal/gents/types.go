@@ -3,6 +3,7 @@ package gents
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/1homsi/onekit/internal/genshared"
@@ -537,6 +538,13 @@ func writeEncodeFunc(p *Printer, m *onkir.Message) {
 			}
 			continue
 		}
+		if cf.field.EmitZero {
+			p.P(
+				"out.", cf.wire, " = ", valueExpr, " !== undefined && ", valueExpr, " !== null ? ",
+				encodeExpr(p, cf.field, valueExpr), " : ", tsZeroLiteral(cf.field), ";",
+			)
+			continue
+		}
 		p.P(
 			"if (",
 			valueExpr,
@@ -722,4 +730,31 @@ func writeOneof(p *Printer, m *onkir.Message, f *onkir.Field) {
 	p.P("export type ", OneofTypeName(m, f), " =")
 	p.P("  | ", strings.Join(variants, "\n  | "), ";")
 	p.P()
+}
+
+func tsZeroLiteral(f *onkir.Field) string {
+	switch {
+	case f.Repeated:
+		return "[]"
+	case f.Type.Kind == onkir.KindMap:
+		return "{}"
+	case f.Type.Kind == onkir.KindEnum:
+		if needsEnumNumberEncoding(f) || len(f.Type.Enum.Values) == 0 {
+			return "0"
+		}
+		return strconv.Quote(f.Type.Enum.Values[0].JSONName())
+	case f.Type.Kind == onkir.KindScalar:
+		switch f.Type.Scalar {
+		case onkir.ScalarString, onkir.ScalarBytes:
+			return `""`
+		case onkir.ScalarBool:
+			return "false"
+		case onkir.ScalarInt64, onkir.ScalarUint64:
+			if needsInt64NumberEncoding(f) {
+				return "0"
+			}
+			return `"0"`
+		}
+	}
+	return "0"
 }

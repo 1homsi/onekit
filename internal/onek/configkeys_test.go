@@ -48,3 +48,15 @@ func TestLoadConfigValidatesInt64Encoding(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadConfigPassesEmitZeroValuesToTheCompiler(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"x\"\nemit_zero_values = true\n[generate.go-server]\nout = \"./a\"\n")
+	cfg, err := LoadConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.CompileOptions().EmitZeroValues {
+		t.Fatalf("emit_zero_values not passed to the compiler: %+v", cfg.CompileOptions())
+	}
+}

@@ -39,6 +39,9 @@ type CompileOptions struct {
 	// Int64Encoding is "" or "string" (the default: 64-bit integers cross the
 	// wire as JSON strings unless a field says @encode("number")) or "number".
 	Int64Encoding string
+	// EmitZeroValues makes every non-optional scalar, enum, repeated, map and
+	// bytes field always appear on the wire (see onkir.Field.EmitZero).
+	EmitZeroValues bool
 }
 
 const Int64EncodingNumber = "number"
@@ -404,6 +407,7 @@ func (c *compiler) buildField(fd *onklang.FieldDecl, owner *onkir.Message, path 
 		return nil, err
 	}
 	field.Type = typ
+	field.EmitZero = c.options.EmitZeroValues && emitsZero(field)
 	if c.options.Int64Encoding == Int64EncodingNumber && typ.Kind == onkir.KindScalar &&
 		(typ.Scalar == onkir.ScalarInt64 || typ.Scalar == onkir.ScalarUint64) {
 		field.Int64Number = true
@@ -768,4 +772,17 @@ func convertArgs(args []onklang.Arg) []onkir.Arg {
 		out = append(out, onkir.Arg{Name: a.Name, Value: a.Value, Quoted: a.Quoted})
 	}
 	return out
+}
+
+func emitsZero(f *onkir.Field) bool {
+	if f.Optional || f.Oneof != nil || f.Type == nil {
+		return false
+	}
+	switch f.Type.Kind {
+	case onkir.KindMessage:
+		return f.Repeated
+	case onkir.KindScalar:
+		return f.Type.Scalar != onkir.ScalarTimestamp && f.Type.Scalar != onkir.ScalarJSON
+	}
+	return true
 }

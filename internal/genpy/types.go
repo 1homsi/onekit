@@ -395,9 +395,23 @@ func writeMessageFieldToDict(p *Printer, f *onkir.Field, key string) {
 	p.Dedent()
 }
 
-func writeRepeatedFieldToDict(p *Printer, f *onkir.Field, key string) {
-	p.P("if self.", f.Name, ":")
+func pyOpenGuard(p *Printer, f *onkir.Field, condition string) bool {
+	if f.EmitZero {
+		return false
+	}
+	p.P("if ", condition, ":")
 	p.Indent()
+	return true
+}
+
+func pyCloseGuard(p *Printer, opened bool) {
+	if opened {
+		p.Dedent()
+	}
+}
+
+func writeRepeatedFieldToDict(p *Printer, f *onkir.Field, key string) {
+	guard := pyOpenGuard(p, f, "self."+f.Name)
 	switch {
 	case f.Type.Kind == onkir.KindMessage:
 		p.P("d[", key, "] = [v.to_dict() for v in self.", f.Name, "]")
@@ -410,12 +424,11 @@ func writeRepeatedFieldToDict(p *Printer, f *onkir.Field, key string) {
 	default:
 		p.P("d[", key, "] = list(self.", f.Name, ")")
 	}
-	p.Dedent()
+	pyCloseGuard(p, guard)
 }
 
 func writeMapFieldToDict(p *Printer, f *onkir.Field, key string) {
-	p.P("if self.", f.Name, ":")
-	p.Indent()
+	guard := pyOpenGuard(p, f, "self."+f.Name)
 	switch f.Type.MapValue.Kind {
 	case onkir.KindMessage:
 		p.P("d[", key, "] = {k: v.to_dict() for k, v in self.", f.Name, ".items()}")
@@ -430,7 +443,7 @@ func writeMapFieldToDict(p *Printer, f *onkir.Field, key string) {
 	default:
 		p.P("d[", key, "] = dict(self.", f.Name, ")")
 	}
-	p.Dedent()
+	pyCloseGuard(p, guard)
 }
 
 // bodyValueExpr returns the wire representation of a field when @body binds
@@ -517,14 +530,16 @@ func writeToDictField(p *Printer, f *onkir.Field) {
 		}
 		p.Dedent()
 	case isBytesField(f):
+		var guard bool
 		if f.Optional {
 			p.P("if self.", f.Name, " is not None:")
+			p.Indent()
+			guard = true
 		} else {
-			p.P("if self.", f.Name, ":")
+			guard = pyOpenGuard(p, f, "self."+f.Name)
 		}
-		p.Indent()
 		p.P("d[", key, "] = ", bytesEncodeExpr(bytesEncodingValue(f), "self."+f.Name))
-		p.Dedent()
+		pyCloseGuard(p, guard)
 	case needsInt64StringEncoding(f):
 		p.P("if self.", f.Name, " is not None:")
 		p.Indent()
@@ -539,10 +554,9 @@ func writeToDictField(p *Printer, f *onkir.Field) {
 		// Matches gengo/gents' default `omitempty` wire behavior: a
 		// required scalar field at its zero value is indistinguishable
 		// from "unset" on the wire, so it's simply omitted.
-		p.P("if self.", f.Name, ":")
-		p.Indent()
+		guard := pyOpenGuard(p, f, "self."+f.Name)
 		p.P("d[", key, "] = self.", f.Name)
-		p.Dedent()
+		pyCloseGuard(p, guard)
 	}
 }
 

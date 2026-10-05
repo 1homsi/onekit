@@ -162,3 +162,52 @@ message M {
 		}
 	}
 }
+
+func TestEmitZeroValuesOptionMarksOnlyFieldsThatAlwaysAppear(t *testing.T) {
+	src := `package api
+enum Level { LOW HIGH }
+message Inner { v: string }
+message M {
+  s: string
+  b: bool
+  n: int32
+  l: Level
+  tags: string[]
+  by: map[string, string]
+  data: bytes
+  items: Inner[]
+  when: timestamp
+  free: json
+  maybe: string?
+  inner: Inner
+  pick: oneof { a: string b: int32 }
+}
+`
+	compile := func(on bool) map[string]bool {
+		pkg, err := CompileWithOptions([]Source{{Path: "api.onk", AST: parseOrFatal(t, src)}}, CompileOptions{EmitZeroValues: on})
+		if err != nil {
+			t.Fatal(err)
+		}
+		flagged := map[string]bool{}
+		for _, f := range pkg.Files[0].Messages[1].Fields {
+			flagged[f.Name] = f.EmitZero
+		}
+		return flagged
+	}
+	for name, flagged := range compile(false) {
+		if flagged {
+			t.Errorf("without the option %s must not be flagged", name)
+		}
+	}
+	got := compile(true)
+	for _, name := range []string{"s", "b", "n", "l", "tags", "by", "data", "items"} {
+		if !got[name] {
+			t.Errorf("%s should always be written", name)
+		}
+	}
+	for _, name := range []string{"when", "free", "maybe", "inner", "pick"} {
+		if got[name] {
+			t.Errorf("%s must keep its omitted-when-unset meaning", name)
+		}
+	}
+}

@@ -539,13 +539,13 @@ func fieldSerdeOptions(field *onkir.Field) string {
 	if field.Optional && empty == "" && !rootUnwrap {
 		options = append(options, `skip_serializing_if = "Option::is_none"`)
 	}
-	if field.Repeated && !rootUnwrap {
+	if field.Repeated && !rootUnwrap && !field.EmitZero {
 		options = append(options, `skip_serializing_if = "Vec::is_empty"`)
 	}
 	if isStringTimestamp(field) && !field.Optional && !field.Repeated && !rootUnwrap {
 		options = append(options, `skip_serializing_if = "String::is_empty"`)
 	}
-	if field.Type != nil && field.Type.Kind == onkir.KindMap && !rootUnwrap {
+	if field.Type != nil && field.Type.Kind == onkir.KindMap && !rootUnwrap && !field.EmitZero {
 		options = append(options, `skip_serializing_if = "std::collections::HashMap::is_empty"`)
 	}
 	if _, ok := flattenPrefix(field); ok {
