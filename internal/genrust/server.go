@@ -271,9 +271,13 @@ func writeRouter(p *Printer, service *onkir.Service) {
 		if verb == queryVerb {
 			routeFn = "any"
 		}
+		routeLayer := ""
+		if limit, ok := method.MaxBodyBytes(); ok {
+			routeLayer = ".layer(axum::extract::DefaultBodyLimit::max(" + strconv.FormatInt(limit, 10) + "))"
+		}
 		p.P(
 			".route(", strconv.Quote(rustAxumPath(fullPath)), ", axum::routing::", routeFn,
-			"(", handlerName(service, method), "::<T>))",
+			"(", handlerName(service, method), "::<T>)", routeLayer, ")",
 		)
 	}
 	p.P(".with_state(service)")

@@ -35,3 +35,32 @@ func TestWildcardPathValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestMaxBodyDecoratorValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		rpc  string
+		want string
+	}{
+		{"mebibytes accepted", `@post("/x") @max_body("64MiB")`, ""},
+		{"byte count accepted", `@post("/x") @max_body("1048576")`, ""},
+		{"bad size rejected", `@post("/x") @max_body("lots")`, "positive byte count"},
+		{"zero rejected", `@post("/x") @max_body("0")`, "positive byte count"},
+		{"get rejected", `@get("/x") @max_body("1MiB")`, "body-bearing"},
+		{"ws rejected", `@ws("/x") @max_body("1MiB")`, "@max_body"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := compileRules(t, "package api\nmessage Req { a: string }\nmessage Res { ok: bool }\nservice S { run(Req) -> Res "+tc.rpc+" }\n")
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want containing %q", err, tc.want)
+			}
+		})
+	}
+}
