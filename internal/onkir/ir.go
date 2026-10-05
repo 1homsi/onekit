@@ -126,6 +126,11 @@ type Field struct {
 	// project asks for numeric 64-bit integers (int64_encoding = "number"),
 	// including repeated fields, which cannot carry @encode.
 	Int64Number bool
+	// EmitZero is set by the compiler when the project asks for zero values
+	// to be written (emit_zero_values = true): the field is always present on
+	// the wire, as "", 0, false, [], {} or the enum's first name, instead of
+	// being omitted when it holds its zero value.
+	EmitZero bool
 }
 
 // OneofVariant is one alternative of a discriminated oneof field.

@@ -16,6 +16,35 @@ type fieldCategories struct {
 	timestamps []*onkir.Field
 	flattens   []*onkir.Field
 	emptys     []*onkir.Field
+	// zeroCollections are EmitZero repeated, map and plain bytes fields whose nil
+	// form would marshal as JSON null; the marshal aux struct writes [], {} or
+	// "" for them instead.
+	zeroCollections []*onkir.Field
+}
+
+func (c fieldCategories) needsUnmarshal() bool {
+	return len(c.oneofs)+len(c.int64s)+len(c.int64Reps)+len(c.int64Opts)+len(c.enums)+
+		len(c.bytesF)+len(c.timestamps)+len(c.flattens)+len(c.emptys) > 0
+}
+
+func zeroCollectionField(f *onkir.Field) bool {
+	if !f.EmitZero || f.Oneof != nil {
+		return false
+	}
+	switch {
+	case f.Repeated, f.Type.Kind == onkir.KindMap:
+		return true
+	case f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarBytes:
+		return true
+	}
+	return false
+}
+
+func fieldTagOptions(f *onkir.Field) string {
+	if f.EmitZero {
+		return ""
+	}
+	return ",omitempty"
 }
 
 const goStringType = "string"
@@ -38,6 +67,8 @@ func categorizeFields(m *onkir.Message) fieldCategories {
 			c.bytesF = append(c.bytesF, f)
 		case timestampEncodingValue(f) != "":
 			c.timestamps = append(c.timestamps, f)
+		case zeroCollectionField(f):
+			c.zeroCollections = append(c.zeroCollections, f)
 		}
 		if _, ok := flattenPrefix(f); ok {
 			c.flattens = append(c.flattens, f)
@@ -52,7 +83,9 @@ func categorizeFields(m *onkir.Message) fieldCategories {
 func writeCustomJSONMethods(p *Printer, m *onkir.Message) {
 	c := categorizeFields(m)
 	writeCustomMarshalJSON(p, m, c)
-	writeCustomUnmarshalJSON(p, m, c)
+	if c.needsUnmarshal() {
+		writeCustomUnmarshalJSON(p, m, c)
+	}
 }
 
 func timestampEncodeExpr(encoding, expr string) string {
@@ -131,13 +164,13 @@ func writeAuxFieldDecls(p *Printer, m *onkir.Message, c fieldCategories, include
 		p.P(PascalCase(f.Name), " *", oneofWireName(m, f), " `json:\"", f.Name, ",omitempty\"`")
 	}
 	for _, f := range c.int64s {
-		p.P(PascalCase(f.Name), " string `json:\"", f.Name, ",omitempty\"`")
+		p.P(PascalCase(f.Name), " string `json:\"", f.Name, fieldTagOptions(f), "\"`")
 	}
 	for _, f := range c.int64Opts {
 		p.P(PascalCase(f.Name), " *string `json:\"", f.Name, ",omitempty\"`")
 	}
 	for _, f := range c.int64Reps {
-		p.P(PascalCase(f.Name), " []string `json:\"", f.Name, ",omitempty\"`")
+		p.P(PascalCase(f.Name), " []string `json:\"", f.Name, fieldTagOptions(f), "\"`")
 	}
 	for _, f := range c.enums {
 		if f.Optional {
@@ -153,7 +186,7 @@ func writeAuxFieldDecls(p *Printer, m *onkir.Message, c fieldCategories, include
 		if f.Optional {
 			auxType = "*string"
 		}
-		p.P(PascalCase(f.Name), " ", auxType, " `json:\"", f.Name, ",omitempty\"`")
+		p.P(PascalCase(f.Name), " ", auxType, " `json:\"", f.Name, fieldTagOptions(f), "\"`")
 	}
 	for _, f := range c.timestamps {
 		auxType := timestampAuxType(timestampEncodingValue(f))
@@ -172,6 +205,27 @@ func writeAuxFieldDecls(p *Printer, m *onkir.Message, c fieldCategories, include
 		for _, f := range c.emptys {
 			p.P(PascalCase(f.Name), " json.RawMessage `json:\"", f.Name, ",omitempty\"`")
 		}
+		for _, f := range c.zeroCollections {
+			p.P(PascalCase(f.Name), " ", zeroCollectionType(p, f), " `json:\"", f.Name, "\"`")
+		}
+	}
+}
+
+func zeroCollectionType(p *Printer, f *onkir.Field) string {
+	if f.Repeated {
+		return "[]" + p.GoFieldType(f.Type)
+	}
+	return p.GoFieldType(f.Type)
+}
+
+func writeZeroCollectionAssignments(p *Printer, c fieldCategories) {
+	for _, f := range c.zeroCollections {
+		goName := PascalCase(f.Name)
+		typ := zeroCollectionType(p, f)
+		p.P("aux.", goName, " = m.", goName)
+		p.P("if aux.", goName, " == nil {")
+		p.P("aux.", goName, " = ", typ, "{}")
+		p.P("}")
 	}
 }
 
@@ -297,6 +351,7 @@ func writeCustomMarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
 	writeBytesMarshalAssignments(p, c)
 	writeTimestampMarshalAssignments(p, c)
 	writeEmptyMarshalAssignments(p, c)
+	writeZeroCollectionAssignments(p, c)
 
 	if len(c.flattens) == 0 {
 		p.P("return json.Marshal(aux)")
@@ -537,6 +592,15 @@ func writeRootUnwrapJSON(p *Printer, m *onkir.Message, field *onkir.Field) {
 		return
 	}
 	p.P("func (m *", m.Name, ") MarshalJSON() ([]byte, error) {")
+	if field.EmitZero && (field.Repeated || field.Type.Kind == onkir.KindMap) {
+		empty := "[]"
+		if !field.Repeated {
+			empty = "{}"
+		}
+		p.P("if m.", goName, " == nil {")
+		p.P("return []byte(", fmt.Sprintf("%q", empty), "), nil")
+		p.P("}")
+	}
 	p.P("return json.Marshal(m.", goName, ")")
 	p.P("}")
 	p.P()

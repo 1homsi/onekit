@@ -59,6 +59,7 @@ type Config struct {
 	RoutePrefix          string         `toml:"route_prefix"`
 	AllowLegacyContracts bool           `toml:"allow_legacy_contracts"`
 	Int64Encoding        string         `toml:"int64_encoding"`
+	EmitZeroValues       bool           `toml:"emit_zero_values"`
 	Generate             GenerateConfig `toml:"generate"`
 
 	dir       string
@@ -223,7 +224,7 @@ func (c *Config) CompileOptions() onkcompile.CompileOptions {
 	if c == nil {
 		return onkcompile.CompileOptions{}
 	}
-	return onkcompile.CompileOptions{AllowLegacyContracts: c.AllowLegacyContracts, Int64Encoding: c.Int64Encoding}
+	return onkcompile.CompileOptions{AllowLegacyContracts: c.AllowLegacyContracts, Int64Encoding: c.Int64Encoding, EmitZeroValues: c.EmitZeroValues}
 }
 
 func validateRoutePrefix(prefix string) error {

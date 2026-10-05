@@ -93,7 +93,7 @@ func fieldNeedsCustomJSON(f *onkir.Field) bool {
 	if v := emptyBehaviorValue(f); v != "" && v != emptyBehaviorPreserve {
 		return true
 	}
-	return false
+	return zeroCollectionField(f)
 }
 
 func messageNeedsCustomJSON(m *onkir.Message) bool {

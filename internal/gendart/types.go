@@ -447,9 +447,9 @@ func writeToJSONField(p *Printer, f *onkir.Field) {
 	value := p.fieldWireValue(f, id)
 	switch {
 	case f.Repeated:
-		p.P("if (", id, ".isNotEmpty) json[", key, "] = ", value, ";")
+		writeDartConditionalJSON(p, f, id+".isNotEmpty", key, value)
 	case f.Type.Kind == onkir.KindMap:
-		p.P("if (", id, ".isNotEmpty) json[", key, "] = ", value, ";")
+		writeDartConditionalJSON(p, f, id+".isNotEmpty", key, value)
 	case f.Type.Kind == onkir.KindMessage:
 		writeMessageFieldToJSON(p, f)
 	case f.Optional, f.Type.Kind == onkir.KindEnum, int64AsString(f):
@@ -461,13 +461,21 @@ func writeToJSONField(p *Printer, f *onkir.Field) {
 	case f.Type.Kind == onkir.KindScalar && (f.Type.Scalar == onkir.ScalarTimestamp || f.Type.Scalar == onkir.ScalarJSON):
 		p.P("if (", id, " != null) json[", key, "] = ", p.encodeValue(f.Type, f, id+"!", false), ";")
 	case f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarBytes:
-		p.P("if (", id, ".isNotEmpty) json[", key, "] = ", value, ";")
+		writeDartConditionalJSON(p, f, id+".isNotEmpty", key, value)
 	case f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarUint64:
-		p.P("if (", id, " != BigInt.zero) json[", key, "] = ", value, ";")
+		writeDartConditionalJSON(p, f, id+" != BigInt.zero", key, value)
 	default:
 		zero, _ := constDefault(f.Type)
-		p.P("if (", id, " != ", zero, ") json[", key, "] = ", value, ";")
+		writeDartConditionalJSON(p, f, id+" != "+zero, key, value)
 	}
+}
+
+func writeDartConditionalJSON(p *Printer, f *onkir.Field, condition, key, value string) {
+	if f.EmitZero {
+		p.P("json[", key, "] = ", value, ";")
+		return
+	}
+	p.P("if (", condition, ") json[", key, "] = ", value, ";")
 }
 
 func writeMessageFieldToJSON(p *Printer, f *onkir.Field) {

@@ -314,6 +314,9 @@ func fieldContractSignature(field *onkir.Field) string {
 	if field.Int64Number && !field.HasDecorator("encode") {
 		parts = append(parts, "encode:number")
 	}
+	if field.EmitZero {
+		parts = append(parts, "emit:zero")
+	}
 	sort.Strings(parts)
 	return strings.Join(parts, "|")
 }

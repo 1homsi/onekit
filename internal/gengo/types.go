@@ -652,7 +652,7 @@ func writeField(p *Printer, m *onkir.Message, f *onkir.Field) {
 		goType = "*" + goType
 	}
 
-	p.P(goName, " ", goType, " `json:\"", f.Name, ",omitempty\"`")
+	p.P(goName, " ", goType, " `json:\"", f.Name, fieldTagOptions(f), "\"`")
 }
 
 // writeFieldGetters emits protoc-gen-go-style Get<Field>() accessor methods
