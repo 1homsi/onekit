@@ -20,11 +20,12 @@ type fieldCategories struct {
 	// form would marshal as JSON null; the marshal aux struct writes [], {} or
 	// "" for them instead.
 	zeroCollections []*onkir.Field
+	nulls           []*onkir.Field
 }
 
 func (c fieldCategories) needsUnmarshal() bool {
 	return len(c.oneofs)+len(c.int64s)+len(c.int64Reps)+len(c.int64Opts)+len(c.enums)+
-		len(c.bytesF)+len(c.timestamps)+len(c.flattens)+len(c.emptys) > 0
+		len(c.bytesF)+len(c.timestamps)+len(c.flattens)+len(c.emptys)+len(c.nulls) > 0
 }
 
 func zeroCollectionField(f *onkir.Field) bool {
@@ -52,6 +53,9 @@ const goStringType = "string"
 func categorizeFields(m *onkir.Message) fieldCategories {
 	var c fieldCategories
 	for _, f := range m.Fields {
+		if f.Nullable {
+			c.nulls = append(c.nulls, f)
+		}
 		switch {
 		case f.Oneof != nil:
 			c.oneofs = append(c.oneofs, f)
@@ -332,6 +336,7 @@ func writeFlattenMarshalMerge(p *Printer, c fieldCategories) {
 		p.P("}")
 		p.P("}")
 	}
+	writeNullMarshalAssignments(p, c)
 	p.P("return json.Marshal(merged)")
 }
 
@@ -353,8 +358,15 @@ func writeCustomMarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
 	writeEmptyMarshalAssignments(p, c)
 	writeZeroCollectionAssignments(p, c)
 
-	if len(c.flattens) == 0 {
+	if len(c.flattens) == 0 && len(c.nulls) == 0 {
 		p.P("return json.Marshal(aux)")
+		p.P("}")
+		p.P()
+		return
+	}
+
+	if len(c.flattens) == 0 {
+		writeNullMarshalMerge(p, c)
 		p.P("}")
 		p.P()
 		return
@@ -363,6 +375,43 @@ func writeCustomMarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
 	writeFlattenMarshalMerge(p, c)
 	p.P("}")
 	p.P()
+}
+
+func nullPendingCondition(c fieldCategories) string {
+	conds := ""
+	for i, f := range c.nulls {
+		if i > 0 {
+			conds += " || "
+		}
+		goName := GoFieldName(f)
+		conds += "(m." + goName + "Null && m." + goName + " == nil)"
+	}
+	return conds
+}
+
+func writeNullMarshalAssignments(p *Printer, c fieldCategories) {
+	for _, f := range c.nulls {
+		goName := GoFieldName(f)
+		p.P("if m.", goName, "Null && m.", goName, " == nil {")
+		p.P("merged[", fmt.Sprintf("%q", f.Name), `] = json.RawMessage("null")`)
+		p.P("}")
+	}
+}
+
+func writeNullMarshalMerge(p *Printer, c fieldCategories) {
+	p.P("base, err := json.Marshal(aux)")
+	p.P("if err != nil {")
+	p.P("return nil, err")
+	p.P("}")
+	p.P("if !(", nullPendingCondition(c), ") {")
+	p.P("return base, nil")
+	p.P("}")
+	p.P("var merged map[string]json.RawMessage")
+	p.P("if err := json.Unmarshal(base, &merged); err != nil {")
+	p.P("return nil, err")
+	p.P("}")
+	writeNullMarshalAssignments(p, c)
+	p.P("return json.Marshal(merged)")
 }
 
 func writeEmptyMarshalField(p *Printer, f *onkir.Field, behavior string) {
@@ -518,11 +567,25 @@ func writeTimestampUnmarshalAssignments(p *Printer, c fieldCategories) {
 	}
 }
 
-func writeFlattenUnmarshalAssignments(p *Printer, c fieldCategories) {
+func writeRawObjectDecl(p *Printer) {
 	p.P("var raw map[string]json.RawMessage")
 	p.P("if err := json.Unmarshal(data, &raw); err != nil {")
 	p.P("return err")
 	p.P("}")
+}
+
+func writeNullUnmarshalAssignments(p *Printer, c fieldCategories) {
+	for _, f := range c.nulls {
+		goName := GoFieldName(f)
+		p.P("if v, ok := raw[", fmt.Sprintf("%q", f.Name), `]; ok && string(v) == "null" {`)
+		p.P("m.", goName, "Null = true")
+		p.P("} else {")
+		p.P("m.", goName, "Null = false")
+		p.P("}")
+	}
+}
+
+func writeFlattenUnmarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.flattens {
 		goName := GoFieldName(f)
 		prefix, _ := flattenPrefix(f)
@@ -570,9 +633,13 @@ func writeCustomUnmarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
 	writeBytesUnmarshalAssignments(p, c)
 	writeTimestampUnmarshalAssignments(p, c)
 
+	if len(c.flattens) > 0 || len(c.nulls) > 0 {
+		writeRawObjectDecl(p)
+	}
 	if len(c.flattens) > 0 {
 		writeFlattenUnmarshalAssignments(p, c)
 	}
+	writeNullUnmarshalAssignments(p, c)
 
 	p.P("return nil")
 	p.P("}")

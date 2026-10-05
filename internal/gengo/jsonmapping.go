@@ -72,7 +72,7 @@ func rootUnwrapField(m *onkir.Message) *onkir.Field {
 }
 
 func fieldNeedsCustomJSON(f *onkir.Field) bool {
-	if f.Oneof != nil {
+	if f.Oneof != nil || f.Nullable {
 		return true
 	}
 	if needsInt64StringEncoding(f) {

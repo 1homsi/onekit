@@ -653,6 +653,9 @@ func writeField(p *Printer, m *onkir.Message, f *onkir.Field) {
 	}
 
 	p.P(goName, " ", goType, " `json:\"", f.Name, fieldTagOptions(f), "\"`")
+	if f.Nullable {
+		p.P(goName, "Null bool `json:\"-\"`")
+	}
 }
 
 // writeFieldGetters emits protoc-gen-go-style Get<Field>() accessor methods
