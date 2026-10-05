@@ -127,7 +127,21 @@ func fieldSchemaProxy(f *onkir.Field) *base.SchemaProxy {
 	}
 	schema := concreteTypeSchema(f)
 	applyFieldValidation(schema, f)
+	if f.Nullable {
+		schema = nullableSchema(schema)
+	}
 	return base.CreateSchemaProxy(schema)
+}
+
+func nullableSchema(schema *base.Schema) *base.Schema {
+	if len(schema.Type) > 0 && len(schema.AllOf) == 0 && len(schema.Enum) == 0 {
+		schema.Type = append(schema.Type, "null")
+		return schema
+	}
+	return &base.Schema{AnyOf: []*base.SchemaProxy{
+		base.CreateSchemaProxy(schema),
+		base.CreateSchemaProxy(&base.Schema{Type: []string{"null"}}),
+	}}
 }
 
 func messageSchema(m *onkir.Message) *base.Schema {

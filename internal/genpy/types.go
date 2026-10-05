@@ -503,6 +503,16 @@ func (p *Printer) bodyTypeValueExpr(typ *onkir.Type, expr string, field *onkir.F
 }
 
 func writeToDictField(p *Printer, f *onkir.Field) {
+	writeToDictFieldValue(p, f)
+	if f.Nullable {
+		p.P("if self.", f.Name, " is None and self.", f.Name, "_null:")
+		p.Indent()
+		p.P("d[", fmt.Sprintf("%q", f.Name), "] = None")
+		p.Dedent()
+	}
+}
+
+func writeToDictFieldValue(p *Printer, f *onkir.Field) {
 	if f.Oneof != nil {
 		p.P("if self.", f.Name, " is not None:")
 		p.Indent()
@@ -758,6 +768,9 @@ func writeMessage(p *Printer, m *onkir.Message) {
 	for _, f := range m.Fields {
 		writeFieldDecl(p, f)
 		writePyDoc(p, f.Doc)
+		if f.Nullable {
+			p.P(f.Name, "_null: bool = False")
+		}
 	}
 	p.Blank()
 
@@ -778,6 +791,9 @@ func writeMessage(p *Printer, m *onkir.Message) {
 	p.Indent()
 	for _, f := range m.Fields {
 		p.P(f.Name, "=", p.writeFromDictField(f), ",")
+		if f.Nullable {
+			p.P(f.Name, "_null=(", fmt.Sprintf("%q", f.Name), " in d and d[", fmt.Sprintf("%q", f.Name), "] is None),")
+		}
 	}
 	p.Dedent()
 	p.P(")")

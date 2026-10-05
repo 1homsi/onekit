@@ -434,6 +434,8 @@ func nullableIneligibleReason(f *onkir.Field) string {
 		return "is not supported on bytes fields"
 	case f.HasDecorator("required"):
 		return "cannot be combined with @required"
+	case f.HasDecorator("query"):
+		return "cannot be combined with @query"
 	case f.HasDecorator("flatten") || f.HasDecorator("unwrap") || f.HasDecorator("empty"):
 		return "cannot be combined with @flatten, @unwrap or @empty"
 	case f.Type.Kind == onkir.KindScalar && (f.Type.Scalar == onkir.ScalarInt64 || f.Type.Scalar == onkir.ScalarUint64) && !f.Int64Number && !fieldEncodesAsNumber(f):
