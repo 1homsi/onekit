@@ -297,11 +297,7 @@ func Check(dir string) error {
 }
 
 func checkAt(root string, cfg *Config) error {
-	options := onkcompile.CompileOptions{}
-	if cfg != nil {
-		options.AllowLegacyContracts = cfg.AllowLegacyContracts
-	}
-	_, err := CompileWithOptions(root, options)
+	_, err := CompileWithOptions(root, cfg.CompileOptions())
 	return err
 }
 
@@ -333,10 +329,10 @@ func compileCompatibilityProject(dir string, fallback *Config) (*onkir.Package, 
 	switch {
 	case cfg != nil:
 		root = cfg.SchemaDir()
-		options.AllowLegacyContracts = cfg.AllowLegacyContracts
+		options = cfg.CompileOptions()
 		routePrefix = cfg.RoutePrefix
 	case fallback != nil:
-		options.AllowLegacyContracts = fallback.AllowLegacyContracts
+		options = fallback.CompileOptions()
 		routePrefix = fallback.RoutePrefix
 		if fallback.SchemaRoot != "" {
 			if info, statErr := os.Stat(filepath.Join(dir, fallback.SchemaRoot)); statErr == nil && info.IsDir() {
@@ -624,9 +620,7 @@ func build(dir string) (bool, error) {
 		}()
 	}
 
-	pkg, err := CompileWithOptions(cfg.SchemaDir(), onkcompile.CompileOptions{
-		AllowLegacyContracts: cfg.AllowLegacyContracts,
-	})
+	pkg, err := CompileWithOptions(cfg.SchemaDir(), cfg.CompileOptions())
 	if err != nil {
 		return false, err
 	}

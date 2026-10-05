@@ -354,7 +354,7 @@ func tsRuntimeTypeExpression(field *onkir.Field, expr string) string {
 		return tsTrueExpression
 	}
 	if field.Repeated {
-		item := &onkir.Field{Type: field.Type}
+		item := &onkir.Field{Type: field.Type, Int64Number: field.Int64Number}
 		return fmt.Sprintf("Array.isArray(%s) && (%s).every((item: any) => %s)", expr, expr, tsRuntimeTypeExpression(item, "item"))
 	}
 	if field.Type.Kind == onkir.KindMap {

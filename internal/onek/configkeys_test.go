@@ -25,3 +25,24 @@ func TestLoadConfigSuggestsKnownKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadConfigValidatesInt64Encoding(t *testing.T) {
+	for value, ok := range map[string]bool{"": true, "string": true, "number": true, "float": false} {
+		dir := t.TempDir()
+		config := "module = \"x\"\n[generate.go-server]\nout = \"./a\"\n"
+		if value != "" {
+			config = "module = \"x\"\nint64_encoding = \"" + value + "\"\n[generate.go-server]\nout = \"./a\"\n"
+		}
+		writeTestFile(t, filepath.Join(dir, "onekit.toml"), config)
+		cfg, err := LoadConfig(dir)
+		if ok && err != nil {
+			t.Errorf("%q should load: %v", value, err)
+		}
+		if !ok && (err == nil || !strings.Contains(err.Error(), "int64_encoding")) {
+			t.Errorf("%q should be rejected with a clear message, got %v", value, err)
+		}
+		if ok && cfg.CompileOptions().Int64Encoding != value {
+			t.Errorf("%q not passed to the compiler: %+v", value, cfg.CompileOptions())
+		}
+	}
+}

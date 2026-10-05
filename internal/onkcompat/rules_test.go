@@ -3,6 +3,9 @@ package onkcompat
 import (
 	"fmt"
 	"testing"
+
+	"github.com/1homsi/onekit/internal/onkcompile"
+	"github.com/1homsi/onekit/internal/onkir"
 )
 
 func TestCompareReportsChangedMessageRules(t *testing.T) {
@@ -66,5 +69,29 @@ service S { get(Req) -> Resp @get("/x") %s }`
 	}
 	if findings := compareSchemas(t, loose, loose); len(findings) != 0 {
 		t.Fatalf("an unchanged rule is not a change: %+v", findings)
+	}
+}
+
+func TestCompareReportsChangingTheProjectInt64Encoding(t *testing.T) {
+	src := `package app
+message Item { id: int64 ids: int64[] name: string }
+`
+	build := func(encoding string) *onkir.Package {
+		pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{*compile(t, src)}, onkcompile.CompileOptions{Int64Encoding: encoding})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pkg
+	}
+	findings := Compare(build(""), build("number"))
+	paths := map[string]bool{}
+	for _, f := range findings {
+		paths[f.Path] = true
+	}
+	if !paths["app.Item.id"] || !paths["app.Item.ids"] || paths["app.Item.name"] {
+		t.Fatalf("changing the encoding must flag exactly the int64 fields, got %+v", findings)
+	}
+	if len(Compare(build("number"), build("number"))) != 0 {
+		t.Fatal("an unchanged encoding is not a change")
 	}
 }

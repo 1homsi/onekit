@@ -34,8 +34,15 @@ func NeedsInt64StringEncoding(f *onkir.Field) bool {
 	if f.Type == nil || f.Type.Kind != onkir.KindScalar || !IsInt64Kind(f.Type.Scalar) {
 		return false
 	}
+	return !int64IsNumber(f)
+}
+
+func int64IsNumber(f *onkir.Field) bool {
+	if f.Int64Number {
+		return true
+	}
 	v, _ := FieldEncodeValue(f)
-	return v != encodeNumber
+	return v == encodeNumber
 }
 
 // NeedsInt64NumberEncoding is NeedsInt64StringEncoding's complement: it
@@ -45,8 +52,7 @@ func NeedsInt64NumberEncoding(f *onkir.Field) bool {
 	if f.Type == nil || f.Type.Kind != onkir.KindScalar || !IsInt64Kind(f.Type.Scalar) {
 		return false
 	}
-	v, _ := FieldEncodeValue(f)
-	return v == encodeNumber
+	return int64IsNumber(f)
 }
 
 // NeedsEnumNumberEncoding reports whether an enum field is sent as its
