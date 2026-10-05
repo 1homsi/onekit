@@ -36,7 +36,7 @@ func compileWildcard(t *testing.T) []byte {
 
 func TestWildcardPathParameter(t *testing.T) {
 	out := string(compileWildcard(t))
-	for _, want := range []string{`"{path...}"`, `safe="/"`} {
+	for _, want := range []string{"dot segments are not allowed", `"{path...}"`, `safe="/"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}

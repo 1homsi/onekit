@@ -45,6 +45,9 @@ for (const path of ["a.txt", "dir/sub/b.txt", "sp ace/x+y", "100%/ü.txt"]) {
   const got = await client.read({ path });
   if (got.path !== path) throw new Error("client " + path + " -> " + got.path);
 }
+let rejected = false;
+try { await client.read({ path: "a/../../admin" }); } catch { rejected = true; }
+if (!rejected) throw new Error("dot segments must be rejected");
 if ((await client.root({})).path !== "ROOT") throw new Error("root");
 console.log("OK");
 `)

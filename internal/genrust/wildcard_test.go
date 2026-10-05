@@ -56,6 +56,7 @@ async fn main() {
         let got = client.read(&FileRef { path: path.into() }).await.unwrap();
         assert_eq!(got.path, path);
     }
+    assert!(client.read(&FileRef { path: "a/../../admin".into() }).await.is_err());
     assert_eq!(client.root(&Empty {}).await.unwrap().path, "ROOT");
     println!("OK");
 }

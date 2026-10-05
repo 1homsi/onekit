@@ -70,6 +70,7 @@ func main() {
 		got, err := client.Read(context.Background(), &app.FileRef{Path: path})
 		if err != nil || got.Path != path { panic(fmt.Sprintf("client %q: %v %v", path, got, err)) }
 	}
+	if _, err := client.Read(context.Background(), &app.FileRef{Path: "a/../../admin"}); err == nil { panic("dot segments must be rejected") }
 	root, err := client.Root(context.Background(), &app.Empty{})
 	if err != nil || root.Path != "ROOT" { panic(fmt.Sprintf("root: %v %v", root, err)) }
 	fmt.Println("OK")

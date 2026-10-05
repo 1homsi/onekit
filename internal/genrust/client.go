@@ -245,6 +245,11 @@ func writeClientMethod(
 				)
 				value = "path_value"
 			}
+			if onkir.IsWildcardParam(path, name) {
+				p.P("if query_value(", value, ").split('/').any(|segment| segment == \".\" || segment == \"..\") {")
+				p.P("return Err(", errorName, "::InvalidRequest(", strconv.Quote(name+": dot segments are not allowed"), ".into()));")
+				p.P("}")
+			}
 			encoded := "urlencoding::encode(&query_value(" + value + "))"
 			if onkir.IsWildcardParam(path, name) {
 				encoded = encoded + ".replace(\"%2F\", \"/\")"

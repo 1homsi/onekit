@@ -163,6 +163,9 @@ func writePathAndQuery(p *Printer, route string, req *onkir.Message, withQuery b
 		if field == nil {
 			continue
 		}
+		if onkir.IsWildcardParam(route, name) {
+			p.P("if (req.", Ident(field.Name), ".split('/').any((s) => s == '.' || s == '..')) throw ArgumentError(", dartString(name+": dot segments are not allowed"), ");")
+		}
 		p.P("path = path.replaceAll(", dartString(onkir.PathPlaceholder(route, name)), ", ", pathValueFunc(route, name), "(req.", Ident(field.Name), "));")
 	}
 	p.P("final query = <MapEntry<String, String>>[];")

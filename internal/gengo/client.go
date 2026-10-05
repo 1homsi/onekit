@@ -232,6 +232,11 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		if field == nil {
 			continue
 		}
+		if onkir.IsWildcardParam(path, paramName) {
+			p.P("for _, segment := range strings.Split(fmt.Sprint(req.", PascalCase(paramName), "), \"/\") {")
+			p.P(`if segment == "." || segment == ".." { return nil, fmt.Errorf("invalid path parameter ` + paramName + `: dot segments are not allowed") }`)
+			p.P("}")
+		}
 		p.P("path = strings.ReplaceAll(path, ", fmt.Sprintf("%q", onkir.PathPlaceholder(path, paramName)), ", ",
 			goPathEscapeExpr(path, paramName, "req."+PascalCase(paramName)), ")")
 	}

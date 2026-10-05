@@ -131,6 +131,9 @@ func writePathAndQuery(p *Printer, route string, req *onkir.Message, withQuery b
 		if field == nil {
 			continue
 		}
+		if onkir.IsWildcardParam(route, name) {
+			p.P("if String(describing: req.", Ident(field.Name), `).split(separator: "/", omittingEmptySubsequences: false).contains(where: { $0 == "." || $0 == ".." }) { throw OnekitError.validation([`+swiftString(name+": dot segments are not allowed")+`]) }`)
+		}
 		p.P("path = path.replacingOccurrences(of: ", swiftString(onkir.PathPlaceholder(route, name)), ", with: ", pathValueFunc(route, name), "(req.", Ident(field.Name), "))")
 	}
 	var lines []func()
