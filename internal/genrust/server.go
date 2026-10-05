@@ -37,6 +37,7 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 		p.principalType = p.MessageTypeName(principal)
 	}
 	writeServerContext(p)
+	p.P(rustErrorRuntimeSource)
 	writePathParser(p)
 	p.P("pub const DEFAULT_MAX_REQUEST_BODY_BYTES: usize = 8 << 20;")
 	p.Blank()
@@ -90,6 +91,60 @@ func writeServerContext(p *Printer) {
 	p.P("}")
 	p.Blank()
 }
+
+const rustErrorRuntimeSource = `#[derive(Debug, Clone)]
+pub struct ServerErrorInfo {
+    pub status: StatusCode,
+    pub code: &'static str,
+    pub message: String,
+    pub violations: Vec<String>,
+}
+
+pub type ErrorWriter = Arc<dyn Fn(&ServerErrorInfo, &HeaderMap) -> Response + Send + Sync>;
+
+fn error_response(status: StatusCode, code: &'static str, message: String, violations: Vec<String>) -> Response {
+    let body = if violations.is_empty() {
+        serde_json::json!({ "message": message })
+    } else {
+        serde_json::json!({ "message": message, "violations": violations })
+    };
+    let mut response = (status, Json(body)).into_response();
+    response.extensions_mut().insert(ServerErrorInfo { status, code, message, violations });
+    response
+}
+
+pub fn with_error_writer(router: Router, writer: ErrorWriter) -> Router {
+    router.layer(axum::middleware::from_fn(move |request: axum::extract::Request, next: axum::middleware::Next| {
+        let writer = writer.clone();
+        async move {
+            let headers = request.headers().clone();
+            let response = next.run(request).await;
+            let info = match response.extensions().get::<ServerErrorInfo>().cloned() {
+                Some(info) => info,
+                None => {
+                    let status = response.status();
+                    let (code, message) = match status {
+                        StatusCode::NOT_FOUND => ("not_found", "not found"),
+                        StatusCode::METHOD_NOT_ALLOWED => ("method_not_allowed", "method not allowed"),
+                        _ => return response,
+                    };
+                    let empty = response.headers().get(axum::http::header::CONTENT_TYPE).is_none();
+                    if !empty {
+                        return response;
+                    }
+                    ServerErrorInfo { status, code, message: message.to_string(), violations: Vec::new() }
+                }
+            };
+            let allow = response.headers().get(axum::http::header::ALLOW).cloned();
+            let mut replacement = writer(&info, &headers);
+            if let Some(allow) = allow {
+                replacement.headers_mut().entry(axum::http::header::ALLOW).or_insert(allow);
+            }
+            replacement
+        }
+    }))
+}
+`
 
 func writePathParser(p *Printer) {
 	p.P("#[allow(dead_code)]")
@@ -488,8 +543,8 @@ func writeServerError(
 	p.Indent()
 	p.P("match self {")
 	p.Indent()
-	p.P("Self::Validation(error) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ \"message\": error.to_string() }))).into_response(),")
-	p.P("Self::InvalidRequest(error) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ \"message\": error }))).into_response(),")
+	p.P("Self::Validation(error) => error_response(StatusCode::BAD_REQUEST, \"validation_failed\", error.to_string(), Vec::new()),")
+	p.P("Self::InvalidRequest(error) => error_response(StatusCode::BAD_REQUEST, \"invalid_request\", error, Vec::new()),")
 	for i, errorType := range method.ErrorTypes {
 		status := 500
 		if code, ok := errorType.StatusCode(); ok {
@@ -497,7 +552,7 @@ func writeServerError(
 		}
 		p.P("Self::", variants[i], "(error) => (StatusCode::from_u16(", status, ").unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), Json(error)).into_response(),")
 	}
-	p.P("Self::Internal(_error) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ \"message\": \"internal server error\" }))).into_response(),")
+	p.P("Self::Internal(_error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, \"internal\", \"internal server error\".to_string(), Vec::new()),")
 	p.Dedent()
 	p.P("}")
 	p.Dedent()

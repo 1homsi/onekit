@@ -40,38 +40,34 @@ func requestBodyLimit(limit int64) int64 {
 	return limit
 }
 
-func writeBodyError(w http.ResponseWriter, err error) {
-	var tooLarge *http.MaxBytesError
-	if errors.As(err, &tooLarge) {
-		writeJSONError(w, http.StatusRequestEntityTooLarge, "request body too large")
-		return
+func parseInt32(s string) (int32, error) {
+	v, err := strconv.ParseInt(s, 10, 32)
+	if err != nil {
+		return 0, errors.New("must be a 32-bit integer")
 	}
-	writeJSONError(w, http.StatusBadRequest, "invalid request body")
+	return int32(v), nil
 }
-
-func writeHandlerError(w http.ResponseWriter, err error) {
-	status := http.StatusInternalServerError
-	var statusErr interface{ HTTPStatusCode() int }
-	if errors.As(err, &statusErr) {
-		if candidate := statusErr.HTTPStatusCode(); candidate >= 100 && candidate <= 599 {
-			status = candidate
-		}
+func parseInt64(s string) (int64, error) {
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, errors.New("must be an integer")
 	}
-	message := "internal server error"
-	var public interface{ PublicMessage() string }
-	if errors.As(err, &public) && public.PublicMessage() != "" {
-		message = public.PublicMessage()
-	}
-	writeJSONError(w, status, message)
+	return v, nil
 }
-
-func parseInt32(s string) (int32, error) { v, err := strconv.ParseInt(s, 10, 32); return int32(v), err }
-func parseInt64(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) }
 func parseUint32(s string) (uint32, error) {
 	v, err := strconv.ParseUint(s, 10, 32)
-	return uint32(v), err
+	if err != nil {
+		return 0, errors.New("must be a non-negative 32-bit integer")
+	}
+	return uint32(v), nil
 }
-func parseUint64(s string) (uint64, error) { return strconv.ParseUint(s, 10, 64) }
+func parseUint64(s string) (uint64, error) {
+	v, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return 0, errors.New("must be a non-negative integer")
+	}
+	return v, nil
+}
 func parseFloat32(s string) (float32, error) {
 	v, err := strconv.ParseFloat(s, 32)
 	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
@@ -226,6 +222,7 @@ type serverOptions struct {
 	requestIDHeader     string
 	requestIDGenerator  RequestIDGenerator
 	authorizer          Authorizer
+	errorWriter         ErrorWriter
 	observer            RequestObserver
 	maxRequestBodyBytes int64
 }
@@ -284,6 +281,173 @@ func WithScopes(granted func(context.Context, *http.Request) ([]string, error)) 
 	})
 }
 
+// ServerError describes a failure the generated server is about to report.
+// The default writer sends {"message": ...} (plus "violations" when there are
+// any); install WithErrorWriter to send any other shape.
+type ServerError struct {
+	// Status is the HTTP status the server chose.
+	Status int
+	// Code is a stable machine-readable class: invalid_request_body,
+	// request_body_too_large, invalid_path_parameter, invalid_query_parameter,
+	// missing_header, invalid_header, invalid_credentials, validation_failed,
+	// unauthorized, forbidden, not_found, method_not_allowed, internal, or the
+	// snake_case name of the status for errors a handler returned.
+	Code string
+	// Message is the default human-readable message.
+	Message string
+	// Field names the path parameter, query parameter or header at fault.
+	Field string
+	// Violations lists the failed validation or authorization messages.
+	Violations []string
+	// Cause is the underlying error. It is never sent by the default writer.
+	Cause error
+}
+
+// ErrorWriter writes a ServerError as the response. The request carries the
+// request ID (RequestIDFromContext) and the route (RequestMetadataFromContext).
+type ErrorWriter func(w http.ResponseWriter, r *http.Request, e *ServerError)
+
+// WithErrorWriter replaces how the server reports its own errors: decoding,
+// validation, parameters, headers, authorization, handler errors without a
+// declared body, and the 404/405 answers wrapped by ErrorHandler. Errors a
+// method declares with @status keep their declared body.
+func WithErrorWriter(write ErrorWriter) ServerOption {
+	return func(o *serverOptions) { o.errorWriter = write }
+}
+
+func (o serverOptions) fail(w http.ResponseWriter, r *http.Request, e *ServerError) {
+	if o.errorWriter != nil {
+		o.errorWriter(w, r, e)
+		return
+	}
+	body := map[string]any{"message": e.Message}
+	if len(e.Violations) > 0 {
+		body["violations"] = e.Violations
+	}
+	writeJSON(w, e.Status, body)
+}
+
+func (o serverOptions) writeBodyError(w http.ResponseWriter, r *http.Request, err error) {
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		o.fail(w, r, &ServerError{Status: http.StatusRequestEntityTooLarge, Code: "request_body_too_large", Message: "request body too large", Cause: err})
+		return
+	}
+	o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "invalid_request_body", Message: "invalid request body", Cause: err})
+}
+
+func (o serverOptions) writeHandlerError(w http.ResponseWriter, r *http.Request, err error) {
+	status := http.StatusInternalServerError
+	var statusErr interface{ HTTPStatusCode() int }
+	if errors.As(err, &statusErr) {
+		if candidate := statusErr.HTTPStatusCode(); candidate >= 100 && candidate <= 599 {
+			status = candidate
+		}
+	}
+	message := "internal server error"
+	var public interface{ PublicMessage() string }
+	if errors.As(err, &public) && public.PublicMessage() != "" {
+		message = public.PublicMessage()
+	}
+	code := statusCode(status)
+	var coded interface{ PublicCode() string }
+	if errors.As(err, &coded) && coded.PublicCode() != "" {
+		code = coded.PublicCode()
+	}
+	o.fail(w, r, &ServerError{Status: status, Code: code, Message: message, Cause: err})
+}
+
+func statusCode(status int) string {
+	if status == http.StatusInternalServerError {
+		return "internal"
+	}
+	text := http.StatusText(status)
+	out := make([]byte, 0, len(text))
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		switch {
+		case c >= 'A' && c <= 'Z':
+			out = append(out, c+'a'-'A')
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+			out = append(out, c)
+		case len(out) > 0 && out[len(out)-1] != '_':
+			out = append(out, '_')
+		}
+	}
+	for len(out) > 0 && out[len(out)-1] == '_' {
+		out = out[:len(out)-1]
+	}
+	if len(out) == 0 {
+		return "error"
+	}
+	return string(out)
+}
+
+// ErrorHandler makes the router's own plain-text 404 and 405 answers use the
+// same error writer as the generated routes. Wrap the mux you serve:
+//
+//	http.ListenAndServe(addr, ErrorHandler(mux, WithErrorWriter(write)))
+//
+// Only text/plain 404 and 405 responses are converted, so a handler that
+// answers with its own JSON or HTML 404 is left alone.
+func ErrorHandler(next http.Handler, opts ...ServerOption) http.Handler {
+	var o serverOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(&routerErrorWriter{ResponseWriter: w, o: o, r: r}, r)
+	})
+}
+
+type routerErrorWriter struct {
+	http.ResponseWriter
+	o         serverOptions
+	r         *http.Request
+	wrote     bool
+	swallowed bool
+}
+
+func (w *routerErrorWriter) WriteHeader(status int) {
+	if w.wrote {
+		return
+	}
+	w.wrote = true
+	contentType := w.Header().Get("Content-Type")
+	if (status == http.StatusNotFound || status == http.StatusMethodNotAllowed) && len(contentType) >= 10 && contentType[:10] == "text/plain" {
+		w.swallowed = true
+		header := w.Header()
+		header.Del("Content-Type")
+		header.Del("Content-Length")
+		header.Del("X-Content-Type-Options")
+		code, message := "not_found", "not found"
+		if status == http.StatusMethodNotAllowed {
+			code, message = "method_not_allowed", "method not allowed"
+		}
+		w.o.fail(w.ResponseWriter, w.r, &ServerError{Status: status, Code: code, Message: message})
+		return
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *routerErrorWriter) Write(data []byte) (int, error) {
+	if !w.wrote {
+		w.WriteHeader(http.StatusOK)
+	}
+	if w.swallowed {
+		return len(data), nil
+	}
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *routerErrorWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *routerErrorWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok && !w.swallowed {
+		flusher.Flush()
+	}
+}
+
 func WithRequestObserver(observer RequestObserver) ServerOption {
 	return func(o *serverOptions) { o.observer = observer }
 }
@@ -306,9 +470,9 @@ func (o serverOptions) wrapHandler(handler http.Handler, metadata RequestMetadat
 			if err := o.authorizer(r.Context(), metadata, r); err != nil {
 				var statusErr interface{ HTTPStatusCode() int }
 				if errors.As(err, &statusErr) {
-					writeHandlerError(w, err)
+					o.writeHandlerError(w, r, err)
 				} else {
-					writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+					o.fail(w, r, &ServerError{Status: http.StatusUnauthorized, Code: "unauthorized", Message: "unauthorized", Cause: err})
 				}
 				return
 			}
@@ -420,18 +584,18 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, requestBodyLimit(o.maxRequestBodyBytes))
 			if err := json.NewDecoder(r.Body).Decode(req); err != nil && !errors.Is(err, io.EOF) {
-				writeBodyError(w, err)
+				o.writeBodyError(w, r, err)
 				return
 			}
 		}
 		{
 			value := r.Header.Get("X-API-Key")
 			if value == "" {
-				writeJSONError(w, http.StatusBadRequest, "missing required header: X-API-Key")
+				o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "missing_header", Field: "X-API-Key", Message: "missing required header: X-API-Key"})
 				return
 			}
 			if value != "" && !validHeaderFormat(value, "uuid") {
-				writeJSONError(w, http.StatusBadRequest, "invalid header X-API-Key: expected uuid")
+				o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "invalid_header", Field: "X-API-Key", Message: "invalid header X-API-Key: expected uuid"})
 				return
 			}
 		}
@@ -439,17 +603,17 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			if err := v.Validate(); err != nil {
 				var list interface{ ViolationList() []string }
 				if errors.As(err, &list) {
-					writeJSON(w, http.StatusBadRequest, map[string]any{"message": err.Error(), "violations": list.ViolationList()})
+					o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "validation_failed", Message: err.Error(), Violations: list.ViolationList(), Cause: err})
 					return
 				}
-				writeJSONError(w, http.StatusBadRequest, err.Error())
+				o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "validation_failed", Message: err.Error(), Cause: err})
 				return
 			}
 		}
 		control := &responseControl{status: http.StatusOK, header: w.Header()}
 		resp, err := srv.CreateUser(context.WithValue(withHTTPRequest(r), responseControlKey{}, control), req)
 		if err != nil {
-			writeHandlerError(w, err)
+			o.writeHandlerError(w, r, err)
 			return
 		}
 		writeJSON(w, control.status, resp)
@@ -459,18 +623,18 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, requestBodyLimit(o.maxRequestBodyBytes))
 			if err := json.NewDecoder(r.Body).Decode(req); err != nil && !errors.Is(err, io.EOF) {
-				writeBodyError(w, err)
+				o.writeBodyError(w, r, err)
 				return
 			}
 		}
 		{
 			value := r.Header.Get("X-API-Key")
 			if value == "" {
-				writeJSONError(w, http.StatusBadRequest, "missing required header: X-API-Key")
+				o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "missing_header", Field: "X-API-Key", Message: "missing required header: X-API-Key"})
 				return
 			}
 			if value != "" && !validHeaderFormat(value, "uuid") {
-				writeJSONError(w, http.StatusBadRequest, "invalid header X-API-Key: expected uuid")
+				o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "invalid_header", Field: "X-API-Key", Message: "invalid header X-API-Key: expected uuid"})
 				return
 			}
 		}
@@ -478,17 +642,17 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			if err := v.Validate(); err != nil {
 				var list interface{ ViolationList() []string }
 				if errors.As(err, &list) {
-					writeJSON(w, http.StatusBadRequest, map[string]any{"message": err.Error(), "violations": list.ViolationList()})
+					o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "validation_failed", Message: err.Error(), Violations: list.ViolationList(), Cause: err})
 					return
 				}
-				writeJSONError(w, http.StatusBadRequest, err.Error())
+				o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "validation_failed", Message: err.Error(), Cause: err})
 				return
 			}
 		}
 		control := &responseControl{status: http.StatusOK, header: w.Header()}
 		resp, err := srv.GetUser(context.WithValue(withHTTPRequest(r), responseControlKey{}, control), req)
 		if err != nil {
-			writeHandlerError(w, err)
+			o.writeHandlerError(w, r, err)
 			return
 		}
 		writeJSON(w, control.status, resp)
@@ -498,29 +662,29 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, requestBodyLimit(o.maxRequestBodyBytes))
 			if err := json.NewDecoder(r.Body).Decode(req); err != nil && !errors.Is(err, io.EOF) {
-				writeBodyError(w, err)
+				o.writeBodyError(w, r, err)
 				return
 			}
 		}
 		{
 			value := r.Header.Get("X-API-Key")
 			if value == "" {
-				writeJSONError(w, http.StatusBadRequest, "missing required header: X-API-Key")
+				o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "missing_header", Field: "X-API-Key", Message: "missing required header: X-API-Key"})
 				return
 			}
 			if value != "" && !validHeaderFormat(value, "uuid") {
-				writeJSONError(w, http.StatusBadRequest, "invalid header X-API-Key: expected uuid")
+				o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "invalid_header", Field: "X-API-Key", Message: "invalid header X-API-Key: expected uuid"})
 				return
 			}
 		}
 		{
 			value := r.Header.Get("X-Request-Id")
 			if value == "" {
-				writeJSONError(w, http.StatusBadRequest, "missing required header: X-Request-Id")
+				o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "missing_header", Field: "X-Request-Id", Message: "missing required header: X-Request-Id"})
 				return
 			}
 			if value != "" && !validHeaderFormat(value, "uuid") {
-				writeJSONError(w, http.StatusBadRequest, "invalid header X-Request-Id: expected uuid")
+				o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "invalid_header", Field: "X-Request-Id", Message: "invalid header X-Request-Id: expected uuid"})
 				return
 			}
 		}
@@ -528,17 +692,17 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			if err := v.Validate(); err != nil {
 				var list interface{ ViolationList() []string }
 				if errors.As(err, &list) {
-					writeJSON(w, http.StatusBadRequest, map[string]any{"message": err.Error(), "violations": list.ViolationList()})
+					o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "validation_failed", Message: err.Error(), Violations: list.ViolationList(), Cause: err})
 					return
 				}
-				writeJSONError(w, http.StatusBadRequest, err.Error())
+				o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "validation_failed", Message: err.Error(), Cause: err})
 				return
 			}
 		}
 		control := &responseControl{status: http.StatusOK, header: w.Header()}
 		resp, err := srv.Login(context.WithValue(withHTTPRequest(r), responseControlKey{}, control), req)
 		if err != nil {
-			writeHandlerError(w, err)
+			o.writeHandlerError(w, r, err)
 			return
 		}
 		writeJSON(w, control.status, resp)

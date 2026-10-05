@@ -87,10 +87,10 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		p.P("{")
 		p.P("const value = req.headers.get(", fmt.Sprintf("%q", header.Name), ");")
 		if header.Required() {
-			p.P("if (!value) throw new HttpError(400, { message: ", fmt.Sprintf("%q", "missing required header: "+header.Name), " });")
+			p.P("if (!value) throw requestError(400, \"missing_header\", ", fmt.Sprintf("%q", "missing required header: "+header.Name), ", { field: ", fmt.Sprintf("%q", header.Name), " });")
 		}
 		if hasFormat {
-			p.P("if (value && !validHeaderFormat(value, ", fmt.Sprintf("%q", format), ")) throw new HttpError(400, { message: ", fmt.Sprintf("%q", "invalid header "+header.Name+": expected "+format), " });")
+			p.P("if (value && !validHeaderFormat(value, ", fmt.Sprintf("%q", format), ")) throw requestError(400, \"invalid_header\", ", fmt.Sprintf("%q", "invalid header "+header.Name+": expected "+format), ", { field: ", fmt.Sprintf("%q", header.Name), " });")
 		}
 		p.P("}")
 	}
@@ -112,7 +112,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 	p.P("const decoded = ", p.MessageCodecName(m.Request, "decode"), "(body);")
 	p.P("const violations = ", p.MessageCodecName(m.Request, "validate"), "(decoded);")
-	p.P("if (violations.length > 0) throw new HttpError(400, { message: violations.join(\"; \") });")
+	p.P("if (violations.length > 0) throw requestError(400, \"validation_failed\", violations.join(\"; \"), { violations });")
 	writeRouteAuthorizeCall(p, m)
 	p.P("const stream = handler.", CamelCase(m.Name), "(decoded, ", routeContextLiteral(m), ");")
 	p.P("return await sseResponse(stream, ", p.MessageCodecName(m.Response, "encode"), ");")

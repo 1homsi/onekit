@@ -618,6 +618,30 @@ contracts feed server checks and OpenAPI security schemes; generated TypeScript
 handlers, Go authorization hooks, and Rust request contexts expose the incoming
 headers for application-level authentication.
 
+### Shaping error responses
+
+By default every error the generated servers produce themselves, a malformed body, a bad path or query parameter, a missing header, a failed validation or `@authorize` rule, or a handler error with no declared body, is `{"message": "..."}` (with `"violations": [...]` when there are several). Errors a method declares with `@status` keep their declared body. To send a different shape, install one error writer per server:
+
+| Target | How |
+| --- | --- |
+| Go | `WithErrorWriter(func(w, r, e *ServerError))`; wrap the mux in `ErrorHandler(mux, opts...)` to cover the router's own plain-text 404 and 405 too |
+| TypeScript | `{ onError: (error, req) => Response }` on `createXFetchHandler`, `createXNodeHandler` and `attachXNodeHandlers` |
+| Rust | `with_error_writer(router, Arc::new(\|info, headers\| ...))` |
+
+The writer receives the status, a stable `code`, the default `message`, the `field` at fault (a path parameter, query parameter or header) and the `violations`. The codes are `invalid_request_body`, `request_body_too_large`, `invalid_path_parameter`, `invalid_query_parameter`, `missing_header`, `invalid_header`, `invalid_credentials`, `validation_failed`, `unauthorized`, `forbidden`, `not_found`, `method_not_allowed` and `internal`; a handler error uses the snake_case name of its status, or its own `PublicCode()`. The underlying error is available as `Cause` (Go) and is never sent by the default writer. In Go the request ID is `RequestIDFromContext(r.Context())`.
+
+```go
+mux := http.NewServeMux()
+api.RegisterThingsServer(mux, impl{}, api.WithRequestID("X-Request-ID"), api.WithErrorWriter(envelope))
+http.ListenAndServe(addr, api.ErrorHandler(mux, api.WithRequestID("X-Request-ID"), api.WithErrorWriter(envelope)))
+```
+
+Parameter errors no longer include the Go parser's text: a non-numeric `{id}` is `invalid path parameter id: must be an integer`.
+
+A message may have a field called `error` (the Go field is `Error_` on an error message, with the same JSON name), so an envelope such as `{"error": {"code", "message", "request_id"}}` can also be declared as a typed error with `@status`.
+
+The generated TypeScript client throws `ApiError` for any undeclared status. Besides `statusCode` and the raw `body` it now has the parsed `json`, `message`, `code` and `requestId`. The default parser reads `{message}`, `{code, message, request_id}` and the nested `{error: {...}}` envelope and falls back to the `X-Request-ID` header; pass `errorParser` in the client options for any other shape.
+
 ### 64-bit integers as JSON numbers
 
 `int64` and `uint64` cross the wire as JSON strings by default, so JavaScript and other double-based parsers never silently lose precision. When your IDs are numbers everywhere and you accept that trade, set it once for the whole project instead of marking every field with `@encode("number")`:

@@ -6,8 +6,7 @@ export function fetchRouter(
 		const matching = routes.filter(
 			(route) => matchPath(route.path, url.pathname) !== null,
 		);
-		if (matching.length === 0)
-			return jsonResponse({ message: "not found" }, 404);
+		if (matching.length === 0) return registeredError(404, "not_found", "not found");
 		const route = matching.find(
 			(candidate) => candidate.method === req.method,
 		);
@@ -20,9 +19,12 @@ export function fetchRouter(
 				status: 204,
 				headers: { Allow: allow },
 			});
-		return new Response(JSON.stringify({ message: "method not allowed" }), {
-			status: 405,
-			headers: { "Content-Type": "application/json", Allow: allow },
-		});
+		const response = registeredError(
+			405,
+			"method_not_allowed",
+			"method not allowed",
+		);
+		response.headers.set("Allow", allow);
+		return response;
 	};
 }

@@ -244,7 +244,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 					writeBodyValue(p, field)
 					p.P("body, err := json.Marshal(bodyValue)")
 				} else {
-					bodyExpr = "req." + PascalCase(field.Name)
+					bodyExpr = "req." + GoFieldName(field)
 					p.P("body, err := json.Marshal(", bodyExpr, ")")
 				}
 			} else {
@@ -342,7 +342,7 @@ func bodyFieldNeedsCustomJSON(field *onkir.Field) bool {
 }
 
 func writeBodyValue(p *Printer, field *onkir.Field) {
-	fieldExpr := "req." + PascalCase(field.Name)
+	fieldExpr := "req." + GoFieldName(field)
 	p.P("var bodyValue any")
 	if field.Optional {
 		p.P("if ", fieldExpr, " == nil {")
@@ -390,7 +390,7 @@ func writeClientQueryParams(p *Printer, req *onkir.Message) {
 		if queryName == "" {
 			queryName = field.Name
 		}
-		fieldExpr := "req." + PascalCase(field.Name)
+		fieldExpr := "req." + GoFieldName(field)
 		if field.Repeated {
 			p.P("for _, value := range ", fieldExpr, " {")
 			p.P("query.Add(", fmt.Sprintf("%q", queryName), ", ", clientStringifyExpr(field.Type.Scalar, "value"), ")")

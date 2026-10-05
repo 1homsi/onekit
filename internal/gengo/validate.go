@@ -21,7 +21,7 @@ func isNumericScalar(k onkir.ScalarKind) bool {
 }
 
 func fieldAccessor(f *onkir.Field) string {
-	goName := PascalCase(f.Name)
+	goName := GoFieldName(f)
 	if f.Optional && f.Type != nil && f.Type.Kind == onkir.KindScalar {
 		return "*m." + goName
 	}
@@ -32,7 +32,7 @@ func requiredRule(f *onkir.Field) []string {
 	if !f.HasDecorator("required") {
 		return nil
 	}
-	goName := PascalCase(f.Name)
+	goName := GoFieldName(f)
 	requiredMsg := f.Name + " is required"
 	switch {
 	case f.Optional, f.Type != nil && f.Type.Kind == onkir.KindMessage:
@@ -56,7 +56,7 @@ func repeatedItemsRules(f *onkir.Field) []string {
 	if !f.Repeated {
 		return nil
 	}
-	goName := PascalCase(f.Name)
+	goName := GoFieldName(f)
 	var rules []string
 	if d, ok := f.Decorator("min_items"); ok {
 		n, _ := d.Value()
@@ -197,7 +197,7 @@ func fieldValidationRules(m *onkir.Message, f *onkir.Field) []string {
 		valueRules = append(valueRules, numericValidationRules(f)...)
 	}
 	if f.Optional && len(valueRules) > 0 {
-		guard := "m." + PascalCase(f.Name) + " != nil"
+		guard := "m." + GoFieldName(f) + " != nil"
 		for index, rule := range valueRules {
 			valueRules[index] = "if " + guard + " { " + rule + " }"
 		}
@@ -218,7 +218,7 @@ func dedupeEmpty(rules []string) []string {
 // Scoped by message name too, not just field name, since two different
 // messages can have a same-named field with different patterns.
 func patternVarName(m *onkir.Message, f *onkir.Field) string {
-	return PascalCase(m.Name) + PascalCase(f.Name) + "Pattern"
+	return PascalCase(m.Name) + GoFieldName(f) + "Pattern"
 }
 
 type patternDecl struct {
@@ -400,7 +400,7 @@ func writeValidate(p *Printer, rules *ruleFile, m *onkir.Message) error {
 	p.P("var violations []string")
 	for _, f := range m.Fields {
 		if f.Oneof != nil && f.HasDecorator("required") {
-			p.P("if m.", PascalCase(f.Name), " == nil { violations = append(violations, ", fmt.Sprintf("%q", f.Name+" is required"), ") }")
+			p.P("if m.", GoFieldName(f), " == nil { violations = append(violations, ", fmt.Sprintf("%q", f.Name+" is required"), ") }")
 		}
 		for _, rule := range fieldValidationRules(m, f) {
 			p.P(rule)
@@ -434,7 +434,7 @@ func writeOneofValidation(p *Printer, field *onkir.Field) {
 	if len(variants) == 0 {
 		return
 	}
-	p.P("switch v := m.", PascalCase(field.Name), ".(type) {")
+	p.P("switch v := m.", GoFieldName(field), ".(type) {")
 	for _, variant := range variants {
 		value := "v." + PascalCase(variant.Name)
 		p.P("case *", OneofVariantTypeName(field.Message, field, variant), ":")
@@ -453,7 +453,7 @@ func writeNestedValidation(p *Printer, field *onkir.Field) {
 	if field.Type == nil {
 		return
 	}
-	goName := PascalCase(field.Name)
+	goName := GoFieldName(field)
 	appendError := func(expression string) {
 		p.P("if err := ", expression, ".Validate(); err != nil { violations = append(violations, ", fmt.Sprintf("%q", field.Name+": "), "+err.Error()) }")
 	}

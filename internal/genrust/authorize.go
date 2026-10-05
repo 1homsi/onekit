@@ -86,7 +86,7 @@ func (p *Printer) writeRoutePrincipalLookup(m *onkir.Method) {
 	}
 	p.P("let Some(principal) = parts.extensions.get::<", p.principalType, ">().cloned() else {")
 	p.Indent()
-	p.P(`return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "message": "unauthorized" }))).into_response();`)
+	p.P(`return error_response(StatusCode::UNAUTHORIZED, "unauthorized", "unauthorized".to_string(), Vec::new());`)
 	p.Dedent()
 	p.P("};")
 }
@@ -98,7 +98,7 @@ func (p *Printer) writeRouteAuthorizeCall(m *onkir.Method) {
 	p.P("let denied = ", authorizeFnName(m), "(Some(&principal), &req);")
 	p.P("if !denied.is_empty() {")
 	p.Indent()
-	p.P(`return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "message": denied[0], "violations": denied }))).into_response();`)
+	p.P(`return error_response(StatusCode::FORBIDDEN, "forbidden", denied[0].to_string(), denied.iter().map(|message| message.to_string()).collect());`)
 	p.Dedent()
 	p.P("}")
 }

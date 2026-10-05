@@ -136,7 +136,7 @@ func writeFastEncode(p *Printer, m *onkir.Message, name string) {
 	p.P("_ = first")
 	p.P("b = append(b, '{')")
 	for _, f := range m.Fields {
-		field := "m." + PascalCase(f.Name)
+		field := "m." + GoFieldName(f)
 		key := jsonKey(f.Name)
 		if f.Oneof != nil {
 			writeFastEncodeOneof(p, m, f, field, key)
@@ -309,7 +309,7 @@ func writeFastDecode(p *Printer, m *onkir.Message, name string) {
 }
 
 func writeFastDecodeField(p *Printer, m *onkir.Message, f *onkir.Field) {
-	field := "m." + PascalCase(f.Name)
+	field := "m." + GoFieldName(f)
 	if f.Oneof != nil {
 		writeFastDecodeOneof(p, m, f, field)
 		return

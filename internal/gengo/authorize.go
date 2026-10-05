@@ -48,13 +48,13 @@ func writePrincipalLookup(p *Printer, m *onkir.Method) {
 		return
 	}
 	p.P("if o.principal == nil {")
-	p.P(`writeJSONError(w, http.StatusInternalServerError, "authorization is not configured")`)
+	p.P(`o.fail(w, r, &ServerError{Status: http.StatusInternalServerError, Code: "internal", Message: "authorization is not configured"})`)
 	p.P("return")
 	p.P("}")
 	p.P("principal, principalErr := o.principal(r.Context(), r)")
 	p.P("if principalErr != nil {")
 	p.P(`var statusErr interface{ HTTPStatusCode() int }`)
-	p.P(`if errors.As(principalErr, &statusErr) { writeHandlerError(w, principalErr) } else { writeJSONError(w, http.StatusUnauthorized, "unauthorized") }`)
+	p.P(`if errors.As(principalErr, &statusErr) { o.writeHandlerError(w, r, principalErr) } else { o.fail(w, r, &ServerError{Status: http.StatusUnauthorized, Code: "unauthorized", Message: "unauthorized", Cause: principalErr}) }`)
 	p.P("return")
 	p.P("}")
 	p.P("r = r.WithContext(context.WithValue(r.Context(), principalContextKey{}, principal))")
@@ -65,7 +65,7 @@ func writeAuthorizeCall(p *Printer, m *onkir.Method) {
 		return
 	}
 	p.P("if failed := ", authorizeFuncName(m), "(principal, req); len(failed) > 0 {")
-	p.P(`writeJSON(w, http.StatusForbidden, map[string]any{"message": failed[0], "violations": failed})`)
+	p.P(`o.fail(w, r, &ServerError{Status: http.StatusForbidden, Code: "forbidden", Message: failed[0], Violations: failed})`)
 	p.P("return")
 	p.P("}")
 }

@@ -538,7 +538,7 @@ func writeOneofWireType(p *Printer, m *onkir.Message, f *onkir.Field) {
 // jsonmapping_codegen.go): moving between the Go interface-typed field, which
 // encoding/json can't handle alone, and its wire struct.
 func writeOneofMarshalField(p *Printer, m *onkir.Message, f *onkir.Field) {
-	goName := PascalCase(f.Name)
+	goName := GoFieldName(f)
 	if f.Oneof.Flatten() {
 		writeFlatOneofMarshalField(p, m, f)
 		return
@@ -557,7 +557,7 @@ func writeOneofMarshalField(p *Printer, m *onkir.Message, f *onkir.Field) {
 }
 
 func writeFlatOneofMarshalField(p *Printer, m *onkir.Message, f *onkir.Field) {
-	goName := PascalCase(f.Name)
+	goName := GoFieldName(f)
 	head, _ := json.Marshal(oneofDiscriminatorName(f))
 	p.P("switch v := m.", goName, ".(type) {")
 	for _, variant := range f.Oneof.Variants {
@@ -578,7 +578,7 @@ func writeFlatOneofMarshalField(p *Printer, m *onkir.Message, f *onkir.Field) {
 }
 
 func writeFlatOneofUnmarshalField(p *Printer, m *onkir.Message, f *onkir.Field) {
-	goName := PascalCase(f.Name)
+	goName := GoFieldName(f)
 	p.P("if raw := aux.", goName, "; len(raw) > 0 && string(raw) != \"null\" {")
 	p.P("var tag struct {")
 	p.P("Tag string `json:\"", oneofDiscriminatorName(f), "\"`")
@@ -600,7 +600,7 @@ func writeFlatOneofUnmarshalField(p *Printer, m *onkir.Message, f *onkir.Field) 
 }
 
 func writeOneofUnmarshalField(p *Printer, m *onkir.Message, f *onkir.Field) {
-	goName := PascalCase(f.Name)
+	goName := GoFieldName(f)
 	if f.Oneof.Flatten() {
 		writeFlatOneofUnmarshalField(p, m, f)
 		return
@@ -630,7 +630,7 @@ func writeErrorMethod(p *Printer, m *onkir.Message) {
 		if f.Oneof != nil {
 			continue
 		}
-		p.P(`parts = append(parts, fmt.Sprintf("`, f.Name, `=%v", m.`, PascalCase(f.Name), "))")
+		p.P(`parts = append(parts, fmt.Sprintf("`, f.Name, `=%v", m.`, GoFieldName(f), "))")
 	}
 	p.P(`return strings.Join(parts, " ")`)
 	p.P("}")
@@ -638,7 +638,7 @@ func writeErrorMethod(p *Printer, m *onkir.Message) {
 }
 
 func writeField(p *Printer, m *onkir.Message, f *onkir.Field) {
-	goName := PascalCase(f.Name)
+	goName := GoFieldName(f)
 	writeDoc(p, deprecatedDoc(f.Doc, f.Deprecated))
 	if f.Oneof != nil {
 		p.P(goName, " ", OneofInterfaceName(m, f), " `json:\"", f.Name, ",omitempty\"`")
@@ -673,14 +673,15 @@ func writeFieldGetters(p *Printer, m *onkir.Message) {
 }
 
 func writeFieldGetter(p *Printer, m *onkir.Message, f *onkir.Field) {
-	goName := PascalCase(f.Name)
+	goName := GoFieldName(f)
+	getterName := PascalCase(f.Name)
 	getterType := p.GoFieldType(f.Type)
 	if f.Repeated {
 		getterType = "[]" + getterType
 	}
 	dereference := !f.Repeated && f.Optional && f.Type.Kind != onkir.KindMessage
 
-	p.P("func (x *", m.Name, ") Get", goName, "() ", getterType, " {")
+	p.P("func (x *", m.Name, ") Get", getterName, "() ", getterType, " {")
 	p.P("if x == nil {")
 	p.P("var zero ", getterType)
 	p.P("return zero")
@@ -704,10 +705,10 @@ func writeFieldGetter(p *Printer, m *onkir.Message, f *onkir.Field) {
 // returns its unwrapped value (the zero value if a different variant, or
 // none, is set) - matching protoc-gen-go's oneof-variant getter convention.
 func writeOneofGetters(p *Printer, m *onkir.Message, f *onkir.Field) {
-	goName := PascalCase(f.Name)
+	goName := GoFieldName(f)
 	iface := OneofInterfaceName(m, f)
 
-	p.P("func (x *", m.Name, ") Get", goName, "() ", iface, " {")
+	p.P("func (x *", m.Name, ") Get", PascalCase(f.Name), "() ", iface, " {")
 	p.P("if x == nil {")
 	p.P("return nil")
 	p.P("}")
