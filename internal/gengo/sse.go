@@ -147,7 +147,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P(`_ = sender.SendWithEvent("error", map[string]string{"message": "internal server error"})`)
 	p.P("}")
 	p.P("}")
-	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", strings.ToUpper(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), ", Scopes: ", scopesLiteral(m), "}))")
+	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", strings.ToUpper(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), ", Scopes: ", scopesLiteral(m), ", Meta: ", metaLiteral(m), "}))")
 }
 
 // writeEventStreamRuntime emits the shared generic EventStream[T] client type

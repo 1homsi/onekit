@@ -416,6 +416,7 @@ var decoratorDocs = map[string]string{
 	"required":   "@required: the field must be present and non-empty.",
 	"query":      "@query(name): bind the field to a URL query parameter.",
 	"flatten":    "@flatten(prefix): inline the child message's fields into this message on the wire.",
+	"meta":       "@meta(key, value): a free-form key/value pair attached to the route and surfaced to your own code, such as an audit event name or a permission key. Servers expose it as RequestMetadata.Meta (Go), the route descriptor and request context meta (TypeScript) and RequestContext::meta_value (Rust); OpenAPI lists it under x-onekit-meta; onek compat reports changes. Repeatable, keys are unique per method.",
 	"authorize":  "@authorize(expression, message): a server-side authorization rule written in the OneKit expression language. `auth` is the message marked @principal (the authenticated caller) and `req` is the request. The method answers 403 with the message when the rule is false or cannot be evaluated; repeatable, and every rule must hold.",
 	"principal":  "@principal: marks the message that describes the authenticated caller, bound to `auth` in @authorize rules. At most one message may carry it. Go servers take it from WithPrincipal, TypeScript servers from the principal option, and Rust servers from a request extension.",
 	"requires":   "@requires(scope, ...): the scopes a caller must hold for this RPC (all of them). Servers expose them to your authorization hook, OpenAPI lists them under the auth scheme, and onek compat reports changes.",

@@ -645,10 +645,22 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("return")
 	p.P("}")
 	p.P("writeJSON(w, control.status, resp)")
-	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", strings.ToUpper(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), ", Scopes: ", scopesLiteral(m), "}))")
+	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", strings.ToUpper(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), ", Scopes: ", scopesLiteral(m), ", Meta: ", metaLiteral(m), "}))")
 }
 
 const goNilLiteral = "nil"
+
+func metaLiteral(m *onkir.Method) string {
+	meta := m.Meta()
+	if len(meta) == 0 {
+		return goNilLiteral
+	}
+	entries := make([]string, 0, len(meta))
+	for _, entry := range meta {
+		entries = append(entries, fmt.Sprintf("%q: %q", entry.Key, entry.Value))
+	}
+	return "map[string]string{" + strings.Join(entries, ", ") + "}"
+}
 
 func scopesLiteral(m *onkir.Method) string {
 	scopes := m.RequiredScopes()

@@ -409,3 +409,36 @@ service S { get(Get) -> Item @get("/items/{id}") }
 		}
 	}
 }
+
+func TestRouteMetadataIsListedOnTheOperation(t *testing.T) {
+	ast, err := onklang.Parse(`package app
+message R { id: string }
+service S {
+  get(R) -> R @get("/r/{id}") @meta("guard", "app/use/:slug") @meta("audit.event", "app.read")
+  plain(R) -> R @get("/p/{id}")
+}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := GenerateJSON(pkg.Files[0], Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatal(err)
+	}
+	paths := doc["paths"].(map[string]any)
+	get := paths["/r/{id}"].(map[string]any)["get"].(map[string]any)
+	if fmt.Sprint(get["x-onekit-meta"]) != "map[audit.event:app.read guard:app/use/:slug]" {
+		t.Fatalf("x-onekit-meta = %v", get["x-onekit-meta"])
+	}
+	if _, ok := paths["/p/{id}"].(map[string]any)["get"].(map[string]any)["x-onekit-meta"]; ok {
+		t.Fatal("a route without @meta must not carry the extension")
+	}
+}

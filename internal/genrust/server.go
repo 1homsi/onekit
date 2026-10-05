@@ -65,6 +65,18 @@ func rustScopesLiteral(method *onkir.Method) string {
 	return "&[" + strings.Join(quoted, ", ") + "]"
 }
 
+func rustMetaLiteral(method *onkir.Method) string {
+	meta := method.Meta()
+	if len(meta) == 0 {
+		return "&[]"
+	}
+	entries := make([]string, 0, len(meta))
+	for _, entry := range meta {
+		entries = append(entries, "("+strconv.Quote(entry.Key)+", "+strconv.Quote(entry.Value)+")")
+	}
+	return "&[" + strings.Join(entries, ", ") + "]"
+}
+
 func writeServerContext(p *Printer) {
 	p.P("#[derive(Debug, Clone)]")
 	p.P("pub struct RequestContext {")
@@ -74,6 +86,7 @@ func writeServerContext(p *Printer) {
 	p.P("pub uri: axum::http::Uri,")
 	p.P("pub extensions: axum::http::Extensions,")
 	p.P("pub required_scopes: &'static [&'static str],")
+	p.P("pub meta: &'static [(&'static str, &'static str)],")
 	if p.principalType != "" {
 		p.P("pub principal: Option<", p.principalType, ">,")
 	}
@@ -82,6 +95,11 @@ func writeServerContext(p *Printer) {
 	p.Blank()
 	p.P("impl RequestContext {")
 	p.Indent()
+	p.P("pub fn meta_value(&self, key: &str) -> Option<&'static str> {")
+	p.Indent()
+	p.P("self.meta.iter().find(|(name, _)| *name == key).map(|(_, value)| *value)")
+	p.Dedent()
+	p.P("}")
 	p.P("pub fn missing_scopes<S: AsRef<str>>(&self, granted: &[S]) -> Vec<&'static str> {")
 	p.Indent()
 	p.P("self.required_scopes.iter().copied().filter(|scope| !granted.iter().any(|held| held.as_ref() == *scope)).collect()")
@@ -443,7 +461,7 @@ func writeHandler(
 	}
 	p.P("if let Err(error) = req.validate() { return ", errorName, "::Validation(error).into_response(); }")
 	p.writeRouteAuthorizeCall(method)
-	p.P("let context = RequestContext { headers, method: parts.method, uri: parts.uri, extensions: parts.extensions, required_scopes: ", rustScopesLiteral(method), p.contextPrincipalField(method), " };")
+	p.P("let context = RequestContext { headers, method: parts.method, uri: parts.uri, extensions: parts.extensions, required_scopes: ", rustScopesLiteral(method), ", meta: ", rustMetaLiteral(method), p.contextPrincipalField(method), " };")
 	p.P("match service.", RustIdent(method.Name), "(context, req).await {")
 	p.Indent()
 	if method.IsStream() {

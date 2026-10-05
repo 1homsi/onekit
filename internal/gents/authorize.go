@@ -84,10 +84,14 @@ func writeRouteAuthorizeCall(p *Printer, m *onkir.Method) {
 }
 
 func routeContextLiteral(m *onkir.Method) string {
-	if authorizedMethod(m) {
-		return "{ request: req, headers: req.headers, principal }"
+	fields := "request: req, headers: req.headers"
+	if len(m.Meta()) > 0 {
+		fields += ", meta: " + routeMetaName(m)
 	}
-	return "{ request: req, headers: req.headers }"
+	if authorizedMethod(m) {
+		fields += ", principal"
+	}
+	return "{ " + fields + " }"
 }
 
 func authorizeImportNames(file *onkir.File) []string {

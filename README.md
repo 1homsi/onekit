@@ -618,6 +618,28 @@ contracts feed server checks and OpenAPI security schemes; generated TypeScript
 handlers, Go authorization hooks, and Rust request contexts expose the incoming
 headers for application-level authentication.
 
+### Route metadata with `@meta`
+
+`@meta(key, value)` attaches a free-form pair to a method and hands it to your own code at runtime, so facts about a route that your middleware needs, such as the permission it checks or the audit event it records, live in the schema next to the route instead of in a second table:
+
+```onk
+edit(EditApp) -> App @post("/apps/{slug}/edit")
+  @meta("guard", "app/edit/:slug")
+  @meta("audit.event", "app.update")
+```
+
+It is repeatable, keys are lower-case (`[a-z][a-z0-9_.-]*`) and unique per method, and values are 1 to 200 bytes. It is not supported on `@ws` methods. onekit attaches no meaning to the pairs.
+
+| Target | Where you read it |
+| --- | --- |
+| Go server | `RequestMetadata.Meta` / `MetaValue(key)`, in an `Authorizer`, in middleware via `RequestMetadataFromContext(ctx)`, or in the handler. Middleware runs outside the authorizer, so it also sees requests the authorizer denies, which is what an audit log wants |
+| TypeScript server | `route.meta` in `authorize(req, route)`, and `context.meta` in the handler |
+| Rust server | `context.meta_value(key)` and `context.meta` in the handler |
+| OpenAPI | `x-onekit-meta` on the operation |
+| `onek compat` | adding, removing or changing a pair is reported as a contract change |
+
+A permission guard keyed on a path parameter is then a few lines: read `guard` from the metadata, read the parameter with `r.PathValue("slug")`, and decide.
+
 ### Shaping error responses
 
 By default every error the generated servers produce themselves, a malformed body, a bad path or query parameter, a missing header, a failed validation or `@authorize` rule, or a handler error with no declared body, is `{"message": "..."}` (with `"violations": [...]` when there are several). Errors a method declares with `@status` keep their declared body. To send a different shape, install one error writer per server:

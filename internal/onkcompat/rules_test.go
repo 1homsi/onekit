@@ -95,3 +95,20 @@ message Item { id: int64 ids: int64[] name: string }
 		t.Fatal("an unchanged encoding is not a change")
 	}
 }
+
+func TestCompareReportsChangedRouteMetadata(t *testing.T) {
+	base := `package app
+message R { id: string }
+service S { get(R) -> R @get("/x/{id}") %s }`
+	with := func(meta string) string { return fmt.Sprintf(base, meta) }
+	findings := compareSchemas(t, with(`@meta("guard", "app/use/:slug")`), with(`@meta("guard", "app/edit/:slug")`))
+	if len(findings) != 1 || findings[0].Message != "route metadata changed" {
+		t.Fatalf("changed: %+v", findings)
+	}
+	if len(compareSchemas(t, with(""), with(`@meta("audit", "x")`))) != 1 || len(compareSchemas(t, with(`@meta("audit", "x")`), with(""))) != 1 {
+		t.Fatal("added and removed metadata must be reported")
+	}
+	if len(compareSchemas(t, with(`@meta("a", "1") @meta("b", "2")`), with(`@meta("a", "1") @meta("b", "2")`))) != 0 {
+		t.Fatal("unchanged metadata is not a change")
+	}
+}

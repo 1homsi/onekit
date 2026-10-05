@@ -640,6 +640,7 @@ func validHTTPHeaderName(value string) bool {
 }
 
 const (
+	metaDecorator      = "meta"
 	requiresDecorator  = "requires"
 	authorizeDecorator = "authorize"
 	principalDecorator = "principal"
@@ -719,7 +720,7 @@ func validateRPC(path string, rpc *onklang.RPCDecl) (string, string, error) {
 			if len(decorator.Args) > 1 {
 				return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@deprecated accepts at most one reason"}
 			}
-		case requiresDecorator, authorizeDecorator:
+		case requiresDecorator, authorizeDecorator, metaDecorator:
 			if err := validateAuthorization(path, rpc, decorator); err != nil {
 				return "", "", err
 			}
@@ -1449,8 +1450,11 @@ func validateWSFieldDecorator(filePath string, field *onklang.FieldDecl, name st
 }
 
 func validateAuthorization(path string, rpc *onklang.RPCDecl, decorator onklang.Decorator) error {
-	if decorator.Name == requiresDecorator {
+	switch decorator.Name {
+	case requiresDecorator:
 		return validateRequires(path, rpc, decorator)
+	case metaDecorator:
+		return validateMeta(path, rpc, decorator)
 	}
 	if len(decorator.Args) != 2 {
 		return &Error{Path: path, Line: rpc.Line, Column: decorator.Col, Msg: "@authorize expects an expression and a message"}
@@ -1459,10 +1463,55 @@ func validateAuthorization(path string, rpc *onklang.RPCDecl, decorator onklang.
 }
 
 func rejectAuthorizationOnWS(path string, rpc *onklang.RPCDecl) error {
-	for _, name := range []string{requiresDecorator, authorizeDecorator} {
+	for _, name := range []string{requiresDecorator, authorizeDecorator, metaDecorator} {
 		if hasDecorator(rpc.Decorators, name) {
 			return &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("@%s is not supported on @ws methods yet; authorize the upgrade request in middleware", name)}
 		}
 	}
 	return nil
+}
+
+const (
+	maxMetaKeyBytes   = 64
+	maxMetaValueBytes = 200
+)
+
+func validateMeta(path string, rpc *onklang.RPCDecl, decorator onklang.Decorator) error {
+	line, col := decorator.Line, decorator.Col
+	if line == 0 {
+		line, col = rpc.Line, rpc.Col
+	}
+	fail := func(format string, args ...any) error {
+		return &Error{Path: path, Line: line, Column: col, Code: "invalid_meta", Msg: fmt.Sprintf(format, args...)}
+	}
+	if len(decorator.Args) != 2 {
+		return fail("@meta expects a key and a value, as in @meta(\"audit\", \"app.update\")")
+	}
+	key, value := decorator.Args[0].Value, decorator.Args[1].Value
+	if !validMetaKey(key) {
+		return fail("invalid @meta key %q: start with a lower-case letter and use lower-case letters, digits and . _ -", key)
+	}
+	if value == "" || len(value) > maxMetaValueBytes {
+		return fail("@meta value for %q must be 1 to %d bytes", key, maxMetaValueBytes)
+	}
+	for _, other := range rpc.Decorators {
+		if other.Name == metaDecorator && len(other.Args) == 2 && other.Args[0].Value == key && (other.Line != decorator.Line || other.Col != decorator.Col) {
+			return fail("duplicate @meta key %q", key)
+		}
+	}
+	return nil
+}
+
+func validMetaKey(key string) bool {
+	if key == "" || len(key) > maxMetaKeyBytes || key[0] < 'a' || key[0] > 'z' {
+		return false
+	}
+	for _, r := range key {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
