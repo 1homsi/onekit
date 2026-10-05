@@ -138,7 +138,13 @@ type RequestMetadata struct {
 	Route       string
 	AuthSchemes []string
 	Scopes      []string
+	// Meta holds the route's @meta(key, value) pairs. The map is shared by
+	// every request to the route: read it, do not modify it.
+	Meta map[string]string
 }
+
+// MetaValue returns the route's @meta value for key, or "" when it has none.
+func (m RequestMetadata) MetaValue(key string) string { return m.Meta[key] }
 
 // ScopeError is returned by WithScopes when a caller lacks scopes the route
 // declares with @requires. It renders as 403 with a public message.
@@ -617,7 +623,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			return
 		}
 		writeJSON(w, control.status, resp)
-	}), RequestMetadata{Service: "UserService", Method: "createUser", HTTPMethod: "POST", Route: "/api/v1/users", AuthSchemes: nil, Scopes: nil}))
+	}), RequestMetadata{Service: "UserService", Method: "createUser", HTTPMethod: "POST", Route: "/api/v1/users", AuthSchemes: nil, Scopes: nil, Meta: nil}))
 	mux.Handle("POST /api/v1/users/get", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := new(GetUserRequest)
 		if r.Body != nil {
@@ -656,7 +662,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			return
 		}
 		writeJSON(w, control.status, resp)
-	}), RequestMetadata{Service: "UserService", Method: "getUser", HTTPMethod: "POST", Route: "/api/v1/users/get", AuthSchemes: nil, Scopes: nil}))
+	}), RequestMetadata{Service: "UserService", Method: "getUser", HTTPMethod: "POST", Route: "/api/v1/users/get", AuthSchemes: nil, Scopes: nil, Meta: nil}))
 	mux.Handle("POST /api/v1/auth/login", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := new(LoginRequest)
 		if r.Body != nil {
@@ -706,6 +712,6 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			return
 		}
 		writeJSON(w, control.status, resp)
-	}), RequestMetadata{Service: "UserService", Method: "login", HTTPMethod: "POST", Route: "/api/v1/auth/login", AuthSchemes: nil, Scopes: nil}))
+	}), RequestMetadata{Service: "UserService", Method: "login", HTTPMethod: "POST", Route: "/api/v1/auth/login", AuthSchemes: nil, Scopes: nil, Meta: nil}))
 	return nil
 }

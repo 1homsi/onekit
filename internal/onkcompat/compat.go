@@ -410,6 +410,7 @@ var routePartLabels = map[string]string{
 	"error":     "error responses",
 	"requires":  "required scopes",
 	"authorize": "authorization rules",
+	"meta":      "route metadata",
 }
 
 func compareRoute(key string, old, current []string) []Finding {
@@ -477,6 +478,9 @@ func methodSignature(service *onkir.Service, method *onkir.Method) []string {
 	}
 	for _, rule := range method.AuthorizeRules() {
 		parts = append(parts, "authorize="+decoratorSignature(rule))
+	}
+	for _, entry := range method.Meta() {
+		parts = append(parts, "meta="+entry.Key+"="+entry.Value)
 	}
 	for _, errorType := range method.ErrorTypes {
 		status := 500

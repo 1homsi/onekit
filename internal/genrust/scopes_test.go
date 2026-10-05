@@ -26,9 +26,9 @@ func TestRustContextCarriesRequiredScopes(t *testing.T) {
 	for _, want := range []string{
 		"pub required_scopes: &'static [&'static str],",
 		"pub fn missing_scopes<S: AsRef<str>>(&self, granted: &[S]) -> Vec<&'static str> {",
-		`required_scopes: &["items:read"] };`,
-		`required_scopes: &["items:read", "items:write"] };`,
-		"required_scopes: &[] };",
+		`required_scopes: &["items:read"], meta: &[] };`,
+		`required_scopes: &["items:read", "items:write"], meta: &[] };`,
+		"required_scopes: &[], meta: &[] };",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in:\n%s", want, out)

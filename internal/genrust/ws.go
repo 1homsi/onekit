@@ -111,7 +111,7 @@ func writeWSUpgradeHandler(p *Printer, service *onkir.Service, method *onkir.Met
 		}
 	}
 	p.P("if let Err(error) = req.validate() { return ", errorName, "::Validation(error).into_response(); }")
-	p.P("let context = RequestContext { headers, method: parts.method, uri: parts.uri, extensions: parts.extensions, required_scopes: &[]", p.wsContextPrincipalField(), " };")
+	p.P("let context = RequestContext { headers, method: parts.method, uri: parts.uri, extensions: parts.extensions, required_scopes: &[], meta: &[]", p.wsContextPrincipalField(), " };")
 	p.P("let ws = ws.max_message_size(ws_options.max_frame_bytes).max_frame_size(ws_options.max_frame_bytes);")
 	p.P("ws.on_upgrade(move |socket: axum::extract::ws::WebSocket| async move {")
 	p.Indent()

@@ -602,3 +602,17 @@ func (m *Message) IsPrincipal() bool {
 	_, ok := FindDecorator(m.Decorators, PrincipalDecorator)
 	return ok
 }
+
+// MetaEntry is one @meta(key, value) pair.
+type MetaEntry struct{ Key, Value string }
+
+// Meta returns the method's @meta pairs in declaration order.
+func (m *Method) Meta() []MetaEntry {
+	var out []MetaEntry
+	for _, d := range m.Decorators {
+		if d.Name == "meta" && len(d.Args) == 2 {
+			out = append(out, MetaEntry{Key: d.Args[0].Value, Value: d.Args[1].Value})
+		}
+	}
+	return out
+}

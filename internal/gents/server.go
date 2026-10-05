@@ -234,6 +234,7 @@ func writeServerRuntime(p *Printer) {
 	p.P("method: string;")
 	p.P("path: string;")
 	p.P("scopes?: readonly string[];")
+	p.P("meta?: Readonly<Record<string, string>>;")
 	p.P("authorize?: boolean;")
 	p.P("handler: (req: Request) => Promise<Response>;")
 	p.P("}")
@@ -350,6 +351,7 @@ func writeHandlerInterface(p *Printer, s *onkir.Service) {
 func writeRouteFactory(p *Printer, s *onkir.Service) {
 	factoryName := "create" + s.Name + "Routes"
 	p.P("export function ", factoryName, "(handler: ", s.Name, "Handler): RouteDescriptor[] {")
+	writeRouteMetaConsts(p, s)
 	p.P("return [")
 	for _, m := range s.Methods {
 		switch {
@@ -379,6 +381,30 @@ func writeRouteScopes(p *Printer, m *onkir.Method) {
 	p.P("scopes: [", strings.Join(quoted, ", "), "],")
 }
 
+func routeMetaName(m *onkir.Method) string {
+	return "meta" + PascalCase(m.Service.Name) + PascalCase(m.Name)
+}
+
+func writeRouteMetaConsts(p *Printer, s *onkir.Service) {
+	for _, m := range s.Methods {
+		meta := m.Meta()
+		if m.IsWebSocket() || len(meta) == 0 {
+			continue
+		}
+		entries := make([]string, 0, len(meta))
+		for _, entry := range meta {
+			entries = append(entries, fmt.Sprintf("%q: %q", entry.Key, entry.Value))
+		}
+		p.P("const ", routeMetaName(m), " = Object.freeze({ ", strings.Join(entries, ", "), " });")
+	}
+}
+
+func writeRouteMeta(p *Printer, m *onkir.Method) {
+	if len(m.Meta()) > 0 {
+		p.P("meta: ", routeMetaName(m), ",")
+	}
+}
+
 func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	verb, _ := m.Verb()
 	path, _ := m.Path()
@@ -390,6 +416,7 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P(fmt.Sprintf("method: %q,", strings.ToUpper(verb)))
 	p.P(fmt.Sprintf("path: %q,", fullPath))
 	writeRouteScopes(p, m)
+	writeRouteMeta(p, m)
 	writeRoutePrincipalFlag(p, m)
 	p.P("handler: async (req: Request): Promise<Response> => {")
 
@@ -616,6 +643,7 @@ func writeRequestContextType(p *Printer) {
 	p.P("export interface RequestContext {")
 	p.P("request: Request;")
 	p.P("headers: Headers;")
+	p.P("meta?: Readonly<Record<string, string>>;")
 	if p.principalType != "" {
 		p.P("principal?: ", p.principalType, ";")
 	}

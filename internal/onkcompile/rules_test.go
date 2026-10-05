@@ -2,6 +2,7 @@ package onkcompile
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -209,5 +210,33 @@ message M {
 		if got[name] {
 			t.Errorf("%s must keep its omitted-when-unset meaning", name)
 		}
+	}
+}
+
+func TestMetaDecoratorValidation(t *testing.T) {
+	const base = "package api\nmessage R { id: string }\nservice S {\n  get(R) -> R @get(\"/r/{id}\") %s\n}\n"
+	ok := func(decorators string) error { return compileRules(t, fmt.Sprintf(base, decorators)) }
+	if err := ok(`@meta("guard", "app/edit/:slug") @meta("audit.event", "app.update")`); err != nil {
+		t.Fatalf("valid metadata rejected: %v", err)
+	}
+	for name, decorators := range map[string]string{
+		"one argument":     `@meta("guard")`,
+		"three arguments":  `@meta("a", "b", "c")`,
+		"upper case key":   `@meta("Guard", "x")`,
+		"key with a space": `@meta("my key", "x")`,
+		"digit first":      `@meta("1x", "x")`,
+		"empty value":      `@meta("guard", "")`,
+		"long value":       `@meta("guard", "` + strings.Repeat("x", 201) + `")`,
+		"duplicate key":    `@meta("guard", "a") @meta("guard", "b")`,
+	} {
+		err := ok(decorators)
+		var compileErr *Error
+		if !errors.As(err, &compileErr) || compileErr.Code != "invalid_meta" {
+			t.Errorf("%s: want an invalid_meta error, got %v", name, err)
+		}
+	}
+	ws := "package api\nmessage R { id: string }\nservice S {\n  stream(R) -> R @ws(\"/ws\") @meta(\"a\", \"b\")\n}\n"
+	if err := compileRules(t, ws); err == nil || !strings.Contains(err.Error(), "@meta") {
+		t.Errorf("@meta on a WebSocket method should be rejected, got %v", err)
 	}
 }

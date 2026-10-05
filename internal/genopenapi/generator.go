@@ -461,6 +461,16 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 	if _, deprecated := m.Deprecated(); deprecated {
 		op.Deprecated = new(true)
 	}
+	if meta := m.Meta(); len(meta) > 0 {
+		node := &yaml.Node{Kind: yaml.MappingNode}
+		for _, entry := range meta {
+			node.Content = append(node.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Value: entry.Key},
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: entry.Value})
+		}
+		op.Extensions = orderedmap.New[string, *yaml.Node]()
+		op.Extensions.Set("x-onekit-meta", node)
+	}
 
 	var params []*v3.Parameter
 	for _, name := range onkir.PathParamNames(path) {

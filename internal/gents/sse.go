@@ -72,6 +72,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P(fmt.Sprintf("method: %q,", strings.ToUpper(verb)))
 	p.P(fmt.Sprintf("path: %q,", fullPath))
 	writeRouteScopes(p, m)
+	writeRouteMeta(p, m)
 	writeRoutePrincipalFlag(p, m)
 	p.P("handler: async (req: Request): Promise<Response> => {")
 
