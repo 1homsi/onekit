@@ -10,8 +10,6 @@ import (
 type Printer struct {
 	b             strings.Builder
 	resolver      PackageResolver
-	zodEmitted    map[*onkir.Message]bool
-	zodLazy       map[*onkir.Message]bool
 	rules         tsRuleState
 	principalType string
 }

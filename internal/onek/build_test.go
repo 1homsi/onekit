@@ -387,7 +387,7 @@ schema_root = "api"
 	}
 }
 
-// TestBuildTSEmitsFrontendExtras pins the opt-in ts-client artifacts and
+// TestBuildTSEmitsFrontendExtras pins the opt-in ts-client MSW artifact and
 // their presence in the drift manifest.
 func TestBuildTSEmitsFrontendExtras(t *testing.T) {
 	dir := t.TempDir()
@@ -395,8 +395,6 @@ func TestBuildTSEmitsFrontendExtras(t *testing.T) {
 
 [generate.ts-client]
 out = "web/client"
-zod = true
-react_query = true
 msw = true
 `)
 	writeTestFile(t, filepath.Join(dir, "svc.onk"), `package fe
@@ -412,7 +410,7 @@ service Svc {
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	for _, name := range []string{"types.ts", "client.ts", "schemas.ts", "query.ts", "msw.ts"} {
+	for _, name := range []string{"types.ts", "client.ts", "msw.ts"} {
 		data, err := os.ReadFile(filepath.Join(dir, "web", "client", name))
 		if err != nil {
 			t.Fatalf("expected generated %s: %v", name, err)
@@ -433,7 +431,7 @@ service Svc {
 	for _, listed := range manifest.Outputs["web/client"] {
 		files[strings.TrimPrefix(listed, "web/client/")] = true
 	}
-	for _, name := range []string{"schemas.ts", "query.ts", "msw.ts"} {
+	for _, name := range []string{"msw.ts"} {
 		if !files[name] {
 			t.Fatalf("manifest does not track %s: %+v", name, files)
 		}

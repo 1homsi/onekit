@@ -184,7 +184,7 @@ func TestInitTemplatesStayUnopinionatedAboutFrontendLibraries(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ts := cfg.Generate.TSClient; ts != nil && (ts.Zod || ts.ReactQuery || ts.MSW) {
+		if ts := cfg.Generate.TSClient; ts != nil && ts.MSW {
 			t.Errorf("%s template enables a frontend library by default: %+v", template.Name, *ts)
 		}
 	}

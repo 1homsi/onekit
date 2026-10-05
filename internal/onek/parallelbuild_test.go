@@ -32,8 +32,6 @@ out = "./gen/go"
 
 [generate.ts-client]
 out = "./gen/ts-client"
-zod = true
-react_query = true
 msw = true
 
 [generate.ts-server]

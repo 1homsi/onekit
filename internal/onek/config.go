@@ -18,15 +18,9 @@ type TargetConfig struct {
 	Out string `toml:"out"`
 }
 
-// TSClientTargetConfig extends the plain output target with opt-in frontend
-// artifacts emitted next to types.ts/client.ts: zod schemas (schemas.ts),
-// TanStack Query hooks + SSE stream hooks (query.ts), and Mock Service Worker
-// handlers (msw.ts).
 type TSClientTargetConfig struct {
-	Out        string `toml:"out"`
-	Zod        bool   `toml:"zod"`
-	ReactQuery bool   `toml:"react_query"`
-	MSW        bool   `toml:"msw"`
+	Out string `toml:"out"`
+	MSW bool   `toml:"msw"`
 }
 
 type OpenAPITargetConfig struct {

@@ -43,7 +43,7 @@ Two things `.onk` does that protobuf couldn't:
 | Package | Purpose |
 | --- | --- |
 | `internal/gengo` | Go structs, validation, HTTP server (`net/http` `ServeMux`), and HTTP client |
-| `internal/gents` | TypeScript types, a `fetch`-based client, and framework-agnostic server routes (Web Fetch API); opt-in zod schemas, TanStack Query/SSE hooks, and MSW handlers |
+| `internal/gents` | TypeScript types, a `fetch`-based client, and framework-agnostic server routes (Web Fetch API); opt-in MSW handlers |
 | `internal/genpy` | Python `@dataclass` models, `IntEnum` enums, and a stdlib (`urllib`) client |
 | `internal/genrust` | Rust Serde models and validation, a `reqwest` client, and an Axum server/router |
 | `internal/gendart` | Dart models (enhanced enums, sealed-class oneofs) and validation, a `package:http` client with SSE streams, and `web_socket_channel` sockets for Flutter and Dart |
@@ -169,9 +169,8 @@ clients), `mobile` (Flutter and Swift clients for a backend you already run),
 Every template except `go` starts from the same small Todo service (list,
 create, get with a typed `NotFound`, and an SSE stream). The starters are
 deliberately unopinionated: the generated TypeScript depends on nothing but
-`fetch`. Zod schemas, TanStack Query hooks and MSW handlers are opt-in flags
-(`zod`, `react_query`, `msw`) on `[generate.ts-client]` for projects that want
-them.
+`fetch`. MSW handlers are an opt-in flag (`msw`) on `[generate.ts-client]` for
+projects that want them.
 
 `onek build` is incremental: it keeps a small per-project record of the last
 successful build in your user cache directory (outside the repository). When
@@ -562,42 +561,28 @@ connection when a peer exceeds it (status 1009 in Go and TypeScript):
 
 ## Frontend TypeScript extras
 
-The `ts-client` target accepts opt-in flags that emit companion modules next
-to `types.ts` and `client.ts`:
+The generated TypeScript depends on nothing but `fetch`. Each message also gets
+a `validate<Message>()` function that returns the violations of its validators
+and `@rule`s, so forms can check input against the exact API contract without a
+schema library. One companion module is opt-in on the `ts-client` target:
 
 ```toml
 [generate.ts-client]
 out = "./web/client"
-zod = true         # schemas.ts  - zod mirrors of every message and validator
-react_query = true # query.ts    - TanStack Query hooks + resilient SSE hook
-msw = true         # msw.ts      - Mock Service Worker handlers per route
+msw = true         # msw.ts - Mock Service Worker handlers per route
 ```
-
-- **schemas.ts** maps each field to the zod constraint its server enforces
-  (`@email` → `.email()`, `@len(2,8)` → `.min(2).max(8)`, `?` → `.optional()`,
-  int64/timestamp/bytes wire encodings, oneof discriminated unions), so forms
-  validate against the exact API contract.
-- **query.ts** exposes `createUserServiceHooks(client)` factories: GET routes
-  become `useQuery` hooks keyed by service/method/request, body-bearing
-  routes become `useMutation` hooks that invalidate their service scope, and
-  SSE routes become a reconnecting `useXEvents(req)` hook with exponential
-  backoff and abort-safe teardown. Helpers `isApiError` and `errorMessage`
-  round out typed error handling for RPC error unions.
-
-  ```ts
-  const hooks = createUserServiceHooks(new UserServiceClient("/v1"));
-  const user = hooks.useGetUser({ id });            // useQuery
-  const create = hooks.useCreateUser();             // useMutation
-  const ticks = hooks.useWatchTicks(req);           // SSE: events/latest/error/connected
-  ```
 
 - **msw.ts** emits deterministic fixtures derived from validators
   (`@uuid` → real UUID shape, `@in(...)` → first allowed value, encodings
   honored) so component tests intercept fetch with contract-accurate data:
-  `worker.use(...userServiceHandlers)`.
+  `worker.use(...userServiceHandlers)`. The `msw` package is a peer dependency
+  only when the flag is on.
 
-Peer dependencies are only required for enabled flags: `zod`,
-`@tanstack/react-query` (+ `react`), and `msw`.
+Earlier releases also had `zod` and `react_query` flags that generated zod
+schemas and TanStack Query hooks. They were removed so generated code does not
+depend on, or track the API of, third-party libraries; a config that still sets
+them fails with a message saying so. The generated client is a plain class, so
+wrapping it in your own `useQuery` or schema is a few lines in your app.
 
 ### The mock server
 

@@ -40,7 +40,7 @@ func TestTSOneofInt64VariantsAreStringsLikeTheWire(t *testing.T) {
 	}
 }
 
-func TestTSMapInt64ValuesAreNumbersInTypesValidatorAndZod(t *testing.T) {
+func TestTSMapInt64ValuesAreNumbersInTypesAndValidator(t *testing.T) {
 	file := compileTSSchema(t, int64WireSchema)
 	types := string(GenerateTypes(file))
 	if !strings.Contains(types, `totals?: Record<string, number>`) {
@@ -48,10 +48,6 @@ func TestTSMapInt64ValuesAreNumbersInTypesValidatorAndZod(t *testing.T) {
 	}
 	if !strings.Contains(types, `Object.values(v.totals).every((item: any) => typeof item === "number" && Number.isSafeInteger(item))`) {
 		t.Fatalf("the validator must accept numeric map int64 values:\n%s", types)
-	}
-	zod := string(GenerateZod(file))
-	if !strings.Contains(zod, `z.record(z.string(), z.number().int().gte(Number.MIN_SAFE_INTEGER).lte(Number.MAX_SAFE_INTEGER))`) {
-		t.Fatalf("the zod schema must accept numeric map int64 values:\n%s", zod)
 	}
 }
 
