@@ -98,6 +98,9 @@ Uri onekitUri(
 
 String onekitPathValue(Object value) => Uri.encodeComponent(value.toString());
 
+String onekitPathWildcard(Object value) =>
+    value.toString().split('/').map(Uri.encodeComponent).join('/');
+
 Map<String, String> onekitHeaders(
   Map<String, String> base,
   Map<String, String>? extra,

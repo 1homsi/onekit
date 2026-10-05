@@ -232,8 +232,8 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		if field == nil {
 			continue
 		}
-		p.P("path = strings.ReplaceAll(path, ", fmt.Sprintf("%q", "{"+paramName+"}"), ", ",
-			fmt.Sprintf("url.PathEscape(fmt.Sprintf(%q, req.%s))", "%v", PascalCase(paramName)), ")")
+		p.P("path = strings.ReplaceAll(path, ", fmt.Sprintf("%q", onkir.PathPlaceholder(path, paramName)), ", ",
+			goPathEscapeExpr(path, paramName, "req."+PascalCase(paramName)), ")")
 	}
 
 	if bodyBearing {
@@ -475,4 +475,12 @@ func fileHasNonWSMethods(file *onkir.File) bool {
 		}
 	}
 	return false
+}
+
+func goPathEscapeExpr(path, name, value string) string {
+	escaped := fmt.Sprintf("url.PathEscape(fmt.Sprintf(%q, %s))", "%v", value)
+	if onkir.IsWildcardParam(path, name) {
+		return `strings.ReplaceAll(` + escaped + `, "%2F", "/")`
+	}
+	return escaped
 }

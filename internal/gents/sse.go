@@ -212,8 +212,8 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 			continue
 		}
 		p.P(fmt.Sprintf(
-			"path = path.replace(%q, encodeURIComponent(String(req.%s)));",
-			"{"+paramName+"}", CamelCase(field.Name),
+			"path = path.replace(%q, %s);",
+			onkir.PathPlaceholder(path, paramName), tsPathEncodeExpr(path, paramName, "req."+CamelCase(field.Name)),
 		))
 	}
 	writeClientQueryParams(p, m.Request)

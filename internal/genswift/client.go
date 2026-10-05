@@ -131,7 +131,7 @@ func writePathAndQuery(p *Printer, route string, req *onkir.Message, withQuery b
 		if field == nil {
 			continue
 		}
-		p.P("path = path.replacingOccurrences(of: ", swiftString("{"+name+"}"), ", with: onekitPathValue(req.", Ident(field.Name), "))")
+		p.P("path = path.replacingOccurrences(of: ", swiftString(onkir.PathPlaceholder(route, name)), ", with: ", pathValueFunc(route, name), "(req.", Ident(field.Name), "))")
 	}
 	var lines []func()
 	if withQuery {
@@ -277,4 +277,11 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.Dedent()
 	p.P("}")
 	p.P()
+}
+
+func pathValueFunc(route, name string) string {
+	if onkir.IsWildcardParam(route, name) {
+		return "onekitPathWildcard"
+	}
+	return "onekitPathValue"
 }

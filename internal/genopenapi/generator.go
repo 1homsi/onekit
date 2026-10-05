@@ -388,7 +388,11 @@ func headerParameter(h *onkir.Header) *v3.Parameter {
 	return p
 }
 
-func pathParameter(name string, req *onkir.Message) *v3.Parameter {
+func openAPIPath(path string) string {
+	return strings.ReplaceAll(path, onkir.WildcardSuffix+"}", "}")
+}
+
+func pathParameter(name string, req *onkir.Message, path string) *v3.Parameter {
 	parameter := &v3.Parameter{
 		Name:     name,
 		In:       "path",
@@ -400,6 +404,10 @@ func pathParameter(name string, req *onkir.Message) *v3.Parameter {
 			parameter.Schema = fieldSchemaProxy(f)
 			parameter.Description = f.Doc
 		}
+	}
+	if onkir.IsWildcardParam(path, name) {
+		parameter.Extensions = orderedmap.New[string, *yaml.Node]()
+		parameter.Extensions.Set("x-onekit-wildcard", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"})
 	}
 	return parameter
 }
@@ -474,7 +482,7 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 
 	var params []*v3.Parameter
 	for _, name := range onkir.PathParamNames(path) {
-		params = append(params, pathParameter(name, m.Request))
+		params = append(params, pathParameter(name, m.Request, path))
 	}
 	for _, h := range s.Headers {
 		if _, auth := h.AuthType(); !auth {
@@ -689,7 +697,7 @@ func Generate(file *onkir.File, opts Options) ([]byte, error) {
 				version = "3.2.0"
 			}
 			path, _ := m.Path()
-			fullPath := s.BasePath + path
+			fullPath := openAPIPath(s.BasePath + path)
 			item, ok := paths.Get(fullPath)
 			if !ok {
 				item = &v3.PathItem{}

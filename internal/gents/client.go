@@ -328,8 +328,8 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 			continue
 		}
 		p.P(fmt.Sprintf(
-			"path = path.replace(%q, encodeURIComponent(String(req.%s)));",
-			"{"+paramName+"}", CamelCase(field.Name),
+			"path = path.replace(%q, %s);",
+			onkir.PathPlaceholder(path, paramName), tsPathEncodeExpr(path, paramName, "req."+CamelCase(field.Name)),
 		))
 	}
 
@@ -413,4 +413,11 @@ func writeClientErrorHandling(p *Printer, m *onkir.Method) {
 		p.P("}")
 	}
 	p.P(`throw new ApiError(res.status, body, { headers: res.headers, ...(this.options.errorParser ? { parse: this.options.errorParser } : {}) });`)
+}
+
+func tsPathEncodeExpr(path, name, value string) string {
+	if onkir.IsWildcardParam(path, name) {
+		return "String(" + value + ").split(\"/\").map(encodeURIComponent).join(\"/\")"
+	}
+	return "encodeURIComponent(String(" + value + "))"
 }

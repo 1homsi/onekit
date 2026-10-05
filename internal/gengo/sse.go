@@ -247,8 +247,8 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		if field == nil {
 			continue
 		}
-		p.P("path = strings.ReplaceAll(path, ", fmt.Sprintf("%q", "{"+paramName+"}"), ", ")
-		p.P("url.PathEscape(fmt.Sprintf(\"%v\", req.", PascalCase(paramName), ")))")
+		p.P("path = strings.ReplaceAll(path, ", fmt.Sprintf("%q", onkir.PathPlaceholder(path, paramName)), ", ",
+			goPathEscapeExpr(path, paramName, "req."+PascalCase(paramName)), ")")
 	}
 	writeClientQueryParams(p, m.Request)
 

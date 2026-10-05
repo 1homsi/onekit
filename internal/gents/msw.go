@@ -1,6 +1,7 @@
 package gents
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -82,7 +83,10 @@ func writeMSWHandler(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 // mswPathPattern converts OneKit `{param}` wildcards into MSW's `:param`
 // form.
+var mswWildcardParam = regexp.MustCompile(`\{([^{}.]+)\.\.\.\}`)
+
 func mswPathPattern(path string) string {
+	path = mswWildcardParam.ReplaceAllString(path, ":$1*")
 	var out strings.Builder
 	start := -1
 	for i, c := range path {

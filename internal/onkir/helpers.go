@@ -343,11 +343,35 @@ func PathParamNames(path string) []string {
 		if c == '{' {
 			start = i + 1
 		} else if c == '}' && start >= 0 {
-			names = append(names, path[start:i])
+			names = append(names, strings.TrimSuffix(path[start:i], WildcardSuffix))
 			start = -1
 		}
 	}
 	return names
+}
+
+const WildcardSuffix = "..."
+
+func WildcardParam(path string) (string, bool) {
+	segments := strings.Split(path, "/")
+	last := segments[len(segments)-1]
+	inner := strings.TrimSuffix(strings.TrimPrefix(last, "{"), "}")
+	if strings.HasPrefix(last, "{") && strings.HasSuffix(last, "}") && strings.HasSuffix(inner, WildcardSuffix) {
+		return strings.TrimSuffix(inner, WildcardSuffix), true
+	}
+	return "", false
+}
+
+func PathPlaceholder(path, name string) string {
+	if IsWildcardParam(path, name) {
+		return "{" + name + WildcardSuffix + "}"
+	}
+	return "{" + name + "}"
+}
+
+func IsWildcardParam(path, name string) bool {
+	wildcard, ok := WildcardParam(path)
+	return ok && wildcard == name
 }
 
 // IsBodyBearingVerb reports whether the HTTP verb carries a request body.

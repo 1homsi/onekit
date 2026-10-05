@@ -3,7 +3,7 @@ export function fetchRouter(
 ): (req: Request) => Promise<Response> {
 	return async (req: Request): Promise<Response> => {
 		const url = new URL(req.url);
-		const matching = routes.filter(
+		const matching = wildcardLast(routes).filter(
 			(route) => matchPath(route.path, url.pathname) !== null,
 		);
 		if (matching.length === 0) return registeredError(404, "not_found", "not found");

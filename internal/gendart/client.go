@@ -163,7 +163,7 @@ func writePathAndQuery(p *Printer, route string, req *onkir.Message, withQuery b
 		if field == nil {
 			continue
 		}
-		p.P("path = path.replaceAll(", dartString("{"+name+"}"), ", onekitPathValue(req.", Ident(field.Name), "));")
+		p.P("path = path.replaceAll(", dartString(onkir.PathPlaceholder(route, name)), ", ", pathValueFunc(route, name), "(req.", Ident(field.Name), "));")
 	}
 	p.P("final query = <MapEntry<String, String>>[];")
 	if !withQuery {
@@ -287,4 +287,11 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.Dedent()
 	p.P("}")
 	p.P()
+}
+
+func pathValueFunc(route, name string) string {
+	if onkir.IsWildcardParam(route, name) {
+		return "onekitPathWildcard"
+	}
+	return "onekitPathValue"
 }
