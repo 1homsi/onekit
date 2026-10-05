@@ -77,6 +77,16 @@ func writeSSESenderType(p *Printer) {
 	p.P()
 }
 
+func writeSSEEventNameValidator(p *Printer) {
+	p.P("func validSSEEventName(name string) bool {")
+	p.P("for _, c := range name {")
+	p.P(`if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-' || c == '.') { return false }`)
+	p.P("}")
+	p.P("return true")
+	p.P("}")
+	p.P()
+}
+
 func writeSSESenderStart(p *Printer) {
 	p.P("func (s *sseSender) start() {")
 	p.P("s.started = true")
@@ -93,6 +103,9 @@ func writeSSESenderSendWithEvent(p *Printer) {
 	p.P("data, err := json.Marshal(event)")
 	p.P("if err != nil {")
 	p.P("return err")
+	p.P("}")
+	p.P("if !validSSEEventName(eventType) {")
+	p.P(`return fmt.Errorf("invalid SSE event name %q", eventType)`)
 	p.P("}")
 	p.P("s.mu.Lock()")
 	p.P("defer s.mu.Unlock()")
@@ -134,6 +147,7 @@ func writeSSESenderSendWithEvent(p *Printer) {
 // "error" event, since the 200 response is already on the wire.
 func writeSSEServerRuntime(p *Printer) {
 	writeSSESenderType(p)
+	writeSSEEventNameValidator(p)
 	writeSSESenderStart(p)
 	writeSSESenderSendWithEvent(p)
 }
@@ -168,8 +182,9 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 	p.P("sender := newSSESender(w, ", sseEventNameFunc(p, m), ")")
 	p.P("stopHeartbeat := sender.heartbeat(o.sseHeartbeat, o.sseHeartbeatSet)")
-	p.P("defer stopHeartbeat()")
-	p.P("if err := srv.", PascalCase(m.Name), "(withHTTPRequest(r), req, sender); err != nil {")
+	p.P("err := srv.", PascalCase(m.Name), "(withHTTPRequest(r), req, sender)")
+	p.P("stopHeartbeat()")
+	p.P("if err != nil {")
 	p.P("if !sender.Sent() {")
 	writeErrorHandling(p, m)
 	p.P("return")

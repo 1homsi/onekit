@@ -479,7 +479,7 @@ func writeHandler(
 			p.Indent()
 			p.P(
 				"let name = json.get(", strconv.Quote(field.Name), ").and_then(|inner| inner.get(", strconv.Quote(disc),
-				")).or_else(|| json.get(", strconv.Quote(disc), ")).and_then(|tag| tag.as_str()).map(str::to_owned);",
+				")).or_else(|| json.get(", strconv.Quote(disc), ")).and_then(|tag| tag.as_str()).filter(|tag| !tag.is_empty() && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')).map(str::to_owned);",
 			)
 			p.P("let event = match name { Some(name) => Event::default().event(name), None => Event::default() };")
 			p.P("event.json_data(json).unwrap_or_else(|error| Event::default().event(\"error\").data(error.to_string()))")
