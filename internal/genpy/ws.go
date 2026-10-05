@@ -45,7 +45,7 @@ func wsFrameMessages(p *Printer, file *onkir.File) []*onkir.Message {
 
 func pyWireInt(f *onkir.Field, expr string) string {
 	if f.Type != nil && f.Type.Kind == onkir.KindScalar && (f.Type.Scalar == onkir.ScalarInt64 || f.Type.Scalar == onkir.ScalarUint64) {
-		if v, _ := fieldEncodeValue(f); v != "number" {
+		if genshared.NeedsInt64StringEncoding(f) {
 			return "str(" + expr + ")"
 		}
 	}

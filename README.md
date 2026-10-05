@@ -618,6 +618,19 @@ contracts feed server checks and OpenAPI security schemes; generated TypeScript
 handlers, Go authorization hooks, and Rust request contexts expose the incoming
 headers for application-level authentication.
 
+### 64-bit integers as JSON numbers
+
+`int64` and `uint64` cross the wire as JSON strings by default, so JavaScript and other double-based parsers never silently lose precision. When your IDs are numbers everywhere and you accept that trade, set it once for the whole project instead of marking every field with `@encode("number")`:
+
+```toml
+module = "example.com/api"
+int64_encoding = "number"   # "string" is the default
+```
+
+The setting applies to every `int64` and `uint64` field in every target, including repeated ones (which cannot carry `@encode`), optional ones, and the OpenAPI schemas, and a field's own `@encode("number")` stays valid. Map values were always numbers. A 64-bit value beyond 2^53 loses precision in any consumer that parses JSON numbers as doubles, such as a browser, which is why the default is the string form. Changing the setting on an existing API is a wire change, so `onek compat` reports every affected field.
+
+`oneof` variant payloads that are themselves 64-bit integers keep the string form.
+
 ### Declaring what a method requires
 
 `@requires("users:read", "users:write")` on an RPC declares the scopes (or

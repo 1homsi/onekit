@@ -36,7 +36,12 @@ type Source struct {
 // validation rules.
 type CompileOptions struct {
 	AllowLegacyContracts bool
+	// Int64Encoding is "" or "string" (the default: 64-bit integers cross the
+	// wire as JSON strings unless a field says @encode("number")) or "number".
+	Int64Encoding string
 }
+
+const Int64EncodingNumber = "number"
 
 // validateAndBuildImportScopes makes the import syntax meaningful without
 // breaking legacy schemas that omit imports. A file with imports may resolve
@@ -166,6 +171,7 @@ type compiler struct {
 	rpcNode       map[*onklang.RPCDecl]*onkir.Method
 	enumNode      map[*onklang.EnumDecl]*onkir.Enum
 	importScopes  map[string]map[string]bool
+	options       CompileOptions
 }
 
 func Compile(sources []Source) (*onkir.Package, error) {
@@ -195,6 +201,7 @@ func CompileWithOptions(sources []Source, options CompileOptions) (*onkir.Packag
 		rpcNode:       map[*onklang.RPCDecl]*onkir.Method{},
 		enumNode:      map[*onklang.EnumDecl]*onkir.Enum{},
 		importScopes:  importScopes,
+		options:       options,
 	}
 
 	var files []*onkir.File
@@ -397,6 +404,10 @@ func (c *compiler) buildField(fd *onklang.FieldDecl, owner *onkir.Message, path 
 		return nil, err
 	}
 	field.Type = typ
+	if c.options.Int64Encoding == Int64EncodingNumber && typ.Kind == onkir.KindScalar &&
+		(typ.Scalar == onkir.ScalarInt64 || typ.Scalar == onkir.ScalarUint64) {
+		field.Int64Number = true
+	}
 	return field, nil
 }
 

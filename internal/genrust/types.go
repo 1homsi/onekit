@@ -65,8 +65,7 @@ func collectTypeFeatures(file *onkir.File) typeFeatures {
 				if field.Type.Scalar == onkir.ScalarBytes {
 					features.bytes = true
 				}
-				if (field.Type.Scalar == onkir.ScalarInt64 || field.Type.Scalar == onkir.ScalarUint64) &&
-					fieldEncoding(field) != rustEncodeNumber {
+				if needsInt64StringEncoding(field) {
 					features.intString = true
 				}
 			}
@@ -600,11 +599,11 @@ func serdeModuleForField(field *onkir.Field) string {
 	}
 	switch field.Type.Scalar {
 	case onkir.ScalarInt64:
-		if fieldEncoding(field) != rustEncodeNumber {
+		if needsInt64StringEncoding(field) {
 			return "serde_" + cardinality + "i64_string"
 		}
 	case onkir.ScalarUint64:
-		if fieldEncoding(field) != rustEncodeNumber {
+		if needsInt64StringEncoding(field) {
 			return "serde_" + cardinality + "u64_string"
 		}
 	case onkir.ScalarBytes:

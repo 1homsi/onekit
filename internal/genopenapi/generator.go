@@ -115,6 +115,9 @@ func fieldSchemaProxy(f *onkir.Field) *base.SchemaProxy {
 	}
 	if f.Repeated {
 		item := typeSchemaProxy(f.Type)
+		if genshared.NeedsInt64NumberEncoding(f) {
+			item = base.CreateSchemaProxy(numberEncodedIntegerSchema(f.Type.Scalar))
+		}
 		schema := &base.Schema{
 			Type:  []string{"array"},
 			Items: &base.DynamicValue[*base.SchemaProxy, bool]{A: item},
@@ -207,12 +210,11 @@ func concreteTypeSchema(field *onkir.Field) *base.Schema {
 	encodeValue, _ := encode.Value()
 	switch field.Type.Kind {
 	case onkir.KindScalar:
+		if genshared.NeedsInt64NumberEncoding(field) {
+			return numberEncodedIntegerSchema(field.Type.Scalar)
+		}
 		if hasEncode {
 			switch field.Type.Scalar {
-			case onkir.ScalarInt64, onkir.ScalarUint64:
-				if encodeValue == "number" {
-					return numberEncodedIntegerSchema(field.Type.Scalar)
-				}
 			case onkir.ScalarTimestamp:
 				if encodeValue == "unix_seconds" || encodeValue == "unix_millis" {
 					return &base.Schema{Type: []string{"integer"}, Format: "int64"}

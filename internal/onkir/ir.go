@@ -122,6 +122,10 @@ type Field struct {
 	Decorators []Decorator
 	Oneof      *Oneof
 	Message    *Message
+	// Int64Number is set by the compiler on int64/uint64 fields when the
+	// project asks for numeric 64-bit integers (int64_encoding = "number"),
+	// including repeated fields, which cannot carry @encode.
+	Int64Number bool
 }
 
 // OneofVariant is one alternative of a discriminated oneof field.

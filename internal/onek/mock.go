@@ -17,7 +17,6 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
@@ -57,10 +56,9 @@ func NewMockServer(dir string, opts MockOptions) (*MockServer, error) {
 		return nil, err
 	}
 	root := dir
-	options := onkcompile.CompileOptions{}
+	options := cfg.CompileOptions()
 	if cfg != nil {
 		root = cfg.SchemaDir()
-		options.AllowLegacyContracts = cfg.AllowLegacyContracts
 	}
 	pkg, err := CompileWithOptions(root, options)
 	if err != nil {

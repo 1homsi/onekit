@@ -2,6 +2,7 @@ package genopenapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -358,5 +359,53 @@ service DocService {
 	}
 	if required["note"] {
 		t.Errorf("note is optional and carries no @required, got %v", required)
+	}
+}
+
+func TestInt64NumberEncodingChangesTheSchema(t *testing.T) {
+	src := `package app
+message Item {
+  id: int64
+  ids: int64[]
+  maybe: int64?
+}
+message Get { id: int64 }
+service S { get(Get) -> Item @get("/items/{id}") }
+`
+	generate := func(encoding string) map[string]any {
+		ast, err := onklang.Parse(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.onk", AST: ast}}, onkcompile.CompileOptions{Int64Encoding: encoding})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := GenerateJSON(pkg.Files[0], Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(out, &doc); err != nil {
+			t.Fatal(err)
+		}
+		schemas := doc["components"].(map[string]any)["schemas"].(map[string]any)
+		return schemas["app.Item"].(map[string]any)["properties"].(map[string]any)
+	}
+	typeOf := func(props map[string]any, name string) any {
+		schema := props[name].(map[string]any)
+		if items, ok := schema["items"].(map[string]any); ok {
+			schema = items
+		}
+		return schema["type"]
+	}
+	def, num := generate(""), generate("number")
+	for _, name := range []string{"id", "ids", "maybe"} {
+		if got := typeOf(def, name); fmt.Sprint(got) != "string" {
+			t.Errorf("default %s type = %v, want a string", name, got)
+		}
+		if got := typeOf(num, name); fmt.Sprint(got) != "integer" {
+			t.Errorf("number-encoded %s type = %v, want an integer", name, got)
+		}
 	}
 }

@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/1homsi/onekit/internal/onkcompile"
 )
 
 type TargetConfig struct {
@@ -56,6 +58,7 @@ type Config struct {
 	SchemaRoot           string         `toml:"schema_root"`
 	RoutePrefix          string         `toml:"route_prefix"`
 	AllowLegacyContracts bool           `toml:"allow_legacy_contracts"`
+	Int64Encoding        string         `toml:"int64_encoding"`
 	Generate             GenerateConfig `toml:"generate"`
 
 	dir       string
@@ -159,6 +162,9 @@ func LoadConfig(dir string) (*Config, error) {
 	if err := validateRoutePrefix(cfg.RoutePrefix); err != nil {
 		return nil, &ConfigError{Path: path, Err: err}
 	}
+	if err := validateInt64Encoding(cfg.Int64Encoding); err != nil {
+		return nil, &ConfigError{Path: path, Err: err}
+	}
 	cfg.dir = root
 	if err := resolveSchemaRootConfig(&cfg); err != nil {
 		return nil, &ConfigError{Path: path, Err: err}
@@ -200,6 +206,24 @@ func resolveSchemaRootConfig(cfg *Config) error {
 	}
 	cfg.schemaDir = resolved
 	return nil
+}
+
+func validateInt64Encoding(value string) error {
+	switch value {
+	case "", "string", onkcompile.Int64EncodingNumber:
+		return nil
+	}
+	return fmt.Errorf("int64_encoding must be \"string\" or \"number\", not %q", value)
+}
+
+// CompileOptions is the single place the project's compile-affecting
+// settings become compiler options, so every command (build, check, mock,
+// compat, language server) compiles a project the same way.
+func (c *Config) CompileOptions() onkcompile.CompileOptions {
+	if c == nil {
+		return onkcompile.CompileOptions{}
+	}
+	return onkcompile.CompileOptions{AllowLegacyContracts: c.AllowLegacyContracts, Int64Encoding: c.Int64Encoding}
 }
 
 func validateRoutePrefix(prefix string) error {

@@ -118,3 +118,47 @@ func TestReadmeRuleExampleCompiles(t *testing.T) {
 		t.Fatalf("README example does not compile: %v", err)
 	}
 }
+
+func TestInt64EncodingOptionMarksEveryInt64Field(t *testing.T) {
+	src := `package api
+message M {
+  id: int64
+  big: uint64
+  ids: int64[]
+  maybe: int64?
+  text: string
+  small: int32
+  keep: int64 @encode("number")
+  by_name: map[string, int64]
+}
+`
+	compile := func(encoding string) map[string]bool {
+		pkg, err := CompileWithOptions([]Source{{Path: "api.onk", AST: parseOrFatal(t, src)}}, CompileOptions{Int64Encoding: encoding})
+		if err != nil {
+			t.Fatal(err)
+		}
+		flagged := map[string]bool{}
+		for _, f := range pkg.Files[0].Messages[0].Fields {
+			flagged[f.Name] = f.Int64Number
+		}
+		return flagged
+	}
+	for _, off := range []string{"", "string"} {
+		for name, flagged := range compile(off) {
+			if flagged {
+				t.Errorf("encoding %q must not flag %s", off, name)
+			}
+		}
+	}
+	got := compile("number")
+	for _, name := range []string{"id", "big", "ids", "maybe", "keep"} {
+		if !got[name] {
+			t.Errorf("%s should be flagged", name)
+		}
+	}
+	for _, name := range []string{"text", "small", "by_name"} {
+		if got[name] {
+			t.Errorf("%s must not be flagged", name)
+		}
+	}
+}

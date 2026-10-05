@@ -71,10 +71,9 @@ func AnalyzeLanguage(dir string, overlays map[string]string) (*LanguageSnapshot,
 		return fail(err)
 	}
 	root := project
-	options := onkcompile.CompileOptions{}
+	options := cfg.CompileOptions()
 	if cfg != nil {
 		root = cfg.SchemaDir()
-		options.AllowLegacyContracts = cfg.AllowLegacyContracts
 	}
 	paths, err := discoverOnkFiles(root)
 	if err != nil {
