@@ -4,9 +4,9 @@
 
 # onekit
 
-onekit is a from-scratch schema language and toolchain for building HTTP APIs — no protobuf, no buf, no protoc.
+onekit is a schema language and toolchain for building HTTP APIs. You describe an API once in `.onk` files, and `onek` generates the code around it: Go servers and clients, TypeScript clients and server routes, Python clients, Dart/Flutter clients, Swift clients, Rust clients and Axum servers, and OpenAPI 3.1 documents.
 
-Define your API once in `.onk` files, and generate the boring pieces around it: Go HTTP servers and clients, TypeScript clients and server routes, Python clients, Dart/Flutter clients, Swift clients, Rust clients and Axum servers, and OpenAPI 3.1 documents. Every generator is built from scratch against a native intermediate representation (`internal/onkir`) — there is no `google.golang.org/protobuf` dependency anywhere in this repository.
+One binary does the whole job. The compiler turns your schemas into a single intermediate representation (`internal/onkir`), and every generator reads that same representation, so a rule written once in the schema behaves the same way in every language.
 
 ## The `.onk` language
 
@@ -34,11 +34,11 @@ service UserService {
 }
 ```
 
-No explicit field numbers, no wire-format baggage, no separate options-extension mechanism — attributes are just `@decorator(args)` on the field or method they apply to. The language is pre-1.0 and evolving; read [`examples/onk-simple-api`](examples/onk-simple-api) for a complete, working example, or `internal/onklang` for the grammar itself.
+Fields carry no numbers to manage, and attributes are written as `@decorator(args)` on the field or method they apply to. The language is pre-1.0 and evolving; read [`examples/onk-simple-api`](examples/onk-simple-api) for a complete, working example, or `internal/onklang` for the grammar itself.
 
-Two things `.onk` does that protobuf couldn't:
+Two things `.onk` is built around:
 
-- **RPC error unions** — `-> User | NotFoundError | ValidationError` makes a method's possible errors part of the schema, so generated clients can produce exhaustive, statically-typed error handling instead of "parse the body as any `*Error`."
+- **RPC error unions** — `-> User | NotFoundError | ValidationError` makes a method's possible errors part of the schema, so generated clients offer exhaustive, statically typed error handling.
 - **Doc comments** (`///`) that flow straight into generated Go and Dart doc comments, TS/Python docstrings, and OpenAPI descriptions.
   Mark fields and RPCs with `@deprecated` or `@deprecated("reason")` to get `Deprecated:` notes in Go, `@deprecated` in TypeScript, `#[deprecated]` in Rust, `@Deprecated` in Dart, a `DeprecationWarning` from Python client calls, and `deprecated: true` in OpenAPI.
 
@@ -162,7 +162,7 @@ onek init --list-templates                  # every starter project
 onek watch   # rebuild on schema/config changes until interrupted
 onek mock    # dev server serving schema-derived fixtures for every route
 onek import api.yaml        # convert an OpenAPI 3.x document into .onk
-onek import service.proto   # convert a Protocol Buffers service into .onk
+onek import service.proto   # convert a .proto service into .onk
 ```
 
 `onek init` writes `onekit.toml` and a working `api.onk` you can `onek build`
@@ -191,7 +191,7 @@ schema you can check and build, and prints a warning for everything it cannot
 express instead of dropping it silently. It refuses to write a schema that does
 not pass `onek check`.
 
-For Protocol Buffers it has no dependency on protobuf tooling. It converts
+The `.proto` reader is built in and needs no external tooling. It converts
 messages (nested ones are flattened to `OuterInner`), enums, `repeated`,
 `optional`, `map<,>` fields, `oneof`, `google.protobuf` well-known types
 (`Timestamp` becomes `timestamp`, `Struct` and `Value` become `json`, wrappers
@@ -203,12 +203,11 @@ streaming becomes a GET `@stream` (the request fields become query
 parameters). Client and bidirectional streaming have no HTTP mapping and
 are skipped with a warning.
 
-Things to know before relying on the result: onekit's oneofs use a
-discriminated encoding that differs from protobuf JSON, field names keep their
-`snake_case` form where protobuf JSON defaults to `lowerCamelCase`, and
-imported `.proto` files are not followed (their types become `json` with a
-warning). Regenerate both ends from the converted schema rather than mixing
-generated code with an existing gRPC-JSON gateway.
+Things to know before relying on the result: oneofs use onekit's discriminated
+JSON encoding, field names keep their `snake_case` form, and imported `.proto`
+files are not followed (their types become `json` with a warning). Regenerate
+both the client and the server from the converted schema so the two ends agree
+on the wire format.
 
 ### Try it in the browser
 
@@ -603,11 +602,9 @@ msw = true         # msw.ts - Mock Service Worker handlers per route
   `worker.use(...userServiceHandlers)`. The `msw` package is a peer dependency
   only when the flag is on.
 
-Earlier releases also had `zod` and `react_query` flags that generated zod
-schemas and TanStack Query hooks. They were removed so generated code does not
-depend on, or track the API of, third-party libraries; a config that still sets
-them fails with a message saying so. The generated client is a plain class, so
-wrapping it in your own `useQuery` or schema is a few lines in your app.
+The generated TypeScript depends on nothing but `fetch`. The client is a plain
+class, so it slots into whatever data layer your app already uses: wrap a call
+in your own `useQuery`, or validate with your own schema library, in a few lines.
 
 ### The mock server
 
@@ -979,7 +976,7 @@ Every target is held to the same conformance suite (`internal/onkexpr/conformanc
 
 ## Status
 
-This is a young project that has completed its migration from the earlier protobuf-based design. It supports messages (scalars including arbitrary `json`, repeated, optional, maps, nested types), enums, discriminated oneofs, field validation (`@email`, `@uuid`, `@uri`, `@pattern`, `@len`, `@range`, `@in` on strings and integers, `@required`, item counts), HTTP path/query/body binding, typed headers and error unions, SSE clients in Go, TypeScript, Python, Dart, and Rust, and Go/TypeScript/Python/Dart/Rust/OpenAPI generators.
+onekit is a young project and the language is pre-1.0. It supports messages (scalars including arbitrary `json`, repeated, optional, maps, nested types), enums, discriminated oneofs, field validation (`@email`, `@uuid`, `@uri`, `@pattern`, `@len`, `@range`, `@in` on strings and integers, `@required`, item counts), HTTP path/query/body binding, typed headers and error unions, SSE clients in Go, TypeScript, Python, Dart, and Rust, and Go/TypeScript/Python/Dart/Rust/OpenAPI generators.
 
 JSON mapping is supported through `@flatten`, root-level `@unwrap`, and `@encode(...)` for safe integer, enum, timestamp, and byte representations. Map-value messages must not use `@unwrap`; `onek check` rejects that shape consistently instead of allowing generators to diverge. Generated clients validate requests before sending, generated servers validate decoded requests, and nested validation is emitted consistently across targets. Generated Go servers also provide functional registration options for mux selection, middleware, request IDs, authorization, route metadata, and lifecycle observation.
 
