@@ -75,6 +75,12 @@ func build(dir string) (bool, error) {
 		return false, err
 	}
 
+	for _, named := range cfg.serviceFilters() {
+		if err := named.filter.checkMatches(named.target, idx); err != nil {
+			return false, err
+		}
+	}
+
 	steps := []struct {
 		enabled bool
 		run     func() error

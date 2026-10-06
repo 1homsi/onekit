@@ -18,14 +18,17 @@ import (
 
 type TargetConfig struct {
 	Out string `toml:"out"`
+	ServiceFilter
 }
 
 type TSClientTargetConfig struct {
 	Out string `toml:"out"`
 	MSW bool   `toml:"msw"`
+	ServiceFilter
 }
 
 type OpenAPITargetConfig struct {
+	ServiceFilter
 	Out         string   `toml:"out"`
 	Title       string   `toml:"title"`
 	Version     string   `toml:"version"`
@@ -287,6 +290,11 @@ func validateTargetPaths(cfg *Config) error {
 			return errors.New("generator output path must not be empty")
 		}
 		if err := validateContainedOutput(cfg.dir, cfg.Generate.OpenAPI.Out); err != nil {
+			return err
+		}
+	}
+	for _, named := range cfg.serviceFilters() {
+		if err := named.filter.validate(named.target); err != nil {
 			return err
 		}
 	}
