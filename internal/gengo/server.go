@@ -59,6 +59,9 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	p.P("package ", GoPackageName(file))
 	p.P()
 	p.P("import (")
+	if hasStream {
+		p.P(`"bytes"`)
+	}
 	p.P(`"crypto/rand"`)
 	p.P(`"context"`)
 	p.P(`"encoding/hex"`)
