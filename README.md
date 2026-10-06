@@ -740,6 +740,26 @@ users.RegisterUsersServer(mux, append([]any{usersImpl{}}, opts...)...)
 
 `WithPrincipal` stays per package because its type is the package's own principal message. The runtime directory must not share a name with a schema directory, and switching `runtime` back removes the shared package on the next build.
 
+### Choosing which services a target generates
+
+Every target generates code for every service by default, which leaves dead code when a client only needs some of them (a runtime protocol with no browser client, an admin API with no mobile client). Each generator target accepts two glob lists over the service name:
+
+```toml
+[generate.go-server]
+out = "./gen"
+include_services = ["Public", "Admin*"]   # only these
+
+[generate.ts-client]
+out = "./web/client"
+exclude_services = ["Admin*", "Runtime"]  # everything but these
+
+[generate.openapi]
+out = "./docs"
+include_services = ["Public"]
+```
+
+With `include_services`, only matching services are generated; anything matching `exclude_services` is then dropped. Types are always generated in full, so a client and a server built from one schema keep sharing them. If a package has no service left for a target, that target's client or server file is removed. A pattern that matches no service anywhere in the project is an error, since it is almost always a typo. The options work on every target (`go-server`, `go-client`, `ts-client`, `ts-server`, `python-client`, `dart-client`, `swift-client`, `rust-client`, `rust-server`, `openapi`).
+
 ### Shaping error responses
 
 By default every error the generated servers produce themselves, a malformed body, a bad path or query parameter, a missing header, a failed validation or `@authorize` rule, or a handler error with no declared body, is `{"message": "..."}` (with `"violations": [...]` when there are several). Errors a method declares with `@status` keep their declared body. To send a different shape, install one error writer per server:

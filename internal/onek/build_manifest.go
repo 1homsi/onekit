@@ -174,10 +174,10 @@ func expectedGeneratedOutputs(cfg *Config, idx *sourceIndex) map[string]map[stri
 	}
 	if cfg.Generate.RustClient != nil && cfg.Generate.RustServer != nil &&
 		filepath.Clean(cfg.resolve(cfg.Generate.RustClient.Out)) == filepath.Clean(cfg.resolve(cfg.Generate.RustServer.Out)) {
-		roots.addRustOutputs(cfg, idx, cfg.Generate.RustClient, true, true)
+		roots.addRustOutputs(cfg, idx, cfg.Generate.RustClient, &cfg.Generate.RustClient.ServiceFilter, &cfg.Generate.RustServer.ServiceFilter)
 	} else {
-		roots.addRustOutputs(cfg, idx, cfg.Generate.RustClient, true, false)
-		roots.addRustOutputs(cfg, idx, cfg.Generate.RustServer, false, true)
+		roots.addRustOutputs(cfg, idx, cfg.Generate.RustClient, rustFilterOf(cfg.Generate.RustClient), nil)
+		roots.addRustOutputs(cfg, idx, cfg.Generate.RustServer, nil, rustFilterOf(cfg.Generate.RustServer))
 	}
 	roots.addOpenAPIOutputs(cfg, idx)
 	if dir, ok := cfg.Generate.GoServer.sharedRuntimeDir(); ok {
@@ -235,7 +235,7 @@ func (e expectedOutputs) addDartOutputs(cfg *Config, idx *sourceIndex, group *so
 		e.add(root, "onekit_ws_web.dart")
 	}
 	e.add(root, filepath.Join(rel, "models.dart"))
-	if len(group.file.Services) > 0 {
+	if len(cfg.Generate.DartClient.apply(group.file).Services) > 0 {
 		e.add(root, filepath.Join(rel, "client.dart"))
 	}
 }
@@ -248,7 +248,7 @@ func (e expectedOutputs) addSwiftOutputs(cfg *Config, group *sourceGroup, rel st
 	e.add(root, "Onekit.swift")
 	models, client := swiftFileNames(filepath.ToSlash(rel))
 	e.add(root, filepath.Join(rel, models))
-	if swiftHasClient(group.file) {
+	if swiftHasClient(cfg.Generate.SwiftClient.apply(group.file)) {
 		e.add(root, filepath.Join(rel, client))
 	}
 }
@@ -267,7 +267,14 @@ func (e expectedOutputs) addPythonOutputs(cfg *Config, rel string) {
 	}
 }
 
-func (e expectedOutputs) addRustOutputs(cfg *Config, idx *sourceIndex, target *TargetConfig, client, server bool) {
+func rustFilterOf(target *TargetConfig) *ServiceFilter {
+	if target == nil {
+		return nil
+	}
+	return &target.ServiceFilter
+}
+
+func (e expectedOutputs) addRustOutputs(cfg *Config, idx *sourceIndex, target *TargetConfig, client, server *ServiceFilter) {
 	if target == nil {
 		return
 	}
@@ -279,10 +286,10 @@ func (e expectedOutputs) addRustOutputs(cfg *Config, idx *sourceIndex, target *T
 			rel = ""
 		}
 		e.add(root, filepath.Join(rel, "types.rs"))
-		if client {
+		if client != nil && len(client.apply(group.file).Services) > 0 {
 			e.add(root, filepath.Join(rel, "client.rs"))
 		}
-		if server {
+		if server != nil && len(server.apply(group.file).Services) > 0 {
 			e.add(root, filepath.Join(rel, "server.rs"))
 		}
 		for parent := filepath.Dir(rel); parent != "." && parent != ""; parent = filepath.Dir(parent) {
@@ -302,7 +309,8 @@ func (e expectedOutputs) addOpenAPIOutputs(cfg *Config, idx *sourceIndex) {
 	if e[root] == nil {
 		e[root] = map[string]bool{}
 	}
-	for _, group := range idx.groups {
+	for _, full := range idx.groups {
+		group := filteredGroup(full, cfg.Generate.OpenAPI.ServiceFilter)
 		for _, service := range group.file.Services {
 			base := openAPIBasePath(group, service)
 			e.add(cfg.resolve(cfg.Generate.OpenAPI.Out), base+".yaml")

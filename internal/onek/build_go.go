@@ -117,13 +117,13 @@ func buildGo(cfg *Config, idx *sourceIndex) error {
 		}
 		if cfg.Generate.GoServer != nil {
 			serverOutDir := groupOutDir(cfg.resolve(cfg.Generate.GoServer.Out), g.relDir)
-			if err := writeGoServer(g.file, serverOutDir, resolver, goOptions); err != nil {
+			if err := writeGoServer(cfg.Generate.GoServer.apply(g.file), serverOutDir, resolver, goOptions); err != nil {
 				return err
 			}
 		}
 		if cfg.Generate.GoClient != nil {
 			clientOutDir := groupOutDir(cfg.resolve(cfg.Generate.GoClient.Out), g.relDir)
-			if err := writeGoClient(g.file, clientOutDir, resolver); err != nil {
+			if err := writeGoClient(cfg.Generate.GoClient.apply(g.file), clientOutDir, resolver); err != nil {
 				return err
 			}
 		}

@@ -27,12 +27,12 @@ func buildTSClient(cfg *Config, idx *sourceIndex) error {
 		if err != nil {
 			return err
 		}
-		err = writeFile(filepath.Join(outDir, "client.ts"), gents.GenerateClientWithOptions(g.file, resolver, opts))
+		err = writeFile(filepath.Join(outDir, "client.ts"), gents.GenerateClientWithOptions(cfg.Generate.TSClient.apply(g.file), resolver, opts))
 		if err != nil {
 			return err
 		}
 		if cfg.Generate.TSClient.MSW {
-			if err := writeFile(filepath.Join(outDir, "msw.ts"), gents.GenerateMSWHandlersWithOptions(g.file, resolver, opts)); err != nil {
+			if err := writeFile(filepath.Join(outDir, "msw.ts"), gents.GenerateMSWHandlersWithOptions(cfg.Generate.TSClient.apply(g.file), resolver, opts)); err != nil {
 				return err
 			}
 		}
@@ -50,7 +50,7 @@ func buildTSServer(cfg *Config, idx *sourceIndex) error {
 		if err != nil {
 			return err
 		}
-		err = writeFile(filepath.Join(outDir, "server.ts"), gents.GenerateServerWithOptions(g.file, resolver, opts))
+		err = writeFile(filepath.Join(outDir, "server.ts"), gents.GenerateServerWithOptions(cfg.Generate.TSServer.apply(g.file), resolver, opts))
 		if err != nil {
 			return err
 		}
@@ -69,7 +69,7 @@ func buildPythonClient(cfg *Config, idx *sourceIndex) error {
 			return err
 		}
 		typesModule := pyModulePath(g.relDir)
-		clientSrc := genpy.GenerateClientWithResolver(g.file, typesModule, resolver)
+		clientSrc := genpy.GenerateClientWithResolver(cfg.Generate.PythonClient.apply(g.file), typesModule, resolver)
 		err = writeFile(filepath.Join(outDir, "client.py"), clientSrc)
 		if err != nil {
 			return err
@@ -107,7 +107,7 @@ func buildDartClient(cfg *Config, idx *sourceIndex) error {
 		if err := writeFile(filepath.Join(outDir, "models.dart"), gendart.GenerateTypesWithResolver(g.file, resolver, runtimeDir+"onekit.dart")); err != nil {
 			return err
 		}
-		if client := gendart.GenerateClientWithResolver(g.file, resolver, runtimeDir); client != nil {
+		if client := gendart.GenerateClientWithResolver(cfg.Generate.DartClient.apply(g.file), resolver, runtimeDir); client != nil {
 			if err := writeFile(filepath.Join(outDir, "client.dart"), client); err != nil {
 				return err
 			}
@@ -178,7 +178,7 @@ func buildSwiftClient(cfg *Config, idx *sourceIndex) error {
 		if err := writeFile(filepath.Join(outDir, models), genswift.GenerateTypesInNamespace(g.file, namespace, resolver)); err != nil {
 			return err
 		}
-		if client := genswift.GenerateClientInNamespace(g.file, namespace, resolver); client != nil {
+		if client := genswift.GenerateClientInNamespace(cfg.Generate.SwiftClient.apply(g.file), namespace, resolver); client != nil {
 			return writeFile(filepath.Join(outDir, clientName), client)
 		}
 		return nil
@@ -186,9 +186,11 @@ func buildSwiftClient(cfg *Config, idx *sourceIndex) error {
 }
 
 type rustTarget struct {
-	outRoot string
-	client  bool
-	server  bool
+	outRoot      string
+	client       bool
+	server       bool
+	clientFilter ServiceFilter
+	serverFilter ServiceFilter
 }
 
 func buildRust(cfg *Config, idx *sourceIndex) error {
@@ -203,8 +205,12 @@ func buildRust(cfg *Config, idx *sourceIndex) error {
 			entry = &rustTarget{outRoot: outRoot}
 			targets[outRoot] = entry
 		}
-		entry.client = entry.client || client
-		entry.server = entry.server || server
+		if client {
+			entry.client, entry.clientFilter = true, target.ServiceFilter
+		}
+		if server {
+			entry.server, entry.serverFilter = true, target.ServiceFilter
+		}
 	}
 	addTarget(cfg.Generate.RustClient, true, false)
 	addTarget(cfg.Generate.RustServer, false, true)
@@ -223,12 +229,12 @@ func buildRust(cfg *Config, idx *sourceIndex) error {
 				return err
 			}
 			if target.client {
-				if err := writeFile(filepath.Join(outDir, "client.rs"), genrust.GenerateClientWithResolver(group.file, resolver)); err != nil {
+				if err := writeFile(filepath.Join(outDir, "client.rs"), genrust.GenerateClientWithResolver(target.clientFilter.apply(group.file), resolver)); err != nil {
 					return err
 				}
 			}
 			if target.server {
-				if err := writeFile(filepath.Join(outDir, "server.rs"), genrust.GenerateServerWithResolver(group.file, resolver)); err != nil {
+				if err := writeFile(filepath.Join(outDir, "server.rs"), genrust.GenerateServerWithResolver(target.serverFilter.apply(group.file), resolver)); err != nil {
 					return err
 				}
 			}
@@ -237,7 +243,7 @@ func buildRust(cfg *Config, idx *sourceIndex) error {
 		if err != nil {
 			return err
 		}
-		if err := writeRustModuleFiles(target.outRoot, idx.groups, target.client, target.server); err != nil {
+		if err := writeRustModuleFiles(target.outRoot, idx.groups, rustSide{target.client, target.clientFilter}, rustSide{target.server, target.serverFilter}); err != nil {
 			return err
 		}
 	}
@@ -251,7 +257,16 @@ type rustModuleNode struct {
 	children  map[string]bool
 }
 
-func writeRustModuleFiles(outRoot string, groups []*sourceGroup, client, server bool) error {
+type rustSide struct {
+	enabled bool
+	filter  ServiceFilter
+}
+
+func (s rustSide) hasServicesIn(group *sourceGroup) bool {
+	return s.enabled && len(s.filter.apply(group.file).Services) > 0
+}
+
+func writeRustModuleFiles(outRoot string, groups []*sourceGroup, client, server rustSide) error {
 	nodes := map[string]*rustModuleNode{}
 	nodeAt := func(path string) *rustModuleNode {
 		node, ok := nodes[path]
@@ -276,8 +291,8 @@ func writeRustModuleFiles(outRoot string, groups []*sourceGroup, client, server 
 		}
 		leaf := nodeAt(parent)
 		leaf.hasTypes = true
-		leaf.hasClient = client && len(group.file.Services) > 0
-		leaf.hasServer = server && len(group.file.Services) > 0
+		leaf.hasClient = client.hasServicesIn(group)
+		leaf.hasServer = server.hasServicesIn(group)
 	}
 
 	paths := make([]string, 0, len(nodes))
