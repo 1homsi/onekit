@@ -429,7 +429,7 @@ func tsRuntimeTypeExpression(field *onkir.Field, expr string) string {
 func writeField(p *Printer, m *onkir.Message, f *onkir.Field, wirePrefix string) {
 	writeJSDoc(p, tsDeprecatedDoc(f.Doc, f.Deprecated))
 	separator, orUndefined := "?: ", " | undefined"
-	if f.HasDecorator("required") {
+	if f.HasDecorator("required") || (f.EmitZero && m.ResponseOnly) {
 		separator, orUndefined = ": ", ""
 	}
 	if f.Oneof != nil {
