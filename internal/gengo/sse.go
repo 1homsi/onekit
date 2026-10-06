@@ -69,7 +69,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		p.P(fmt.Sprintf(`_ = sender.SendWithEvent("error", streamErr%d)`, i))
 	}
 	p.P("default:")
-	p.P(`_ = sender.SendWithEvent("error", map[string]string{"message": "internal server error"})`)
+	p.P(`_ = sender.SendWithEvent("error", o.errorEventBody(r, err))`)
 	p.P("}")
 	p.P("}")
 	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", strings.ToUpper(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), ", Scopes: ", scopesLiteral(m), ", Meta: ", metaLiteral(m), "}))")
