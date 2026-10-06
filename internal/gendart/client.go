@@ -266,12 +266,17 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("Stream<", p.MessageTypeName(m.Response), "> ", MethodIdent(m.Name), "(", p.MessageTypeName(m.Request), " req, {Map<String, String>? headers}) async* {")
 	p.Indent()
 	p.P("onekitCheck(req.validate());")
-	writePathAndQuery(p, s.BasePath+route, m.Request, true)
+	bodyBearing := onkir.IsBodyBearingVerb(verb)
+	writePathAndQuery(p, s.BasePath+route, m.Request, !bodyBearing)
 	p.P("final request = http.Request(", dartString(strings.ToUpper(verb)), ", onekitUri(baseUrl, path, query))")
 	p.Indent()
 	p.P("..headers.addAll(onekitHeaders(this.headers, headers))")
 	p.P("..headers['accept'] = 'text/event-stream';")
 	p.Dedent()
+	if bodyBearing {
+		p.P("request.headers['content-type'] = 'application/json';")
+		p.P("request.body = ", p.bodyExpr(m), ";")
+	}
 	p.P("final response = await _http.send(request);")
 	p.P("if (response.statusCode < 200 || response.statusCode >= 300) {")
 	p.Indent()

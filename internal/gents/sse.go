@@ -20,30 +20,54 @@ import (
 // non-streamed response does - camelCase TS shape in, snake_case JSON shape
 // out - matching the per-message encode<Response> function (see types.go).
 func writeSSEResponseHelper(p *Printer) {
-	p.P("async function sseResponse<T>(stream: ReadableStream<T>, encode: (v: T) => unknown): Promise<Response> {")
+	p.P("const defaultSSEHeartbeatMs = 15000;")
+	p.P()
+	p.P("async function sseResponse<T>(req: Request, stream: ReadableStream<T>, encode: (v: T) => unknown, eventName?: (encoded: any) => string | undefined): Promise<Response> {")
 	p.P("const reader = stream.getReader();")
-	p.P("let first: ReadableStreamReadResult<T>;")
+	p.P("const interval = sseHeartbeats.get(req) ?? defaultSSEHeartbeatMs;")
+	p.P("const firstRead = reader.read();")
+	p.P("let first: ReadableStreamReadResult<T> | undefined;")
 	p.P("try {")
-	p.P("first = await reader.read();")
+	p.P("if (interval > 0) {")
+	p.P("let timer: ReturnType<typeof setTimeout> | undefined;")
+	p.P(`const timeout = new Promise<"timeout">((resolve) => { timer = setTimeout(() => resolve("timeout"), interval); });`)
+	p.P("const raced = await Promise.race([firstRead, timeout]);")
+	p.P("clearTimeout(timer);")
+	p.P(`if (raced !== "timeout") first = raced;`)
+	p.P("} else {")
+	p.P("first = await firstRead;")
+	p.P("}")
 	p.P("} catch (err) {")
 	p.P("return errorResponse(err);")
 	p.P("}")
 	p.P()
 	p.P("const encoder = new TextEncoder();")
+	p.P("let ping: ReturnType<typeof setInterval> | undefined;")
 	p.P("const body = new ReadableStream<Uint8Array>({")
 	p.P("async start(controller) {")
-	p.P("let current = first;")
+	p.P(`const sendPing = () => { try { controller.enqueue(encoder.encode(": ping\n\n")); } catch { } };`)
+	p.P("if (interval > 0) ping = setInterval(sendPing, interval);")
+	p.P("if (first === undefined) sendPing();")
 	p.P("try {")
+	p.P("let current = first ?? (await firstRead);")
 	p.P("while (!current.done) {")
-	p.P(`controller.enqueue(encoder.encode("data: " + JSON.stringify(encode(current.value)) + "\n\n"));`)
+	p.P("const encoded = encode(current.value);")
+	p.P("const raw = eventName?.(encoded);")
+	p.P("const name = typeof raw === \"string\" && /^[A-Za-z0-9_.-]+$/.test(raw) ? raw : undefined;")
+	p.P(`controller.enqueue(encoder.encode((name ? "event: " + name + "\n" : "") + "data: " + JSON.stringify(encoded) + "\n\n"));`)
 	p.P("current = await reader.read();")
 	p.P("}")
 	p.P("} catch (err) {")
 	p.P(`const errBody = err instanceof HttpError ? err.body : { message: "internal server error" };`)
 	p.P(`controller.enqueue(encoder.encode("event: error\ndata: " + JSON.stringify(errBody) + "\n\n"));`)
 	p.P("} finally {")
-	p.P("controller.close();")
+	p.P("if (ping !== undefined) clearInterval(ping);")
+	p.P("try { controller.close(); } catch { }")
 	p.P("}")
+	p.P("},")
+	p.P("cancel() {")
+	p.P("if (ping !== undefined) clearInterval(ping);")
+	p.P("return reader.cancel();")
 	p.P("},")
 	p.P("});")
 	p.P()
@@ -55,6 +79,15 @@ func writeSSEResponseHelper(p *Printer) {
 	p.P("});")
 	p.P("}")
 	p.P()
+}
+
+func sseEventNameExpr(m *onkir.Method) string {
+	field := m.StreamEventOneof()
+	if field == nil {
+		return ""
+	}
+	disc, _ := field.Oneof.Discriminator()
+	return fmt.Sprintf("(encoded) => encoded?.[%q]?.[%q] ?? encoded?.[%q]", field.Name, disc, disc)
 }
 
 func writeSSEHandlerMethod(p *Printer, m *onkir.Method) {
@@ -95,8 +128,17 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		}
 		p.P("}")
 	}
-	p.P("const body: Record<string, unknown> = {};")
-	writeServerQueryParams(p, m.Request)
+	bodyBearing := onkir.IsBodyBearingVerb(verb)
+	p.P("let body: any = {};")
+	if bodyBearing {
+		if bodyField, ok := m.BodyField(); ok {
+			p.P("body[", fmt.Sprintf("%q", bodyField), "] = await readJSONBody(req);")
+		} else {
+			p.P("body = (await readJSONBody(req)) ?? {};")
+		}
+	} else {
+		writeServerQueryParams(p, m.Request)
+	}
 	if hasPathParams {
 		for _, paramName := range onkir.PathParamNames(path) {
 			field := onkir.FindField(m.Request, paramName)
@@ -116,7 +158,11 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("if (violations.length > 0) throw requestError(400, \"validation_failed\", violations.join(\"; \"), { violations });")
 	writeRouteAuthorizeCall(p, m)
 	p.P("const stream = handler.", CamelCase(m.Name), "(decoded, ", routeContextLiteral(m), ");")
-	p.P("return await sseResponse(stream, ", p.MessageCodecName(m.Response, "encode"), ");")
+	eventName := sseEventNameExpr(m)
+	if eventName != "" {
+		eventName = ", " + eventName
+	}
+	p.P("return await sseResponse(req, stream, ", p.MessageCodecName(m.Response, "encode"), eventName, ");")
 	p.P("} catch (err) {")
 	p.P("return errorResponse(err);")
 	p.P("}")
@@ -126,12 +172,19 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 }
 
 func writeSSEClientFetch(p *Printer, m *onkir.Method) {
-	// The compiler restricts @stream to non-body-bearing verbs, so no request
-	// body is ever attached here; the verb itself still follows the schema.
 	verb, _ := m.Verb()
 	p.P("const res = await this.request(this.baseUrl + path, {")
 	p.P(fmt.Sprintf("method: %q,", strings.ToUpper(verb)))
-	p.P(`headers: { Accept: "text/event-stream", ...this.options.defaultHeaders, ...opts?.headers },`)
+	if onkir.IsBodyBearingVerb(verb) {
+		p.P(`headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...this.options.defaultHeaders, ...opts?.headers },`)
+		if bodyField, ok := m.BodyField(); ok {
+			p.P("body: JSON.stringify(", p.MessageCodecName(m.Request, "encode"), "(req)[", fmt.Sprintf("%q", bodyField), "]),")
+		} else {
+			p.P("body: JSON.stringify(", p.MessageCodecName(m.Request, "encode"), "(req)),")
+		}
+	} else {
+		p.P(`headers: { Accept: "text/event-stream", ...this.options.defaultHeaders, ...opts?.headers },`)
+	}
 	p.P("signal: opts?.signal ?? null,")
 	p.P("});")
 	p.P()
@@ -220,7 +273,9 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 			onkir.PathPlaceholder(path, paramName), tsPathEncodeExpr(path, paramName, "req."+CamelCase(field.Name)),
 		))
 	}
-	writeClientQueryParams(p, m.Request)
+	if verb, _ := m.Verb(); !onkir.IsBodyBearingVerb(verb) {
+		writeClientQueryParams(p, m.Request)
+	}
 
 	writeSSEClientFetch(p, m)
 	writeSSEClientReadLoop(p, m)

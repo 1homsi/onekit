@@ -465,25 +465,7 @@ func writeHandler(
 	p.P("match service.", RustIdent(method.Name), "(context, req).await {")
 	p.Indent()
 	if method.IsStream() {
-		p.P("Ok(stream) => {")
-		p.Indent()
-		p.P("let events = stream.map(|item| {")
-		p.Indent()
-		p.P("let event = match item {")
-		p.Indent()
-		p.P(
-			"Ok(value) => Event::default().json_data(value).unwrap_or_else(",
-			"|error| Event::default().event(\"error\").data(error.to_string())),",
-		)
-		p.P("Err(error) => Event::default().event(\"error\").json_data(error.error_body()).unwrap_or_default(),")
-		p.Dedent()
-		p.P("};")
-		p.P("Ok::<Event, Infallible>(event)")
-		p.Dedent()
-		p.P("});")
-		p.P("Sse::new(events).into_response()")
-		p.Dedent()
-		p.P("}")
+		writeStreamOkArm(p, method)
 	} else {
 		p.P("Ok(value) => Json(value).into_response(),")
 	}
@@ -630,4 +612,45 @@ func mustMethodVerb(method *onkir.Method) string {
 func mustMethodPath(method *onkir.Method) string {
 	path, _ := method.Path()
 	return path
+}
+
+func writeStreamOkArm(p *Printer, method *onkir.Method) {
+	p.P("Ok(stream) => {")
+	p.Indent()
+	p.P("let events = stream.map(|item| {")
+	p.Indent()
+	p.P("let event = match item {")
+	p.Indent()
+	if field := method.StreamEventOneof(); field != nil {
+		disc, _ := field.Oneof.Discriminator()
+		p.P("Ok(value) => match serde_json::to_value(&value) {")
+		p.Indent()
+		p.P("Ok(json) => {")
+		p.Indent()
+		p.P(
+			"let name = json.get(", strconv.Quote(field.Name), ").and_then(|inner| inner.get(", strconv.Quote(disc),
+			")).or_else(|| json.get(", strconv.Quote(disc), ")).and_then(|tag| tag.as_str()).filter(|tag| !tag.is_empty() && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')).map(str::to_owned);",
+		)
+		p.P("let event = match name { Some(name) => Event::default().event(name), None => Event::default() };")
+		p.P("event.json_data(json).unwrap_or_else(|error| Event::default().event(\"error\").data(error.to_string()))")
+		p.Dedent()
+		p.P("}")
+		p.P("Err(error) => Event::default().event(\"error\").data(error.to_string()),")
+		p.Dedent()
+		p.P("},")
+	} else {
+		p.P(
+			"Ok(value) => Event::default().json_data(value).unwrap_or_else(",
+			"|error| Event::default().event(\"error\").data(error.to_string())),",
+		)
+	}
+	p.P("Err(error) => Event::default().event(\"error\").json_data(error.error_body()).unwrap_or_default(),")
+	p.Dedent()
+	p.P("};")
+	p.P("Ok::<Event, Infallible>(event)")
+	p.Dedent()
+	p.P("});")
+	p.P("Sse::new(events).keep_alive(axum::response::sse::KeepAlive::default()).into_response()")
+	p.Dedent()
+	p.P("}")
 }

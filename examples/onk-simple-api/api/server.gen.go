@@ -231,6 +231,8 @@ type serverOptions struct {
 	errorWriter         ErrorWriter
 	observer            RequestObserver
 	maxRequestBodyBytes int64
+	sseHeartbeat        time.Duration
+	sseHeartbeatSet     bool
 }
 
 // WithMux supports the options-first registration form.
@@ -459,6 +461,9 @@ func WithRequestObserver(observer RequestObserver) ServerOption {
 }
 func WithMaxRequestBodyBytes(limit int64) ServerOption {
 	return func(o *serverOptions) { o.maxRequestBodyBytes = limit }
+}
+func WithSSEHeartbeat(interval time.Duration) ServerOption {
+	return func(o *serverOptions) { o.sseHeartbeat, o.sseHeartbeatSet = interval, true }
 }
 
 func defaultRequestIDGenerator() string {
