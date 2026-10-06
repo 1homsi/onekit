@@ -639,7 +639,6 @@ func (m *Message) IsPrincipal() bool {
 	return ok
 }
 
-// MetaEntry is one @meta(key, value) pair.
 func ParseByteSize(text string) (int64, bool) {
 	text = strings.TrimSpace(text)
 	multiplier := int64(1)
@@ -669,6 +668,7 @@ func (m *Method) MaxBodyBytes() (int64, bool) {
 	return 0, false
 }
 
+// MetaEntry is one @meta(key, value) pair.
 type MetaEntry struct{ Key, Value string }
 
 // Meta returns the method's @meta pairs in declaration order.
