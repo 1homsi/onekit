@@ -210,6 +210,9 @@ func (e expectedOutputs) addGoOutputs(cfg *Config, rel string) {
 func (e expectedOutputs) addTSOutputs(cfg *Config, rel string) {
 	if cfg.Generate.TSClient != nil {
 		root := cfg.resolve(cfg.Generate.TSClient.Out)
+		if dir, ok := cfg.Generate.TSClient.sharedRuntimeDir(); ok {
+			e.add(root, filepath.Join(filepath.FromSlash(dir), "runtime.ts"))
+		}
 		e.add(root, filepath.Join(rel, "types.ts"))
 		e.add(root, filepath.Join(rel, "client.ts"))
 		if cfg.Generate.TSClient.MSW {

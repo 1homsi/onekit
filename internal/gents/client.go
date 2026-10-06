@@ -94,9 +94,13 @@ func GenerateClientWithOptions(file *onkir.File, resolver PackageResolver, opts 
 	}
 	p.P()
 
-	writeResponseBodyRuntime(p)
-	writeAPIError(p)
-	writeTypedAPIError(p)
+	if opts.SharedRuntime != "" {
+		writeSharedRuntimeImports(p, opts.SharedRuntime)
+	} else {
+		writeResponseBodyRuntime(p)
+		writeAPIError(p)
+		writeTypedAPIError(p)
+	}
 	if onkir.FileHasWSMethods(file) {
 		writeTSWSSharedRuntime(p)
 	}

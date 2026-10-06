@@ -973,6 +973,32 @@ A TypeScript field is optional (`id?: number | undefined`) unless it is `@requir
 
 Generated TypeScript compiles under `"strict": true` with `noUnusedLocals` and `noUnusedParameters`: imports, private helpers and parameters that a given schema never uses are not emitted, so the output can sit inside a project that type-checks it.
 
+### One runtime for every TypeScript client
+
+By default each package's `client.ts` declares its own `ApiError`, `TypedApiError`, `RequestValidationError` and `RequestOptions`, plus the response-size, timeout and SSE helpers. With several schema packages, `error instanceof ApiError` only matches errors thrown by clients from the same package, so application code cannot write one `catch` for all of them. Put the runtime in one module instead:
+
+```toml
+[generate.ts-client]
+out = "./web/api"
+runtime = "shared"        # "package" is the default
+runtime_dir = "onekitrt"  # relative to out; this is the default
+```
+
+The runtime is written once to `web/api/onekitrt/runtime.ts`, and every `client.ts` imports it and re-exports `ApiError`, `TypedApiError`, `RequestValidationError` and `RequestOptions`, so existing imports from a client module keep working and all resolve to the same classes:
+
+```ts
+import { ApiError } from "./api/onekitrt/runtime";
+
+try {
+  await ordersClient.get({ id });
+  await invoicesClient.get({ id });
+} catch (error) {
+  if (error instanceof ApiError) show(error.code, error.message);   // errors from either client
+}
+```
+
+The runtime directory must not share a name with a schema directory, and switching `runtime` back removes the shared module on the next build. WebSocket client support is still emitted per package, and `ts-server` keeps its own runtime.
+
 ### TypeScript client call shape
 
 Each client method takes one request object holding every field, path parameters included, plus an optional `RequestOptions` (`signal`, `headers`, `timeoutMs`): `client.update({ id, name })`, not `update(id, input)`. A failed call throws `ApiError` carrying `statusCode`, the raw `body`, and, when the response follows the error envelope, `code`, `message` and `requestId`; set `errorParser` in the client options to read a custom envelope. Calls time out after 30 seconds and read at most 8 MiB; both are settable per client (`timeoutMs`, `maxResponseBodyBytes`) and `timeoutMs` per call.

@@ -20,19 +20,34 @@ import (
 func buildTSClient(cfg *Config, idx *sourceIndex) error {
 	outRoot := cfg.resolve(cfg.Generate.TSClient.Out)
 	opts := gents.Options{WireFieldNames: cfg.Generate.TSClient.FieldNames == fieldNamesWire}
+	runtimeDir, sharedRuntime := cfg.Generate.TSClient.sharedRuntimeDir()
+	if sharedRuntime {
+		for _, g := range idx.groups {
+			if filepath.ToSlash(g.relDir) == runtimeDir {
+				return fmt.Errorf("ts-client runtime_dir %q collides with the schema directory of the same name; pick another runtime_dir", runtimeDir)
+			}
+		}
+		if err := writeFile(filepath.Join(outRoot, filepath.FromSlash(runtimeDir), "runtime.ts"), gents.GenerateClientRuntime()); err != nil {
+			return err
+		}
+	}
 	return eachGroup(idx, func(g *sourceGroup) error {
 		outDir := groupOutDir(outRoot, g.relDir)
 		resolver := &tsResolver{currentDir: g.relDir, idx: idx}
-		err := writeFile(filepath.Join(outDir, "types.ts"), gents.GenerateTypesWithOptions(g.file, resolver, opts))
+		groupOpts := opts
+		if sharedRuntime {
+			groupOpts.SharedRuntime = tsRuntimeSpecifier(outDir, filepath.Join(outRoot, filepath.FromSlash(runtimeDir)))
+		}
+		err := writeFile(filepath.Join(outDir, "types.ts"), gents.GenerateTypesWithOptions(g.file, resolver, groupOpts))
 		if err != nil {
 			return err
 		}
-		err = writeFile(filepath.Join(outDir, "client.ts"), gents.GenerateClientWithOptions(cfg.Generate.TSClient.apply(g.file), resolver, opts))
+		err = writeFile(filepath.Join(outDir, "client.ts"), gents.GenerateClientWithOptions(cfg.Generate.TSClient.apply(g.file), resolver, groupOpts))
 		if err != nil {
 			return err
 		}
 		if cfg.Generate.TSClient.MSW {
-			if err := writeFile(filepath.Join(outDir, "msw.ts"), gents.GenerateMSWHandlersWithOptions(cfg.Generate.TSClient.apply(g.file), resolver, opts)); err != nil {
+			if err := writeFile(filepath.Join(outDir, "msw.ts"), gents.GenerateMSWHandlersWithOptions(cfg.Generate.TSClient.apply(g.file), resolver, groupOpts)); err != nil {
 				return err
 			}
 		}
@@ -341,4 +356,18 @@ func rustPathSegments(relDir string) []string {
 		return nil
 	}
 	return strings.Split(filepath.ToSlash(relDir), "/")
+}
+
+// tsRuntimeSpecifier is the import specifier a client in outDir uses for the
+// shared runtime module in runtimeDir.
+func tsRuntimeSpecifier(outDir, runtimeDir string) string {
+	rel, err := filepath.Rel(outDir, filepath.Join(runtimeDir, "runtime"))
+	if err != nil {
+		rel = filepath.Join(runtimeDir, "runtime")
+	}
+	specifier := filepath.ToSlash(rel) + ".js"
+	if !strings.HasPrefix(specifier, ".") {
+		specifier = "./" + specifier
+	}
+	return specifier
 }

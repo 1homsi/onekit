@@ -57,6 +57,11 @@ type Options struct {
 	// as the property name in the generated types and clients instead of
 	// camel-casing it (isDefault).
 	WireFieldNames bool
+	// SharedRuntime, when set, is the import specifier of a shared runtime
+	// module (see GenerateClientRuntime). The client imports ApiError and the
+	// other runtime pieces from it instead of declaring its own copy, so an
+	// error thrown by any package's client is the same class.
+	SharedRuntime string
 }
 
 type tsNaming bool
