@@ -165,6 +165,12 @@ type Message struct {
 	Decorators  []Decorator
 	File        *File
 	Parent      *Message
+	// ResponseOnly is set by the compiler on a message that some method
+	// returns (a response, a stream event or a declared error, directly or
+	// nested inside one) and that no method accepts as a request. A server
+	// that writes zero values always sends its non-optional fields, so
+	// generators can type them as present.
+	ResponseOnly bool
 }
 
 // EnumValue is one member of an enum.
