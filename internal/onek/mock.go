@@ -10,6 +10,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -631,5 +632,11 @@ func mockStreamEventName(method *onkir.Method) string {
 	if field == nil || len(field.Oneof.Variants) == 0 {
 		return ""
 	}
-	return field.Oneof.Variants[0].Tag()
+	tag := field.Oneof.Variants[0].Tag()
+	if !mockSSEEventName.MatchString(tag) {
+		return ""
+	}
+	return tag
 }
+
+var mockSSEEventName = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
