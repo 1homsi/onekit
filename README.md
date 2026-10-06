@@ -861,7 +861,7 @@ The order on the server is: authenticate (`401` when no caller can be identified
 
 | Target | How callers are identified |
 | --- | --- |
-| Go server | `WithPrincipal(func(ctx, r) (*Principal, error))`; an error is a `401` unless it carries `HTTPStatusCode()`. Handlers read the caller with `PrincipalFromContext(ctx)` |
+| Go server | `WithPrincipal(func(ctx, r) (*Principal, error))`; an error is a `401` unless it carries `HTTPStatusCode()`, and returning a nil principal with no error is also a `401`, so a rule that never reads `auth` cannot let an unidentified caller through. Handlers read the caller with `PrincipalFromContext(ctx)` |
 | TypeScript server | the `principal` option of `createXFetchHandler`, `createXNodeHandler` and `attachXNodeHandlers`; throw an `HttpError` to choose the status. Handlers read `context.principal` |
 | Rust server | insert the `Principal` as a request extension from your authentication layer (`request.extensions_mut().insert(principal)`); a request without one is a `401`. Handlers read `context.principal` |
 
