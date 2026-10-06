@@ -1,0 +1,75 @@
+type EventStream[T any] struct {
+	body         io.ReadCloser
+	reader       *bufio.Reader
+	maxLineBytes int
+	err          error
+}
+
+func newEventStream[T any](body io.ReadCloser, maxLineBytes int) *EventStream[T] {
+	if maxLineBytes <= 0 {
+		maxLineBytes = defaultMaxSSELineBytes
+	}
+	return &EventStream[T]{body: body, reader: bufio.NewReader(body), maxLineBytes: maxLineBytes}
+}
+
+func readEventStreamLine(reader *bufio.Reader, maxBytes int) (string, error) {
+	var line []byte
+	for {
+		part, err := reader.ReadSlice('\n')
+		line = append(line, part...)
+		if len(line) > maxBytes {
+			return "", fmt.Errorf("SSE line exceeds configured limit")
+		}
+		if err == nil {
+			return string(line), nil
+		}
+		if err != bufio.ErrBufferFull {
+			return string(line), err
+		}
+	}
+}
+
+func (s *EventStream[T]) Next(event *T) bool {
+	var data []string
+	eventType := ""
+	for {
+		line, err := readEventStreamLine(s.reader, s.maxLineBytes)
+		if err != nil {
+			if err != io.EOF {
+				s.err = err
+			}
+			return false
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			if len(data) == 0 {
+				eventType = ""
+				continue
+			}
+			payload := strings.Join(data, "\n")
+			if eventType == "error" {
+				s.err = fmt.Errorf("stream error: %s", payload)
+				return false
+			}
+			if err := json.Unmarshal([]byte(payload), event); err != nil {
+				s.err = err
+				return false
+			}
+			return true
+		}
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		field, value, _ := strings.Cut(line, ":")
+		value = strings.TrimPrefix(value, " ")
+		switch field {
+		case "event":
+			eventType = value
+		case "data":
+			data = append(data, value)
+		}
+	}
+}
+
+func (s *EventStream[T]) Err() error   { return s.err }
+func (s *EventStream[T]) Close() error { return s.body.Close() }

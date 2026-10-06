@@ -25,6 +25,11 @@ func (p *Printer) P(args ...any) {
 	p.b.WriteByte('\n')
 }
 
+// Raw appends source text exactly as given, without adding a newline.
+func (p *Printer) Raw(source string) {
+	p.b.WriteString(source)
+}
+
 func (p *Printer) Bytes() []byte {
 	return []byte(p.b.String())
 }

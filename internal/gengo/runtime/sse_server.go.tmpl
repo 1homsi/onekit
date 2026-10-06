@@ -1,0 +1,122 @@
+type SSESender interface {
+	Send(event any) error
+	SendWithEvent(eventType string, event any) error
+	Flush()
+}
+
+type sseSender struct {
+	mu        sync.Mutex
+	w         http.ResponseWriter
+	rc        *http.ResponseController
+	started   bool
+	eventName func(any) string
+}
+
+const defaultSSEHeartbeat = 15 * time.Second
+
+func newSSESender(w http.ResponseWriter, eventName func(any) string) *sseSender {
+	return &sseSender{w: w, rc: http.NewResponseController(w), eventName: eventName}
+}
+
+func (s *sseSender) heartbeat(ctx context.Context, interval time.Duration, set bool) func() {
+	if !set {
+		interval = defaultSSEHeartbeat
+	}
+	if interval <= 0 {
+		return func() {}
+	}
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.mu.Lock()
+				if !s.started {
+					s.start()
+				}
+				if _, err := fmt.Fprint(s.w, ": ping\n\n"); err == nil {
+					_ = s.flush()
+				}
+				s.mu.Unlock()
+			}
+		}
+	}()
+	return func() { close(done); wg.Wait() }
+}
+
+func (s *sseSender) Sent() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.started
+}
+
+func (s *sseSender) Send(event any) error {
+	name := ""
+	if s.eventName != nil {
+		name = s.eventName(event)
+	}
+	return s.SendWithEvent(name, event)
+}
+
+func validSSEEventName(name string) bool {
+	for _, c := range name {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-' || c == '.') {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *sseSender) start() {
+	s.started = true
+	s.w.Header().Set("Content-Type", "text/event-stream")
+	s.w.Header().Set("Cache-Control", "no-cache")
+	s.w.Header().Set("Connection", "keep-alive")
+	s.w.WriteHeader(http.StatusOK)
+}
+
+func (s *sseSender) SendWithEvent(eventType string, event any) error {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	if !validSSEEventName(eventType) {
+		return fmt.Errorf("invalid SSE event name %q", eventType)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.started {
+		s.start()
+	}
+	if eventType != "" {
+		if _, err := fmt.Fprintf(s.w, "event: %s\n", eventType); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(s.w, "data: %s\n\n", data); err != nil {
+		return err
+	}
+	return s.flush()
+}
+
+func (s *sseSender) flush() error {
+	if err := s.rc.Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return err
+	}
+	return nil
+}
+
+func (s *sseSender) Flush() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.flush()
+}
