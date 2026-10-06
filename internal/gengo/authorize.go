@@ -69,7 +69,11 @@ func writePrincipalLookup(p *Printer, m *onkir.Method) {
 	p.P(`if errors.As(principalErr, &statusErr) { o.WriteHandlerError(w, r, principalErr) } else { o.Fail(w, r, &ServerError{Status: http.StatusUnauthorized, Code: "unauthorized", Message: "unauthorized", Cause: principalErr}) }`)
 	p.P("return")
 	p.P("}")
-	p.P("principal, _ := principalValue.(*", p.principalType, ")")
+	p.P("principal, principalOK := principalValue.(*", p.principalType, ")")
+	p.P("if !principalOK || principal == nil {")
+	p.P(`o.Fail(w, r, &ServerError{Status: http.StatusUnauthorized, Code: "unauthorized", Message: "unauthorized"})`)
+	p.P("return")
+	p.P("}")
 	p.P("r = r.WithContext(context.WithValue(r.Context(), principalContextKey{}, principal))")
 }
 
