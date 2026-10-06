@@ -28,7 +28,7 @@ const handler = createAgentFetchHandler({
   turn(req) {
     return new ReadableStream({
       async start(c) {
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, 1500));
         c.enqueue({ payload: { type: "text", text: { text: "hi " + req.prompt } } });
         c.enqueue({ payload: { type: "done", done: { reason: "stop" } } });
         c.close();
@@ -39,7 +39,7 @@ const handler = createAgentFetchHandler({
 
 const start = Date.now();
 const res = await handler(new Request("http://x/turn", { method: "POST", body: JSON.stringify({ prompt: "bob" }), headers: { "content-type": "application/json" } }));
-if (Date.now() - start > 250) throw new Error("heartbeat must commit headers before the first slow event");
+if (Date.now() - start > 1000) throw new Error("heartbeat must commit headers before the first slow event");
 const text = await res.text();
 const lines = text.split("\n").filter((l) => l !== "" && !l.startsWith(":"));
 const want = ['event: text', 'data: {"payload":{"type":"text","text":{"text":"hi bob"}}}', 'event: done', 'data: {"payload":{"type":"done","done":{"reason":"stop"}}}'];

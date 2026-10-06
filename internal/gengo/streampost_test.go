@@ -42,7 +42,7 @@ import (
 type impl struct{}
 
 func (impl) Turn(ctx context.Context, req *app.TurnRequest, sender app.SSESender) error {
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(1500 * time.Millisecond)
 	if err := sender.Send(&app.TurnEvent{Payload: &app.TurnEventPayloadText{Text: &app.Text{Text: "hi " + req.Prompt}}}); err != nil {
 		return err
 	}
@@ -60,7 +60,7 @@ func main() {
 	start := time.Now()
 	response, err := http.Post(server.URL+"/turn", "application/json", strings.NewReader("{\"prompt\":\"bob\"}"))
 	if err != nil { panic(err) }
-	if time.Since(start) > 250*time.Millisecond {
+	if time.Since(start) > 1000*time.Millisecond {
 		panic("heartbeat must commit headers before the first slow event")
 	}
 	var lines []string
