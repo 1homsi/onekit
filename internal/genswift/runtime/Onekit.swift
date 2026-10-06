@@ -72,6 +72,12 @@ public func onekitPathValue<T>(_ value: T) -> String {
     String(describing: value).addingPercentEncoding(withAllowedCharacters: onekitUnreserved) ?? ""
 }
 
+public func onekitPathWildcard<T>(_ value: T) -> String {
+    String(describing: value).split(separator: "/", omittingEmptySubsequences: false)
+        .map { onekitPathValue(String($0)) }
+        .joined(separator: "/")
+}
+
 public func onekitQueryValue<T>(_ value: T) -> String {
     String(describing: value)
 }

@@ -21,7 +21,7 @@ func buildWSOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 	}
 	var params []*v3.Parameter
 	for _, name := range onkir.PathParamNames(path) {
-		params = append(params, pathParameter(name, m.Request))
+		params = append(params, pathParameter(name, m.Request, path))
 	}
 	for _, h := range append(append([]*onkir.Header{}, s.Headers...), m.Headers...) {
 		if _, auth := h.AuthType(); !auth {

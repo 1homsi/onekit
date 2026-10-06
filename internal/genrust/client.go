@@ -245,10 +245,16 @@ func writeClientMethod(
 				)
 				value = "path_value"
 			}
-			p.P(
-				"path = path.replace(", strconv.Quote("{"+name+"}"),
-				", &urlencoding::encode(&query_value(", value, ")));",
-			)
+			if onkir.IsWildcardParam(path, name) {
+				p.P("if query_value(", value, ").split('/').any(|segment| segment == \".\" || segment == \"..\") {")
+				p.P("return Err(", errorName, "::InvalidRequest(", strconv.Quote(name+": dot segments are not allowed"), ".into()));")
+				p.P("}")
+			}
+			encoded := "urlencoding::encode(&query_value(" + value + "))"
+			if onkir.IsWildcardParam(path, name) {
+				encoded += ".replace(\"%2F\", \"/\")"
+			}
+			p.P("path = path.replace(", strconv.Quote(onkir.PathPlaceholder(path, name)), ", &", encoded, ");")
 		}
 	}
 	p.P("let url = format!(\"{}{}\", self.base_url, path);")
@@ -554,18 +560,14 @@ func clientErrorName(service *onkir.Service, method *onkir.Method) string {
 }
 
 func pathFieldNames(path string) []string {
-	var names []string
-	start := -1
-	for index, char := range path {
-		switch {
-		case char == '{':
-			start = index + 1
-		case char == '}' && start >= 0:
-			names = append(names, path[start:index])
-			start = -1
-		}
+	return onkir.PathParamNames(path)
+}
+
+func rustAxumPath(path string) string {
+	if name, ok := onkir.WildcardParam(path); ok {
+		return strings.Replace(path, "{"+name+onkir.WildcardSuffix+"}", "{*"+name+"}", 1)
 	}
-	return names
+	return path
 }
 
 func serviceHasCorrelatedWS(service *onkir.Service) bool {

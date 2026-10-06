@@ -272,7 +272,7 @@ func writeRouter(p *Printer, service *onkir.Service) {
 			routeFn = "any"
 		}
 		p.P(
-			".route(", strconv.Quote(fullPath), ", axum::routing::", routeFn,
+			".route(", strconv.Quote(rustAxumPath(fullPath)), ", axum::routing::", routeFn,
 			"(", handlerName(service, method), "::<T>))",
 		)
 	}

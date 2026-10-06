@@ -211,9 +211,13 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		if field == nil {
 			continue
 		}
+		if onkir.IsWildcardParam(path, paramName) {
+			p.P(fmt.Sprintf(`if (String(req.%s).split("/").some((segment) => segment === "." || segment === "..")) throw new RequestValidationError("invalid request", [%q]);`,
+				CamelCase(field.Name), paramName+": dot segments are not allowed"))
+		}
 		p.P(fmt.Sprintf(
-			"path = path.replace(%q, encodeURIComponent(String(req.%s)));",
-			"{"+paramName+"}", CamelCase(field.Name),
+			"path = path.replace(%q, %s);",
+			onkir.PathPlaceholder(path, paramName), tsPathEncodeExpr(path, paramName, "req."+CamelCase(field.Name)),
 		))
 	}
 	writeClientQueryParams(p, m.Request)

@@ -353,9 +353,15 @@ func writePyPathParams(p *Printer, route string, req *onkir.Message) {
 		if field == nil {
 			continue
 		}
+		if onkir.IsWildcardParam(route, paramName) {
+			p.P(fmt.Sprintf("if any(segment in (\".\", \"..\") for segment in str(req.%s).split(\"/\")):", field.Name))
+			p.Indent()
+			p.P(fmt.Sprintf("raise ValueError(%q)", paramName+": dot segments are not allowed"))
+			p.Dedent()
+		}
 		p.P(fmt.Sprintf(
-			"path = path.replace(%q, urllib.parse.quote(%s, safe=\"\"))",
-			"{"+paramName+"}", pyQueryValueExpr(field.Type.Scalar, "req."+field.Name),
+			"path = path.replace(%q, urllib.parse.quote(%s, safe=%q))",
+			onkir.PathPlaceholder(route, paramName), pyQueryValueExpr(field.Type.Scalar, "req."+field.Name), pySafeChars(route, paramName),
 		))
 	}
 }
@@ -365,4 +371,11 @@ func pyQueryValueExpr(kind onkir.ScalarKind, expr string) string {
 		return fmt.Sprintf(`("true" if %s else "false")`, expr)
 	}
 	return "str(" + expr + ")"
+}
+
+func pySafeChars(route, name string) string {
+	if onkir.IsWildcardParam(route, name) {
+		return "/"
+	}
+	return ""
 }

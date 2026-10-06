@@ -555,7 +555,7 @@ func validateServiceRPC(filePath string, rpc *onklang.RPCDecl, service *onklang.
 		)}
 	}
 	seenMethods[generated] = rpc.Name
-	verb, route, err := validateRPC(filePath, rpc)
+	verb, route, err := validateRPC(filePath, rpc, service.BasePath != "")
 	if err != nil {
 		return err
 	}
@@ -687,15 +687,15 @@ func validScopeName(value string) bool {
 	return true
 }
 
-func validateRPC(path string, rpc *onklang.RPCDecl) (string, string, error) {
+func validateRPC(path string, rpc *onklang.RPCDecl, allowEmptyRoute bool) (string, string, error) {
 	var verb, route string
 	for _, decorator := range rpc.Decorators {
 		if isHTTPVerb(decorator.Name) {
 			if verb != "" {
 				return "", "", &Error{Path: path, Line: rpc.Line, Msg: "RPC must declare exactly one HTTP verb"}
 			}
-			if len(decorator.Args) != 1 || decorator.Args[0].Value == "" {
-				return "", "", &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("@%s requires one non-empty route", decorator.Name)}
+			if len(decorator.Args) != 1 || (decorator.Args[0].Value == "" && !allowEmptyRoute) {
+				return "", "", &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("@%s requires one non-empty route (an empty route is allowed only when the service sets base_path)", decorator.Name)}
 			}
 			verb, route = decorator.Name, decorator.Args[0].Value
 			continue
@@ -729,28 +729,12 @@ func validateRPC(path string, rpc *onklang.RPCDecl) (string, string, error) {
 		}
 	}
 	if hasDecorator(rpc.Decorators, wsDecorator) {
-		if verb != "" {
-			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws cannot be combined with an HTTP verb; it replaces the transport binding"}
-		}
-		if hasDecorator(rpc.Decorators, "stream") {
-			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws is already bidirectional and cannot be combined with @stream"}
-		}
-		if err := rejectAuthorizationOnWS(path, rpc); err != nil {
-			return "", "", err
-		}
-		if bodyName, ok := findDecorator(rpc.Decorators, "body"); ok {
-			_ = bodyName
-			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws does not support @body binding; every non-path/non-query request field crosses as a message frame"}
-		}
-		if err := validateHTTPPath(route, false); err != nil {
-			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "invalid @ws route: " + err.Error()}
-		}
-		return wsTransport, route, nil
+		return validateWSRPC(path, rpc, verb, route)
 	}
 	if verb == "" {
 		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "RPC must declare exactly one HTTP verb"}
 	}
-	if err := validateHTTPPath(route, false); err != nil {
+	if err := validateHTTPPath(route, allowEmptyRoute); err != nil {
 		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "invalid RPC route: " + err.Error()}
 	}
 	if body, ok := findDecorator(rpc.Decorators, "body"); ok {
@@ -796,6 +780,12 @@ func validateHTTPPath(value string, allowEmpty bool) error {
 	for _, segment := range strings.Split(value, "/") {
 		if strings.ContainsAny(segment, "{}") && !(strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") && strings.Count(segment, "{") == 1) {
 			return fmt.Errorf("path parameter must fill a whole segment (got %q)", segment)
+		}
+	}
+	segments := strings.Split(value, "/")
+	for i, segment := range segments {
+		if strings.HasSuffix(segment, onkir.WildcardSuffix+"}") && i != len(segments)-1 {
+			return fmt.Errorf("wildcard path parameter %q must be the last segment", segment)
 		}
 	}
 	for _, name := range pathParameterNames(value) {
@@ -961,7 +951,7 @@ func pathParameterNames(route string) []string {
 		if end < 0 {
 			break
 		}
-		names = append(names, route[:end])
+		names = append(names, strings.TrimSuffix(route[:end], onkir.WildcardSuffix))
 		route = route[end+1:]
 	}
 	return names
@@ -1181,6 +1171,9 @@ func validateMethodBindings(filePath string, method *onkir.Method) error {
 		}
 		if field.Optional {
 			return &Error{Path: filePath, Msg: fmt.Sprintf("path parameter %q on RPC %s cannot be optional", name, method.Name)}
+		}
+		if onkir.IsWildcardParam(route, name) && field.Type.Scalar != onkir.ScalarString {
+			return &Error{Path: filePath, Msg: fmt.Sprintf("wildcard path parameter %q on RPC %s requires a string request field", name, method.Name)}
 		}
 		if !isHTTPParameterScalar(field.Type.Scalar) {
 			return &Error{Path: filePath, Msg: fmt.Sprintf("path parameter %q on RPC %s supports string, bool, integer, and float scalar fields", name, method.Name)}
@@ -1514,4 +1507,27 @@ func validMetaKey(key string) bool {
 		}
 	}
 	return true
+}
+
+func validateWSRPC(path string, rpc *onklang.RPCDecl, verb, route string) (string, string, error) {
+	if verb != "" {
+		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws cannot be combined with an HTTP verb; it replaces the transport binding"}
+	}
+	if hasDecorator(rpc.Decorators, "stream") {
+		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws is already bidirectional and cannot be combined with @stream"}
+	}
+	if err := rejectAuthorizationOnWS(path, rpc); err != nil {
+		return "", "", err
+	}
+	if bodyName, ok := findDecorator(rpc.Decorators, "body"); ok {
+		_ = bodyName
+		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws does not support @body binding; every non-path/non-query request field crosses as a message frame"}
+	}
+	if strings.Contains(route, onkir.WildcardSuffix+"}") {
+		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws routes cannot use wildcard path parameters"}
+	}
+	if err := validateHTTPPath(route, false); err != nil {
+		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "invalid @ws route: " + err.Error()}
+	}
+	return wsTransport, route, nil
 }

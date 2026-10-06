@@ -618,6 +618,22 @@ contracts feed server checks and OpenAPI security schemes; generated TypeScript
 handlers, Go authorization hooks, and Rust request contexts expose the incoming
 headers for application-level authentication.
 
+### Wildcard path parameters and empty routes
+
+A path parameter written `{name...}` captures the rest of the path, slashes included. It must be the last segment, bind to a `string` request field, and cannot be used on `@ws` routes.
+
+```onk
+service Files {
+  base_path: "/files"
+  read(FileRef) -> Content @get("/{path...}")
+  root(Empty) -> Content @get("")
+}
+```
+
+`GET /files/dir/sub/b.txt` delivers `dir/sub/b.txt` to `FileRef.path`, percent-decoded. Generated clients escape each segment separately and keep the slashes. OpenAPI documents the route as `/files/{path}` and marks the parameter with `x-onekit-wildcard: true`.
+
+`@get("")` (any verb) is allowed when the service sets `base_path`, and serves exactly the base path. An exact route wins over a wildcard route that could also match. The Go, TypeScript and mock servers match `/files/` with an empty `path`; the Rust server (axum) requires at least one character.
+
 ### Route metadata with `@meta`
 
 `@meta(key, value)` attaches a free-form pair to a method and hands it to your own code at runtime, so facts about a route that your middleware needs, such as the permission it checks or the audit event it records, live in the schema next to the route instead of in a second table:
