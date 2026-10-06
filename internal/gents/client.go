@@ -108,7 +108,7 @@ func GenerateClientWithOptions(file *onkir.File, resolver PackageResolver, opts 
 		writeClientClass(p, s)
 	}
 
-	return p.Bytes()
+	return pruneUnusedNamedImports(pruneUnusedHelpers(p.Bytes(), clientHelpers))
 }
 
 // writeAPIError emits a shared error type thrown for any response status
@@ -292,11 +292,13 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 	p.P("this.options = options;")
 	p.P("}")
 	p.P()
-	p.P("private request(input: string, init: RequestInit): Promise<Response> {")
-	p.P("const doFetch = this.options.fetch ?? fetch;")
-	p.P("return doFetch(input, init);")
-	p.P("}")
-	p.P()
+	if serviceHasHTTPRoutes(s) {
+		p.P("private request(input: string, init: RequestInit): Promise<Response> {")
+		p.P("const doFetch = this.options.fetch ?? fetch;")
+		p.P("return doFetch(input, init);")
+		p.P("}")
+		p.P()
+	}
 
 	for _, m := range s.Methods {
 		switch {

@@ -144,7 +144,7 @@ func GenerateServerWithOptions(file *onkir.File, resolver PackageResolver, opts 
 		}
 	}
 
-	return p.Bytes()
+	return pruneUnusedNamedImports(pruneUnusedHelpers(p.Bytes(), serverHelpers))
 }
 
 func writePrincipalRuntime(p *Printer) {
@@ -284,7 +284,11 @@ func writeHandlerInterface(p *Printer, s *onkir.Service) {
 
 func writeRouteFactory(p *Printer, s *onkir.Service) {
 	factoryName := "create" + s.Name + "Routes"
-	p.P("export function ", factoryName, "(handler: ", s.Name, "Handler): RouteDescriptor[] {")
+	handlerParam := "handler"
+	if !serviceHasHTTPRoutes(s) {
+		handlerParam = "_handler"
+	}
+	p.P("export function ", factoryName, "(", handlerParam, ": ", s.Name, "Handler): RouteDescriptor[] {")
 	writeRouteMetaConsts(p, s)
 	p.P("return [")
 	for _, m := range s.Methods {
@@ -354,7 +358,7 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeRoutePrincipalFlag(p, m)
 	p.P("handler: async (req: Request): Promise<Response> => {")
 
-	if hasPathParams || !bodyBearing {
+	if hasPathParams || (!bodyBearing && hasQueryFields(m.Request)) {
 		p.P("const url = new URL(req.url);")
 	}
 	if hasPathParams {
@@ -603,4 +607,13 @@ func tsBodyLimitArg(m *onkir.Method) string {
 		return fmt.Sprintf(", %d", limit)
 	}
 	return ""
+}
+
+func hasQueryFields(req *onkir.Message) bool {
+	for _, field := range req.Fields {
+		if _, ok := field.Decorator("query"); ok && field.Type != nil && field.Type.Kind == onkir.KindScalar {
+			return true
+		}
+	}
+	return false
 }

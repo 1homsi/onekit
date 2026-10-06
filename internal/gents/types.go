@@ -59,7 +59,7 @@ func GenerateTypesWithOptions(file *onkir.File, resolver PackageResolver, opts O
 		}
 	}
 
-	return p.Bytes()
+	return nameUnusedCodecParameters(p.Bytes())
 }
 
 func tsDeprecatedDoc(doc string, deprecated func() (string, bool)) string {

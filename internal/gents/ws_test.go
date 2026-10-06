@@ -37,7 +37,7 @@ func TestGenerateTSWSServer(t *testing.T) {
 		// path built on the `ws` package instead, sharing the same out/
 		// handler-dispatch body as the Workers-style route above.
 		`import { WebSocketServer } from "ws";`,
-		`import type { Server as HttpServer, IncomingHttpHeaders, IncomingMessage } from "node:http";`,
+		`import type { Server as HttpServer, IncomingMessage } from "node:http";`,
 		"export function attachChatServiceNodeSocketHandlers(httpServer: HttpServer, handler: ChatServiceHandler, options: WSServerOptions = {}): void {",
 		`const match = matchPath("/v1/rooms/{room}", url.pathname);`,
 		"wss.handleUpgrade(req, socket, head, (ws) => {",
