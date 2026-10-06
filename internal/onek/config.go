@@ -40,6 +40,16 @@ const (
 	defaultGoRuntimeDir = "onekitrt"
 )
 
+func (c *TSClientTargetConfig) sharedRuntimeDir() (string, bool) {
+	if c == nil || c.Runtime != goRuntimeShared {
+		return "", false
+	}
+	if c.RuntimeDir == "" {
+		return defaultGoRuntimeDir, true
+	}
+	return filepath.ToSlash(filepath.Clean(c.RuntimeDir)), true
+}
+
 func (c *GoServerTargetConfig) sharedRuntimeDir() (string, bool) {
 	if c == nil || c.Runtime != goRuntimeShared {
 		return "", false
@@ -53,6 +63,13 @@ func (c *GoServerTargetConfig) sharedRuntimeDir() (string, bool) {
 type TSClientTargetConfig struct {
 	Out string `toml:"out"`
 	MSW bool   `toml:"msw"`
+	// Runtime is "package" (the default: every client module declares its own
+	// ApiError and helpers) or "shared" (one runtime module holds them, so
+	// ApiError is a single class across every package's client).
+	Runtime string `toml:"runtime"`
+	// RuntimeDir is where the shared runtime module is written, relative to
+	// Out. It defaults to "onekitrt".
+	RuntimeDir string `toml:"runtime_dir"`
 	ServiceFilter
 	// FieldNames is "camel" (the default: isDefault) or "wire" (is_default,
 	// the name the field has on the wire).
@@ -251,22 +268,26 @@ func resolveSchemaRootConfig(cfg *Config) error {
 }
 
 func validateGoRuntime(target *GoServerTargetConfig) error {
-	switch target.Runtime {
+	return validateRuntimeOptions("go-server", target.Runtime, target.RuntimeDir)
+}
+
+func validateRuntimeOptions(target, runtime, runtimeDir string) error {
+	switch runtime {
 	case "", goRuntimePackage:
-		if target.RuntimeDir != "" {
-			return errors.New("go-server runtime_dir needs runtime = \"shared\"")
+		if runtimeDir != "" {
+			return fmt.Errorf("%s runtime_dir needs runtime = \"shared\"", target)
 		}
 		return nil
 	case goRuntimeShared:
 	default:
-		return fmt.Errorf("go-server runtime must be \"package\" or \"shared\", not %q", target.Runtime)
+		return fmt.Errorf("%s runtime must be \"package\" or \"shared\", not %q", target, runtime)
 	}
-	dir := filepath.ToSlash(target.RuntimeDir)
+	dir := filepath.ToSlash(runtimeDir)
 	if dir == "" {
 		return nil
 	}
-	if filepath.IsAbs(target.RuntimeDir) || dir == ".." || strings.HasPrefix(dir, "../") || strings.Contains(dir, "/../") || dir == "." {
-		return fmt.Errorf("go-server runtime_dir %q must be a directory inside the output path", target.RuntimeDir)
+	if filepath.IsAbs(runtimeDir) || dir == ".." || strings.HasPrefix(dir, "../") || strings.Contains(dir, "/../") || dir == "." {
+		return fmt.Errorf("%s runtime_dir %q must be a directory inside the output path", target, runtimeDir)
 	}
 	return nil
 }
@@ -365,6 +386,9 @@ func validateTargetPaths(cfg *Config) error {
 			return err
 		}
 		if err := validateFieldNames("ts-client", cfg.Generate.TSClient.FieldNames); err != nil {
+			return err
+		}
+		if err := validateRuntimeOptions("ts-client", cfg.Generate.TSClient.Runtime, cfg.Generate.TSClient.RuntimeDir); err != nil {
 			return err
 		}
 	}

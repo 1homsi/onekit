@@ -42,7 +42,7 @@ func stripStrings(line string) string {
 func identifierCounts(lines []string) map[string]int {
 	counts := map[string]int{}
 	for _, line := range lines {
-		if strings.HasPrefix(line, "import ") {
+		if strings.HasPrefix(line, "import ") || strings.HasPrefix(line, "export {") || strings.HasPrefix(line, "export type {") {
 			continue
 		}
 		for _, id := range identPattern.FindAllString(stripStrings(line), -1) {
