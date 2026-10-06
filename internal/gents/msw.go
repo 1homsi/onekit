@@ -61,7 +61,13 @@ func writeMSWHandler(p *Printer, s *onkir.Service, m *onkir.Method) {
 		p.P("http.all(", mswPath, ", ({ request }) => {")
 		p.P(`if (request.method !== `, strconv.Quote(strings.ToUpper(verb)), ") return;")
 		p.P("const event = ", example, ";")
-		p.P(`const frame = "data: " + JSON.stringify(event) + "\n\n";`)
+		prefix := "data: "
+		if field := m.StreamEventOneof(); field != nil && len(field.Oneof.Variants) > 0 {
+			if tag := field.Oneof.Variants[0].Tag(); safeSSEEventName(tag) {
+				prefix = "event: " + tag + "\n" + prefix
+			}
+		}
+		p.P("const frame = ", strconv.Quote(prefix), ` + JSON.stringify(event) + "\n\n";`)
 		p.P(`return new HttpResponse(frame + frame, { headers: { "Content-Type": "text/event-stream" } });`)
 		p.P("}),")
 		return
@@ -304,4 +310,10 @@ func stringScalarExample(f *onkir.Field) (string, bool) {
 		return `"match"`, true
 	}
 	return "", false
+}
+
+var sseEventNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
+func safeSSEEventName(name string) bool {
+	return sseEventNamePattern.MatchString(name)
 }

@@ -10,6 +10,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -254,6 +255,9 @@ func (m *MockServer) stream(w http.ResponseWriter, r *http.Request, method *onki
 			eventName = "event: error\n"
 		} else {
 			payload = mockMessage(method.Response, 0)
+			if name := mockStreamEventName(method); name != "" {
+				eventName = "event: " + name + "\n"
+			}
 		}
 		data, err := json.Marshal(payload)
 		if err != nil {
@@ -622,3 +626,17 @@ func rootUnwrapMessageField(message *onkir.Message) *onkir.Field {
 	}
 	return nil
 }
+
+func mockStreamEventName(method *onkir.Method) string {
+	field := method.StreamEventOneof()
+	if field == nil || len(field.Oneof.Variants) == 0 {
+		return ""
+	}
+	tag := field.Oneof.Variants[0].Tag()
+	if !mockSSEEventName.MatchString(tag) {
+		return ""
+	}
+	return tag
+}
+
+var mockSSEEventName = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
