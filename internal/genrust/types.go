@@ -1037,6 +1037,13 @@ func writeFieldValidation(p *Printer, field *onkir.Field, patternFuncs map[strin
 		p.P("return Err(", p.validationError, " { field: ", strconv.Quote(field.Name), ", message: ", strconv.Quote(message), ".into() });")
 	}
 	writeTimestampValidation(p, field, access)
+	writeRequiredValidation(p, field, access, errorLine)
+	writeOneofValidation(p, field, access)
+	writeDecoratorValidation(p, field, access, patternFuncs, errorLine)
+	writeNestedMessageValidation(p, field, access)
+}
+
+func writeRequiredValidation(p *Printer, field *onkir.Field, access string, errorLine func(string)) {
 	if field.HasDecorator("required") {
 		switch {
 		case field.Optional || field.Oneof != nil || (field.Type != nil && field.Type.Kind == onkir.KindMessage):
@@ -1059,6 +1066,9 @@ func writeFieldValidation(p *Printer, field *onkir.Field, patternFuncs map[strin
 			p.P("}")
 		}
 	}
+}
+
+func writeOneofValidation(p *Printer, field *onkir.Field, access string) {
 	if field.Oneof != nil {
 		hasMessageVariant := false
 		for _, variant := range field.Oneof.Variants {
@@ -1086,6 +1096,9 @@ func writeFieldValidation(p *Printer, field *onkir.Field, patternFuncs map[strin
 			p.P("}")
 		}
 	}
+}
+
+func writeDecoratorValidation(p *Printer, field *onkir.Field, access string, patternFuncs map[string]string, errorLine func(string)) {
 	if fieldHasValueValidation(field) {
 		valueExpr, guardStart, guardEnd := validationValue(field, access)
 		if guardStart != "" {
@@ -1143,7 +1156,6 @@ func writeFieldValidation(p *Printer, field *onkir.Field, patternFuncs map[strin
 			p.P(guardEnd)
 		}
 	}
-	writeNestedMessageValidation(p, field, access)
 }
 
 func writeNestedMessageValidation(p *Printer, field *onkir.Field, access string) {

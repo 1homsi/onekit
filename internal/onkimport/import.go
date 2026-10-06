@@ -160,6 +160,16 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 
 	reqName := im.registerMessage(opName + "Request")
 
+	requestBody, hasBody := im.requestBodyFor(op, opName, method)
+	pr := im.convertParameters(op, params, pathKey, reqName, opName, hasBody)
+	pr.otherLines = append(pr.otherLines, im.undeclaredPathLines(pathKey, opName, &pr)...)
+	pr.otherLines = append(pr.otherLines, im.requestBodyLines(requestBody, opName)...)
+	im.messages[reqName] = append(pr.otherLines, pr.queryLines...)
+
+	return im.renderRPC(op, opName, reqName, method, pr, hasBody)
+}
+
+func (im *importer) requestBodyFor(op map[string]any, opName, method string) (map[string]any, bool) {
 	// @query binding is only legal on non-body verbs, so detect a request
 	// body before emitting any parameters: query params on body-bearing
 	// operations must fold into plain fields.
@@ -174,6 +184,19 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 			hasBody = true
 		}
 	}
+	return requestBody, hasBody
+}
+
+type operationParams struct {
+	route      string
+	boundPath  map[string]bool
+	queryLines []string
+	otherLines []string
+	headers    []importedHeader
+	scopes     []string
+}
+
+func (im *importer) convertParameters(op map[string]any, params []any, pathKey, reqName, opName string, hasBody bool) operationParams {
 	boundPath := map[string]bool{}
 	var queryLines, otherLines []string
 	headers, scopes := im.securityHeaders(op, opName)
@@ -221,15 +244,25 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 			}
 		}
 	}
+	return operationParams{route: route, boundPath: boundPath, queryLines: queryLines, otherLines: otherLines, headers: headers, scopes: scopes}
+}
+
+func (im *importer) undeclaredPathLines(pathKey, opName string, pr *operationParams) []string {
+	var otherLines []string
 	for _, name := range pathTemplateNames(pathKey) {
-		if boundPath[name] {
+		if pr.boundPath[name] {
 			continue
 		}
 		field := safeIdent(name)
-		route = strings.ReplaceAll(route, "{"+name+"}", "{"+field+"}")
+		pr.route = strings.ReplaceAll(pr.route, "{"+name+"}", "{"+field+"}")
 		otherLines = append(otherLines, field+": string")
 		im.warnf("%s: path parameter %q is not declared; imported as a string", opName, name)
 	}
+	return otherLines
+}
+
+func (im *importer) requestBodyLines(requestBody map[string]any, opName string) []string {
+	var otherLines []string
 	if requestBody != nil {
 		if schema, ok := im.jsonSchema(asMap(requestBody["content"])); ok {
 			ft, _ := im.schemaTypeExpr(schema, opName+"Body", 1)
@@ -238,8 +271,11 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 			otherLines = append(otherLines, line)
 		}
 	}
-	im.messages[reqName] = append(otherLines, queryLines...)
+	return otherLines
+}
 
+func (im *importer) renderRPC(op map[string]any, opName, reqName, method string, pr operationParams, hasBody bool) string {
+	route, headers, scopes := pr.route, pr.headers, pr.scopes
 	respName, union, stream := im.responsePieces(opName, method, asMap(op["responses"]))
 	var rpc strings.Builder
 	rpc.WriteString("  " + opName + "(" + reqName + ") -> " + respName)

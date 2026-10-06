@@ -312,6 +312,41 @@ func writeHandler(
 	service *onkir.Service,
 	method *onkir.Method,
 ) {
+	requestType := p.MessageTypeName(method.Request)
+	pathFields := pathFieldNames(mustMethodPath(method))
+	verb := mustMethodVerb(method)
+	bodyBearing := onkir.IsBodyBearingVerb(verb)
+
+	pairQuery, bodyBinding, bodyType := writeHandlerSignature(p, service, method)
+
+	errorName := serverErrorName(service, method)
+	p.writeRoutePrincipalLookup(method)
+	writeRequestDecode(p, errorName, bodyBinding, bodyType, requestType, pairQuery)
+	if verb == queryVerb {
+		writeQueryMethodGuard(p)
+	}
+	writeBodyFieldBinding(p, method, requestType, errorName, bodyBearing)
+	writePathFieldBinding(p, method, pathFields, errorName)
+	writeHeaderChecks(p, service, method, errorName)
+	p.P("if let Err(error) = req.validate() { return ", errorName, "::Validation(error).into_response(); }")
+	p.writeRouteAuthorizeCall(method)
+	p.P("let context = RequestContext { headers, method: parts.method, uri: parts.uri, extensions: parts.extensions, required_scopes: ", rustScopesLiteral(method), ", meta: ", rustMetaLiteral(method), p.contextPrincipalField(method), " };")
+	p.P("match service.", RustIdent(method.Name), "(context, req).await {")
+	p.Indent()
+	if method.IsStream() {
+		writeStreamOkArm(p, method)
+	} else {
+		p.P("Ok(value) => Json(value).into_response(),")
+	}
+	p.P("Err(error) => error.into_response(),")
+	p.Dedent()
+	p.P("}")
+	p.Dedent()
+	p.P("}")
+	p.Blank()
+}
+
+func writeHandlerSignature(p *Printer, service *onkir.Service, method *onkir.Method) ([]wsQueryField, string, string) {
 	traitName := PascalCase(service.Name)
 	requestType := p.MessageTypeName(method.Request)
 	pathFields := pathFieldNames(mustMethodPath(method))
@@ -337,13 +372,10 @@ func writeHandler(
 	p.Dedent()
 	p.P(") -> Response {")
 	p.Indent()
+	return pairQuery, bodyBinding, bodyType
+}
 
-	errorName := serverErrorName(service, method)
-	p.writeRoutePrincipalLookup(method)
-	writeRequestDecode(p, errorName, bodyBinding, bodyType, requestType, pairQuery)
-	if verb == queryVerb {
-		writeQueryMethodGuard(p)
-	}
+func writeBodyFieldBinding(p *Printer, method *onkir.Method, requestType, errorName string, bodyBearing bool) {
 	if bodyField, ok := method.BodyField(); ok && bodyBearing {
 		if field := onkir.FindField(method.Request, bodyField); field != nil {
 			if bodyFieldNeedsCustomWire(field) {
@@ -361,7 +393,9 @@ func writeHandler(
 			}
 		}
 	}
+}
 
+func writePathFieldBinding(p *Printer, method *onkir.Method, pathFields []string, errorName string) {
 	for _, name := range pathFields {
 		field := onkir.FindField(method.Request, name)
 		if field == nil {
@@ -391,6 +425,9 @@ func writeHandler(
 			p.P("};")
 		}
 	}
+}
+
+func writeHeaderChecks(p *Printer, service *onkir.Service, method *onkir.Method, errorName string) {
 	for _, header := range combinedHeaders(service, method) {
 		format, hasFormat := header.Format()
 		p.P("let header_value = headers.get(", strconv.Quote(header.Name), ").and_then(|value| value.to_str().ok());")
@@ -413,22 +450,6 @@ func writeHandler(
 			p.P("}")
 		}
 	}
-	p.P("if let Err(error) = req.validate() { return ", errorName, "::Validation(error).into_response(); }")
-	p.writeRouteAuthorizeCall(method)
-	p.P("let context = RequestContext { headers, method: parts.method, uri: parts.uri, extensions: parts.extensions, required_scopes: ", rustScopesLiteral(method), ", meta: ", rustMetaLiteral(method), p.contextPrincipalField(method), " };")
-	p.P("match service.", RustIdent(method.Name), "(context, req).await {")
-	p.Indent()
-	if method.IsStream() {
-		writeStreamOkArm(p, method)
-	} else {
-		p.P("Ok(value) => Json(value).into_response(),")
-	}
-	p.P("Err(error) => error.into_response(),")
-	p.Dedent()
-	p.P("}")
-	p.Dedent()
-	p.P("}")
-	p.Blank()
 }
 
 func writeInvalidPathArm(p *Printer, errorName, fieldName string) {

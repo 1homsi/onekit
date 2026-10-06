@@ -164,54 +164,21 @@ func (s *languageServer) handle(req rpcRequest) (any, *rpcError) {
 			return nil, &rpcError{-32602, "invalid params"}
 		}
 	}
-	path := ""
-	if strings.HasPrefix(req.Method, "textDocument/") {
-		value, err := pathFromURI(p.TextDocument.URI)
-		if err == nil {
-			path, err = languagePath(s.root, value)
-		}
-		if err != nil {
-			return nil, &rpcError{-32602, err.Error()}
-		}
-		if root, err := resolveSchemaTree(s.root); err == nil && !pathWithin(root, path) {
-			return nil, &rpcError{-32602, "document is outside the configured schema root"}
-		}
+	path, rpcErr := s.documentPath(req.Method, p)
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
 	changed := false
 	switch req.Method {
-	case "textDocument/didOpen":
-		if len(p.TextDocument.Text) > maxInputFileBytes {
-			return nil, &rpcError{-32602, "document exceeds input limit"}
+	case "textDocument/didOpen", "textDocument/didChange", "textDocument/didClose", "textDocument/didSave", "workspace/didChangeWatchedFiles":
+		var ignored bool
+		changed, ignored, rpcErr = s.applyDocumentChange(req.Method, p, path)
+		if rpcErr != nil {
+			return nil, rpcErr
 		}
-		if len(s.overlays) >= maxInputFileCount {
-			return nil, &rpcError{-32602, "too many open documents"}
-		}
-		s.overlays[path] = p.TextDocument.Text
-		s.versions[path] = p.TextDocument.Version
-		changed = true
-	case "textDocument/didChange":
-		version, open := s.versions[path]
-		if !open {
-			return nil, &rpcError{-32602, "document is not open"}
-		}
-		if p.TextDocument.Version <= version {
+		if ignored {
 			return nil, nil
 		}
-		if len(p.ContentChanges) != 1 || p.ContentChanges[0].Range != nil {
-			return nil, &rpcError{-32602, "expected one full-document change"}
-		}
-		if len(p.ContentChanges[0].Text) > maxInputFileBytes {
-			return nil, &rpcError{-32602, "document exceeds input limit"}
-		}
-		s.overlays[path] = p.ContentChanges[0].Text
-		s.versions[path] = p.TextDocument.Version
-		changed = true
-	case "textDocument/didClose":
-		delete(s.overlays, path)
-		delete(s.versions, path)
-		changed = true
-	case "textDocument/didSave", "workspace/didChangeWatchedFiles":
-		changed = true
 	case "textDocument/completion":
 		return s.decoratorCompletion(path, p.Position), nil
 	case "textDocument/formatting":
@@ -234,8 +201,64 @@ func (s *languageServer) handle(req rpcRequest) (any, *rpcError) {
 	if p.Position.Line < 0 || p.Position.Character < 0 {
 		return nil, &rpcError{-32602, "negative position"}
 	}
+	return answerSymbolQuery(req.Method, p, path, snapshot)
+}
+
+func (s *languageServer) documentPath(method string, p lspParams) (string, *rpcError) {
+	if !strings.HasPrefix(method, "textDocument/") {
+		return "", nil
+	}
+	value, err := pathFromURI(p.TextDocument.URI)
+	path := ""
+	if err == nil {
+		path, err = languagePath(s.root, value)
+	}
+	if err != nil {
+		return "", &rpcError{-32602, err.Error()}
+	}
+	if root, err := resolveSchemaTree(s.root); err == nil && !pathWithin(root, path) {
+		return "", &rpcError{-32602, "document is outside the configured schema root"}
+	}
+	return path, nil
+}
+
+func (s *languageServer) applyDocumentChange(method string, p lspParams, path string) (bool, bool, *rpcError) {
+	switch method {
+	case "textDocument/didOpen":
+		if len(p.TextDocument.Text) > maxInputFileBytes {
+			return false, false, &rpcError{-32602, "document exceeds input limit"}
+		}
+		if len(s.overlays) >= maxInputFileCount {
+			return false, false, &rpcError{-32602, "too many open documents"}
+		}
+		s.overlays[path] = p.TextDocument.Text
+		s.versions[path] = p.TextDocument.Version
+	case "textDocument/didChange":
+		version, open := s.versions[path]
+		if !open {
+			return false, false, &rpcError{-32602, "document is not open"}
+		}
+		if p.TextDocument.Version <= version {
+			return false, true, nil
+		}
+		if len(p.ContentChanges) != 1 || p.ContentChanges[0].Range != nil {
+			return false, false, &rpcError{-32602, "expected one full-document change"}
+		}
+		if len(p.ContentChanges[0].Text) > maxInputFileBytes {
+			return false, false, &rpcError{-32602, "document exceeds input limit"}
+		}
+		s.overlays[path] = p.ContentChanges[0].Text
+		s.versions[path] = p.TextDocument.Version
+	case "textDocument/didClose":
+		delete(s.overlays, path)
+		delete(s.versions, path)
+	}
+	return true, false, nil
+}
+
+func answerSymbolQuery(method string, p lspParams, path string, snapshot *LanguageSnapshot) (any, *rpcError) {
 	symbol := snapshot.SymbolAt(path, p.Position)
-	switch req.Method {
+	switch method {
 	case "textDocument/definition":
 		if symbol != nil {
 			return lspLocation(symbol.Location), nil
@@ -263,7 +286,7 @@ func (s *languageServer) handle(req rpcRequest) (any, *rpcError) {
 	default:
 		symbols := []any{}
 		filter := ""
-		if req.Method == "textDocument/documentSymbol" {
+		if method == "textDocument/documentSymbol" {
 			filter = path
 		}
 		for _, symbol := range snapshot.Search(p.Query, filter) {
