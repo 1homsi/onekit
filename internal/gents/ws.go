@@ -370,7 +370,11 @@ func WriteTSWSSocketRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 	p.P("{")
 	p.P(fmt.Sprintf("path: %q,", fullPath))
-	p.P("handle: async (req: Request, params: Record<string, string>): Promise<Response> => {")
+	paramsName := "_params"
+	if hasPathParams {
+		paramsName = "params"
+	}
+	p.P("handle: async (req: Request, ", paramsName, ": Record<string, string>): Promise<Response> => {")
 	p.P("if ((req.headers.get(\"upgrade\") || \"\").toLowerCase() !== \"websocket\") {")
 	p.P(`return new Response("expected websocket upgrade", { status: 426 });`)
 	p.P("}")
@@ -388,7 +392,9 @@ func WriteTSWSSocketRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		}
 		p.P("}")
 	}
-	p.P("const url = new URL(req.url);")
+	if hasQueryFields(m.Request) {
+		p.P("const url = new URL(req.url);")
+	}
 	p.P("let body: Record<string, unknown> = {};")
 	writeServerQueryParams(p, m.Request)
 	if hasPathParams {

@@ -56,7 +56,9 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeRoutePrincipalFlag(p, m)
 	p.P("handler: async (req: Request): Promise<Response> => {")
 
-	p.P("const url = new URL(req.url);")
+	if hasPathParams || (!onkir.IsBodyBearingVerb(verb) && hasQueryFields(m.Request)) {
+		p.P("const url = new URL(req.url);")
+	}
 	if hasPathParams {
 		p.P(fmt.Sprintf("const match = matchPath(%q, url.pathname);", fullPath))
 		p.P(`if (!match) return new Response("Not Found", { status: 404 });`)
