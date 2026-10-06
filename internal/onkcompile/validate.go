@@ -729,26 +729,7 @@ func validateRPC(path string, rpc *onklang.RPCDecl, allowEmptyRoute bool) (strin
 		}
 	}
 	if hasDecorator(rpc.Decorators, wsDecorator) {
-		if verb != "" {
-			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws cannot be combined with an HTTP verb; it replaces the transport binding"}
-		}
-		if hasDecorator(rpc.Decorators, "stream") {
-			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws is already bidirectional and cannot be combined with @stream"}
-		}
-		if err := rejectAuthorizationOnWS(path, rpc); err != nil {
-			return "", "", err
-		}
-		if bodyName, ok := findDecorator(rpc.Decorators, "body"); ok {
-			_ = bodyName
-			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws does not support @body binding; every non-path/non-query request field crosses as a message frame"}
-		}
-		if strings.Contains(route, onkir.WildcardSuffix+"}") {
-			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws routes cannot use wildcard path parameters"}
-		}
-		if err := validateHTTPPath(route, false); err != nil {
-			return "", "", &Error{Path: path, Line: rpc.Line, Msg: "invalid @ws route: " + err.Error()}
-		}
-		return wsTransport, route, nil
+		return validateWSRPC(path, rpc, verb, route)
 	}
 	if verb == "" {
 		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "RPC must declare exactly one HTTP verb"}
@@ -1526,4 +1507,27 @@ func validMetaKey(key string) bool {
 		}
 	}
 	return true
+}
+
+func validateWSRPC(path string, rpc *onklang.RPCDecl, verb, route string) (string, string, error) {
+	if verb != "" {
+		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws cannot be combined with an HTTP verb; it replaces the transport binding"}
+	}
+	if hasDecorator(rpc.Decorators, "stream") {
+		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws is already bidirectional and cannot be combined with @stream"}
+	}
+	if err := rejectAuthorizationOnWS(path, rpc); err != nil {
+		return "", "", err
+	}
+	if bodyName, ok := findDecorator(rpc.Decorators, "body"); ok {
+		_ = bodyName
+		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws does not support @body binding; every non-path/non-query request field crosses as a message frame"}
+	}
+	if strings.Contains(route, onkir.WildcardSuffix+"}") {
+		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws routes cannot use wildcard path parameters"}
+	}
+	if err := validateHTTPPath(route, false); err != nil {
+		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "invalid @ws route: " + err.Error()}
+	}
+	return wsTransport, route, nil
 }

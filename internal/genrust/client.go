@@ -252,7 +252,7 @@ func writeClientMethod(
 			}
 			encoded := "urlencoding::encode(&query_value(" + value + "))"
 			if onkir.IsWildcardParam(path, name) {
-				encoded = encoded + ".replace(\"%2F\", \"/\")"
+				encoded += ".replace(\"%2F\", \"/\")"
 			}
 			p.P("path = path.replace(", strconv.Quote(onkir.PathPlaceholder(path, name)), ", &", encoded, ");")
 		}
