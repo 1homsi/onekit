@@ -10,20 +10,8 @@ bin/
 # Test binary, built with `go test -c`
 *.test
 
-# Test plugin binaries (should be cleaned up automatically)
-protoc-gen-*-test
-protoc-gen-*-golden*
-protoc-gen-*-regression*
-protoc-gen-*-integration*
-
-# Stray plugin binaries in repo root (should only be in bin/)
+# Stray build output in the repo root (binaries belong in bin/)
 /onek
-/protoc-gen-onekit-go-http
-/protoc-gen-onekit-go-client
-/protoc-gen-onekit-ts-client
-/protoc-gen-onekit-ts-server
-/protoc-gen-onekit-py-client
-/protoc-gen-onekit-openapiv3
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
