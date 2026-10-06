@@ -196,7 +196,7 @@ func TestGenerateServerWebSockets(t *testing.T) {
 		"type WSOut[E any] interface {",
 		"Chat(ctx context.Context, req *ChatMessage, out WSOut[ChatEvent]) error",
 		`mux.Handle("GET /v1/rooms/{room}"`,
-		"websocket.Accept(w, r, o.wsAcceptOptions)",
+		"websocket.Accept(w, r, o.WSAcceptOptions)",
 		"wsConnOut[ChatEvent]{conn: conn, ctx: connCtx}",
 		"s.mu.Lock()",
 	} {

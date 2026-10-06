@@ -28,7 +28,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	path, _ := m.Path()
 	fullPath := s.BasePath + path
 
-	p.P("mux.Handle(", fmt.Sprintf("%q", strings.ToUpper(verb)+" "+fullPath), ", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
+	p.P("mux.Handle(", fmt.Sprintf("%q", strings.ToUpper(verb)+" "+fullPath), ", o.WrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
 	writePrincipalLookup(p, m)
 	p.P("req := new(", p.MessageTypeName(m.Request), ")")
 
@@ -52,8 +52,8 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeAuthorizeCall(p, m)
 
 	p.P("sender := newSSESender(w, ", sseEventNameFunc(p, m), ")")
-	p.P("stopHeartbeat := sender.heartbeat(r.Context(), o.sseHeartbeat, o.sseHeartbeatSet)")
-	p.P("err := srv.", PascalCase(m.Name), "(withHTTPRequest(r), req, sender)")
+	p.P("stopHeartbeat := sender.heartbeat(r.Context(), o.SSEHeartbeat, o.SSEHeartbeatSet)")
+	p.P("err := srv.", PascalCase(m.Name), "(HTTPRequestContext(r), req, sender)")
 	p.P("stopHeartbeat()")
 	p.P("if err != nil {")
 	p.P("if !sender.Sent() {")

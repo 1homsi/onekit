@@ -715,6 +715,31 @@ service Agent {
 
 The size is a byte count with an optional `B`, `KiB`, `MiB` or `GiB` suffix, and it needs a body-bearing verb. Go, TypeScript and Rust enforce it and answer `413` with `request_body_too_large`; it overrides the server-wide limit for that method only.
 
+### One runtime for every Go package
+
+By default each generated Go package carries its own copy of the server core: `ServerError`, `ErrorWriter`, `Authorizer`, `Middleware`, `RequestMetadata` and the options that configure them. With several schema packages that means several distinct `ErrorWriter` types, and one writer, authorizer or middleware has to be adapted for each. Put the core in one package instead:
+
+```toml
+[generate.go-server]
+out = "./gen"
+runtime = "shared"        # "package" is the default
+runtime_dir = "onekitrt"  # relative to out; this is the default
+```
+
+The core is written once to `gen/onekitrt/runtime.gen.go`, and every package aliases its types and options (`type ServerError = onekitrt.ServerError`, `var WithErrorWriter = onekitrt.WithErrorWriter`), so existing code keeps compiling. One error writer, one authorizer and one option list now serve every module:
+
+```go
+opts := []any{
+    onekitrt.WithErrorWriter(envelope),
+    onekitrt.WithAuthorizer(authorize),
+    onekitrt.WithRequestID("X-Request-ID"),
+}
+orders.RegisterOrdersServer(mux, append([]any{ordersImpl{}}, opts...)...)
+users.RegisterUsersServer(mux, append([]any{usersImpl{}}, opts...)...)
+```
+
+`WithPrincipal` stays per package because its type is the package's own principal message. The runtime directory must not share a name with a schema directory, and switching `runtime` back removes the shared package on the next build.
+
 ### Shaping error responses
 
 By default every error the generated servers produce themselves, a malformed body, a bad path or query parameter, a missing header, a failed validation or `@authorize` rule, or a handler error with no declared body, is `{"message": "..."}` (with `"violations": [...]` when there are several). Errors a method declares with `@status` keep their declared body. To send a different shape, install one error writer per server:

@@ -41,6 +41,17 @@ func GenerateServer(file *onkir.File) ([]byte, error) {
 }
 
 func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]byte, error) {
+	return GenerateServerWithOptions(file, resolver, Options{})
+}
+
+// Options tunes the generated Go.
+type Options struct {
+	// SharedRuntime, when set, makes the server import its core from one
+	// shared package instead of carrying a copy.
+	SharedRuntime *SharedRuntime
+}
+
+func GenerateServerWithOptions(file *onkir.File, resolver PackageResolver, opts Options) ([]byte, error) {
 	if len(file.Services) == 0 {
 		return nil, nil
 	}
@@ -85,12 +96,15 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 	for _, ref := range externalRefs {
 		p.P(ref.Alias, " ", fmt.Sprintf("%q", ref.ImportPath))
 	}
+	if opts.SharedRuntime != nil {
+		p.P(opts.SharedRuntime.Package, " ", fmt.Sprintf("%q", opts.SharedRuntime.ImportPath))
+	}
 	p.P(")")
 	p.P()
 
 	writeRuntimeHelpers(p)
 	writeHeaderFormatPatterns(p)
-	writeServerOptions(p, hasWS)
+	writeServerOptions(p, hasWS, opts.SharedRuntime)
 	if hasWS {
 		writeWSOutType(p)
 	}
@@ -114,7 +128,11 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 		writeRegisterFunc(p, s)
 	}
 
-	return p.Format()
+	out, err := p.Format()
+	if err != nil {
+		return nil, err
+	}
+	return pruneUnusedImports(out)
 }
 
 // fileHasRequestBodyBinding reports whether any route decodes a request body,
@@ -131,56 +149,43 @@ func fileHasRequestBodyBinding(file *onkir.File) bool {
 	return false
 }
 
-func writeServerContextAccessors(p *Printer) {
-	p.P(`func RequestMetadataFromContext(ctx context.Context) (RequestMetadata, bool) {`)
-	p.P(`metadata, ok := ctx.Value(requestMetadataContextKey{}).(RequestMetadata)`)
-	p.P(`return metadata, ok`)
-	p.P(`}`)
-	p.P()
-	p.P(`type httpRequestContextKey struct{}`)
-	p.P()
-	p.P(`func withHTTPRequest(r *http.Request) context.Context {`)
-	p.P(`return context.WithValue(r.Context(), httpRequestContextKey{}, r)`)
-	p.P(`}`)
-	p.P()
-	p.P(`type responseControl struct {`)
-	p.P(`status int`)
-	p.P(`header http.Header`)
-	p.P(`}`)
-	p.P()
-	p.P(`type responseControlKey struct{}`)
-	p.P()
-	p.P(`func SetResponseStatus(ctx context.Context, status int) {`)
-	p.P(`if control, ok := ctx.Value(responseControlKey{}).(*responseControl); ok && status >= 200 && status <= 299 {`)
-	p.P(`control.status = status`)
-	p.P(`}`)
-	p.P(`}`)
-	p.P()
-	p.P(`func ResponseHeader(ctx context.Context) http.Header {`)
-	p.P(`if control, ok := ctx.Value(responseControlKey{}).(*responseControl); ok {`)
-	p.P(`return control.header`)
-	p.P(`}`)
-	p.P(`return http.Header{}`)
-	p.P(`}`)
-	p.P()
-	p.P(`func HTTPRequestFromContext(ctx context.Context) (*http.Request, bool) {`)
-	p.P(`r, ok := ctx.Value(httpRequestContextKey{}).(*http.Request)`)
-	p.P(`return r, ok`)
-	p.P(`}`)
-	p.P()
-	p.P(`func RequestIDFromContext(ctx context.Context) (string, bool) {`)
-	p.P(`requestID, ok := ctx.Value(requestIDContextKey{}).(string)`)
-	p.P(`return requestID, ok && requestID != ""`)
-	p.P(`}`)
-	p.P()
+//go:embed runtime/server_core.go.tmpl
+var serverCoreSource string
+
+//go:embed runtime/server_ws_options.go.tmpl
+var serverWSOptionsSource string
+
+// withoutMarkedBlock returns source with the lines between a "//onek:name"
+// marker and its "//onek:end" removed, or only the markers removed when keep
+// is true.
+func withoutMarkedBlock(source, name string, keep bool) string {
+	lines := strings.Split(source, "\n")
+	out := make([]string, 0, len(lines))
+	skipping := false
+	for _, line := range lines {
+		switch strings.TrimSpace(line) {
+		case "//onek:" + name:
+			skipping = !keep
+			continue
+		case "//onek:end":
+			skipping = false
+			continue
+		}
+		if !skipping {
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
-func writeWSServerOption(p *Printer) {
-	p.P()
-	p.P(`// WithMaxWSFrameBytes caps one inbound WebSocket message (default 16 MiB).`)
-	p.P(`// A larger message closes the connection with status 1009 (message too`)
-	p.P(`// big). A negative limit disables the check.`)
-	p.P(`func WithMaxWSFrameBytes(limit int64) ServerOption { return func(o *serverOptions) { o.maxWSFrameBytes = limit } }`)
+func writeServerCore(p *Printer, hasWS bool) {
+	p.P(withoutMarkedBlock(serverCoreSource, "ws", hasWS))
+	if hasWS {
+		p.P(serverWSOptionsSource)
+	}
+}
+
+func writeWSServerHelpers(p *Printer) {
 	p.P()
 	p.P(`// wsCloseReason fits message into a close frame's 123-byte reason, cutting`)
 	p.P(`// on a UTF-8 boundary; a longer reason would be replaced by a bare 1011.`)
@@ -191,12 +196,6 @@ func writeWSServerOption(p *Printer) {
 	p.P(`return message[:cut]`)
 	p.P(`}`)
 	p.P()
-	p.P(`func WithWSPingInterval(interval time.Duration) ServerOption { return func(o *serverOptions) { o.wsPingInterval = interval } }`)
-	p.P()
-	p.P(`func WithMaxWSMessageBytes(limit int64) ServerOption { return func(o *serverOptions) { o.maxWSMessageBytes = limit } }`)
-	p.P()
-	p.P(`func WithWSAcceptOptions(options *websocket.AcceptOptions) ServerOption { return func(o *serverOptions) { o.wsAcceptOptions = options } }`)
-	p.P()
 	p.P(`func wsServerReadLimit(limit int64) int64 {`)
 	p.P(`if limit == 0 { return `, defaultMaxWSFrameBytes, ` }`)
 	p.P(`if limit < 0 { return -1 }`)
@@ -204,132 +203,19 @@ func writeWSServerOption(p *Printer) {
 	p.P(`}`)
 }
 
-// writeServerOptions emits runtime hooks shared by every generated server.
-//
-//go:embed runtime/server_hooks.go.tmpl
-var serverHookTypesSource string
-
-//go:embed runtime/server_middleware.go.tmpl
-var serverMiddlewareTypesSource string
-
-func writeServerOptions(p *Printer, hasWS bool) {
-	p.P(serverHookTypesSource)
-	writeServerContextAccessors(p)
-	p.P(serverMiddlewareTypesSource)
-	p.P(`type ServerOption func(*serverOptions)`)
-	p.P()
-	p.P(`type serverOptions struct {`)
-	p.P(`mux *http.ServeMux`)
-	p.P(`middlewares []Middleware`)
-	p.P(`requestIDHeader string`)
-	p.P(`requestIDGenerator RequestIDGenerator`)
-	p.P(`authorizer Authorizer`)
-	p.P(`errorWriter ErrorWriter`)
-	if p.principalType != "" {
-		p.P(`principal func(context.Context, *http.Request) (*`, p.principalType, `, error)`)
+// writeServerOptions emits the server core (hooks, options, error writer,
+// request wrapper) either inline or, with a shared runtime, as aliases of the
+// shared package, then the pieces that depend on this package's own types.
+func writeServerOptions(p *Printer, hasWS bool, shared *SharedRuntime) {
+	if shared != nil {
+		writeSharedRuntimeAliases(p, hasWS, shared)
+	} else {
+		writeServerCore(p, hasWS)
 	}
-	p.P(`observer RequestObserver`)
-	p.P(`maxRequestBodyBytes int64`)
-	p.P(`sseHeartbeat time.Duration`)
-	p.P(`sseHeartbeatSet bool`)
-	if hasWS {
-		p.P(`maxWSFrameBytes int64`)
-		p.P(`maxWSMessageBytes int64`)
-		p.P(`wsPingInterval time.Duration`)
-		p.P(`wsAcceptOptions *websocket.AcceptOptions`)
-	}
-	p.P(`}`)
-	p.P()
-	p.P(`// WithMux supports the options-first registration form.`)
-	p.P(`func WithMux(mux *http.ServeMux) ServerOption { return func(o *serverOptions) { o.mux = mux } }`)
-	p.P()
-	p.P(`func WithMiddleware(middleware ...Middleware) ServerOption {`)
-	p.P(`return func(o *serverOptions) { o.middlewares = append(o.middlewares, middleware...) }`)
-	p.P(`}`)
-	p.P()
-	p.P(`func WithRequestID(headerName string) ServerOption { return WithRequestIDGenerator(headerName, defaultRequestIDGenerator) }`)
-	p.P(`func WithRequestIDGenerator(headerName string, generate RequestIDGenerator) ServerOption {`)
-	p.P(`return func(o *serverOptions) {`)
-	p.P(`if headerName == "" { headerName = "X-Request-ID" }`)
-	p.P(`o.requestIDHeader, o.requestIDGenerator = headerName, generate`)
-	p.P(`}`)
-	p.P(`}`)
-	p.P()
-	p.P(`func WithAuthorizer(authorizer Authorizer) ServerOption { return func(o *serverOptions) { o.authorizer = authorizer } }`)
-	writeScopesOption(p)
 	writePrincipalOption(p)
-	p.P(serverErrorSource)
-	p.P(`func WithRequestObserver(observer RequestObserver) ServerOption { return func(o *serverOptions) { o.observer = observer } }`)
-	p.P(`func WithMaxRequestBodyBytes(limit int64) ServerOption { return func(o *serverOptions) { o.maxRequestBodyBytes = limit } }`)
-	p.P(`func WithSSEHeartbeat(interval time.Duration) ServerOption { return func(o *serverOptions) { o.sseHeartbeat, o.sseHeartbeatSet = interval, true } }`)
 	if hasWS {
-		writeWSServerOption(p)
+		writeWSServerHelpers(p)
 	}
-	p.P()
-	p.P(`func defaultRequestIDGenerator() string {`)
-	p.P(`var value [16]byte`)
-	p.P(`if _, err := rand.Read(value[:]); err != nil { return "" }`)
-	p.P(`return hex.EncodeToString(value[:])`)
-	p.P(`}`)
-	p.P()
-	p.P(`func (o serverOptions) wrapHandler(handler http.Handler, metadata RequestMetadata) http.Handler {`)
-	p.P(`if o.authorizer != nil {`)
-	p.P(`next := handler`)
-	p.P(`handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {`)
-	p.P(`if err := o.authorizer(r.Context(), metadata, r); err != nil {`)
-	p.P(`var statusErr interface{ HTTPStatusCode() int }`)
-	p.P(`if errors.As(err, &statusErr) { o.writeHandlerError(w, r, err) } else { o.fail(w, r, &ServerError{Status: http.StatusUnauthorized, Code: "unauthorized", Message: "unauthorized", Cause: err}) }`)
-	p.P(`return`)
-	p.P(`}`)
-	p.P(`next.ServeHTTP(w, r)`)
-	p.P(`})`)
-	p.P(`}`)
-	p.P(`for i := len(o.middlewares)-1; i >= 0; i-- { if o.middlewares[i] != nil { handler = o.middlewares[i](handler) } }`)
-	p.P(`return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {`)
-	p.P(`ctx := context.WithValue(r.Context(), requestMetadataContextKey{}, metadata)`)
-	p.P(`if o.requestIDHeader != "" {`)
-	p.P(`requestID := r.Header.Get(o.requestIDHeader)`)
-	p.P(`if requestID == "" && o.requestIDGenerator != nil { requestID = o.requestIDGenerator() }`)
-	p.P(`if requestID != "" { w.Header().Set(o.requestIDHeader, requestID); ctx = context.WithValue(ctx, requestIDContextKey{}, requestID) }`)
-	p.P(`}`)
-	p.P(`if o.observer == nil { handler.ServeHTTP(w, r.WithContext(ctx)); return }`)
-	p.P(`started := time.Now()`)
-	p.P(`ctx = o.observer.RequestStarted(ctx, metadata)`)
-	p.P(`rw := &statusResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}`)
-	p.P(`defer func() { o.observer.RequestFinished(ctx, metadata, RequestResult{StatusCode: rw.statusCode, Duration: time.Since(started)}) }()`)
-	p.P(`handler.ServeHTTP(rw, r.WithContext(ctx))`)
-	p.P(`})`)
-	p.P(`}`)
-	p.P()
-	p.P(`type statusResponseWriter struct { http.ResponseWriter; statusCode int; wroteHeader bool }`)
-	p.P(`func (w *statusResponseWriter) WriteHeader(statusCode int) { if w.wroteHeader { return }; w.wroteHeader = true; w.statusCode = statusCode; w.ResponseWriter.WriteHeader(statusCode) }`)
-	p.P(`func (w *statusResponseWriter) Write(data []byte) (int, error) { if !w.wroteHeader { w.WriteHeader(http.StatusOK) }; return w.ResponseWriter.Write(data) }`)
-	p.P(`func (w *statusResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }`)
-	p.P(`func (w *statusResponseWriter) Flush() { if flusher, ok := w.ResponseWriter.(http.Flusher); ok { flusher.Flush() } }`)
-	p.P()
-}
-
-func writeScopesOption(p *Printer) {
-	p.P()
-	p.P(`// WithScopes installs an authorizer that enforces @requires: granted returns the`)
-	p.P(`// scopes the caller holds (return an error to reject the request, for example a`)
-	p.P(`// 401), and any scope a route requires but the caller lacks produces a *ScopeError.`)
-	p.P(`// It replaces a previous WithAuthorizer; to combine both, read RequestMetadata.Scopes`)
-	p.P(`// inside your own Authorizer.`)
-	p.P(`func WithScopes(granted func(context.Context, *http.Request) ([]string, error)) ServerOption {`)
-	p.P(`return WithAuthorizer(func(ctx context.Context, metadata RequestMetadata, r *http.Request) error {`)
-	p.P(`if len(metadata.Scopes) == 0 { return nil }`)
-	p.P(`have, err := granted(ctx, r)`)
-	p.P(`if err != nil { return err }`)
-	p.P(`held := make(map[string]bool, len(have))`)
-	p.P(`for _, scope := range have { held[scope] = true }`)
-	p.P(`var missing []string`)
-	p.P(`for _, scope := range metadata.Scopes { if !held[scope] { missing = append(missing, scope) } }`)
-	p.P(`if len(missing) > 0 { return &ScopeError{Missing: missing} }`)
-	p.P(`return nil`)
-	p.P(`})`)
-	p.P(`}`)
-	p.P()
 }
 
 func writeRuntimeHelpers(p *Printer) {
@@ -431,10 +317,10 @@ func writeServiceInterface(p *Printer, s *onkir.Service) {
 
 func writeRegisterFunc(p *Printer, s *onkir.Service) {
 	p.P("func Register", s.Name, "Server(first any, rest ...any) error {")
-	p.P("var o serverOptions")
+	p.P("var o ServerOptions")
 	p.P("var srv ", s.Name, "Server")
 	p.P("if mux, ok := first.(*http.ServeMux); ok {")
-	p.P("o.mux = mux")
+	p.P("o.Mux = mux")
 	p.P("if len(rest) == 0 { return fmt.Errorf(\"Register", s.Name, "Server: implementation is required\") }")
 	p.P("var ok bool")
 	p.P("srv, ok = rest[0].(", s.Name, "Server)")
@@ -450,8 +336,8 @@ func writeRegisterFunc(p *Printer, s *onkir.Service) {
 	p.P("if !ok { return fmt.Errorf(\"Register", s.Name, "Server: options must be ServerOption values\") }")
 	p.P("opt(&o)")
 	p.P("}")
-	p.P("if o.mux == nil { return fmt.Errorf(\"Register", s.Name, "Server: mux is required\") }")
-	p.P("mux := o.mux")
+	p.P("if o.Mux == nil { return fmt.Errorf(\"Register", s.Name, "Server: mux is required\") }")
+	p.P("mux := o.Mux")
 	for _, m := range s.Methods {
 		switch {
 		case m.IsWebSocket():
@@ -480,31 +366,31 @@ func writeBodyBinding(p *Printer, method *onkir.Method) {
 	if limit, ok := method.MaxBodyBytes(); ok {
 		p.P("r.Body = http.MaxBytesReader(w, r.Body, ", limit, ")")
 	} else {
-		p.P("r.Body = http.MaxBytesReader(w, r.Body, requestBodyLimit(o.maxRequestBodyBytes))")
+		p.P("r.Body = http.MaxBytesReader(w, r.Body, requestBodyLimit(o.MaxRequestBodyBytes))")
 	}
 	if bodyField != nil && bodyFieldNeedsCustomJSON(bodyField) {
 		p.P("var bodyValue json.RawMessage")
 		p.P("if err := json.NewDecoder(r.Body).Decode(&bodyValue); err != nil && !errors.Is(err, io.EOF) {")
-		p.P(`o.writeBodyError(w, r, err)`)
+		p.P(`o.WriteBodyError(w, r, err)`)
 		p.P("return")
 		p.P("}")
 		p.P("var bodyObject struct { Value json.RawMessage `json:\"", bodyField.Name, "\"` }")
 		p.P("bodyObject.Value = bodyValue")
 		p.P("bodyData, err := json.Marshal(bodyObject)")
 		p.P("if err != nil {")
-		p.P(`o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "invalid_request_body", Message: "invalid request body", Cause: err})`)
+		p.P(`o.Fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "invalid_request_body", Message: "invalid request body", Cause: err})`)
 		p.P("return")
 		p.P("}")
 		p.P("if err := json.Unmarshal(bodyData, req); err != nil {")
 	} else {
 		p.P("if err := json.NewDecoder(r.Body).Decode(", target, "); err != nil && !errors.Is(err, io.EOF) {")
-		p.P(`o.writeBodyError(w, r, err)`)
+		p.P(`o.WriteBodyError(w, r, err)`)
 		p.P("return")
 		p.P("}")
 		p.P("}")
 		return
 	}
-	p.P(`o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "invalid_request_body", Message: "invalid request body", Cause: err})`)
+	p.P(`o.Fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "invalid_request_body", Message: "invalid request body", Cause: err})`)
 	p.P("return")
 	p.P("}")
 	p.P("}")
@@ -550,7 +436,7 @@ func writeQueryParamBinding(p *Printer, req *onkir.Message) {
 				parsed := "parsed" + GoFieldName(field)
 				p.P(parsed, ", err := ", call)
 				p.P("if err != nil {")
-				p.P(`o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "invalid_query_parameter", Field: `, fmt.Sprintf("%q", queryName), `, Message: "invalid query parameter `, queryName, `: "+err.Error(), Cause: err})`)
+				p.P(`o.Fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "invalid_query_parameter", Field: `, fmt.Sprintf("%q", queryName), `, Message: "invalid query parameter `, queryName, `: "+err.Error(), Cause: err})`)
 				p.P("return")
 				p.P("}")
 				p.P("req.", GoFieldName(field), " = append(req.", GoFieldName(field), ", ", parsed, ")")
@@ -593,7 +479,7 @@ func writeParsedFieldAssignment(p *Printer, field *onkir.Field, call, location s
 	varName := "parsed" + GoFieldName(field)
 	p.P(varName, ", err := ", call)
 	p.P("if err != nil {")
-	p.P(`o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "`, code, `", Field: `, fmt.Sprintf("%q", fieldName), `, Message: "invalid `, location, `: "+err.Error(), Cause: err})`)
+	p.P(`o.Fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "`, code, `", Field: `, fmt.Sprintf("%q", fieldName), `, Message: "invalid `, location, `: "+err.Error(), Cause: err})`)
 	p.P("return")
 	p.P("}")
 	if field.Optional {
@@ -608,10 +494,10 @@ func writeValidateCall(p *Printer) {
 	p.P("if err := v.Validate(); err != nil {")
 	p.P(`var list interface{ ViolationList() []string }`)
 	p.P(`if errors.As(err, &list) {`)
-	p.P(`o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "validation_failed", Message: err.Error(), Violations: list.ViolationList(), Cause: err})`)
+	p.P(`o.Fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "validation_failed", Message: err.Error(), Violations: list.ViolationList(), Cause: err})`)
 	p.P("return")
 	p.P("}")
-	p.P(`o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "validation_failed", Message: err.Error(), Cause: err})`)
+	p.P(`o.Fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "validation_failed", Message: err.Error(), Cause: err})`)
 	p.P("return")
 	p.P("}")
 	p.P("}")
@@ -623,7 +509,7 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	fullPath := s.BasePath + path
 	bodyBearing := onkir.IsBodyBearingVerb(verb)
 
-	p.P("mux.Handle(", fmt.Sprintf("%q", strings.ToUpper(verb)+" "+fullPath), ", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
+	p.P("mux.Handle(", fmt.Sprintf("%q", strings.ToUpper(verb)+" "+fullPath), ", o.WrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
 	writePrincipalLookup(p, m)
 	p.P("req := new(", p.MessageTypeName(m.Request), ")")
 
@@ -645,13 +531,13 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeValidateCall(p)
 	writeAuthorizeCall(p, m)
 
-	p.P("control := &responseControl{status: http.StatusOK, header: w.Header()}")
-	p.P("resp, err := srv.", PascalCase(m.Name), "(context.WithValue(withHTTPRequest(r), responseControlKey{}, control), req)")
+	p.P("routeCtx, control := RouteContext(w, r)")
+	p.P("resp, err := srv.", PascalCase(m.Name), "(routeCtx, req)")
 	p.P("if err != nil {")
 	writeErrorHandling(p, m)
 	p.P("return")
 	p.P("}")
-	p.P("writeJSON(w, control.status, resp)")
+	p.P("writeJSON(w, control.Status(), resp)")
 	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", strings.ToUpper(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), ", Scopes: ", scopesLiteral(m), ", Meta: ", metaLiteral(m), "}))")
 }
 
@@ -720,13 +606,13 @@ func writeHeaderCheck(p *Printer, h *onkir.Header) {
 	p.P("value := r.Header.Get(", fmt.Sprintf("%q", h.Name), ")")
 	if h.Required() {
 		p.P(`if value == "" {`)
-		p.P("o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: \"missing_header\", Field: ", fmt.Sprintf("%q", h.Name), ", Message: ", fmt.Sprintf("%q", "missing required header: "+h.Name), "})")
+		p.P("o.Fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: \"missing_header\", Field: ", fmt.Sprintf("%q", h.Name), ", Message: ", fmt.Sprintf("%q", "missing required header: "+h.Name), "})")
 		p.P("return")
 		p.P("}")
 	}
 	if hasFormat {
 		p.P(`if value != "" && !validHeaderFormat(value, `, fmt.Sprintf("%q", format), `) {`)
-		p.P("o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: \"invalid_header\", Field: ", fmt.Sprintf("%q", h.Name), ", Message: ", fmt.Sprintf("%q", "invalid header "+h.Name+": expected "+format), "})")
+		p.P("o.Fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: \"invalid_header\", Field: ", fmt.Sprintf("%q", h.Name), ", Message: ", fmt.Sprintf("%q", "invalid header "+h.Name+": expected "+format), "})")
 		p.P("return")
 		p.P("}")
 	}
@@ -736,7 +622,7 @@ func writeHeaderCheck(p *Printer, h *onkir.Header) {
 			scheme = "Basic"
 		}
 		p.P(`if value != "" && !hasAuthScheme(value, `, fmt.Sprintf("%q", scheme), `) {`)
-		p.P("o.fail(w, r, &ServerError{Status: http.StatusUnauthorized, Code: \"invalid_credentials\", Field: ", fmt.Sprintf("%q", h.Name), ", Message: ", fmt.Sprintf("%q", "invalid "+h.Name+" header: expected "+scheme+" credentials"), "})")
+		p.P("o.Fail(w, r, &ServerError{Status: http.StatusUnauthorized, Code: \"invalid_credentials\", Field: ", fmt.Sprintf("%q", h.Name), ", Message: ", fmt.Sprintf("%q", "invalid "+h.Name+" header: expected "+scheme+" credentials"), "})")
 		p.P("return")
 		p.P("}")
 	}
@@ -745,7 +631,7 @@ func writeHeaderCheck(p *Printer, h *onkir.Header) {
 
 func writeErrorHandling(p *Printer, m *onkir.Method) {
 	if len(m.ErrorTypes) == 0 {
-		p.P(`o.writeHandlerError(w, r, err)`)
+		p.P(`o.WriteHandlerError(w, r, err)`)
 		return
 	}
 	// errors.As unwraps wrapped errors (fmt.Errorf("%w", ...)), so typed
@@ -762,173 +648,5 @@ func writeErrorHandling(p *Printer, m *onkir.Method) {
 		p.P("return")
 		p.P("}")
 	}
-	p.P(`o.writeHandlerError(w, r, err)`)
+	p.P(`o.WriteHandlerError(w, r, err)`)
 }
-
-const serverErrorSource = `// ServerError describes a failure the generated server is about to report.
-// The default writer sends {"message": ...} (plus "violations" when there are
-// any); install WithErrorWriter to send any other shape.
-type ServerError struct {
-	// Status is the HTTP status the server chose.
-	Status int
-	// Code is a stable machine-readable class: invalid_request_body,
-	// request_body_too_large, invalid_path_parameter, invalid_query_parameter,
-	// missing_header, invalid_header, invalid_credentials, validation_failed,
-	// unauthorized, forbidden, not_found, method_not_allowed, internal, or the
-	// snake_case name of the status for errors a handler returned.
-	Code string
-	// Message is the default human-readable message.
-	Message string
-	// Field names the path parameter, query parameter or header at fault.
-	Field string
-	// Violations lists the failed validation or authorization messages.
-	Violations []string
-	// Cause is the underlying error. It is never sent by the default writer.
-	Cause error
-}
-
-// ErrorWriter writes a ServerError as the response. The request carries the
-// request ID (RequestIDFromContext) and the route (RequestMetadataFromContext).
-type ErrorWriter func(w http.ResponseWriter, r *http.Request, e *ServerError)
-
-// WithErrorWriter replaces how the server reports its own errors: decoding,
-// validation, parameters, headers, authorization, handler errors without a
-// declared body, and the 404/405 answers wrapped by ErrorHandler. Errors a
-// method declares with @status keep their declared body.
-func WithErrorWriter(write ErrorWriter) ServerOption {
-	return func(o *serverOptions) { o.errorWriter = write }
-}
-
-func (o serverOptions) fail(w http.ResponseWriter, r *http.Request, e *ServerError) {
-	if o.errorWriter != nil {
-		o.errorWriter(w, r, e)
-		return
-	}
-	body := map[string]any{"message": e.Message}
-	if len(e.Violations) > 0 {
-		body["violations"] = e.Violations
-	}
-	writeJSON(w, e.Status, body)
-}
-
-func (o serverOptions) writeBodyError(w http.ResponseWriter, r *http.Request, err error) {
-	var tooLarge *http.MaxBytesError
-	if errors.As(err, &tooLarge) {
-		o.fail(w, r, &ServerError{Status: http.StatusRequestEntityTooLarge, Code: "request_body_too_large", Message: "request body too large", Cause: err})
-		return
-	}
-	o.fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "invalid_request_body", Message: "invalid request body", Cause: err})
-}
-
-func (o serverOptions) writeHandlerError(w http.ResponseWriter, r *http.Request, err error) {
-	status := http.StatusInternalServerError
-	var statusErr interface{ HTTPStatusCode() int }
-	if errors.As(err, &statusErr) {
-		if candidate := statusErr.HTTPStatusCode(); candidate >= 100 && candidate <= 599 {
-			status = candidate
-		}
-	}
-	message := "internal server error"
-	var public interface{ PublicMessage() string }
-	if errors.As(err, &public) && public.PublicMessage() != "" {
-		message = public.PublicMessage()
-	}
-	code := statusCode(status)
-	var coded interface{ PublicCode() string }
-	if errors.As(err, &coded) && coded.PublicCode() != "" {
-		code = coded.PublicCode()
-	}
-	o.fail(w, r, &ServerError{Status: status, Code: code, Message: message, Cause: err})
-}
-
-func statusCode(status int) string {
-	if status == http.StatusInternalServerError {
-		return "internal"
-	}
-	text := http.StatusText(status)
-	out := make([]byte, 0, len(text))
-	for i := 0; i < len(text); i++ {
-		c := text[i]
-		switch {
-		case c >= 'A' && c <= 'Z':
-			out = append(out, c+'a'-'A')
-		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
-			out = append(out, c)
-		case len(out) > 0 && out[len(out)-1] != '_':
-			out = append(out, '_')
-		}
-	}
-	for len(out) > 0 && out[len(out)-1] == '_' {
-		out = out[:len(out)-1]
-	}
-	if len(out) == 0 {
-		return "error"
-	}
-	return string(out)
-}
-
-// ErrorHandler makes the router's own plain-text 404 and 405 answers use the
-// same error writer as the generated routes. Wrap the mux you serve:
-//
-//	http.ListenAndServe(addr, ErrorHandler(mux, WithErrorWriter(write)))
-//
-// Only text/plain 404 and 405 responses are converted, so a handler that
-// answers with its own JSON or HTML 404 is left alone.
-func ErrorHandler(next http.Handler, opts ...ServerOption) http.Handler {
-	var o serverOptions
-	for _, opt := range opts {
-		opt(&o)
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(&routerErrorWriter{ResponseWriter: w, o: o, r: r}, r)
-	})
-}
-
-type routerErrorWriter struct {
-	http.ResponseWriter
-	o         serverOptions
-	r         *http.Request
-	wrote     bool
-	swallowed bool
-}
-
-func (w *routerErrorWriter) WriteHeader(status int) {
-	if w.wrote {
-		return
-	}
-	w.wrote = true
-	contentType := w.Header().Get("Content-Type")
-	if (status == http.StatusNotFound || status == http.StatusMethodNotAllowed) && len(contentType) >= 10 && contentType[:10] == "text/plain" {
-		w.swallowed = true
-		header := w.Header()
-		header.Del("Content-Type")
-		header.Del("Content-Length")
-		header.Del("X-Content-Type-Options")
-		code, message := "not_found", "not found"
-		if status == http.StatusMethodNotAllowed {
-			code, message = "method_not_allowed", "method not allowed"
-		}
-		w.o.fail(w.ResponseWriter, w.r, &ServerError{Status: status, Code: code, Message: message})
-		return
-	}
-	w.ResponseWriter.WriteHeader(status)
-}
-
-func (w *routerErrorWriter) Write(data []byte) (int, error) {
-	if !w.wrote {
-		w.WriteHeader(http.StatusOK)
-	}
-	if w.swallowed {
-		return len(data), nil
-	}
-	return w.ResponseWriter.Write(data)
-}
-
-func (w *routerErrorWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
-
-func (w *routerErrorWriter) Flush() {
-	if flusher, ok := w.ResponseWriter.(http.Flusher); ok && !w.swallowed {
-		flusher.Flush()
-	}
-}
-`

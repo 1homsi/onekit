@@ -20,6 +20,34 @@ type TargetConfig struct {
 	Out string `toml:"out"`
 }
 
+type GoServerTargetConfig struct {
+	Out string `toml:"out"`
+	// Runtime is "package" (the default: every generated package carries its
+	// own server core) or "shared" (one runtime package holds it, so the
+	// error writer, authorizer, middleware and options are the same types in
+	// every package).
+	Runtime string `toml:"runtime"`
+	// RuntimeDir is where the shared runtime package is written, relative to
+	// Out. It defaults to "onekitrt".
+	RuntimeDir string `toml:"runtime_dir"`
+}
+
+const (
+	goRuntimePackage    = "package"
+	goRuntimeShared     = "shared"
+	defaultGoRuntimeDir = "onekitrt"
+)
+
+func (c *GoServerTargetConfig) sharedRuntimeDir() (string, bool) {
+	if c == nil || c.Runtime != goRuntimeShared {
+		return "", false
+	}
+	if c.RuntimeDir == "" {
+		return defaultGoRuntimeDir, true
+	}
+	return filepath.ToSlash(filepath.Clean(c.RuntimeDir)), true
+}
+
 type TSClientTargetConfig struct {
 	Out string `toml:"out"`
 	MSW bool   `toml:"msw"`
@@ -34,7 +62,7 @@ type OpenAPITargetConfig struct {
 }
 
 type GenerateConfig struct {
-	GoServer     *TargetConfig         `toml:"go-server"`
+	GoServer     *GoServerTargetConfig `toml:"go-server"`
 	GoClient     *TargetConfig         `toml:"go-client"`
 	TSClient     *TSClientTargetConfig `toml:"ts-client"`
 	TSServer     *TargetConfig         `toml:"ts-server"`
@@ -209,6 +237,27 @@ func resolveSchemaRootConfig(cfg *Config) error {
 	return nil
 }
 
+func validateGoRuntime(target *GoServerTargetConfig) error {
+	switch target.Runtime {
+	case "", goRuntimePackage:
+		if target.RuntimeDir != "" {
+			return errors.New("go-server runtime_dir needs runtime = \"shared\"")
+		}
+		return nil
+	case goRuntimeShared:
+	default:
+		return fmt.Errorf("go-server runtime must be \"package\" or \"shared\", not %q", target.Runtime)
+	}
+	dir := filepath.ToSlash(target.RuntimeDir)
+	if dir == "" {
+		return nil
+	}
+	if filepath.IsAbs(target.RuntimeDir) || dir == ".." || strings.HasPrefix(dir, "../") || strings.Contains(dir, "/../") || dir == "." {
+		return fmt.Errorf("go-server runtime_dir %q must be a directory inside the output path", target.RuntimeDir)
+	}
+	return nil
+}
+
 func validateInt64Encoding(value string) error {
 	switch value {
 	case "", "string", onkcompile.Int64EncodingNumber:
@@ -261,7 +310,7 @@ func validateRoutePrefix(prefix string) error {
 
 func validateTargetPaths(cfg *Config) error {
 	targets := []*TargetConfig{
-		cfg.Generate.GoServer, cfg.Generate.GoClient, cfg.Generate.TSServer, cfg.Generate.PythonClient, cfg.Generate.DartClient, cfg.Generate.SwiftClient,
+		cfg.Generate.GoClient, cfg.Generate.TSServer, cfg.Generate.PythonClient, cfg.Generate.DartClient, cfg.Generate.SwiftClient,
 		cfg.Generate.RustClient, cfg.Generate.RustServer,
 	}
 	for _, target := range targets {
@@ -272,6 +321,17 @@ func validateTargetPaths(cfg *Config) error {
 			if err := validateContainedOutput(cfg.dir, target.Out); err != nil {
 				return err
 			}
+		}
+	}
+	if cfg.Generate.GoServer != nil {
+		if strings.TrimSpace(cfg.Generate.GoServer.Out) == "" {
+			return errors.New("generator output path must not be empty")
+		}
+		if err := validateContainedOutput(cfg.dir, cfg.Generate.GoServer.Out); err != nil {
+			return err
+		}
+		if err := validateGoRuntime(cfg.Generate.GoServer); err != nil {
+			return err
 		}
 	}
 	if cfg.Generate.TSClient != nil {
