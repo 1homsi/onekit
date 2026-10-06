@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"go.yaml.in/yaml/v4"
+	"github.com/pb33f/go-yaml"
 )
 
 func requiredOf(t *testing.T, doc, name string) []string {
