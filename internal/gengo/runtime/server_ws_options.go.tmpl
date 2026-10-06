@@ -1,0 +1,18 @@
+// WithMaxWSFrameBytes caps one inbound WebSocket message (default 16 MiB).
+// A larger message closes the connection with status 1009 (message too
+// big). A negative limit disables the check.
+func WithMaxWSFrameBytes(limit int64) ServerOption {
+	return func(o *ServerOptions) { o.MaxWSFrameBytes = limit }
+}
+
+func WithWSPingInterval(interval time.Duration) ServerOption {
+	return func(o *ServerOptions) { o.WSPingInterval = interval }
+}
+
+func WithMaxWSMessageBytes(limit int64) ServerOption {
+	return func(o *ServerOptions) { o.MaxWSMessageBytes = limit }
+}
+
+func WithWSAcceptOptions(options *websocket.AcceptOptions) ServerOption {
+	return func(o *ServerOptions) { o.WSAcceptOptions = options }
+}

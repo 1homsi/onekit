@@ -152,7 +152,7 @@ func TestGenerateServerIncludesRuntimeHooks(t *testing.T) {
 		"func WithAuthorizer(authorizer Authorizer) ServerOption",
 		"func RequestMetadataFromContext(ctx context.Context)",
 		"func WithRequestObserver(observer RequestObserver) ServerOption",
-		"func (o serverOptions) writeHandlerError(w http.ResponseWriter, r *http.Request, err error)",
+		"func (o ServerOptions) WriteHandlerError(w http.ResponseWriter, r *http.Request, err error)",
 		"func WithErrorWriter(write ErrorWriter) ServerOption",
 		"func ErrorHandler(next http.Handler, opts ...ServerOption) http.Handler",
 		"errors.As(err, &statusErr)",

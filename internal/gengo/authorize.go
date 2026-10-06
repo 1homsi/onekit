@@ -31,7 +31,19 @@ func writePrincipalOption(p *Printer) {
 	p.P(`// Return an error to reject the request (an error with HTTPStatusCode() controls the status;`)
 	p.P(`// any other error is a 401). Handlers can read the same value with PrincipalFromContext.`)
 	p.P(`func WithPrincipal(resolve func(context.Context, *http.Request) (*`, p.principalType, `, error)) ServerOption {`)
-	p.P(`return func(o *serverOptions) { o.principal = resolve }`)
+	p.P(`return func(o *ServerOptions) {`)
+	p.P(`if resolve == nil {`)
+	p.P(`o.Principal = nil`)
+	p.P(`return`)
+	p.P(`}`)
+	p.P(`o.Principal = func(ctx context.Context, r *http.Request) (any, error) {`)
+	p.P(`principal, err := resolve(ctx, r)`)
+	p.P(`if err != nil {`)
+	p.P(`return nil, err`)
+	p.P(`}`)
+	p.P(`return principal, nil`)
+	p.P(`}`)
+	p.P(`}`)
 	p.P(`}`)
 	p.P()
 	p.P(`type principalContextKey struct{}`)
@@ -47,16 +59,17 @@ func writePrincipalLookup(p *Printer, m *onkir.Method) {
 	if len(m.AuthorizeRules()) == 0 || m.Principal == nil {
 		return
 	}
-	p.P("if o.principal == nil {")
-	p.P(`o.fail(w, r, &ServerError{Status: http.StatusInternalServerError, Code: "internal", Message: "authorization is not configured"})`)
+	p.P("if o.Principal == nil {")
+	p.P(`o.Fail(w, r, &ServerError{Status: http.StatusInternalServerError, Code: "internal", Message: "authorization is not configured"})`)
 	p.P("return")
 	p.P("}")
-	p.P("principal, principalErr := o.principal(r.Context(), r)")
+	p.P("principalValue, principalErr := o.Principal(r.Context(), r)")
 	p.P("if principalErr != nil {")
 	p.P(`var statusErr interface{ HTTPStatusCode() int }`)
-	p.P(`if errors.As(principalErr, &statusErr) { o.writeHandlerError(w, r, principalErr) } else { o.fail(w, r, &ServerError{Status: http.StatusUnauthorized, Code: "unauthorized", Message: "unauthorized", Cause: principalErr}) }`)
+	p.P(`if errors.As(principalErr, &statusErr) { o.WriteHandlerError(w, r, principalErr) } else { o.Fail(w, r, &ServerError{Status: http.StatusUnauthorized, Code: "unauthorized", Message: "unauthorized", Cause: principalErr}) }`)
 	p.P("return")
 	p.P("}")
+	p.P("principal, _ := principalValue.(*", p.principalType, ")")
 	p.P("r = r.WithContext(context.WithValue(r.Context(), principalContextKey{}, principal))")
 }
 
@@ -65,7 +78,7 @@ func writeAuthorizeCall(p *Printer, m *onkir.Method) {
 		return
 	}
 	p.P("if failed := ", authorizeFuncName(m), "(principal, req); len(failed) > 0 {")
-	p.P(`o.fail(w, r, &ServerError{Status: http.StatusForbidden, Code: "forbidden", Message: failed[0], Violations: failed})`)
+	p.P(`o.Fail(w, r, &ServerError{Status: http.StatusForbidden, Code: "forbidden", Message: failed[0], Violations: failed})`)
 	p.P("return")
 	p.P("}")
 }

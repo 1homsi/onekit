@@ -94,12 +94,18 @@ func buildGoPackageRefs(module string, groups []*sourceGroup) map[string]gengo.P
 }
 
 func buildGo(cfg *Config, idx *sourceIndex) error {
-	out := cfg.Generate.GoServer
-	if out == nil {
-		out = cfg.Generate.GoClient
+	var outPath string
+	if cfg.Generate.GoServer != nil {
+		outPath = cfg.Generate.GoServer.Out
+	} else {
+		outPath = cfg.Generate.GoClient.Out
 	}
-	typesOutRoot := cfg.resolve(out.Out)
+	typesOutRoot := cfg.resolve(outPath)
 	goRefs := buildGoPackageRefs(cfg.Module, idx.groups)
+	goOptions, err := writeGoSharedRuntime(cfg, idx, typesOutRoot)
+	if err != nil {
+		return err
+	}
 
 	return eachGroup(idx, func(g *sourceGroup) error {
 		outDir := groupOutDir(typesOutRoot, g.relDir)
@@ -111,7 +117,7 @@ func buildGo(cfg *Config, idx *sourceIndex) error {
 		}
 		if cfg.Generate.GoServer != nil {
 			serverOutDir := groupOutDir(cfg.resolve(cfg.Generate.GoServer.Out), g.relDir)
-			if err := writeGoServer(g.file, serverOutDir, resolver); err != nil {
+			if err := writeGoServer(g.file, serverOutDir, resolver, goOptions); err != nil {
 				return err
 			}
 		}
@@ -142,8 +148,32 @@ func writeGoTypesAndValidation(merged *onkir.File, outDir string, resolver gengo
 	return writeFile(filepath.Join(outDir, "validate.gen.go"), validation)
 }
 
-func writeGoServer(merged *onkir.File, outDir string, resolver gengo.PackageResolver) error {
-	server, err := gengo.GenerateServerWithResolver(merged, resolver)
+// writeGoSharedRuntime writes the shared server runtime once and returns how
+// each package should reference it, or nil when the project keeps one core
+// per package.
+func writeGoSharedRuntime(cfg *Config, idx *sourceIndex, outRoot string) (gengo.Options, error) {
+	dir, ok := cfg.Generate.GoServer.sharedRuntimeDir()
+	if !ok {
+		return gengo.Options{}, nil
+	}
+	for _, g := range idx.groups {
+		if filepath.ToSlash(g.relDir) == dir {
+			return gengo.Options{}, fmt.Errorf("go-server runtime_dir %q collides with the schema directory of the same name; pick another runtime_dir", dir)
+		}
+	}
+	name := goPackageIdent(lastPathSegment(dir))
+	source, err := gengo.GenerateServerRuntime(name, idx.hasWS())
+	if err != nil {
+		return gengo.Options{}, fmt.Errorf("generate go server runtime: %w", err)
+	}
+	if err := writeFile(filepath.Join(outRoot, filepath.FromSlash(dir), "runtime.gen.go"), source); err != nil {
+		return gengo.Options{}, err
+	}
+	return gengo.Options{SharedRuntime: &gengo.SharedRuntime{ImportPath: goImportPath(cfg.Module, dir), Package: name}}, nil
+}
+
+func writeGoServer(merged *onkir.File, outDir string, resolver gengo.PackageResolver, options gengo.Options) error {
+	server, err := gengo.GenerateServerWithOptions(merged, resolver, options)
 	if err != nil {
 		return fmt.Errorf("generate go server: %w", err)
 	}
