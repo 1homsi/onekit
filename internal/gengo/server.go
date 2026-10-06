@@ -477,7 +477,11 @@ func writeBodyBinding(p *Printer, method *onkir.Method) {
 		}
 	}
 	p.P("if r.Body != nil {")
-	p.P("r.Body = http.MaxBytesReader(w, r.Body, requestBodyLimit(o.maxRequestBodyBytes))")
+	if limit, ok := method.MaxBodyBytes(); ok {
+		p.P("r.Body = http.MaxBytesReader(w, r.Body, ", limit, ")")
+	} else {
+		p.P("r.Body = http.MaxBytesReader(w, r.Body, requestBodyLimit(o.maxRequestBodyBytes))")
+	}
 	if bodyField != nil && bodyFieldNeedsCustomJSON(bodyField) {
 		p.P("var bodyValue json.RawMessage")
 		p.P("if err := json.NewDecoder(r.Body).Decode(&bodyValue); err != nil && !errors.Is(err, io.EOF) {")

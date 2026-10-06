@@ -721,6 +721,13 @@ func validateRPC(path string, rpc *onklang.RPCDecl, allowEmptyRoute bool) (strin
 			if err := validateAuthorization(path, rpc, decorator); err != nil {
 				return "", "", err
 			}
+		case "max_body":
+			if len(decorator.Args) != 1 {
+				return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@max_body takes one size such as 64MiB or a byte count"}
+			}
+			if _, ok := onkir.ParseByteSize(decorator.Args[0].Value); !ok {
+				return "", "", &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("@max_body size %q must be a positive byte count with an optional B, KiB, MiB or GiB suffix", decorator.Args[0].Value)}
+			}
 		default:
 			return "", "", &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("unknown RPC decorator @%s", decorator.Name)}
 		}
@@ -733,6 +740,9 @@ func validateRPC(path string, rpc *onklang.RPCDecl, allowEmptyRoute bool) (strin
 	}
 	if err := validateHTTPPath(route, allowEmptyRoute); err != nil {
 		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "invalid RPC route: " + err.Error()}
+	}
+	if hasDecorator(rpc.Decorators, "max_body") && !isBodyBearingVerb(verb) {
+		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@max_body requires a body-bearing HTTP verb"}
 	}
 	if body, ok := findDecorator(rpc.Decorators, "body"); ok {
 		if !isBodyBearingVerb(verb) {
@@ -1512,6 +1522,9 @@ func validateWSRPC(path string, rpc *onklang.RPCDecl, verb, route string) (strin
 	}
 	if err := rejectAuthorizationOnWS(path, rpc); err != nil {
 		return "", "", err
+	}
+	if hasDecorator(rpc.Decorators, "max_body") {
+		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws does not support @max_body"}
 	}
 	if bodyName, ok := findDecorator(rpc.Decorators, "body"); ok {
 		_ = bodyName

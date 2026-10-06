@@ -639,6 +639,35 @@ func (m *Message) IsPrincipal() bool {
 	return ok
 }
 
+func ParseByteSize(text string) (int64, bool) {
+	text = strings.TrimSpace(text)
+	multiplier := int64(1)
+	for _, unit := range []struct {
+		suffix string
+		factor int64
+	}{{"GiB", 1 << 30}, {"MiB", 1 << 20}, {"KiB", 1 << 10}, {"B", 1}} {
+		if strings.HasSuffix(text, unit.suffix) {
+			text = strings.TrimSpace(strings.TrimSuffix(text, unit.suffix))
+			multiplier = unit.factor
+			break
+		}
+	}
+	n, err := strconv.ParseInt(text, 10, 64)
+	if err != nil || n <= 0 || n > (1<<62)/multiplier {
+		return 0, false
+	}
+	return n * multiplier, true
+}
+
+func (m *Method) MaxBodyBytes() (int64, bool) {
+	for _, d := range m.Decorators {
+		if d.Name == "max_body" && len(d.Args) == 1 {
+			return ParseByteSize(d.Args[0].Value)
+		}
+	}
+	return 0, false
+}
+
 // MetaEntry is one @meta(key, value) pair.
 type MetaEntry struct{ Key, Value string }
 

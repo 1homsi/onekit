@@ -132,9 +132,9 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("let body: any = {};")
 	if bodyBearing {
 		if bodyField, ok := m.BodyField(); ok {
-			p.P("body[", fmt.Sprintf("%q", bodyField), "] = await readJSONBody(req);")
+			p.P("body[", fmt.Sprintf("%q", bodyField), "] = await readJSONBody(req", tsBodyLimitArg(m), ");")
 		} else {
-			p.P("body = (await readJSONBody(req)) ?? {};")
+			p.P("body = (await readJSONBody(req", tsBodyLimitArg(m), ")) ?? {};")
 		}
 	} else {
 		writeServerQueryParams(p, m.Request)

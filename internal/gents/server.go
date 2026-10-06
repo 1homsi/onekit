@@ -259,16 +259,16 @@ func writeServerRuntime(p *Printer) {
 	p.P("}")
 	p.P()
 	p.P("const maxRequestBodyBytes = 8 * 1024 * 1024;")
-	p.P("async function readJSONBody(req: Request): Promise<unknown> {")
+	p.P("async function readJSONBody(req: Request, limit: number = maxRequestBodyBytes): Promise<unknown> {")
 	p.P("const declaredLength = req.headers.get(\"content-length\");")
-	p.P("if (declaredLength !== null && Number.isFinite(Number(declaredLength)) && Number(declaredLength) > maxRequestBodyBytes) throw requestError(413, \"request_body_too_large\", \"request body too large\");")
+	p.P("if (declaredLength !== null && Number.isFinite(Number(declaredLength)) && Number(declaredLength) > limit) throw requestError(413, \"request_body_too_large\", \"request body too large\");")
 	p.P("if (!req.body) return undefined;")
 	p.P("const reader = req.body.getReader();")
 	p.P("const chunks: Uint8Array[] = []; let total = 0;")
 	p.P("while (true) {")
 	p.P("const { done, value } = await reader.read();")
 	p.P("if (done) break;")
-	p.P("if (value) { total += value.byteLength; if (total > maxRequestBodyBytes) { await reader.cancel(); throw requestError(413, \"request_body_too_large\", \"request body too large\"); } chunks.push(value); }")
+	p.P("if (value) { total += value.byteLength; if (total > limit) { await reader.cancel(); throw requestError(413, \"request_body_too_large\", \"request body too large\"); } chunks.push(value); }")
 	p.P("}")
 	p.P("const bytes = new Uint8Array(total); let offset = 0;")
 	p.P("for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }")
@@ -440,9 +440,9 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("let body: any = {};")
 	if bodyBearing {
 		if bodyField, ok := m.BodyField(); ok {
-			p.P("body[", fmt.Sprintf("%q", bodyField), "] = await readJSONBody(req);")
+			p.P("body[", fmt.Sprintf("%q", bodyField), "] = await readJSONBody(req", tsBodyLimitArg(m), ");")
 		} else {
-			p.P("body = (await readJSONBody(req)) ?? {};")
+			p.P("body = (await readJSONBody(req", tsBodyLimitArg(m), ")) ?? {};")
 		}
 	} else {
 		writeServerQueryParams(p, m.Request)
@@ -714,4 +714,11 @@ func writeTSMatchPath(p *Printer) {
 	p.P("return params;")
 	p.P("}")
 	p.P()
+}
+
+func tsBodyLimitArg(m *onkir.Method) string {
+	if limit, ok := m.MaxBodyBytes(); ok {
+		return fmt.Sprintf(", %d", limit)
+	}
+	return ""
 }

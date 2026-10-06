@@ -701,6 +701,19 @@ It is repeatable, keys are lower-case (`[a-z][a-z0-9_.-]*`) and unique per metho
 
 A permission guard keyed on a path parameter is then a few lines: read `guard` from the metadata, read the parameter with `r.PathValue("slug")`, and decide.
 
+### Per-method body limits with `@max_body`
+
+Servers cap request bodies at 8 MiB by default (`WithMaxRequestBodyBytes` in Go sets one value for a whole `Register...Server` call). `@max_body` sets a different cap for one method, so a large upload and a small form can live in the same service:
+
+```onk
+service Agent {
+  turn(TurnRequest) -> TurnEvent @post("/turn") @stream @max_body("64MiB")
+  rename(RenameRequest) -> Renamed @post("/rename")
+}
+```
+
+The size is a byte count with an optional `B`, `KiB`, `MiB` or `GiB` suffix, and it needs a body-bearing verb. Go, TypeScript and Rust enforce it and answer `413` with `request_body_too_large`; it overrides the server-wide limit for that method only.
+
 ### Shaping error responses
 
 By default every error the generated servers produce themselves, a malformed body, a bad path or query parameter, a missing header, a failed validation or `@authorize` rule, or a handler error with no declared body, is `{"message": "..."}` (with `"violations": [...]` when there are several). Errors a method declares with `@status` keep their declared body. To send a different shape, install one error writer per server:
@@ -888,6 +901,11 @@ Install the CLI:
 ```bash
 go install github.com/1homsi/onekit/cmd/onek@latest
 ```
+
+
+### TypeScript client call shape
+
+Each client method takes one request object holding every field, path parameters included, plus an optional `RequestOptions` (`signal`, `headers`, `timeoutMs`): `client.update({ id, name })`, not `update(id, input)`. A failed call throws `ApiError` carrying `statusCode`, the raw `body`, and, when the response follows the error envelope, `code`, `message` and `requestId`; set `errorParser` in the client options to read a custom envelope. Calls time out after 30 seconds and read at most 8 MiB; both are settable per client (`timeoutMs`, `maxResponseBodyBytes`) and `timeoutMs` per call.
 
 ## Validation rules
 
