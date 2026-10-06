@@ -205,58 +205,9 @@ func writeClientMethod(
 	p.P("req.validate().map_err(", errorName, "::Validation)?;")
 	p.P("let mut path = ", strconv.Quote(fullPath), ".to_owned();")
 	pathFields := pathFieldNames(path)
-	for _, name := range pathFields {
-		if field := onkir.FindField(method.Request, name); field != nil {
-			access := "req." + RustIdent(field.Name)
-			value := "&" + access
-			if field.Optional {
-				p.P(
-					"let path_value = ", access, ".as_ref().ok_or_else(|| ", errorName,
-					"::InvalidRequest(", strconv.Quote("missing path field "+field.Name),
-					".into()))?;",
-				)
-				value = "path_value"
-			}
-			if onkir.IsWildcardParam(path, name) {
-				p.P("if query_value(", value, ").split('/').any(|segment| segment == \".\" || segment == \"..\") {")
-				p.P("return Err(", errorName, "::InvalidRequest(", strconv.Quote(name+": dot segments are not allowed"), ".into()));")
-				p.P("}")
-			}
-			encoded := "urlencoding::encode(&query_value(" + value + "))"
-			if onkir.IsWildcardParam(path, name) {
-				encoded += ".replace(\"%2F\", \"/\")"
-			}
-			p.P("path = path.replace(", strconv.Quote(onkir.PathPlaceholder(path, name)), ", &", encoded, ");")
-		}
-	}
+	writeClientPathSubstitution(p, method, path, pathFields, errorName)
 	p.P("let url = format!(\"{}{}\", self.base_url, path);")
-	if verb == queryVerb {
-		// The cross-language wire contract for @query is a literal HTTP
-		// QUERY method (matching the Go/TS/Python clients); reqwest accepts
-		// arbitrary methods even though there is no .query() builder.
-		p.P(`let mut request = self.http.request(reqwest::Method::from_bytes(b"QUERY").expect("QUERY is a valid HTTP method"), &url).headers(self.headers.clone());`)
-	} else {
-		p.P("let mut request = self.http.", verb, "(&url).headers(self.headers.clone());")
-	}
-	if onkir.IsBodyBearingVerb(verb) {
-		if bodyField, ok := method.BodyField(); ok {
-			if field := onkir.FindField(method.Request, bodyField); field != nil {
-				if bodyFieldNeedsCustomWire(field) {
-					writeBodyValue(p, field)
-					p.P("request = request.json(&body_value);")
-				} else {
-					p.P("request = request.json(&req.", RustIdent(field.Name), ");")
-				}
-			} else {
-				p.P("request = request.json(req);")
-			}
-		} else {
-			p.P("request = request.json(req);")
-		}
-	} else {
-		writeQueryParams(p, method.Request, pathFields)
-		p.P("request = request.query(&query);")
-	}
+	writeClientRequestBuilder(p, method, verb, pathFields)
 	if method.IsStream() {
 		p.P("request = request.header(reqwest::header::ACCEPT, \"text/event-stream\");")
 	} else {
@@ -285,6 +236,63 @@ func writeClientMethod(
 	p.Dedent()
 	p.P("}")
 	p.Blank()
+}
+
+func writeClientPathSubstitution(p *Printer, method *onkir.Method, path string, pathFields []string, errorName string) {
+	for _, name := range pathFields {
+		if field := onkir.FindField(method.Request, name); field != nil {
+			access := "req." + RustIdent(field.Name)
+			value := "&" + access
+			if field.Optional {
+				p.P(
+					"let path_value = ", access, ".as_ref().ok_or_else(|| ", errorName,
+					"::InvalidRequest(", strconv.Quote("missing path field "+field.Name),
+					".into()))?;",
+				)
+				value = "path_value"
+			}
+			if onkir.IsWildcardParam(path, name) {
+				p.P("if query_value(", value, ").split('/').any(|segment| segment == \".\" || segment == \"..\") {")
+				p.P("return Err(", errorName, "::InvalidRequest(", strconv.Quote(name+": dot segments are not allowed"), ".into()));")
+				p.P("}")
+			}
+			encoded := "urlencoding::encode(&query_value(" + value + "))"
+			if onkir.IsWildcardParam(path, name) {
+				encoded += ".replace(\"%2F\", \"/\")"
+			}
+			p.P("path = path.replace(", strconv.Quote(onkir.PathPlaceholder(path, name)), ", &", encoded, ");")
+		}
+	}
+}
+
+func writeClientRequestBuilder(p *Printer, method *onkir.Method, verb string, pathFields []string) {
+	if verb == queryVerb {
+		// The cross-language wire contract for @query is a literal HTTP
+		// QUERY method (matching the Go/TS/Python clients); reqwest accepts
+		// arbitrary methods even though there is no .query() builder.
+		p.P(`let mut request = self.http.request(reqwest::Method::from_bytes(b"QUERY").expect("QUERY is a valid HTTP method"), &url).headers(self.headers.clone());`)
+	} else {
+		p.P("let mut request = self.http.", verb, "(&url).headers(self.headers.clone());")
+	}
+	if onkir.IsBodyBearingVerb(verb) {
+		if bodyField, ok := method.BodyField(); ok {
+			if field := onkir.FindField(method.Request, bodyField); field != nil {
+				if bodyFieldNeedsCustomWire(field) {
+					writeBodyValue(p, field)
+					p.P("request = request.json(&body_value);")
+				} else {
+					p.P("request = request.json(&req.", RustIdent(field.Name), ");")
+				}
+			} else {
+				p.P("request = request.json(req);")
+			}
+		} else {
+			p.P("request = request.json(req);")
+		}
+	} else {
+		writeQueryParams(p, method.Request, pathFields)
+		p.P("request = request.query(&query);")
+	}
 }
 
 func fileNeedsBodyWireEncoding(file *onkir.File) bool {

@@ -149,129 +149,161 @@ func previousGeneratedOutputs(cfg *Config) (map[string]map[string]bool, error) {
 	return owned, nil
 }
 
-//nolint:gocognit // Target combinations intentionally share one explicit output manifest.
-func expectedGeneratedOutputs(cfg *Config, idx *sourceIndex) map[string]map[string]bool {
-	roots := map[string]map[string]bool{}
-	add := func(root, rel string) {
-		root = filepath.Clean(root)
-		if roots[root] == nil {
-			roots[root] = map[string]bool{}
-		}
-		roots[root][filepath.Clean(rel)] = true
+type expectedOutputs map[string]map[string]bool
+
+func (e expectedOutputs) add(root, rel string) {
+	root = filepath.Clean(root)
+	if e[root] == nil {
+		e[root] = map[string]bool{}
 	}
+	e[root][filepath.Clean(rel)] = true
+}
+
+func expectedGeneratedOutputs(cfg *Config, idx *sourceIndex) map[string]map[string]bool {
+	roots := expectedOutputs{}
 	for _, group := range idx.groups {
 		rel := filepath.FromSlash(group.relDir)
 		if rel == "." {
 			rel = ""
 		}
-		if cfg.Generate.GoServer != nil || cfg.Generate.GoClient != nil {
-			target := cfg.Generate.GoServer
-			if target == nil {
-				target = cfg.Generate.GoClient
-			}
-			root := cfg.resolve(target.Out)
-			add(root, filepath.Join(rel, "types.gen.go"))
-			add(root, filepath.Join(rel, "validate.gen.go"))
-			if cfg.Generate.GoServer != nil {
-				add(root, filepath.Join(rel, "server.gen.go"))
-			}
-			if cfg.Generate.GoClient != nil {
-				add(root, filepath.Join(rel, "client.gen.go"))
-			}
-		}
-		if cfg.Generate.TSClient != nil {
-			root := cfg.resolve(cfg.Generate.TSClient.Out)
-			add(root, filepath.Join(rel, "types.ts"))
-			add(root, filepath.Join(rel, "client.ts"))
-			if cfg.Generate.TSClient.MSW {
-				add(root, filepath.Join(rel, "msw.ts"))
-			}
-		}
-		if cfg.Generate.TSServer != nil {
-			root := cfg.resolve(cfg.Generate.TSServer.Out)
-			add(root, filepath.Join(rel, "types.ts"))
-			add(root, filepath.Join(rel, "server.ts"))
-		}
-		if cfg.Generate.DartClient != nil {
-			root := cfg.resolve(cfg.Generate.DartClient.Out)
-			add(root, "onekit.dart")
-			if idx.hasWS() {
-				add(root, "onekit_ws.dart")
-				add(root, "onekit_ws_io.dart")
-				add(root, "onekit_ws_web.dart")
-			}
-			add(root, filepath.Join(rel, "models.dart"))
-			if len(group.file.Services) > 0 {
-				add(root, filepath.Join(rel, "client.dart"))
-			}
-		}
-		if cfg.Generate.SwiftClient != nil {
-			root := cfg.resolve(cfg.Generate.SwiftClient.Out)
-			add(root, "Onekit.swift")
-			models, client := swiftFileNames(filepath.ToSlash(rel))
-			add(root, filepath.Join(rel, models))
-			if swiftHasClient(group.file) {
-				add(root, filepath.Join(rel, client))
-			}
-		}
-		if cfg.Generate.PythonClient != nil {
-			root := cfg.resolve(cfg.Generate.PythonClient.Out)
-			pyRel := filepath.FromSlash(pythonRelDir(filepath.ToSlash(rel)))
-			add(root, "__init__.py")
-			add(root, filepath.Join(pyRel, "models.py"))
-			add(root, filepath.Join(pyRel, "client.py"))
-			for parent := pyRel; parent != "." && parent != ""; parent = filepath.Dir(parent) {
-				add(root, filepath.Join(parent, "__init__.py"))
-			}
-		}
-	}
-	addRustExpected := func(target *TargetConfig, client, server bool) {
-		if target == nil {
-			return
-		}
-		root := cfg.resolve(target.Out)
-		add(root, "mod.rs")
-		for _, group := range idx.groups {
-			rel := filepath.FromSlash(group.relDir)
-			if rel == "." {
-				rel = ""
-			}
-			add(root, filepath.Join(rel, "types.rs"))
-			if client {
-				add(root, filepath.Join(rel, "client.rs"))
-			}
-			if server {
-				add(root, filepath.Join(rel, "server.rs"))
-			}
-			for parent := filepath.Dir(rel); parent != "." && parent != ""; parent = filepath.Dir(parent) {
-				add(root, filepath.Join(parent, "mod.rs"))
-			}
-			if rel != "" {
-				add(root, filepath.Join(rel, "mod.rs"))
-			}
-		}
+		roots.addGoOutputs(cfg, rel)
+		roots.addTSOutputs(cfg, rel)
+		roots.addDartOutputs(cfg, idx, group, rel)
+		roots.addSwiftOutputs(cfg, group, rel)
+		roots.addPythonOutputs(cfg, rel)
 	}
 	if cfg.Generate.RustClient != nil && cfg.Generate.RustServer != nil &&
 		filepath.Clean(cfg.resolve(cfg.Generate.RustClient.Out)) == filepath.Clean(cfg.resolve(cfg.Generate.RustServer.Out)) {
-		addRustExpected(cfg.Generate.RustClient, true, true)
+		roots.addRustOutputs(cfg, idx, cfg.Generate.RustClient, true, true)
 	} else {
-		addRustExpected(cfg.Generate.RustClient, true, false)
-		addRustExpected(cfg.Generate.RustServer, false, true)
+		roots.addRustOutputs(cfg, idx, cfg.Generate.RustClient, true, false)
+		roots.addRustOutputs(cfg, idx, cfg.Generate.RustServer, false, true)
 	}
-	if cfg.Generate.OpenAPI != nil {
-		root := filepath.Clean(cfg.resolve(cfg.Generate.OpenAPI.Out))
-		if roots[root] == nil {
-			roots[root] = map[string]bool{}
-		}
-		for _, group := range idx.groups {
-			for _, service := range group.file.Services {
-				base := openAPIBasePath(group, service)
-				add(cfg.resolve(cfg.Generate.OpenAPI.Out), base+".yaml")
-				add(cfg.resolve(cfg.Generate.OpenAPI.Out), base+".json")
-			}
-		}
-	}
+	roots.addOpenAPIOutputs(cfg, idx)
 	return roots
+}
+
+func (e expectedOutputs) addGoOutputs(cfg *Config, rel string) {
+	if cfg.Generate.GoServer == nil && cfg.Generate.GoClient == nil {
+		return
+	}
+	target := cfg.Generate.GoServer
+	if target == nil {
+		target = cfg.Generate.GoClient
+	}
+	root := cfg.resolve(target.Out)
+	e.add(root, filepath.Join(rel, "types.gen.go"))
+	e.add(root, filepath.Join(rel, "validate.gen.go"))
+	if cfg.Generate.GoServer != nil {
+		e.add(root, filepath.Join(rel, "server.gen.go"))
+	}
+	if cfg.Generate.GoClient != nil {
+		e.add(root, filepath.Join(rel, "client.gen.go"))
+	}
+}
+
+func (e expectedOutputs) addTSOutputs(cfg *Config, rel string) {
+	if cfg.Generate.TSClient != nil {
+		root := cfg.resolve(cfg.Generate.TSClient.Out)
+		e.add(root, filepath.Join(rel, "types.ts"))
+		e.add(root, filepath.Join(rel, "client.ts"))
+		if cfg.Generate.TSClient.MSW {
+			e.add(root, filepath.Join(rel, "msw.ts"))
+		}
+	}
+	if cfg.Generate.TSServer != nil {
+		root := cfg.resolve(cfg.Generate.TSServer.Out)
+		e.add(root, filepath.Join(rel, "types.ts"))
+		e.add(root, filepath.Join(rel, "server.ts"))
+	}
+}
+
+func (e expectedOutputs) addDartOutputs(cfg *Config, idx *sourceIndex, group *sourceGroup, rel string) {
+	if cfg.Generate.DartClient == nil {
+		return
+	}
+	root := cfg.resolve(cfg.Generate.DartClient.Out)
+	e.add(root, "onekit.dart")
+	if idx.hasWS() {
+		e.add(root, "onekit_ws.dart")
+		e.add(root, "onekit_ws_io.dart")
+		e.add(root, "onekit_ws_web.dart")
+	}
+	e.add(root, filepath.Join(rel, "models.dart"))
+	if len(group.file.Services) > 0 {
+		e.add(root, filepath.Join(rel, "client.dart"))
+	}
+}
+
+func (e expectedOutputs) addSwiftOutputs(cfg *Config, group *sourceGroup, rel string) {
+	if cfg.Generate.SwiftClient == nil {
+		return
+	}
+	root := cfg.resolve(cfg.Generate.SwiftClient.Out)
+	e.add(root, "Onekit.swift")
+	models, client := swiftFileNames(filepath.ToSlash(rel))
+	e.add(root, filepath.Join(rel, models))
+	if swiftHasClient(group.file) {
+		e.add(root, filepath.Join(rel, client))
+	}
+}
+
+func (e expectedOutputs) addPythonOutputs(cfg *Config, rel string) {
+	if cfg.Generate.PythonClient == nil {
+		return
+	}
+	root := cfg.resolve(cfg.Generate.PythonClient.Out)
+	pyRel := filepath.FromSlash(pythonRelDir(filepath.ToSlash(rel)))
+	e.add(root, "__init__.py")
+	e.add(root, filepath.Join(pyRel, "models.py"))
+	e.add(root, filepath.Join(pyRel, "client.py"))
+	for parent := pyRel; parent != "." && parent != ""; parent = filepath.Dir(parent) {
+		e.add(root, filepath.Join(parent, "__init__.py"))
+	}
+}
+
+func (e expectedOutputs) addRustOutputs(cfg *Config, idx *sourceIndex, target *TargetConfig, client, server bool) {
+	if target == nil {
+		return
+	}
+	root := cfg.resolve(target.Out)
+	e.add(root, "mod.rs")
+	for _, group := range idx.groups {
+		rel := filepath.FromSlash(group.relDir)
+		if rel == "." {
+			rel = ""
+		}
+		e.add(root, filepath.Join(rel, "types.rs"))
+		if client {
+			e.add(root, filepath.Join(rel, "client.rs"))
+		}
+		if server {
+			e.add(root, filepath.Join(rel, "server.rs"))
+		}
+		for parent := filepath.Dir(rel); parent != "." && parent != ""; parent = filepath.Dir(parent) {
+			e.add(root, filepath.Join(parent, "mod.rs"))
+		}
+		if rel != "" {
+			e.add(root, filepath.Join(rel, "mod.rs"))
+		}
+	}
+}
+
+func (e expectedOutputs) addOpenAPIOutputs(cfg *Config, idx *sourceIndex) {
+	if cfg.Generate.OpenAPI == nil {
+		return
+	}
+	root := filepath.Clean(cfg.resolve(cfg.Generate.OpenAPI.Out))
+	if e[root] == nil {
+		e[root] = map[string]bool{}
+	}
+	for _, group := range idx.groups {
+		for _, service := range group.file.Services {
+			base := openAPIBasePath(group, service)
+			e.add(cfg.resolve(cfg.Generate.OpenAPI.Out), base+".yaml")
+			e.add(cfg.resolve(cfg.Generate.OpenAPI.Out), base+".json")
+		}
+	}
 }
 
 func cleanupGeneratedRoot(root string, expected, owned map[string]bool, protectedRoots []string) error {

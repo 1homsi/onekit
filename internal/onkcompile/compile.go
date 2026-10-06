@@ -51,6 +51,26 @@ const Int64EncodingNumber = "number"
 // declarations from its own directory and the imported files (transitively);
 // files without imports retain the historical project-wide lookup behavior.
 func validateAndBuildImportScopes(sources []Source) (map[string]map[string]bool, error) {
+	byPath, err := indexSourcesByPath(sources)
+	if err != nil {
+		return nil, err
+	}
+	graph, err := buildImportGraph(sources, byPath)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(byPath))
+	for path := range byPath {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	if err := rejectImportCycles(paths, graph); err != nil {
+		return nil, err
+	}
+	return buildImportScopes(paths, graph), nil
+}
+
+func indexSourcesByPath(sources []Source) (map[string]Source, error) {
 	byPath := make(map[string]Source, len(sources))
 	for _, source := range sources {
 		path := filepath.Clean(source.Path)
@@ -59,7 +79,10 @@ func validateAndBuildImportScopes(sources []Source) (map[string]map[string]bool,
 		}
 		byPath[path] = source
 	}
+	return byPath, nil
+}
 
+func buildImportGraph(sources []Source, byPath map[string]Source) (map[string][]string, error) {
 	graph := make(map[string][]string)
 	for _, source := range sources {
 		path := filepath.Clean(source.Path)
@@ -82,7 +105,10 @@ func validateAndBuildImportScopes(sources []Source) (map[string]map[string]bool,
 			graph[path] = append(graph[path], target)
 		}
 	}
+	return graph, nil
+}
 
+func rejectImportCycles(paths []string, graph map[string][]string) error {
 	state := map[string]int{}
 	var visit func(string) error
 	visit = func(path string) error {
@@ -101,23 +127,21 @@ func validateAndBuildImportScopes(sources []Source) (map[string]map[string]bool,
 		state[path] = 2
 		return nil
 	}
-	paths := make([]string, 0, len(byPath))
-	for path := range byPath {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
 	for _, path := range paths {
 		if err := visit(path); err != nil {
-			return nil, err
+			return err
 		}
 	}
+	return nil
+}
 
+func buildImportScopes(paths []string, graph map[string][]string) map[string]map[string]bool {
 	scopes := make(map[string]map[string]bool)
 	// Memoize every path's scope separately from scopes: a file with no imports
 	// of its own is deliberately absent from scopes (that absence is what grants
 	// it the project-wide fallback), so it cannot double as the memo. Sharing
 	// them returned a nil scope to the second and later importers of any
-	// import-free schema. Cycles are already rejected by visit above.
+	// import-free schema. Cycles are already rejected by rejectImportCycles.
 	memo := map[string]map[string]bool{}
 	var scope func(string) map[string]bool
 	scope = func(path string) map[string]bool {
@@ -141,7 +165,7 @@ func validateAndBuildImportScopes(sources []Source) (map[string]map[string]bool,
 			scope(path)
 		}
 	}
-	return scopes, nil
+	return scopes
 }
 
 // dirMsg/dirEnum pair a declaration with the source directory it came from,

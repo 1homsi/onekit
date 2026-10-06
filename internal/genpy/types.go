@@ -823,122 +823,129 @@ var pyIntegerBounds = map[onkir.ScalarKind][2]string{
 	onkir.ScalarUint64: {"0", "18446744073709551615"},
 }
 
-//nolint:gocognit // Each schema rule is an independent generated-code branch.
 func writePyValidateFunc(p *Printer, m *onkir.Message) {
 	p.P("def validate(self) -> None:")
 	p.Indent()
 	p.P("violations: list[str] = []")
 	for _, f := range m.Fields {
-		accessor := "self." + f.Name
-		if f.Oneof != nil {
-			for _, v := range f.Oneof.Variants {
-				if v.Type.Kind != onkir.KindMessage {
-					continue
-				}
-				inner := accessor + "." + v.Name
-				p.P("if isinstance(", accessor, ", ", OneofVariantClassName(m, f, v), ") and ", inner, " is not None:")
-				p.Indent()
-				p.P("try: ", inner, ".validate()")
-				p.P("except ValueError as error: violations.append(", fmt.Sprintf("%q", f.Name+": "), " + str(error))")
-				p.Dedent()
-			}
-		}
-		if f.HasDecorator("required") {
-			if f.Repeated || f.Type != nil && f.Type.Kind == onkir.KindMap {
-				p.P("if not ", accessor, ": violations.append(", fmt.Sprintf("%q", f.Name+" is required"), ")")
-			} else {
-				p.P("if ", accessor, " is None or ", accessor, " == \"\": violations.append(", fmt.Sprintf("%q", f.Name+" is required"), ")")
-			}
-		}
-		if f.Repeated {
-			if d, ok := f.Decorator("min_items"); ok {
-				value, _ := d.Value()
-				p.P("if len(", accessor, ") < ", value, ": violations.append(", fmt.Sprintf("%q", f.Name+" must contain at least "+value+" items"), ")")
-			}
-			if d, ok := f.Decorator("max_items"); ok {
-				value, _ := d.Value()
-				p.P("if len(", accessor, ") > ", value, ": violations.append(", fmt.Sprintf("%q", f.Name+" must contain at most "+value+" items"), ")")
-			}
-			if f.Type != nil && f.Type.Kind == onkir.KindMessage {
-				p.P("for item in ", accessor, ":")
-				p.Indent()
-				p.P("try: item.validate()")
-				p.P("except ValueError as error: violations.append(", fmt.Sprintf("%q", f.Name+": "), " + str(error))")
-				p.Dedent()
-			}
-			continue
-		}
-		if f.Type != nil && f.Type.Kind == onkir.KindMessage {
-			p.P("if ", accessor, " is not None:")
-			p.Indent()
-			p.P("try: ", accessor, ".validate()")
-			p.P("except ValueError as error: violations.append(", fmt.Sprintf("%q", f.Name+": "), " + str(error))")
-			p.Dedent()
-			continue
-		}
-		if f.Type != nil && f.Type.Kind == onkir.KindMap && f.Type.MapValue != nil && f.Type.MapValue.Kind == onkir.KindMessage {
-			p.P("for item in ", accessor, ".values():")
-			p.Indent()
-			p.P("try: item.validate()")
-			p.P("except ValueError as error: violations.append(", fmt.Sprintf("%q", f.Name+": "), " + str(error))")
-			p.Dedent()
-			continue
-		}
-		if f.Type == nil || f.Type.Kind != onkir.KindScalar {
-			continue
-		}
-		present := accessor + " is not None"
-		if bounds, ok := pyIntegerBounds[f.Type.Scalar]; ok {
-			p.P("if ", present, " and (isinstance(", accessor, ", bool) or not isinstance(", accessor, ", int) or not (", bounds[0], " <= ", accessor, " <= ", bounds[1], ")): violations.append(", fmt.Sprintf("%q", f.Name+" must be a "+f.Type.Scalar.String()), ")")
-		}
-		if f.Type.Scalar == onkir.ScalarString {
-			formatPresent := accessor
-			if f.HasDecorator("email") {
-				p.P("if ", formatPresent, " and ('@' not in ", accessor, " or '.' not in ", accessor, ".split('@')[-1]): violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid email"), ")")
-			}
-			if f.HasDecorator("uuid") {
-				p.P("if ", formatPresent, " and not (isinstance(", accessor, ", str) and _UUID_PATTERN.fullmatch(", accessor, ")): violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid UUID"), ")")
-			}
-			if f.HasDecorator("uri") {
-				p.P("if ", formatPresent, " and not urllib.parse.urlparse(", accessor, ").scheme: violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid URI"), ")")
-			}
-			if d, ok := f.Decorator("pattern"); ok {
-				value, _ := d.Value()
-				p.P("if ", formatPresent, " and re.search(", fmt.Sprintf("%q", value), ", ", accessor, ") is None: violations.append(", fmt.Sprintf("%q", f.Name+" has invalid format"), ")")
-			}
-			if d, ok := f.Decorator("len"); ok && len(d.Args) == 2 {
-				p.P("if ", present, " and not (", d.Args[0].Value, " <= len(", accessor, ") <= ", d.Args[1].Value, "): violations.append(", fmt.Sprintf("%q", f.Name+" has invalid length"), ")")
-			}
-			if d, ok := f.Decorator("in"); ok {
-				values := make([]string, 0, len(d.Args))
-				for _, arg := range d.Args {
-					values = append(values, fmt.Sprintf("%q", arg.Value))
-				}
-				p.P("if ", present, " and ", accessor, " not in (", strings.Join(values, ", "), ",): violations.append(", fmt.Sprintf("%q", f.Name+" must be one of the allowed values"), ")")
-			}
-		}
-		if isPyNumeric(f.Type.Scalar) {
-			if d, ok := f.Decorator("in"); ok {
-				values := make([]string, 0, len(d.Args))
-				for _, arg := range d.Args {
-					values = append(values, arg.Value)
-				}
-				p.P("if ", present, " and ", accessor, " not in (", strings.Join(values, ", "), ",): violations.append(", fmt.Sprintf("%q", f.Name+" must be one of the allowed values"), ")")
-			}
-			if d, ok := f.Decorator("range"); ok {
-				p.P("if ", present, " and not (", d.Args[0].Value, " <= ", accessor, " <= ", d.Args[1].Value, "): violations.append(", fmt.Sprintf("%q", f.Name+" violates @range"), ")")
-			}
-			for _, rule := range []struct{ name, op string }{{"gt", ">"}, {"gte", ">="}, {"lt", "<"}, {"lte", "<="}} {
-				if d, ok := f.Decorator(rule.name); ok {
-					value, _ := d.Value()
-					p.P("if ", present, " and not (", accessor, " ", rule.op, " ", value, "): violations.append(", fmt.Sprintf("%q", f.Name+" violates @"+rule.name), ")")
-				}
-			}
-		}
+		writePyFieldValidation(p, m, f)
 	}
 	writePyRuleChecks(p, m)
 	p.P("if violations: raise ValueError(\"; \".join(violations))")
 	p.Dedent()
+}
+
+func writePyFieldValidation(p *Printer, m *onkir.Message, f *onkir.Field) {
+	accessor := "self." + f.Name
+	if f.Oneof != nil {
+		for _, v := range f.Oneof.Variants {
+			if v.Type.Kind != onkir.KindMessage {
+				return
+			}
+			inner := accessor + "." + v.Name
+			p.P("if isinstance(", accessor, ", ", OneofVariantClassName(m, f, v), ") and ", inner, " is not None:")
+			p.Indent()
+			p.P("try: ", inner, ".validate()")
+			p.P("except ValueError as error: violations.append(", fmt.Sprintf("%q", f.Name+": "), " + str(error))")
+			p.Dedent()
+		}
+	}
+	if f.HasDecorator("required") {
+		if f.Repeated || f.Type != nil && f.Type.Kind == onkir.KindMap {
+			p.P("if not ", accessor, ": violations.append(", fmt.Sprintf("%q", f.Name+" is required"), ")")
+		} else {
+			p.P("if ", accessor, " is None or ", accessor, " == \"\": violations.append(", fmt.Sprintf("%q", f.Name+" is required"), ")")
+		}
+	}
+	if f.Repeated {
+		if d, ok := f.Decorator("min_items"); ok {
+			value, _ := d.Value()
+			p.P("if len(", accessor, ") < ", value, ": violations.append(", fmt.Sprintf("%q", f.Name+" must contain at least "+value+" items"), ")")
+		}
+		if d, ok := f.Decorator("max_items"); ok {
+			value, _ := d.Value()
+			p.P("if len(", accessor, ") > ", value, ": violations.append(", fmt.Sprintf("%q", f.Name+" must contain at most "+value+" items"), ")")
+		}
+		if f.Type != nil && f.Type.Kind == onkir.KindMessage {
+			p.P("for item in ", accessor, ":")
+			p.Indent()
+			p.P("try: item.validate()")
+			p.P("except ValueError as error: violations.append(", fmt.Sprintf("%q", f.Name+": "), " + str(error))")
+			p.Dedent()
+		}
+		return
+	}
+	if f.Type != nil && f.Type.Kind == onkir.KindMessage {
+		p.P("if ", accessor, " is not None:")
+		p.Indent()
+		p.P("try: ", accessor, ".validate()")
+		p.P("except ValueError as error: violations.append(", fmt.Sprintf("%q", f.Name+": "), " + str(error))")
+		p.Dedent()
+		return
+	}
+	if f.Type != nil && f.Type.Kind == onkir.KindMap && f.Type.MapValue != nil && f.Type.MapValue.Kind == onkir.KindMessage {
+		p.P("for item in ", accessor, ".values():")
+		p.Indent()
+		p.P("try: item.validate()")
+		p.P("except ValueError as error: violations.append(", fmt.Sprintf("%q", f.Name+": "), " + str(error))")
+		p.Dedent()
+		return
+	}
+	if f.Type == nil || f.Type.Kind != onkir.KindScalar {
+		return
+	}
+	writePyScalarValidation(p, f, accessor)
+}
+
+func writePyScalarValidation(p *Printer, f *onkir.Field, accessor string) {
+	present := accessor + " is not None"
+	if bounds, ok := pyIntegerBounds[f.Type.Scalar]; ok {
+		p.P("if ", present, " and (isinstance(", accessor, ", bool) or not isinstance(", accessor, ", int) or not (", bounds[0], " <= ", accessor, " <= ", bounds[1], ")): violations.append(", fmt.Sprintf("%q", f.Name+" must be a "+f.Type.Scalar.String()), ")")
+	}
+	if f.Type.Scalar == onkir.ScalarString {
+		formatPresent := accessor
+		if f.HasDecorator("email") {
+			p.P("if ", formatPresent, " and ('@' not in ", accessor, " or '.' not in ", accessor, ".split('@')[-1]): violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid email"), ")")
+		}
+		if f.HasDecorator("uuid") {
+			p.P("if ", formatPresent, " and not (isinstance(", accessor, ", str) and _UUID_PATTERN.fullmatch(", accessor, ")): violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid UUID"), ")")
+		}
+		if f.HasDecorator("uri") {
+			p.P("if ", formatPresent, " and not urllib.parse.urlparse(", accessor, ").scheme: violations.append(", fmt.Sprintf("%q", f.Name+" must be a valid URI"), ")")
+		}
+		if d, ok := f.Decorator("pattern"); ok {
+			value, _ := d.Value()
+			p.P("if ", formatPresent, " and re.search(", fmt.Sprintf("%q", value), ", ", accessor, ") is None: violations.append(", fmt.Sprintf("%q", f.Name+" has invalid format"), ")")
+		}
+		if d, ok := f.Decorator("len"); ok && len(d.Args) == 2 {
+			p.P("if ", present, " and not (", d.Args[0].Value, " <= len(", accessor, ") <= ", d.Args[1].Value, "): violations.append(", fmt.Sprintf("%q", f.Name+" has invalid length"), ")")
+		}
+		if d, ok := f.Decorator("in"); ok {
+			values := make([]string, 0, len(d.Args))
+			for _, arg := range d.Args {
+				values = append(values, fmt.Sprintf("%q", arg.Value))
+			}
+			p.P("if ", present, " and ", accessor, " not in (", strings.Join(values, ", "), ",): violations.append(", fmt.Sprintf("%q", f.Name+" must be one of the allowed values"), ")")
+		}
+	}
+	if isPyNumeric(f.Type.Scalar) {
+		if d, ok := f.Decorator("in"); ok {
+			values := make([]string, 0, len(d.Args))
+			for _, arg := range d.Args {
+				values = append(values, arg.Value)
+			}
+			p.P("if ", present, " and ", accessor, " not in (", strings.Join(values, ", "), ",): violations.append(", fmt.Sprintf("%q", f.Name+" must be one of the allowed values"), ")")
+		}
+		if d, ok := f.Decorator("range"); ok {
+			p.P("if ", present, " and not (", d.Args[0].Value, " <= ", accessor, " <= ", d.Args[1].Value, "): violations.append(", fmt.Sprintf("%q", f.Name+" violates @range"), ")")
+		}
+		for _, rule := range []struct{ name, op string }{{"gt", ">"}, {"gte", ">="}, {"lt", "<"}, {"lte", "<="}} {
+			if d, ok := f.Decorator(rule.name); ok {
+				value, _ := d.Value()
+				p.P("if ", present, " and not (", accessor, " ", rule.op, " ", value, "): violations.append(", fmt.Sprintf("%q", f.Name+" violates @"+rule.name), ")")
+			}
+		}
+	}
 }
 
 func isPyNumeric(kind onkir.ScalarKind) bool {
