@@ -2,6 +2,7 @@ package gengo
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/1homsi/onekit/internal/onkir"
 )
@@ -378,15 +379,12 @@ func writeCustomMarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
 }
 
 func nullPendingCondition(c fieldCategories) string {
-	conds := ""
-	for i, f := range c.nulls {
-		if i > 0 {
-			conds += " || "
-		}
+	conds := make([]string, 0, len(c.nulls))
+	for _, f := range c.nulls {
 		goName := GoFieldName(f)
-		conds += "(m." + goName + "Null && m." + goName + " == nil)"
+		conds = append(conds, "(m."+goName+"Null && m."+goName+" == nil)")
 	}
-	return conds
+	return strings.Join(conds, " || ")
 }
 
 func writeNullMarshalAssignments(p *Printer, c fieldCategories) {

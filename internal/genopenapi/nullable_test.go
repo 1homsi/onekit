@@ -36,7 +36,11 @@ message Patch {
 	if nullableMentions < 3 {
 		t.Errorf("expected null in the schema of the three nullable fields, got %d mentions:\n%s", nullableMentions, spec)
 	}
-	plain := spec[strings.Index(spec, "plain:"):]
+	at := strings.Index(spec, "plain:")
+	if at < 0 {
+		t.Fatalf("plain field missing from the spec:\n%s", spec)
+	}
+	plain := spec[at:]
 	if strings.Contains(strings.SplitN(plain, "\n\n", 2)[0], "null") {
 		t.Errorf("a plain optional field must not allow null:\n%s", plain)
 	}

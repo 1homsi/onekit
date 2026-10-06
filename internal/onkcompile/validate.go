@@ -1123,11 +1123,11 @@ func validateCompiledField(filePath string, field *onkir.Field, options CompileO
 		if field.Type != nil {
 			switch field.Type.Kind {
 			case onkir.KindEnum:
-				valid = value == "number"
+				valid = value == Int64EncodingNumber
 			case onkir.KindScalar:
 				switch field.Type.Scalar {
 				case onkir.ScalarInt64, onkir.ScalarUint64:
-					valid = value == "number"
+					valid = value == Int64EncodingNumber
 				case onkir.ScalarBytes:
 					valid = value == "hex" || value == "base64" || value == "base64_raw" || value == "base64url" || value == "base64url_raw"
 				case onkir.ScalarTimestamp:

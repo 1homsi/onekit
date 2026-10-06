@@ -826,5 +826,5 @@ func fieldEncodesAsNumber(f *onkir.Field) bool {
 		return false
 	}
 	value, _ := d.Value()
-	return value == "number"
+	return value == Int64EncodingNumber
 }
