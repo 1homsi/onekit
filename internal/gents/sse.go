@@ -1,6 +1,7 @@
 package gents
 
 import (
+	_ "embed"
 	"fmt"
 	"slices"
 	"strings"
@@ -19,66 +20,12 @@ import (
 // generically) so each streamed value crosses the wire the same way a
 // non-streamed response does - camelCase TS shape in, snake_case JSON shape
 // out - matching the per-message encode<Response> function (see types.go).
+//
+//go:embed runtime/sse_response.ts
+var tsSSEResponseSource string
+
 func writeSSEResponseHelper(p *Printer) {
-	p.P("const defaultSSEHeartbeatMs = 15000;")
-	p.P()
-	p.P("async function sseResponse<T>(req: Request, stream: ReadableStream<T>, encode: (v: T) => unknown, eventName?: (encoded: any) => string | undefined): Promise<Response> {")
-	p.P("const reader = stream.getReader();")
-	p.P("const interval = sseHeartbeats.get(req) ?? defaultSSEHeartbeatMs;")
-	p.P("const firstRead = reader.read();")
-	p.P("let first: ReadableStreamReadResult<T> | undefined;")
-	p.P("try {")
-	p.P("if (interval > 0) {")
-	p.P("let timer: ReturnType<typeof setTimeout> | undefined;")
-	p.P(`const timeout = new Promise<"timeout">((resolve) => { timer = setTimeout(() => resolve("timeout"), interval); });`)
-	p.P("const raced = await Promise.race([firstRead, timeout]);")
-	p.P("clearTimeout(timer);")
-	p.P(`if (raced !== "timeout") first = raced;`)
-	p.P("} else {")
-	p.P("first = await firstRead;")
-	p.P("}")
-	p.P("} catch (err) {")
-	p.P("return errorResponse(err);")
-	p.P("}")
-	p.P()
-	p.P("const encoder = new TextEncoder();")
-	p.P("let ping: ReturnType<typeof setInterval> | undefined;")
-	p.P("const body = new ReadableStream<Uint8Array>({")
-	p.P("async start(controller) {")
-	p.P(`const sendPing = () => { try { controller.enqueue(encoder.encode(": ping\n\n")); } catch { } };`)
-	p.P("if (interval > 0) ping = setInterval(sendPing, interval);")
-	p.P("if (first === undefined) sendPing();")
-	p.P("try {")
-	p.P("let current = first ?? (await firstRead);")
-	p.P("while (!current.done) {")
-	p.P("const encoded = encode(current.value);")
-	p.P("const raw = eventName?.(encoded);")
-	p.P("const name = typeof raw === \"string\" && /^[A-Za-z0-9_.-]+$/.test(raw) ? raw : undefined;")
-	p.P(`controller.enqueue(encoder.encode((name ? "event: " + name + "\n" : "") + "data: " + JSON.stringify(encoded) + "\n\n"));`)
-	p.P("current = await reader.read();")
-	p.P("}")
-	p.P("} catch (err) {")
-	p.P(`const errBody = err instanceof HttpError ? err.body : { message: "internal server error" };`)
-	p.P(`controller.enqueue(encoder.encode("event: error\ndata: " + JSON.stringify(errBody) + "\n\n"));`)
-	p.P("} finally {")
-	p.P("if (ping !== undefined) clearInterval(ping);")
-	p.P("try { controller.close(); } catch { }")
-	p.P("}")
-	p.P("},")
-	p.P("cancel() {")
-	p.P("if (ping !== undefined) clearInterval(ping);")
-	p.P("return reader.cancel();")
-	p.P("},")
-	p.P("});")
-	p.P()
-	p.P("return new Response(body, {")
-	p.P("status: 200,")
-	p.P(
-		`headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" },`,
-	)
-	p.P("});")
-	p.P("}")
-	p.P()
+	p.Raw(tsSSEResponseSource)
 }
 
 func sseEventNameExpr(m *onkir.Method) string {

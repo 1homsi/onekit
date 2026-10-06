@@ -29,6 +29,11 @@ func (p *Printer) forFile(file *onkir.File) *Printer {
 	return p
 }
 
+// Raw appends source text exactly as given, without indentation or a trailing newline.
+func (p *Printer) Raw(source string) {
+	p.b.WriteString(source)
+}
+
 func (p *Printer) P(args ...any) {
 	for range p.indent {
 		p.b.WriteString("    ")

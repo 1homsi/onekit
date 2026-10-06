@@ -238,86 +238,18 @@ func writeServerRuntime(p *Printer) {
 	writeTSServerErrorRuntime(p)
 	writeRequestContextType(p)
 
-	p.P("export interface RouteDescriptor {")
-	p.P("method: string;")
-	p.P("path: string;")
-	p.P("scopes?: readonly string[];")
-	p.P("meta?: Readonly<Record<string, string>>;")
-	p.P("authorize?: boolean;")
-	p.P("handler: (req: Request) => Promise<Response>;")
-	p.P("}")
-	p.P()
-
-	writeTSMatchPath(p)
-	p.P("function wildcardLast(routes: RouteDescriptor[]): RouteDescriptor[] {")
-	p.P("const isWildcard = (route: RouteDescriptor) => route.path.endsWith(\"...}\");")
-	p.P("return [...routes].sort((a, b) => Number(isWildcard(a)) - Number(isWildcard(b)));")
-	p.P("}")
-	p.P()
-	p.P("function jsonResponse(body: unknown, status = 200): Response {")
-	p.P(`return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });`)
-	p.P("}")
-	p.P()
-	p.P("const maxRequestBodyBytes = 8 * 1024 * 1024;")
-	p.P("async function readJSONBody(req: Request, limit: number = maxRequestBodyBytes): Promise<unknown> {")
-	p.P("const declaredLength = req.headers.get(\"content-length\");")
-	p.P("if (declaredLength !== null && Number.isFinite(Number(declaredLength)) && Number(declaredLength) > limit) throw requestError(413, \"request_body_too_large\", \"request body too large\");")
-	p.P("if (!req.body) return undefined;")
-	p.P("const reader = req.body.getReader();")
-	p.P("const chunks: Uint8Array[] = []; let total = 0;")
-	p.P("while (true) {")
-	p.P("const { done, value } = await reader.read();")
-	p.P("if (done) break;")
-	p.P("if (value) { total += value.byteLength; if (total > limit) { await reader.cancel(); throw requestError(413, \"request_body_too_large\", \"request body too large\"); } chunks.push(value); }")
-	p.P("}")
-	p.P("const bytes = new Uint8Array(total); let offset = 0;")
-	p.P("for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }")
-	p.P("const text = new TextDecoder().decode(bytes);")
-	p.P("if (text.trim() === \"\") return undefined;")
-	p.P("try { return JSON.parse(text); } catch { throw requestError(400, \"invalid_request_body\", \"invalid request body\"); }")
-	p.P("}")
-	p.P()
-
-	p.P("function errorResponse(err: unknown): Response {")
-	p.P("if (err instanceof HttpError) {")
-	p.P("const response = jsonResponse(err.body, err.status);")
-	p.P(`if (err.code !== undefined) errorInfos.set(response, { status: err.status, code: err.code, message: (err.body as { message?: string } | null)?.message ?? "", ...(err.field !== undefined ? { field: err.field } : {}), ...(err.violations !== undefined ? { violations: err.violations } : {}), cause: err });`)
-	p.P("return response;")
-	p.P("}")
-	p.P(`return registeredError(500, "internal", "internal server error", err);`)
-	p.P("}")
+	writeTSServerCore(p)
 	writeAuthorizationRuntime(p)
 	p.P()
-	p.P("function parseScalar(value: string, kind: string, name: string): string | number | boolean {")
-	p.P("const bad = (detail = \"\"): HttpError => requestError(400, name.startsWith(\"path parameter\") ? \"invalid_path_parameter\" : \"invalid_query_parameter\", \"invalid \" + name + detail, { field: name.slice(name.lastIndexOf(\" \") + 1) });")
-	p.P("if (kind === \"string\" || kind === \"bytes\" || kind === \"timestamp\") return value;")
-	p.P("if (kind === \"bool\") {")
-	p.P(`if (value === "true") return true;`)
-	p.P(`if (value === "false") return false;`)
-	p.P(`throw bad(": must be true or false");`)
-	p.P("}")
-	p.P("if (kind === \"int64\" || kind === \"uint64\") {")
-	p.P("if (!/^-?(0|[1-9][0-9]*)$/.test(value) || (kind === \"uint64\" && value.startsWith(\"-\"))) throw bad();")
-	p.P("try { const parsed = BigInt(value); const min = kind === \"int64\" ? -(2n ** 63n) : 0n; const max = kind === \"int64\" ? (2n ** 63n) - 1n : (2n ** 64n) - 1n; if (parsed < min || parsed > max) throw new Error(); } catch { throw bad(); }")
-	p.P("return value;")
-	p.P("}")
-	p.P("const parsed = Number(value);")
-	p.P("if (!Number.isFinite(parsed) || ((kind.startsWith(\"int\") || kind.startsWith(\"uint\")) && !Number.isInteger(parsed))) {")
-	p.P(`throw bad();`)
-	p.P("}")
-	p.P(`if (kind === "int32" && (parsed < -2147483648 || parsed > 2147483647)) throw bad();`)
-	p.P(`if (kind === "uint32" && (parsed < 0 || parsed > 4294967295)) throw bad();`)
-	p.P(`if (kind.startsWith("uint") && parsed < 0) throw bad();`)
-	p.P("return parsed;")
-	p.P("}")
-	p.P()
-	p.P("function validHeaderFormat(value: string, format: string): boolean {")
-	p.P(`if (format === "uuid") return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value);`)
-	p.P(`if (format === "email") return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);`)
-	p.P(`if (format === "uri") { try { new URL(value); return true; } catch { return false; } }`)
-	p.P("return true;")
-	p.P("}")
-	p.P()
+	writeTSServerScalars(p)
+}
+
+func writeTSServerCore(p *Printer) {
+	p.Raw(tsServerCoreSource)
+}
+
+func writeTSServerScalars(p *Printer) {
+	p.Raw(tsServerScalarsSource)
 }
 
 func writeHandlerInterface(p *Printer, s *onkir.Service) {
@@ -632,6 +564,15 @@ func writeTSNodeRouteFactory(p *Printer, s *onkir.Service) {
 	p.P()
 }
 
+//go:embed runtime/server_errors.ts
+var tsServerErrorsSource string
+
+//go:embed runtime/server_core.ts
+var tsServerCoreSource string
+
+//go:embed runtime/server_scalars.ts
+var tsServerScalarsSource string
+
 //go:embed runtime/fetch_router.ts
 var tsFetchRouterSource string
 
@@ -648,72 +589,7 @@ func writeRequestContextType(p *Printer) {
 }
 
 func writeTSServerErrorRuntime(p *Printer) {
-	p.P("export class HttpError extends Error {")
-	p.P("status: number;")
-	p.P("body: unknown;")
-	p.P("code?: string;")
-	p.P("field?: string;")
-	p.P("violations?: readonly string[];")
-	p.P("constructor(status: number, body: unknown, info?: { code?: string; field?: string; violations?: readonly string[] }) {")
-	p.P("super(`http error ${status}`);")
-	p.P("this.status = status;")
-	p.P("this.body = body;")
-	p.P("if (info?.code !== undefined) this.code = info.code;")
-	p.P("if (info?.field !== undefined) this.field = info.field;")
-	p.P("if (info?.violations !== undefined) this.violations = info.violations;")
-	p.P("}")
-	p.P("}")
-	p.P()
-	p.P("function requestError(status: number, code: string, message: string, extra?: { field?: string; violations?: readonly string[] }): HttpError {")
-	p.P("const body: { message: string; violations?: readonly string[] } = { message };")
-	p.P("if (extra?.violations !== undefined) body.violations = extra.violations;")
-	p.P("return new HttpError(status, body, { code, ...extra });")
-	p.P("}")
-	p.P()
-	p.P("export interface ServerErrorInfo {")
-	p.P("status: number;")
-	p.P("code: string;")
-	p.P("message: string;")
-	p.P("field?: string;")
-	p.P("violations?: readonly string[];")
-	p.P("cause?: unknown;")
-	p.P("}")
-	p.P()
-	p.P("const errorInfos = new WeakMap<Response, ServerErrorInfo>();")
-	p.P()
-	p.P("function registeredError(status: number, code: string, message: string, cause?: unknown): Response {")
-	p.P("const response = jsonResponse({ message }, status);")
-	p.P("errorInfos.set(response, { status, code, message, ...(cause !== undefined ? { cause } : {}) });")
-	p.P("return response;")
-	p.P("}")
-	p.P()
-}
-
-func writeTSMatchPath(p *Printer) {
-	p.P("function matchPath(pattern: string, pathname: string): Record<string, string> | null {")
-	p.P("const patternParts = pattern.split(\"/\").filter((s) => s.length > 0);")
-	p.P("const pathParts = pathname.split(\"/\").filter((s) => s.length > 0);")
-	p.P("const last = patternParts[patternParts.length - 1] ?? \"\";")
-	p.P("const wildcard = last.startsWith(\"{\") && last.endsWith(\"...}\");")
-	p.P("if (wildcard ? pathParts.length < patternParts.length - 1 : patternParts.length !== pathParts.length) return null;")
-	p.P("if (wildcard && pathParts.length === patternParts.length - 1 && !pathname.endsWith(\"/\")) return null;")
-	p.P("const params: Record<string, string> = {};")
-	p.P("for (let i = 0; i < patternParts.length; i++) {")
-	p.P("const part = patternParts[i] ?? \"\";")
-	p.P("if (wildcard && i === patternParts.length - 1) {")
-	p.P("params[part.slice(1, -4)] = pathParts.slice(i).map(decodeURIComponent).join(\"/\");")
-	p.P("break;")
-	p.P("}")
-	p.P("const actual = pathParts[i] ?? \"\";")
-	p.P("if (part.startsWith(\"{\") && part.endsWith(\"}\")) {")
-	p.P("params[part.slice(1, -1)] = decodeURIComponent(actual);")
-	p.P("} else if (part !== actual) {")
-	p.P("return null;")
-	p.P("}")
-	p.P("}")
-	p.P("return params;")
-	p.P("}")
-	p.P()
+	p.Raw(tsServerErrorsSource)
 }
 
 func tsBodyLimitArg(m *onkir.Method) string {

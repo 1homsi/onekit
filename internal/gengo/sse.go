@@ -1,146 +1,18 @@
 package gengo
 
 import (
+	_ "embed"
 	"fmt"
 	"strings"
 
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
-// writeSSEServerRuntime emits the shared SSESender type used by every
-// streaming method's server interface. Errors returned before the first
-// Send() still get a normal HTTP error response (headers aren't committed
-// yet); errors after Send() has been called can only surface as an SSE
-// "error" event, since the 200 response is already on the wire.
-func writeSSESenderType(p *Printer) {
-	p.P("type SSESender interface {")
-	p.P("Send(event any) error")
-	p.P("SendWithEvent(eventType string, event any) error")
-	p.P("Flush()")
-	p.P("}")
-	p.P()
+//go:embed runtime/sse_server.go.tmpl
+var sseServerRuntimeSource string
 
-	p.P("type sseSender struct {")
-	p.P("mu sync.Mutex")
-	p.P("w http.ResponseWriter")
-	p.P("rc *http.ResponseController")
-	p.P("started bool")
-	p.P("eventName func(any) string")
-	p.P("}")
-	p.P()
-
-	p.P("const defaultSSEHeartbeat = 15 * time.Second")
-	p.P()
-	p.P("func newSSESender(w http.ResponseWriter, eventName func(any) string) *sseSender {")
-	p.P("return &sseSender{w: w, rc: http.NewResponseController(w), eventName: eventName}")
-	p.P("}")
-	p.P()
-
-	p.P("func (s *sseSender) heartbeat(ctx context.Context, interval time.Duration, set bool) func() {")
-	p.P("if !set { interval = defaultSSEHeartbeat }")
-	p.P("if interval <= 0 { return func() {} }")
-	p.P("done := make(chan struct{})")
-	p.P("var wg sync.WaitGroup")
-	p.P("wg.Add(1)")
-	p.P("go func() {")
-	p.P("defer wg.Done()")
-	p.P("ticker := time.NewTicker(interval)")
-	p.P("defer ticker.Stop()")
-	p.P("for {")
-	p.P("select {")
-	p.P("case <-done:")
-	p.P("return")
-	p.P("case <-ctx.Done():")
-	p.P("return")
-	p.P("case <-ticker.C:")
-	p.P("s.mu.Lock()")
-	p.P("if !s.started { s.start() }")
-	p.P(`if _, err := fmt.Fprint(s.w, ": ping\n\n"); err == nil { _ = s.flush() }`)
-	p.P("s.mu.Unlock()")
-	p.P("}")
-	p.P("}")
-	p.P("}()")
-	p.P("return func() { close(done); wg.Wait() }")
-	p.P("}")
-	p.P()
-
-	p.P("func (s *sseSender) Sent() bool {")
-	p.P("s.mu.Lock()")
-	p.P("defer s.mu.Unlock()")
-	p.P("return s.started")
-	p.P("}")
-	p.P()
-
-	p.P("func (s *sseSender) Send(event any) error {")
-	p.P(`name := ""`)
-	p.P("if s.eventName != nil { name = s.eventName(event) }")
-	p.P("return s.SendWithEvent(name, event)")
-	p.P("}")
-	p.P()
-}
-
-func writeSSEEventNameValidator(p *Printer) {
-	p.P("func validSSEEventName(name string) bool {")
-	p.P("for _, c := range name {")
-	p.P(`if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-' || c == '.') { return false }`)
-	p.P("}")
-	p.P("return true")
-	p.P("}")
-	p.P()
-}
-
-func writeSSESenderStart(p *Printer) {
-	p.P("func (s *sseSender) start() {")
-	p.P("s.started = true")
-	p.P(`s.w.Header().Set("Content-Type", "text/event-stream")`)
-	p.P(`s.w.Header().Set("Cache-Control", "no-cache")`)
-	p.P(`s.w.Header().Set("Connection", "keep-alive")`)
-	p.P("s.w.WriteHeader(http.StatusOK)")
-	p.P("}")
-	p.P()
-}
-
-func writeSSESenderSendWithEvent(p *Printer) {
-	p.P("func (s *sseSender) SendWithEvent(eventType string, event any) error {")
-	p.P("data, err := json.Marshal(event)")
-	p.P("if err != nil {")
-	p.P("return err")
-	p.P("}")
-	p.P("if !validSSEEventName(eventType) {")
-	p.P(`return fmt.Errorf("invalid SSE event name %q", eventType)`)
-	p.P("}")
-	p.P("s.mu.Lock()")
-	p.P("defer s.mu.Unlock()")
-	p.P("if !s.started {")
-	p.P("s.start()")
-	p.P("}")
-	p.P("if eventType != \"\" {")
-	p.P(`if _, err := fmt.Fprintf(s.w, "event: %s\n", eventType); err != nil {`)
-	p.P("return err")
-	p.P("}")
-	p.P("}")
-	p.P(`if _, err := fmt.Fprintf(s.w, "data: %s\n\n", data); err != nil {`)
-	p.P("return err")
-	p.P("}")
-	p.P("return s.flush()")
-	p.P("}")
-	p.P()
-
-	p.P("func (s *sseSender) flush() error {")
-	p.P("if err := s.rc.Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {")
-	p.P("return err")
-	p.P("}")
-	p.P("return nil")
-	p.P("}")
-	p.P()
-
-	p.P("func (s *sseSender) Flush() {")
-	p.P("s.mu.Lock()")
-	p.P("defer s.mu.Unlock()")
-	p.P("_ = s.flush()")
-	p.P("}")
-	p.P()
-}
+//go:embed runtime/sse_client.go.tmpl
+var sseClientRuntimeSource string
 
 // writeSSEServerRuntime emits the shared SSESender type used by every
 // streaming method's server interface. Errors returned before the first
@@ -148,10 +20,7 @@ func writeSSESenderSendWithEvent(p *Printer) {
 // yet); errors after Send() has been called can only surface as an SSE
 // "error" event, since the 200 response is already on the wire.
 func writeSSEServerRuntime(p *Printer) {
-	writeSSESenderType(p)
-	writeSSEEventNameValidator(p)
-	writeSSESenderStart(p)
-	writeSSESenderSendWithEvent(p)
+	p.P(sseServerRuntimeSource)
 }
 
 func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
@@ -213,77 +82,7 @@ func writeSSERoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 // through Err() instead of being decoded into T, mirroring the server's
 // smart error handling on the client side.
 func writeEventStreamRuntime(p *Printer) {
-	p.P("type EventStream[T any] struct {")
-	p.P("body io.ReadCloser")
-	p.P("reader *bufio.Reader")
-	p.P("maxLineBytes int")
-	p.P("err error")
-	p.P("}")
-	p.P()
-
-	p.P("func newEventStream[T any](body io.ReadCloser, maxLineBytes int) *EventStream[T] {")
-	p.P("if maxLineBytes <= 0 { maxLineBytes = defaultMaxSSELineBytes }")
-	p.P("return &EventStream[T]{body: body, reader: bufio.NewReader(body), maxLineBytes: maxLineBytes}")
-	p.P("}")
-	p.P()
-	p.P("func readEventStreamLine(reader *bufio.Reader, maxBytes int) (string, error) {")
-	p.P("var line []byte")
-	p.P("for {")
-	p.P("part, err := reader.ReadSlice('\\n')")
-	p.P("line = append(line, part...)")
-	p.P("if len(line) > maxBytes { return \"\", fmt.Errorf(\"SSE line exceeds configured limit\") }")
-	p.P("if err == nil { return string(line), nil }")
-	p.P("if err != bufio.ErrBufferFull { return string(line), err }")
-	p.P("}")
-	p.P("}")
-	p.P()
-
-	p.P("func (s *EventStream[T]) Next(event *T) bool {")
-	p.P("var data []string")
-	p.P("eventType := \"\"")
-	p.P("for {")
-	p.P("line, err := readEventStreamLine(s.reader, s.maxLineBytes)")
-	p.P("if err != nil {")
-	p.P("if err != io.EOF {")
-	p.P("s.err = err")
-	p.P("}")
-	p.P("return false")
-	p.P("}")
-	p.P(`line = strings.TrimRight(line, "\r\n")`)
-	p.P(`if line == "" {`)
-	p.P("if len(data) == 0 {")
-	p.P(`eventType = ""`)
-	p.P("continue")
-	p.P("}")
-	p.P(`payload := strings.Join(data, "\n")`)
-	p.P(`if eventType == "error" {`)
-	p.P(`s.err = fmt.Errorf("stream error: %s", payload)`)
-	p.P("return false")
-	p.P("}")
-	p.P("if err := json.Unmarshal([]byte(payload), event); err != nil {")
-	p.P("s.err = err")
-	p.P("return false")
-	p.P("}")
-	p.P("return true")
-	p.P("}")
-	p.P(`if strings.HasPrefix(line, ":") {`)
-	p.P("continue")
-	p.P("}")
-	p.P(`field, value, _ := strings.Cut(line, ":")`)
-	p.P(`value = strings.TrimPrefix(value, " ")`)
-	p.P("switch field {")
-	p.P(`case "event":`)
-	p.P("eventType = value")
-	p.P(`case "data":`)
-	p.P("data = append(data, value)")
-	p.P("}")
-	p.P("}")
-	p.P("}")
-	p.P()
-
-	p.P("func (s *EventStream[T]) Err() error { return s.err }")
-	p.P("func (s *EventStream[T]) Close() error { return s.body.Close() }")
-	p.P()
+	p.P(sseClientRuntimeSource)
 }
 
 func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {

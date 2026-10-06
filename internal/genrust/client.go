@@ -41,39 +41,11 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) []by
 	return p.Bytes()
 }
 
+//go:embed runtime/client_helpers.rs
+var rustClientHelpersSource string
+
 func writeClientHelpers(p *Printer) {
-	p.P("const DEFAULT_MAX_RESPONSE_BODY_BYTES: usize = 8 * 1024 * 1024;")
-	p.P("const DEFAULT_MAX_SSE_FRAME_BYTES: usize = 1024 * 1024;")
-	p.Blank()
-	p.P("async fn read_response_body(mut response: reqwest::Response, limit: usize) -> Result<Vec<u8>, String> {")
-	p.Indent()
-	p.P("let limit = if limit == 0 { DEFAULT_MAX_RESPONSE_BODY_BYTES } else { limit };")
-	p.P("let mut body = Vec::new();")
-	p.P("while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {")
-	p.Indent()
-	p.P("if body.len().saturating_add(chunk.len()) > limit { return Err(\"response body exceeds configured limit\".into()); }")
-	p.P("body.extend_from_slice(&chunk);")
-	p.Dedent()
-	p.P("}")
-	p.P("Ok(body)")
-	p.Dedent()
-	p.P("}")
-	p.Blank()
-	p.P(rustSSEFrameEndSource)
-	p.Blank()
-	p.P("#[allow(dead_code)]")
-	p.P("fn query_value<T: Serialize>(value: &T) -> String {")
-	p.Indent()
-	p.P("match serde_json::to_value(value).expect(\"generated request value must serialize\") {")
-	p.Indent()
-	p.P("serde_json::Value::String(value) => value,")
-	p.P("serde_json::Value::Null => String::new(),")
-	p.P("value => value.to_string(),")
-	p.Dedent()
-	p.P("}")
-	p.Dedent()
-	p.P("}")
-	p.Blank()
+	p.Raw(rustClientHelpersSource)
 }
 
 func writeClientStruct(p *Printer, service *onkir.Service, name string) {
@@ -578,6 +550,3 @@ func serviceHasCorrelatedWS(service *onkir.Service) bool {
 	}
 	return false
 }
-
-//go:embed runtime/sse_frame_end.rs
-var rustSSEFrameEndSource string
