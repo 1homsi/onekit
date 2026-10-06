@@ -20,10 +20,11 @@ fn error_response(status: StatusCode, code: &'static str, message: String, viola
 }
 
 pub fn with_error_writer(router: Router, writer: ErrorWriter) -> Router {
-    router.layer(axum::middleware::from_fn(move |request: axum::extract::Request, next: axum::middleware::Next| {
+    router.layer(axum::middleware::from_fn(move |mut request: axum::extract::Request, next: axum::middleware::Next| {
         let writer = writer.clone();
         async move {
             let headers = request.headers().clone();
+            request.extensions_mut().insert(writer.clone());
             let response = next.run(request).await;
             let info = match response.extensions().get::<ServerErrorInfo>().cloned() {
                 Some(info) => info,
