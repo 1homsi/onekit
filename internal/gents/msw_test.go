@@ -75,3 +75,29 @@ func TestMSWPathPattern(t *testing.T) {
 		t.Fatalf("mswPathPattern = %q", got)
 	}
 }
+
+func TestMSWStreamFramesAreNamedAfterTheOneofVariant(t *testing.T) {
+	file, err := compileForTest(`package app
+
+message Text { text: string }
+message Done { reason: string }
+message Turn {
+  payload: oneof(discriminator: "type") {
+    text: Text @tag("text")
+    done: Done @tag("done")
+  }
+}
+message TurnRequest { prompt: string }
+
+service Agent {
+  turn(TurnRequest) -> Turn @post("/turn") @stream
+}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(GenerateMSWHandlersWithResolver(file, nil))
+	if !strings.Contains(out, `"event: text\ndata: "`) {
+		t.Fatalf("stream frame must be named after the first variant:\n%s", out)
+	}
+}
