@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/pb33f/go-yaml"
 	"github.com/pb33f/libopenapi/datamodel/high/base"
 	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
 	"github.com/pb33f/libopenapi/orderedmap"
-	"github.com/pb33f/go-yaml"
 	k8syaml "sigs.k8s.io/yaml"
 
 	"github.com/1homsi/onekit/internal/genshared"
