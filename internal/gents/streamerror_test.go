@@ -43,6 +43,10 @@ if (!got.includes('event: error\ndata: {"error":{"code":"quota_exceeded","messag
 got = await read(new Error("db password is hunter2"), envelope);
 if (got.includes("hunter2") || !got.includes('"code":"internal","message":"internal server error"')) throw new Error("unexpected errors stay generic: " + got);
 
+const declared = new HttpError(404, { code: "gone" });
+got = await read(declared, envelope);
+if (!got.includes('event: error\ndata: {"code":"gone"}') || got.includes('"error":{')) throw new Error("a declared typed error keeps its payload even with an error writer: " + got);
+
 got = await read(coded);
 if (!got.includes('event: error\ndata: {"message":"daily quota reached"}')) throw new Error("default body: " + got);
 console.log("OK");
