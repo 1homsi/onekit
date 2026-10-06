@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/onekit-mascot.svg" alt="Kit, the onekit mascot: a pixel-art teal robot with curly-brace ears" width="220">
+</p>
+
 # onekit
 
 onekit is a from-scratch schema language and toolchain for building HTTP APIs — no protobuf, no buf, no protoc.
