@@ -306,7 +306,7 @@ jobs:
           name: coverage-reports
           path: |
             coverage/
-            .testcoverage.yml
+            .github/testcoverage.yml
 
       - name: Comment PR with coverage
         if: github.event_name == 'pull_request'

@@ -129,7 +129,7 @@ generate_coverage_badge() {
         if command -v go-test-coverage &> /dev/null; then
             local badge_file="$COVERAGE_DIR/coverage-badge.svg"
             # Allow go-test-coverage to fail (it exits with non-zero when coverage is below threshold)
-            go-test-coverage --config=.testcoverage.yml --badge-file-name="$badge_file" >/dev/null 2>&1 || true
+            go-test-coverage --config=.github/testcoverage.yml --badge-file-name="$badge_file" >/dev/null 2>&1 || true
             echo -e "${GREEN}Coverage badge generated: $badge_file${NC}"
         else
             echo -e "${YELLOW}go-test-coverage not found. Install with: go install github.com/vladopajic/go-test-coverage/v2@latest${NC}"
