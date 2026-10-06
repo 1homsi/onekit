@@ -180,6 +180,9 @@ func expectedGeneratedOutputs(cfg *Config, idx *sourceIndex) map[string]map[stri
 		roots.addRustOutputs(cfg, idx, cfg.Generate.RustServer, nil, rustFilterOf(cfg.Generate.RustServer))
 	}
 	roots.addOpenAPIOutputs(cfg, idx)
+	if dir, ok := cfg.Generate.GoServer.sharedRuntimeDir(); ok {
+		roots.add(cfg.resolve(cfg.Generate.GoServer.Out), filepath.Join(filepath.FromSlash(dir), "runtime.gen.go"))
+	}
 	return roots
 }
 
@@ -187,11 +190,13 @@ func (e expectedOutputs) addGoOutputs(cfg *Config, rel string) {
 	if cfg.Generate.GoServer == nil && cfg.Generate.GoClient == nil {
 		return
 	}
-	target := cfg.Generate.GoServer
-	if target == nil {
-		target = cfg.Generate.GoClient
+	var outPath string
+	if cfg.Generate.GoServer != nil {
+		outPath = cfg.Generate.GoServer.Out
+	} else {
+		outPath = cfg.Generate.GoClient.Out
 	}
-	root := cfg.resolve(target.Out)
+	root := cfg.resolve(outPath)
 	e.add(root, filepath.Join(rel, "types.gen.go"))
 	e.add(root, filepath.Join(rel, "validate.gen.go"))
 	if cfg.Generate.GoServer != nil {

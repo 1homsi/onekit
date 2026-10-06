@@ -13,6 +13,7 @@ import (
 const tsFalseLiteral = "false"
 
 type tsRuleState struct {
+	naming  tsNaming
 	regexes []string
 	used    bool
 }
@@ -77,7 +78,7 @@ func (c *tsRuleCompiler) expr(n onkexpr.Node) string {
 	case *onkexpr.Ident:
 		return c.ident(n)
 	case *onkexpr.Select:
-		base := tsMessageView(c.expr(n.X), n.X.Type().Message)
+		base := tsMessageView(c.state.naming, c.expr(n.X), n.X.Type().Message)
 		return c.readField(base, n.Field)
 	case *onkexpr.Index:
 		return c.index(n)
@@ -116,45 +117,45 @@ func (c *tsRuleCompiler) ident(n *onkexpr.Ident) string {
 		return bound
 	}
 	if n.Name == "value" && c.field != nil {
-		return c.readField(tsMessageView(c.self, c.field.Message), c.field)
+		return c.readField(tsMessageView(c.state.naming, c.self, c.field.Message), c.field)
 	}
 	return c.self
 }
 
-func tsMessageView(base string, m *onkir.Message) string {
+func tsMessageView(naming tsNaming, base string, m *onkir.Message) string {
 	if m == nil {
 		return base
 	}
 	if field := rootUnwrapField(m); field != nil {
-		return "({" + tsKey("", field) + ": " + base + "})"
+		return "({" + naming.key("", field) + ": " + base + "})"
 	}
 	return base
 }
 
-func tsFlatView(m *onkir.Message, base, wirePrefix string) string {
-	return "((b: any) => (" + tsFlatObject(m, "b", wirePrefix) + "))(" + base + ")"
+func tsFlatView(naming tsNaming, m *onkir.Message, base, wirePrefix string) string {
+	return "((b: any) => (" + tsFlatObject(naming, m, "b", wirePrefix) + "))(" + base + ")"
 }
 
-func tsFlatObject(m *onkir.Message, b, wirePrefix string) string {
+func tsFlatObject(naming tsNaming, m *onkir.Message, b, wirePrefix string) string {
 	var parts []string
 	for _, f := range m.Fields {
 		if f.Oneof != nil {
 			continue
 		}
 		if prefix, ok := flattenPrefix(f); ok {
-			parts = append(parts, tsKey("", f)+": "+tsFlatObject(f.Type.Message, b, wirePrefix+prefix))
+			parts = append(parts, naming.key("", f)+": "+tsFlatObject(naming, f.Type.Message, b, wirePrefix+prefix))
 			continue
 		}
-		parts = append(parts, tsKey("", f)+": "+b+"?."+tsKey(wirePrefix, f))
+		parts = append(parts, naming.key("", f)+": "+b+"?."+naming.key(wirePrefix, f))
 	}
 	return "{" + strings.Join(parts, ", ") + "}"
 }
 
 func (c *tsRuleCompiler) readField(base string, f *onkir.Field) string {
 	if prefix, ok := flattenPrefix(f); ok && !f.Repeated {
-		return tsFlatView(f.Type.Message, base, prefix)
+		return tsFlatView(c.state.naming, f.Type.Message, base, prefix)
 	}
-	raw := base + "?." + tsKey("", f)
+	raw := base + "?." + c.state.naming.key("", f)
 	switch {
 	case f.Repeated:
 		return tsWidenList(f, raw)
@@ -273,14 +274,14 @@ func (c *tsRuleCompiler) size(n *onkexpr.Call) string {
 
 func (c *tsRuleCompiler) has(sel *onkexpr.Select) string {
 	f := sel.Field
-	base := tsMessageView(c.expr(sel.X), sel.X.Type().Message)
+	base := tsMessageView(c.state.naming, c.expr(sel.X), sel.X.Type().Message)
 	if f.Oneof != nil {
 		return tsFalseLiteral
 	}
 	if _, ok := flattenPrefix(f); ok && !f.Repeated {
 		return "true"
 	}
-	raw := base + "?." + tsKey("", f)
+	raw := base + "?." + c.state.naming.key("", f)
 	if !f.Repeated && (f.Optional || f.Type.Kind == onkir.KindMessage) {
 		return "((" + raw + ") !== undefined && (" + raw + ") !== null)"
 	}

@@ -21,9 +21,47 @@ type TargetConfig struct {
 	ServiceFilter
 }
 
+type GoServerTargetConfig struct {
+	Out string `toml:"out"`
+	// Runtime is "package" (the default: every generated package carries its
+	// own server core) or "shared" (one runtime package holds it, so the
+	// error writer, authorizer, middleware and options are the same types in
+	// every package).
+	Runtime string `toml:"runtime"`
+	// RuntimeDir is where the shared runtime package is written, relative to
+	// Out. It defaults to "onekitrt".
+	RuntimeDir string `toml:"runtime_dir"`
+	ServiceFilter
+}
+
+const (
+	goRuntimePackage    = "package"
+	goRuntimeShared     = "shared"
+	defaultGoRuntimeDir = "onekitrt"
+)
+
+func (c *GoServerTargetConfig) sharedRuntimeDir() (string, bool) {
+	if c == nil || c.Runtime != goRuntimeShared {
+		return "", false
+	}
+	if c.RuntimeDir == "" {
+		return defaultGoRuntimeDir, true
+	}
+	return filepath.ToSlash(filepath.Clean(c.RuntimeDir)), true
+}
+
 type TSClientTargetConfig struct {
 	Out string `toml:"out"`
 	MSW bool   `toml:"msw"`
+	ServiceFilter
+	// FieldNames is "camel" (the default: isDefault) or "wire" (is_default,
+	// the name the field has on the wire).
+	FieldNames string `toml:"field_names"`
+}
+
+type TSServerTargetConfig struct {
+	Out        string `toml:"out"`
+	FieldNames string `toml:"field_names"`
 	ServiceFilter
 }
 
@@ -37,10 +75,10 @@ type OpenAPITargetConfig struct {
 }
 
 type GenerateConfig struct {
-	GoServer     *TargetConfig         `toml:"go-server"`
+	GoServer     *GoServerTargetConfig `toml:"go-server"`
 	GoClient     *TargetConfig         `toml:"go-client"`
 	TSClient     *TSClientTargetConfig `toml:"ts-client"`
-	TSServer     *TargetConfig         `toml:"ts-server"`
+	TSServer     *TSServerTargetConfig `toml:"ts-server"`
 	PythonClient *TargetConfig         `toml:"python-client"`
 	DartClient   *TargetConfig         `toml:"dart-client"`
 	SwiftClient  *TargetConfig         `toml:"swift-client"`
@@ -212,6 +250,37 @@ func resolveSchemaRootConfig(cfg *Config) error {
 	return nil
 }
 
+func validateGoRuntime(target *GoServerTargetConfig) error {
+	switch target.Runtime {
+	case "", goRuntimePackage:
+		if target.RuntimeDir != "" {
+			return errors.New("go-server runtime_dir needs runtime = \"shared\"")
+		}
+		return nil
+	case goRuntimeShared:
+	default:
+		return fmt.Errorf("go-server runtime must be \"package\" or \"shared\", not %q", target.Runtime)
+	}
+	dir := filepath.ToSlash(target.RuntimeDir)
+	if dir == "" {
+		return nil
+	}
+	if filepath.IsAbs(target.RuntimeDir) || dir == ".." || strings.HasPrefix(dir, "../") || strings.Contains(dir, "/../") || dir == "." {
+		return fmt.Errorf("go-server runtime_dir %q must be a directory inside the output path", target.RuntimeDir)
+	}
+	return nil
+}
+
+const fieldNamesWire = "wire"
+
+func validateFieldNames(target, value string) error {
+	switch value {
+	case "", "camel", fieldNamesWire:
+		return nil
+	}
+	return fmt.Errorf("%s field_names must be \"camel\" or \"wire\", not %q", target, value)
+}
+
 func validateInt64Encoding(value string) error {
 	switch value {
 	case "", "string", onkcompile.Int64EncodingNumber:
@@ -264,7 +333,7 @@ func validateRoutePrefix(prefix string) error {
 
 func validateTargetPaths(cfg *Config) error {
 	targets := []*TargetConfig{
-		cfg.Generate.GoServer, cfg.Generate.GoClient, cfg.Generate.TSServer, cfg.Generate.PythonClient, cfg.Generate.DartClient, cfg.Generate.SwiftClient,
+		cfg.Generate.GoClient, cfg.Generate.PythonClient, cfg.Generate.DartClient, cfg.Generate.SwiftClient,
 		cfg.Generate.RustClient, cfg.Generate.RustServer,
 	}
 	for _, target := range targets {
@@ -277,11 +346,36 @@ func validateTargetPaths(cfg *Config) error {
 			}
 		}
 	}
+	if cfg.Generate.GoServer != nil {
+		if strings.TrimSpace(cfg.Generate.GoServer.Out) == "" {
+			return errors.New("generator output path must not be empty")
+		}
+		if err := validateContainedOutput(cfg.dir, cfg.Generate.GoServer.Out); err != nil {
+			return err
+		}
+		if err := validateGoRuntime(cfg.Generate.GoServer); err != nil {
+			return err
+		}
+	}
 	if cfg.Generate.TSClient != nil {
 		if strings.TrimSpace(cfg.Generate.TSClient.Out) == "" {
 			return errors.New("generator output path must not be empty")
 		}
 		if err := validateContainedOutput(cfg.dir, cfg.Generate.TSClient.Out); err != nil {
+			return err
+		}
+		if err := validateFieldNames("ts-client", cfg.Generate.TSClient.FieldNames); err != nil {
+			return err
+		}
+	}
+	if cfg.Generate.TSServer != nil {
+		if strings.TrimSpace(cfg.Generate.TSServer.Out) == "" {
+			return errors.New("generator output path must not be empty")
+		}
+		if err := validateContainedOutput(cfg.dir, cfg.Generate.TSServer.Out); err != nil {
+			return err
+		}
+		if err := validateFieldNames("ts-server", cfg.Generate.TSServer.FieldNames); err != nil {
 			return err
 		}
 	}

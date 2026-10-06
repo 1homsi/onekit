@@ -11,11 +11,14 @@ type Printer struct {
 	b             strings.Builder
 	resolver      PackageResolver
 	rules         tsRuleState
+	naming        tsNaming
 	principalType string
 }
 
-func newPrinter(resolver PackageResolver) *Printer {
-	return &Printer{resolver: resolver}
+func newPrinterWithOptions(resolver PackageResolver, opts Options) *Printer {
+	p := &Printer{resolver: resolver, naming: tsNaming(opts.WireFieldNames)}
+	p.rules.naming = p.naming
+	return p
 }
 
 func (p *Printer) P(args ...any) {

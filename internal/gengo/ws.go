@@ -604,7 +604,7 @@ func writeWSRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	resRef := p.MessageTypeName(m.Response)
 	idField, correlated := m.WSIDField()
 
-	p.P("mux.Handle(", fmt.Sprintf("%q", "GET "+fullPath), ", o.wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
+	p.P("mux.Handle(", fmt.Sprintf("%q", "GET "+fullPath), ", o.WrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
 	if len(goWSBoundFields(m)) > 0 {
 		p.P("req := new(", p.MessageTypeName(m.Request), ")")
 		writePathParamBinding(p, fullPath, m.Request)
@@ -617,14 +617,14 @@ func writeWSRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	for _, h := range m.Headers {
 		writeHeaderCheck(p, h)
 	}
-	p.P("conn, err := websocket.Accept(w, r, o.wsAcceptOptions)")
+	p.P("conn, err := websocket.Accept(w, r, o.WSAcceptOptions)")
 	p.P("if err != nil { return }")
 	p.P("defer conn.CloseNow()")
-	p.P("conn.SetReadLimit(wsServerReadLimit(o.maxWSFrameBytes))")
+	p.P("conn.SetReadLimit(wsServerReadLimit(o.MaxWSFrameBytes))")
 	p.P("ctx := r.Context()")
 	p.P("connCtx, closeConn := context.WithCancelCause(ctx)")
 	p.P("defer closeConn(net.ErrClosed)")
-	p.P("go wsKeepAlive(connCtx, conn.Ping, conn.CloseNow, wsPingInterval(o.wsPingInterval))")
+	p.P("go wsKeepAlive(connCtx, conn.Ping, conn.CloseNow, wsPingInterval(o.WSPingInterval))")
 	if correlated {
 		idType := p.GoFieldType(idField.Type)
 		p.P("out := &", wsOutName(s, m), "{conn: conn, ctx: connCtx, pending: ", wsServerPendingConstructor, "[", idType, ", *", p.MessageTypeName(m.Request), "]()}")
@@ -651,7 +651,7 @@ func writeWSRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("}")
 	p.P("var readBuf []byte")
 	p.P("readHint := 0")
-	p.P("asm := wsAssembler{limit: o.maxWSMessageBytes}")
+	p.P("asm := wsAssembler{limit: o.MaxWSMessageBytes}")
 	p.P("for {")
 	writeWSBufferedRead(p, "conn", "ctx", "readBuf", "readHint")
 	if correlated {

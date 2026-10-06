@@ -715,6 +715,31 @@ service Agent {
 
 The size is a byte count with an optional `B`, `KiB`, `MiB` or `GiB` suffix, and it needs a body-bearing verb. Go, TypeScript and Rust enforce it and answer `413` with `request_body_too_large`; it overrides the server-wide limit for that method only.
 
+### One runtime for every Go package
+
+By default each generated Go package carries its own copy of the server core: `ServerError`, `ErrorWriter`, `Authorizer`, `Middleware`, `RequestMetadata` and the options that configure them. With several schema packages that means several distinct `ErrorWriter` types, and one writer, authorizer or middleware has to be adapted for each. Put the core in one package instead:
+
+```toml
+[generate.go-server]
+out = "./gen"
+runtime = "shared"        # "package" is the default
+runtime_dir = "onekitrt"  # relative to out; this is the default
+```
+
+The core is written once to `gen/onekitrt/runtime.gen.go`, and every package aliases its types and options (`type ServerError = onekitrt.ServerError`, `var WithErrorWriter = onekitrt.WithErrorWriter`), so existing code keeps compiling. One error writer, one authorizer and one option list now serve every module:
+
+```go
+opts := []any{
+    onekitrt.WithErrorWriter(envelope),
+    onekitrt.WithAuthorizer(authorize),
+    onekitrt.WithRequestID("X-Request-ID"),
+}
+orders.RegisterOrdersServer(mux, append([]any{ordersImpl{}}, opts...)...)
+users.RegisterUsersServer(mux, append([]any{usersImpl{}}, opts...)...)
+```
+
+`WithPrincipal` stays per package because its type is the package's own principal message. The runtime directory must not share a name with a schema directory, and switching `runtime` back removes the shared package on the next build.
+
 ### Choosing which services a target generates
 
 Every target generates code for every service by default, which leaves dead code when a client only needs some of them (a runtime protocol with no browser client, an admin API with no mobile client). Each generator target accepts two glob lists over the service name:
@@ -752,6 +777,8 @@ mux := http.NewServeMux()
 api.RegisterThingsServer(mux, impl{}, api.WithRequestID("X-Request-ID"), api.WithErrorWriter(envelope))
 http.ListenAndServe(addr, api.ErrorHandler(mux, api.WithRequestID("X-Request-ID"), api.WithErrorWriter(envelope)))
 ```
+
+Errors that happen after a stream has started cannot change the HTTP status, so they travel as an `event: error` frame. That frame goes through the same writer: the body is whatever your error writer produces for the handler's error, so the code and message a handler exposes (`PublicCode` and `PublicMessage` in Go, `HttpError` in TypeScript) reach the client in your envelope. Errors a method declares with `@status` keep their declared body, and an unexpected error still shows only the generic message. `error` stays a reserved event name, so a oneof variant of your own should use another name.
 
 Parameter errors no longer include the Go parser's text: a non-numeric `{id}` is `invalid path parameter id: must be an integer`.
 
@@ -923,6 +950,22 @@ Install the CLI:
 go install github.com/1homsi/onekit/cmd/onek@latest
 ```
 
+
+### Keeping wire field names in TypeScript
+
+By default generated TypeScript camel-cases field names (`is_default` becomes `isDefault`) and maps them back to the wire name when it encodes and decodes. If your frontend already reads the wire names, keep them in the types instead:
+
+```toml
+[generate.ts-client]
+out = "./web/client"
+field_names = "wire"   # "camel" is the default
+
+[generate.ts-server]
+out = "./server/ts"
+field_names = "wire"
+```
+
+With `"wire"`, `is_default` stays `is_default` in the types, requests, responses, validators and `@rule` checks, and encoding and decoding become the identity for keys. Oneof variant payload keys follow the same rule. Set it on both targets if you generate both, so a client and a server agree on property names.
 
 ### TypeScript client call shape
 
