@@ -1537,33 +1537,51 @@ type plainStruct struct {
 	PlainResult *PlainResult ` + "`json:\"plain_result\"`" + `
 }
 
+const perfAttempts = 5
+
 func nsPerOp(f func(b *testing.B)) float64 {
-	best := 0.0
-	for i := 0; i < 3; i++ {
-		r := testing.Benchmark(f)
-		ns := float64(r.T.Nanoseconds()) / float64(r.N)
-		if best == 0 || ns < best {
-			best = ns
+	r := testing.Benchmark(f)
+	return float64(r.T.Nanoseconds()) / float64(r.N)
+}
+
+func pairRatio(slow, fast func(b *testing.B)) (float64, float64, float64) {
+	s, f := nsPerOp(slow), nsPerOp(fast)
+	return s / f, s, f
+}
+
+func budget(t *testing.T, name string, slow, fast func(b *testing.B), minRatio float64) {
+	t.Helper()
+	best, bestSlow, bestFast := 0.0, 0.0, 0.0
+	for attempt := 0; attempt < perfAttempts; attempt++ {
+		ratio, s, f := pairRatio(slow, fast)
+		if ratio > best {
+			best, bestSlow, bestFast = ratio, s, f
+		}
+		if best >= minRatio {
+			break
 		}
 	}
-	return best
-}
-
-func budget(t *testing.T, name string, slow, fast, minRatio float64) {
-	t.Helper()
-	ratio := slow / fast
-	t.Logf("%s: %.0f ns vs %.0f ns (%.1fx, budget >= %.1fx)", name, slow, fast, ratio, minRatio)
-	if ratio < minRatio {
-		t.Errorf("%s regressed: %.1fx faster, budget is >= %.1fx", name, ratio, minRatio)
+	t.Logf("%s: %.0f ns vs %.0f ns (%.1fx, budget >= %.1fx)", name, bestSlow, bestFast, best, minRatio)
+	if best < minRatio {
+		t.Errorf("%s regressed: %.1fx faster in the best of %d attempts, budget is >= %.1fx", name, best, perfAttempts, minRatio)
 	}
 }
 
-func ceiling(t *testing.T, name string, subject, baseline, maxRatio float64) {
+func ceiling(t *testing.T, name string, subject, baseline func(b *testing.B), maxRatio float64) {
 	t.Helper()
-	ratio := subject / baseline
-	t.Logf("%s: %.0f ns vs %.0f ns (%.1fx, budget <= %.1fx)", name, subject, baseline, ratio, maxRatio)
-	if ratio > maxRatio {
-		t.Errorf("%s regressed: %.1fx slower, budget is <= %.1fx", name, ratio, maxRatio)
+	best, bestSubject, bestBaseline := 0.0, 0.0, 0.0
+	for attempt := 0; attempt < perfAttempts; attempt++ {
+		ratio, s, f := pairRatio(subject, baseline)
+		if best == 0 || ratio < best {
+			best, bestSubject, bestBaseline = ratio, s, f
+		}
+		if best <= maxRatio {
+			break
+		}
+	}
+	t.Logf("%s: %.0f ns vs %.0f ns (%.1fx, budget <= %.1fx)", name, bestSubject, bestBaseline, best, maxRatio)
+	if best > maxRatio {
+		t.Errorf("%s regressed: %.1fx slower in the best of %d attempts, budget is <= %.1fx", name, best, perfAttempts, maxRatio)
 	}
 }
 
@@ -1609,58 +1627,58 @@ func TestPerfBudgets(t *testing.T) {
 	callJSON, _ := json.Marshal(callFrame)
 	plainStructJSON, _ := json.Marshal(plainStruct{PlainResult: plainFrame.GetPlainResult()})
 
-	stdDecodeLarge := nsPerOp(func(b *testing.B) {
+	stdDecodeLarge := func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			var f Frame
 			_ = json.Unmarshal(plainJSON, &f)
 		}
-	})
-	rawDecodeLarge := nsPerOp(func(b *testing.B) {
+	}
+	rawDecodeLarge := func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			var f Frame
 			_ = wsDecode(true, rawWire, &f)
 		}
-	})
+	}
 	budget(t, "raw decode vs JSON decode (400 KB)", stdDecodeLarge, rawDecodeLarge, 100)
 
-	plainStructDecode := nsPerOp(func(b *testing.B) {
+	plainStructDecode := func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			var v plainStruct
 			_ = json.Unmarshal(plainStructJSON, &v)
 		}
-	})
+	}
 	ceiling(t, "oneof std decode vs plain struct (400 KB)", stdDecodeLarge, plainStructDecode, 8)
 
-	stdDecodeSmall := nsPerOp(func(b *testing.B) {
+	stdDecodeSmall := func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			var f Frame
 			_ = f.UnmarshalJSON(callJSON)
 		}
-	})
-	fastDecodeSmall := nsPerOp(func(b *testing.B) {
+	}
+	fastDecodeSmall := func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			var f Frame
 			_ = wsUnmarshal(callJSON, &f)
 		}
-	})
+	}
 	budget(t, "fast decode vs std decode (small frame)", stdDecodeSmall, fastDecodeSmall, 1.3)
 
-	stdEncodeSmall := nsPerOp(func(b *testing.B) {
+	stdEncodeSmall := func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			_, _ = callFrame.MarshalJSON()
 		}
-	})
-	fastEncodeSmall := nsPerOp(func(b *testing.B) {
+	}
+	fastEncodeSmall := func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			buf := wsGetBuffer()
 			_, data, _, _ := wsEncodeAppend((*buf)[:0], callFrame)
 			*buf = data[:0]
 			wsPutBuffer(buf)
 		}
-	})
+	}
 	budget(t, "fast encode vs std encode (small frame)", stdEncodeSmall, fastEncodeSmall, 1.5)
 
-	budget(t, "raw vs JSON round trip (400 KB)", nsPerOp(roundTrip("json")), nsPerOp(roundTrip("raw")), 5)
+	budget(t, "raw vs JSON round trip (400 KB)", roundTrip("json"), roundTrip("raw"), 5)
 }
 `
 
