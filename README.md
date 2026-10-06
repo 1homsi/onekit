@@ -904,6 +904,22 @@ go install github.com/1homsi/onekit/cmd/onek@latest
 ```
 
 
+### Keeping wire field names in TypeScript
+
+By default generated TypeScript camel-cases field names (`is_default` becomes `isDefault`) and maps them back to the wire name when it encodes and decodes. If your frontend already reads the wire names, keep them in the types instead:
+
+```toml
+[generate.ts-client]
+out = "./web/client"
+field_names = "wire"   # "camel" is the default
+
+[generate.ts-server]
+out = "./server/ts"
+field_names = "wire"
+```
+
+With `"wire"`, `is_default` stays `is_default` in the types, requests, responses, validators and `@rule` checks, and encoding and decoding become the identity for keys. Oneof variant payload keys follow the same rule. Set it on both targets if you generate both, so a client and a server agree on property names.
+
 ### TypeScript client call shape
 
 Each client method takes one request object holding every field, path parameters included, plus an optional `RequestOptions` (`signal`, `headers`, `timeoutMs`): `client.update({ id, name })`, not `update(id, input)`. A failed call throws `ApiError` carrying `statusCode`, the raw `body`, and, when the response follows the error envelope, `code`, `message` and `requestId`; set `errorParser` in the client options to read a custom envelope. Calls time out after 30 seconds and read at most 8 MiB; both are settable per client (`timeoutMs`, `maxResponseBodyBytes`) and `timeoutMs` per call.

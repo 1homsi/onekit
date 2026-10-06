@@ -19,19 +19,20 @@ import (
 // inference, and cross-directory import resolution.
 func buildTSClient(cfg *Config, idx *sourceIndex) error {
 	outRoot := cfg.resolve(cfg.Generate.TSClient.Out)
+	opts := gents.Options{WireFieldNames: cfg.Generate.TSClient.FieldNames == fieldNamesWire}
 	return eachGroup(idx, func(g *sourceGroup) error {
 		outDir := groupOutDir(outRoot, g.relDir)
 		resolver := &tsResolver{currentDir: g.relDir, idx: idx}
-		err := writeFile(filepath.Join(outDir, "types.ts"), gents.GenerateTypesWithResolver(g.file, resolver))
+		err := writeFile(filepath.Join(outDir, "types.ts"), gents.GenerateTypesWithOptions(g.file, resolver, opts))
 		if err != nil {
 			return err
 		}
-		err = writeFile(filepath.Join(outDir, "client.ts"), gents.GenerateClientWithResolver(g.file, resolver))
+		err = writeFile(filepath.Join(outDir, "client.ts"), gents.GenerateClientWithOptions(g.file, resolver, opts))
 		if err != nil {
 			return err
 		}
 		if cfg.Generate.TSClient.MSW {
-			if err := writeFile(filepath.Join(outDir, "msw.ts"), gents.GenerateMSWHandlersWithResolver(g.file, resolver)); err != nil {
+			if err := writeFile(filepath.Join(outDir, "msw.ts"), gents.GenerateMSWHandlersWithOptions(g.file, resolver, opts)); err != nil {
 				return err
 			}
 		}
@@ -41,14 +42,15 @@ func buildTSClient(cfg *Config, idx *sourceIndex) error {
 
 func buildTSServer(cfg *Config, idx *sourceIndex) error {
 	outRoot := cfg.resolve(cfg.Generate.TSServer.Out)
+	opts := gents.Options{WireFieldNames: cfg.Generate.TSServer.FieldNames == fieldNamesWire}
 	return eachGroup(idx, func(g *sourceGroup) error {
 		outDir := groupOutDir(outRoot, g.relDir)
 		resolver := &tsResolver{currentDir: g.relDir, idx: idx}
-		err := writeFile(filepath.Join(outDir, "types.ts"), gents.GenerateTypesWithResolver(g.file, resolver))
+		err := writeFile(filepath.Join(outDir, "types.ts"), gents.GenerateTypesWithOptions(g.file, resolver, opts))
 		if err != nil {
 			return err
 		}
-		err = writeFile(filepath.Join(outDir, "server.ts"), gents.GenerateServerWithResolver(g.file, resolver))
+		err = writeFile(filepath.Join(outDir, "server.ts"), gents.GenerateServerWithOptions(g.file, resolver, opts))
 		if err != nil {
 			return err
 		}

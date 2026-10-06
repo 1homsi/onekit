@@ -69,11 +69,15 @@ func GenerateServer(file *onkir.File) []byte {
 }
 
 func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []byte {
+	return GenerateServerWithOptions(file, resolver, Options{})
+}
+
+func GenerateServerWithOptions(file *onkir.File, resolver PackageResolver, opts Options) []byte {
 	if len(file.Services) == 0 {
 		return nil
 	}
 
-	p := newPrinter(resolver)
+	p := newPrinterWithOptions(resolver, opts)
 	principal := filePrincipal(file)
 	if principal != nil {
 		p.principalType = p.MessageTypeName(principal)

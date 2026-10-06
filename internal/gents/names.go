@@ -50,3 +50,24 @@ func TSScalarType(k onkir.ScalarKind) string {
 func OneofTypeName(msg *onkir.Message, field *onkir.Field) string {
 	return msg.Name + PascalCase(field.Name)
 }
+
+// Options tunes the generated TypeScript.
+type Options struct {
+	// WireFieldNames keeps each field's wire name (for example is_default)
+	// as the property name in the generated types and clients instead of
+	// camel-casing it (isDefault).
+	WireFieldNames bool
+}
+
+type tsNaming bool
+
+func (n tsNaming) ident(name string) string {
+	if n {
+		return name
+	}
+	return CamelCase(name)
+}
+
+func (n tsNaming) key(wirePrefix string, f *onkir.Field) string {
+	return n.ident(wirePrefix + f.Name)
+}

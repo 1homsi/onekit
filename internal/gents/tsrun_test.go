@@ -26,6 +26,11 @@ func compileTSSchema(t *testing.T, schema string) *onkir.File {
 
 func runTSSchema(t *testing.T, schema, main string) {
 	t.Helper()
+	runTSSchemaWithOptions(t, schema, Options{}, main)
+}
+
+func runTSSchemaWithOptions(t *testing.T, schema string, opts Options, main string) {
+	t.Helper()
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not available")
 	}
@@ -34,9 +39,9 @@ func runTSSchema(t *testing.T, schema, main string) {
 	forNode := func(src []byte) string {
 		return strings.ReplaceAll(string(src), `from "./types.js"`, `from "./types.ts"`)
 	}
-	writeFile(t, filepath.Join(dir, "types.ts"), string(GenerateTypes(file)))
-	writeFile(t, filepath.Join(dir, "client.ts"), forNode(GenerateClient(file)))
-	writeFile(t, filepath.Join(dir, "server.ts"), forNode(GenerateServer(file)))
+	writeFile(t, filepath.Join(dir, "types.ts"), string(GenerateTypesWithOptions(file, nil, opts)))
+	writeFile(t, filepath.Join(dir, "client.ts"), forNode(GenerateClientWithOptions(file, nil, opts)))
+	writeFile(t, filepath.Join(dir, "server.ts"), forNode(GenerateServerWithOptions(file, nil, opts)))
 	writeFile(t, filepath.Join(dir, "main.ts"), main)
 	cmd := exec.Command("node", "main.ts")
 	cmd.Dir = dir
