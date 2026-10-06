@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/assets/onekit-mascot.svg" alt="Kit, the onekit mascot: a pixel-art teal robot with curly-brace ears" width="220">
+  <img src=".github/assets/onekit-mascot.svg" alt="Kit, the onekit mascot: a pixel-art teal robot with curly-brace ears" width="300">
 </p>
 
 # onekit
