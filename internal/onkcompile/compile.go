@@ -412,7 +412,40 @@ func (c *compiler) buildField(fd *onklang.FieldDecl, owner *onkir.Message, path 
 		(typ.Scalar == onkir.ScalarInt64 || typ.Scalar == onkir.ScalarUint64) {
 		field.Int64Number = true
 	}
+	if hasDecorator(fd.Decorators, "nullable") {
+		reason := nullableIneligibleReason(field)
+		switch {
+		case reason == "":
+			field.Nullable = true
+		case !c.options.AllowLegacyContracts:
+			return nil, &Error{Path: path, Line: fd.Line, Msg: fmt.Sprintf("@nullable on %q %s", fd.Name, reason)}
+		}
+	}
 	return field, nil
+}
+
+func nullableIneligibleReason(f *onkir.Field) string {
+	switch {
+	case !f.Optional:
+		return "requires the ? marker; absent and null are only distinct on optional fields"
+	case f.Repeated || f.Type.Kind == onkir.KindMap:
+		return "is not supported on repeated or map fields"
+	case f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarBytes:
+		return "is not supported on bytes fields"
+	case f.HasDecorator("required"):
+		return "cannot be combined with @required"
+	case f.HasDecorator("query"):
+		return "cannot be combined with @query"
+	case f.HasDecorator("flatten") || f.HasDecorator("unwrap") || f.HasDecorator("empty"):
+		return "cannot be combined with @flatten, @unwrap or @empty"
+	case f.Type.Kind == onkir.KindScalar && (f.Type.Scalar == onkir.ScalarInt64 || f.Type.Scalar == onkir.ScalarUint64) && !f.Int64Number && !fieldEncodesAsNumber(f):
+		return `needs a numeric 64-bit encoding: set int64_encoding = "number" or add @encode("number")`
+	case f.Type.Kind != onkir.KindScalar && f.HasDecorator("encode"):
+		return "cannot be combined with @encode"
+	case f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarTimestamp && f.HasDecorator("encode"):
+		return "cannot be combined with a custom timestamp @encode"
+	}
+	return ""
 }
 
 func (c *compiler) buildOneof(od *onklang.OneofDecl, field *onkir.Field, path string) (*onkir.Oneof, error) {
@@ -785,4 +818,13 @@ func emitsZero(f *onkir.Field) bool {
 		return f.Type.Scalar != onkir.ScalarTimestamp && f.Type.Scalar != onkir.ScalarJSON
 	}
 	return true
+}
+
+func fieldEncodesAsNumber(f *onkir.Field) bool {
+	d, ok := f.Decorator("encode")
+	if !ok {
+		return false
+	}
+	value, _ := d.Value()
+	return value == Int64EncodingNumber
 }

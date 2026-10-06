@@ -441,7 +441,7 @@ func writeField(p *Printer, m *onkir.Message, f *onkir.Field, wirePrefix string)
 	if f.Repeated {
 		tsType = "(" + tsType + ")[]"
 	}
-	if emptyBehaviorValue(f) == emptyBehaviorNull {
+	if emptyBehaviorValue(f) == emptyBehaviorNull || f.Nullable {
 		tsType += " | null"
 	}
 	p.P(CamelCase(wirePrefix+f.Name), separator, tsType, orUndefined, ";")
@@ -536,6 +536,12 @@ func writeEncodeFunc(p *Printer, m *onkir.Message) {
 			if behavior == emptyBehaviorNull {
 				p.P("else { out.", cf.wire, " = null; }")
 			}
+			continue
+		}
+		if cf.field.Nullable {
+			localVar := cf.ts + "Val"
+			p.P("const ", localVar, " = ", valueExpr, ";")
+			p.P("if (", localVar, " !== undefined) { out.", cf.wire, " = ", localVar, " === null ? null : ", encodeExpr(p, cf.field, localVar), "; }")
 			continue
 		}
 		if cf.field.EmitZero {

@@ -639,6 +639,30 @@ contracts feed server checks and OpenAPI security schemes; generated TypeScript
 handlers, Go authorization hooks, and Rust request contexts expose the incoming
 headers for application-level authentication.
 
+### Nullable fields with `@nullable`
+
+An optional field (`?`) is omitted from the wire when unset. Add `@nullable` and it has three states that survive a round trip: absent, an explicit `null`, and a value. This is what a PATCH body needs to tell "leave it alone" from "clear it".
+
+```onk
+message UpdateEnvironment {
+  id: int64 @encode("number")
+  name: string? @nullable
+  folder_id: int64? @nullable @encode("number")
+}
+```
+
+| Target | Representation |
+| --- | --- |
+| Go | the pointer field plus `NameNull bool`: nil and `NameNull` is an explicit null, nil and not `NameNull` is absent, a pointer wins |
+| TypeScript | `name?: string \| null`: `undefined` is absent, `null` is null |
+| Rust | `Option<Option<T>>`: `None` absent, `Some(None)` null |
+| Python | the field plus `name_null: bool` |
+| Dart | the field plus `nameNull` |
+| Swift | the field plus `nameNull` |
+| OpenAPI | the schema allows `null` |
+
+`@nullable` needs the `?` marker and a plain wire form: it cannot be combined with `@required`, `@query`, `@flatten`, `@unwrap`, `@empty`, an `@encode` on an enum, message or timestamp, or `bytes`, and a 64-bit integer must be numeric (`int64_encoding = "number"` or `@encode("number")`). Rules and validators treat `null` as absent.
+
 ### Wildcard path parameters and empty routes
 
 A path parameter written `{name...}` captures the rest of the path, slashes included. It must be the last segment, bind to a `string` request field, and cannot be used on `@ws` routes.

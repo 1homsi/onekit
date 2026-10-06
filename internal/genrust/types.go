@@ -16,6 +16,7 @@ type typeFeatures struct {
 	intString bool
 	email     bool
 	empty     bool
+	nullable  bool
 }
 
 func GenerateTypes(file *onkir.File) []byte {
@@ -76,6 +77,9 @@ func collectTypeFeatures(file *onkir.File) typeFeatures {
 			if emptyBehavior(field) != "" {
 				features.empty = true
 			}
+			if field.Nullable {
+				features.nullable = true
+			}
 			if field.Oneof != nil && slices.ContainsFunc(field.Oneof.Variants, isBytesVariant) {
 				features.bytes = true
 			}
@@ -129,6 +133,14 @@ func writeSerdeHelpers(p *Printer, features typeFeatures) {
 	}
 	if features.bytes {
 		writeBytesModules(p)
+	}
+	if features.nullable {
+		p.P("fn double_option<'de, T: Deserialize<'de>, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Option<T>>, D::Error> {")
+		p.Indent()
+		p.P("Option::<T>::deserialize(deserializer).map(Some)")
+		p.Dedent()
+		p.P("}")
+		p.Blank()
 	}
 	if features.empty {
 		p.P("fn is_none_or_empty<T: Serialize>(value: &Option<Box<T>>) -> bool {")
@@ -523,6 +535,9 @@ func rustFieldType(p *Printer, field *onkir.Field) string {
 	if field.Type != nil && field.Type.Kind == onkir.KindMessage {
 		base = "Box<" + base + ">"
 	}
+	if field.Nullable {
+		return "Option<Option<" + base + ">>"
+	}
 	if field.Optional || (field.Type != nil && field.Type.Kind == onkir.KindMessage) {
 		return "Option<" + base + ">"
 	}
@@ -538,6 +553,9 @@ func fieldSerdeOptions(field *onkir.Field) string {
 	}
 	if field.Optional && empty == "" && !rootUnwrap {
 		options = append(options, `skip_serializing_if = "Option::is_none"`)
+	}
+	if field.Nullable {
+		options = append(options, `deserialize_with = "double_option"`)
 	}
 	if field.Repeated && !rootUnwrap && !field.EmitZero {
 		options = append(options, `skip_serializing_if = "Vec::is_empty"`)
@@ -1002,6 +1020,10 @@ func writeTimestampValidation(p *Printer, field *onkir.Field, access string) {
 	}
 	dateOnly := strconv.FormatBool(fieldEncoding(field) == "date")
 	fail := "return Err(" + p.validationError + " { field: " + strconv.Quote(field.Name) + ", message: \"must be a valid timestamp\".into() });"
+	if field.Nullable {
+		p.P("if let Some(Some(value)) = &", access, " { if !valid_timestamp(value, ", dateOnly, ") { ", fail, " } }")
+		return
+	}
 	if field.Optional {
 		p.P("if let Some(value) = &", access, " { if !valid_timestamp(value, ", dateOnly, ") { ", fail, " } }")
 		return
@@ -1133,7 +1155,11 @@ func writeNestedMessageValidation(p *Printer, field *onkir.Field, access string)
 			p.Dedent()
 			p.P("}")
 		} else {
-			p.P("if let Some(value) = &", access, " {")
+			pattern := "Some(value)"
+			if field.Nullable {
+				pattern = "Some(Some(value))"
+			}
+			p.P("if let ", pattern, " = &", access, " {")
 			p.Indent()
 			p.P("value.validate().map_err(|error| ", p.validationError, " { field: ", strconv.Quote(field.Name), ", message: error.to_string() })?;")
 			p.Dedent()
@@ -1161,6 +1187,9 @@ func fieldHasValueValidation(field *onkir.Field) bool {
 }
 
 func validationValue(field *onkir.Field, access string) (string, string, string) {
+	if field.Nullable {
+		return validationValueVar, "if let Some(Some(value)) = &" + access + " {", "}"
+	}
 	if field.Optional {
 		return validationValueVar, "if let Some(value) = &" + access + " {", "}"
 	}

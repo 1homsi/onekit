@@ -357,9 +357,6 @@ func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl, 
 	if field.Optional && field.Type.IsMap {
 		return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("map field %q cannot be optional; an empty map already means no entries", field.Name)}
 	}
-	if !options.AllowLegacyContracts && hasDecorator(field.Decorators, "nullable") {
-		return &Error{Path: filePath, Line: field.Line, Msg: "@nullable is unsupported; use the ? optional marker"}
-	}
 	if hasDecorator(field.Decorators, "query") && !isHTTPParameterTypeRef(field.Type) {
 		return &Error{Path: filePath, Line: field.Line, Msg: "@query supports string, bool, integer, and float scalar fields"}
 	}
@@ -1126,11 +1123,11 @@ func validateCompiledField(filePath string, field *onkir.Field, options CompileO
 		if field.Type != nil {
 			switch field.Type.Kind {
 			case onkir.KindEnum:
-				valid = value == "number"
+				valid = value == Int64EncodingNumber
 			case onkir.KindScalar:
 				switch field.Type.Scalar {
 				case onkir.ScalarInt64, onkir.ScalarUint64:
-					valid = value == "number"
+					valid = value == Int64EncodingNumber
 				case onkir.ScalarBytes:
 					valid = value == "hex" || value == "base64" || value == "base64_raw" || value == "base64url" || value == "base64url_raw"
 				case onkir.ScalarTimestamp:

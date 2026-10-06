@@ -344,6 +344,10 @@ func writeMessage(p *Printer, m *onkir.Message) {
 		writeDeprecated(p, f.Deprecated)
 		p.P(p.fieldType(m, f), " ", Ident(f.Name), ";")
 		p.P()
+		if f.Nullable {
+			p.P("bool ", Ident(f.Name), "Null;")
+			p.P()
+		}
 	}
 	if root != nil {
 		writeRootUnwrapCodec(p, m, root)
@@ -399,6 +403,9 @@ func writeConstructor(p *Printer, m *onkir.Message) {
 				inits = append(inits, id+" = "+id+" ?? "+p.defaultValue(f.Type))
 			}
 		}
+		if f.Nullable {
+			params = append(params, "this."+id+"Null = false")
+		}
 	}
 	p.P(name, "({")
 	p.Indent()
@@ -430,6 +437,9 @@ func writeToJSON(p *Printer, m *onkir.Message) {
 	p.P("final json = <String, dynamic>{};")
 	for _, f := range m.Fields {
 		writeToJSONField(p, f)
+		if f.Nullable {
+			p.P("if (", Ident(f.Name), " == null && ", Ident(f.Name), "Null) json[", dartString(f.Name), "] = null;")
+		}
 	}
 	p.P("return json;")
 	p.Dedent()
@@ -522,6 +532,9 @@ func writeFromJSON(p *Printer, m *onkir.Message) {
 	p.Indent()
 	for _, f := range m.Fields {
 		p.P(Ident(f.Name), ": ", p.fromJSONExpr(m, f), ",")
+		if f.Nullable {
+			p.P(Ident(f.Name), "Null: json.containsKey(", dartString(f.Name), ") && json[", dartString(f.Name), "] == null,")
+		}
 	}
 	p.Dedent()
 	p.P(");")

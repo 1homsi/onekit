@@ -317,6 +317,9 @@ func fieldContractSignature(field *onkir.Field) string {
 	if field.EmitZero {
 		parts = append(parts, "emit:zero")
 	}
+	if field.Nullable {
+		parts = append(parts, "nullable")
+	}
 	sort.Strings(parts)
 	return strings.Join(parts, "|")
 }

@@ -308,6 +308,12 @@ func (p *Printer) writeRuleFieldConverter(f *onkir.Field) {
 			return
 		}
 		p.P("f.insert(", key, ", OnkValue::Map(std::rc::Rc::new(", ident, ".iter().map(|(k, v)| (k.as_str(), ", item, ")).collect())));")
+	case f.Nullable:
+		item := p.rustValueOf(f.Type)
+		if item == "" {
+			return
+		}
+		p.P("if let Some(Some(v)) = &", ident, " { f.insert(", key, ", ", item, "); }")
 	case f.Optional || f.Type.Kind == onkir.KindMessage:
 		item := p.rustValueOf(f.Type)
 		if item == "" {

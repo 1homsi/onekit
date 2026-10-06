@@ -341,6 +341,9 @@ func writeMessage(p *Printer, m *onkir.Message) {
 			continue
 		}
 		p.P("public var ", Ident(f.Name), ": ", p.fieldType(m, f))
+		if f.Nullable {
+			p.P("public var ", Ident(f.Name), "Null: Bool")
+		}
 	}
 	if len(m.Fields) > 0 {
 		p.P()
@@ -376,20 +379,30 @@ func writeInit(p *Printer, m *onkir.Message) {
 		p.P()
 		return
 	}
+	var params []string
+	for _, f := range m.Fields {
+		params = append(params, Ident(f.Name)+": "+p.fieldType(m, f)+" = "+p.initDefault(f))
+		if f.Nullable {
+			params = append(params, Ident(f.Name)+"Null: Bool = false")
+		}
+	}
 	p.P("public init(")
 	p.Indent()
-	for i, f := range m.Fields {
+	for i, param := range params {
 		sep := ","
-		if i == len(m.Fields)-1 {
+		if i == len(params)-1 {
 			sep = ""
 		}
-		p.P(Ident(f.Name), ": ", p.fieldType(m, f), " = ", p.initDefault(f), sep)
+		p.P(param, sep)
 	}
 	p.Dedent()
 	p.P(") {")
 	p.Indent()
 	for _, f := range m.Fields {
 		p.P("self.", storageName(f), " = ", Ident(f.Name))
+		if f.Nullable {
+			p.P("self.", Ident(f.Name), "Null = ", Ident(f.Name), "Null")
+		}
 	}
 	p.Dedent()
 	p.P("}")
@@ -405,6 +418,9 @@ func writeToJSON(p *Printer, m *onkir.Message) {
 		p.P("var json: [String: Any] = [:]")
 		for _, f := range m.Fields {
 			writeToJSONField(p, f)
+			if f.Nullable {
+				p.P("if self.", storageName(f), " == nil && self.", Ident(f.Name), "Null { json[", swiftString(f.Name), "] = NSNull() }")
+			}
 		}
 		p.P("return json")
 	}
@@ -510,6 +526,9 @@ func writeFromJSON(p *Printer, m *onkir.Message) {
 	p.P("let json = try onekitObject(value)")
 	for _, f := range m.Fields {
 		p.P("self.", storageName(f), " = ", p.fromJSONExpr(m, f))
+		if f.Nullable {
+			p.P("self.", Ident(f.Name), "Null = json[", swiftString(f.Name), "] is NSNull")
+		}
 	}
 	p.Dedent()
 	p.P("}")
