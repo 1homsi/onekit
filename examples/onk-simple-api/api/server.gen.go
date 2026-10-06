@@ -2,6 +2,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -574,6 +575,30 @@ func (w *statusResponseWriter) Flush() {
 	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
+}
+
+type bufferedResponse struct {
+	header http.Header
+	status int
+	body   bytes.Buffer
+}
+
+func (b *bufferedResponse) Header() http.Header         { return b.header }
+func (b *bufferedResponse) Write(p []byte) (int, error) { return b.body.Write(p) }
+func (b *bufferedResponse) WriteHeader(status int)      { b.status = status }
+
+// ErrorEventBody renders an error that happened after the stream started
+// through the same error writer as every other response, so the code and
+// message a handler exposes (PublicCode, PublicMessage) reach the client in
+// the configured envelope instead of a generic message.
+func (o ServerOptions) ErrorEventBody(r *http.Request, err error) json.RawMessage {
+	recorded := &bufferedResponse{header: http.Header{}}
+	o.WriteHandlerError(recorded, r, err)
+	body := bytes.TrimSpace(recorded.body.Bytes())
+	if !json.Valid(body) {
+		return json.RawMessage(`{"message":"internal server error"}`)
+	}
+	return json.RawMessage(body)
 }
 
 // UserService manages users in the system.

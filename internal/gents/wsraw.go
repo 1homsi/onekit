@@ -106,7 +106,7 @@ func writeTSRawFuncs(p *Printer, m *onkir.Message) {
 	p.P("export function ", p.rawSplitName(m), "(v: ", typeName, ", raw: (Uint8Array | string)[]): ", typeName, " {")
 	p.P("const c = { ...v };")
 	for _, step := range steps {
-		prop := "c." + CamelCase(step.Field.Name)
+		prop := "c." + p.naming.ident(step.Field.Name)
 		switch {
 		case step.Variant != nil:
 			disc := oneofDiscriminatorKey(step.Field)
@@ -115,7 +115,7 @@ func writeTSRawFuncs(p *Printer, m *onkir.Message) {
 				p.P(fmt.Sprintf("if (%s && %s.%s === %q) %s = { ...%s(%s, raw), %s: %q };", prop, prop, disc, step.Variant.Tag(), prop, split, prop, disc, step.Variant.Tag()))
 				continue
 			}
-			vProp := CamelCase(step.Variant.Name)
+			vProp := p.naming.ident(step.Variant.Name)
 			p.P(fmt.Sprintf("if (%s && %s.%s === %q && %s.%s !== undefined) %s = { ...%s, %s: %s(%s.%s, raw) };", prop, prop, disc, step.Variant.Tag(), prop, vProp, prop, prop, vProp, split, prop, vProp))
 		case step.Child != nil && step.Field.Repeated:
 			p.P("if (", prop, " !== undefined) ", prop, " = ", prop, ".map((item) => ", p.rawSplitName(step.Child), "(item, raw));")
@@ -134,14 +134,14 @@ func writeTSRawFuncs(p *Printer, m *onkir.Message) {
 	p.P()
 	p.P("export function ", p.rawJoinName(m), "(v: ", typeName, ", raw: Uint8Array[], at: { i: number }): boolean {")
 	for _, step := range steps {
-		prop := "v." + CamelCase(step.Field.Name)
+		prop := "v." + p.naming.ident(step.Field.Name)
 		switch {
 		case step.Variant != nil:
 			disc := oneofDiscriminatorKey(step.Field)
 			join := p.rawJoinName(step.Child)
 			target := prop
 			if !step.Field.Oneof.Flatten() {
-				target = prop + "." + CamelCase(step.Variant.Name)
+				target = prop + "." + p.naming.ident(step.Variant.Name)
 			}
 			p.P(fmt.Sprintf("if (%s && %s.%s === %q && %s !== undefined && !%s(%s, raw, at)) return false;", prop, prop, disc, step.Variant.Tag(), target, join, target))
 		case step.Child != nil && step.Field.Repeated:
@@ -182,7 +182,7 @@ func writeTSTimeoutFunc(p *Printer, m *onkir.Message) {
 	p.P("if (!(ms > 0)) return v;")
 	p.P("const c = { ...v };")
 	if f := onkir.WSTimeoutField(m); f != nil {
-		prop := "c." + CamelCase(f.Name)
+		prop := "c." + p.naming.ident(f.Name)
 		p.P("if (!", prop, " || ", prop, ` === "0") `, prop, " = ", tsTimeoutValue(p, f), ";")
 	}
 	for _, f := range m.Fields {
@@ -190,7 +190,7 @@ func writeTSTimeoutFunc(p *Printer, m *onkir.Message) {
 			continue
 		}
 		disc := oneofDiscriminatorKey(f)
-		prop := "c." + CamelCase(f.Name)
+		prop := "c." + p.naming.ident(f.Name)
 		for _, v := range f.Oneof.Variants {
 			if v.Type == nil || v.Type.Kind != onkir.KindMessage {
 				continue
@@ -199,17 +199,17 @@ func writeTSTimeoutFunc(p *Printer, m *onkir.Message) {
 			if tf == nil {
 				continue
 			}
-			inner := prop + "." + CamelCase(v.Name)
+			inner := prop + "." + p.naming.ident(v.Name)
 			if f.Oneof.Flatten() {
 				inner = prop
 			}
-			tprop := inner + "." + CamelCase(tf.Name)
+			tprop := inner + "." + p.naming.ident(tf.Name)
 			value := tsTimeoutValue(p, tf)
 			if f.Oneof.Flatten() {
-				p.P(fmt.Sprintf("if (%s && %s.%s === %q && (!%s || %s === \"0\")) %s = { ...%s, %s: %s };", prop, prop, disc, v.Tag(), tprop, tprop, prop, prop, CamelCase(tf.Name), value))
+				p.P(fmt.Sprintf("if (%s && %s.%s === %q && (!%s || %s === \"0\")) %s = { ...%s, %s: %s };", prop, prop, disc, v.Tag(), tprop, tprop, prop, prop, p.naming.ident(tf.Name), value))
 				continue
 			}
-			p.P(fmt.Sprintf("if (%s && %s.%s === %q && %s && (!%s || %s === \"0\")) %s = { ...%s, %s: { ...%s, %s: %s } };", prop, prop, disc, v.Tag(), inner, tprop, tprop, prop, prop, CamelCase(v.Name), inner, CamelCase(tf.Name), value))
+			p.P(fmt.Sprintf("if (%s && %s.%s === %q && %s && (!%s || %s === \"0\")) %s = { ...%s, %s: { ...%s, %s: %s } };", prop, prop, disc, v.Tag(), inner, tprop, tprop, prop, prop, p.naming.ident(v.Name), inner, p.naming.ident(tf.Name), value))
 		}
 	}
 	p.P("return c;")

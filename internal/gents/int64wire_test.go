@@ -53,7 +53,7 @@ func TestTSMapInt64ValuesAreNumbersInTypesAndValidator(t *testing.T) {
 
 func TestTSServerStreamsTypedErrorPayloads(t *testing.T) {
 	out := string(GenerateServer(compileTSSchema(t, int64WireSchema)))
-	if !strings.Contains(out, `const errBody = err instanceof HttpError ? err.body : { message: "internal server error" };`) {
+	if !strings.Contains(out, `JSON.stringify(await midStreamErrorBody(req, err))`) || !strings.Contains(out, `return await response.json();`) {
 		t.Fatalf("a typed error thrown mid-stream must reach clients as its declared payload:\n%s", out)
 	}
 }

@@ -70,6 +70,7 @@ func GenerateServerWithOptions(file *onkir.File, resolver PackageResolver, opts 
 	p.P("package ", GoPackageName(file))
 	p.P()
 	p.P("import (")
+	p.P(`"bytes"`)
 	p.P(`"crypto/rand"`)
 	p.P(`"context"`)
 	p.P(`"encoding/hex"`)

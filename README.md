@@ -758,6 +758,8 @@ api.RegisterThingsServer(mux, impl{}, api.WithRequestID("X-Request-ID"), api.Wit
 http.ListenAndServe(addr, api.ErrorHandler(mux, api.WithRequestID("X-Request-ID"), api.WithErrorWriter(envelope)))
 ```
 
+Errors that happen after a stream has started cannot change the HTTP status, so they travel as an `event: error` frame. That frame goes through the same writer: the body is whatever your error writer produces for the handler's error, so the code and message a handler exposes (`PublicCode` and `PublicMessage` in Go, `HttpError` in TypeScript) reach the client in your envelope. Errors a method declares with `@status` keep their declared body, and an unexpected error still shows only the generic message. `error` stays a reserved event name, so a oneof variant of your own should use another name.
+
 Parameter errors no longer include the Go parser's text: a non-numeric `{id}` is `invalid path parameter id: must be an integer`.
 
 A message may have a field called `error` (the Go field is `Error_` on an error message, with the same JSON name), so an envelope such as `{"error": {"code", "message", "request_id"}}` can also be declared as a typed error with `@status`.
@@ -928,6 +930,22 @@ Install the CLI:
 go install github.com/1homsi/onekit/cmd/onek@latest
 ```
 
+
+### Keeping wire field names in TypeScript
+
+By default generated TypeScript camel-cases field names (`is_default` becomes `isDefault`) and maps them back to the wire name when it encodes and decodes. If your frontend already reads the wire names, keep them in the types instead:
+
+```toml
+[generate.ts-client]
+out = "./web/client"
+field_names = "wire"   # "camel" is the default
+
+[generate.ts-server]
+out = "./server/ts"
+field_names = "wire"
+```
+
+With `"wire"`, `is_default` stays `is_default` in the types, requests, responses, validators and `@rule` checks, and encoding and decoding become the identity for keys. Oneof variant payload keys follow the same rule. Set it on both targets if you generate both, so a client and a server agree on property names.
 
 ### TypeScript client call shape
 

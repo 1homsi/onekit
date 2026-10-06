@@ -53,7 +53,7 @@ message Gone @status(410) { reason: string }
 service S { watch(R) -> R | Gone @get("/w/{id}") @stream }
 `)))
 	for _, want := range []string{
-		`Err(error) => Event::default().event("error").json_data(error.error_body()).unwrap_or_default(),`,
+		`Err(error) => stream_error_event(error.into_response(), error_writer.as_ref(), &request_headers).await,`,
 		`Self::Gone(error) => serde_json::to_value(error).unwrap_or_default(),`,
 		`Self::Internal(_error) => serde_json::json!({ "message": "internal server error" }),`,
 	} {

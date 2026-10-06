@@ -69,11 +69,15 @@ func GenerateServer(file *onkir.File) []byte {
 }
 
 func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []byte {
+	return GenerateServerWithOptions(file, resolver, Options{})
+}
+
+func GenerateServerWithOptions(file *onkir.File, resolver PackageResolver, opts Options) []byte {
 	if len(file.Services) == 0 {
 		return nil
 	}
 
-	p := newPrinter(resolver)
+	p := newPrinterWithOptions(resolver, opts)
 	principal := filePrincipal(file)
 	if principal != nil {
 		p.principalType = p.MessageTypeName(principal)
@@ -158,6 +162,7 @@ func writePrincipalRuntime(p *Printer) {
 func writeAuthorizationRuntime(p *Printer) {
 	writePrincipalRuntime(p)
 	p.P("const sseHeartbeats = new WeakMap<Request, number>();")
+	p.P("const sseErrorWriters = new WeakMap<Request, NonNullable<ServerOptions[\"onError\"]>>();")
 	p.P()
 	p.P("export interface ServerOptions {")
 	p.P("sseHeartbeatMs?: number;")
@@ -206,6 +211,7 @@ func writeAuthorizationRuntime(p *Printer) {
 	p.P("return routes.map((route) => ({")
 	p.P("...route,")
 	p.P("handler: async (req: Request): Promise<Response> => {")
+	p.P("if (onError) sseErrorWriters.set(req, onError);")
 	p.P("let response: Response;")
 	p.P("try {")
 	p.P("if (authorize) await authorize(req, route);")

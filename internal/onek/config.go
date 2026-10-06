@@ -51,6 +51,14 @@ func (c *GoServerTargetConfig) sharedRuntimeDir() (string, bool) {
 type TSClientTargetConfig struct {
 	Out string `toml:"out"`
 	MSW bool   `toml:"msw"`
+	// FieldNames is "camel" (the default: isDefault) or "wire" (is_default,
+	// the name the field has on the wire).
+	FieldNames string `toml:"field_names"`
+}
+
+type TSServerTargetConfig struct {
+	Out        string `toml:"out"`
+	FieldNames string `toml:"field_names"`
 }
 
 type OpenAPITargetConfig struct {
@@ -65,7 +73,7 @@ type GenerateConfig struct {
 	GoServer     *GoServerTargetConfig `toml:"go-server"`
 	GoClient     *TargetConfig         `toml:"go-client"`
 	TSClient     *TSClientTargetConfig `toml:"ts-client"`
-	TSServer     *TargetConfig         `toml:"ts-server"`
+	TSServer     *TSServerTargetConfig `toml:"ts-server"`
 	PythonClient *TargetConfig         `toml:"python-client"`
 	DartClient   *TargetConfig         `toml:"dart-client"`
 	SwiftClient  *TargetConfig         `toml:"swift-client"`
@@ -258,6 +266,16 @@ func validateGoRuntime(target *GoServerTargetConfig) error {
 	return nil
 }
 
+const fieldNamesWire = "wire"
+
+func validateFieldNames(target, value string) error {
+	switch value {
+	case "", "camel", fieldNamesWire:
+		return nil
+	}
+	return fmt.Errorf("%s field_names must be \"camel\" or \"wire\", not %q", target, value)
+}
+
 func validateInt64Encoding(value string) error {
 	switch value {
 	case "", "string", onkcompile.Int64EncodingNumber:
@@ -310,7 +328,7 @@ func validateRoutePrefix(prefix string) error {
 
 func validateTargetPaths(cfg *Config) error {
 	targets := []*TargetConfig{
-		cfg.Generate.GoClient, cfg.Generate.TSServer, cfg.Generate.PythonClient, cfg.Generate.DartClient, cfg.Generate.SwiftClient,
+		cfg.Generate.GoClient, cfg.Generate.PythonClient, cfg.Generate.DartClient, cfg.Generate.SwiftClient,
 		cfg.Generate.RustClient, cfg.Generate.RustServer,
 	}
 	for _, target := range targets {
@@ -339,6 +357,20 @@ func validateTargetPaths(cfg *Config) error {
 			return errors.New("generator output path must not be empty")
 		}
 		if err := validateContainedOutput(cfg.dir, cfg.Generate.TSClient.Out); err != nil {
+			return err
+		}
+		if err := validateFieldNames("ts-client", cfg.Generate.TSClient.FieldNames); err != nil {
+			return err
+		}
+	}
+	if cfg.Generate.TSServer != nil {
+		if strings.TrimSpace(cfg.Generate.TSServer.Out) == "" {
+			return errors.New("generator output path must not be empty")
+		}
+		if err := validateContainedOutput(cfg.dir, cfg.Generate.TSServer.Out); err != nil {
+			return err
+		}
+		if err := validateFieldNames("ts-server", cfg.Generate.TSServer.FieldNames); err != nil {
 			return err
 		}
 	}

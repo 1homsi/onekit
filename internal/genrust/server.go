@@ -39,6 +39,9 @@ func GenerateServerWithResolver(file *onkir.File, resolver PackageResolver) []by
 	}
 	writeServerContext(p)
 	p.P(rustErrorRuntimeSource)
+	if onkir.FileHasStreamMethods(file) {
+		p.P(rustStreamErrorRuntimeSource)
+	}
 	writePathParser(p)
 	p.P("pub const DEFAULT_MAX_REQUEST_BODY_BYTES: usize = 8 << 20;")
 	p.Blank()
@@ -113,6 +116,9 @@ func writeServerContext(p *Printer) {
 
 //go:embed runtime/server_errors.rs
 var rustErrorRuntimeSource string
+
+//go:embed runtime/server_stream_errors.rs
+var rustStreamErrorRuntimeSource string
 
 func writePathParser(p *Printer) {
 	p.P("#[allow(dead_code)]")
@@ -330,6 +336,10 @@ func writeHandler(
 	writeHeaderChecks(p, service, method, errorName)
 	p.P("if let Err(error) = req.validate() { return ", errorName, "::Validation(error).into_response(); }")
 	p.writeRouteAuthorizeCall(method)
+	if method.IsStream() {
+		p.P("let error_writer = parts.extensions.get::<ErrorWriter>().cloned();")
+		p.P("let request_headers = headers.clone();")
+	}
 	p.P("let context = RequestContext { headers, method: parts.method, uri: parts.uri, extensions: parts.extensions, required_scopes: ", rustScopesLiteral(method), ", meta: ", rustMetaLiteral(method), p.contextPrincipalField(method), " };")
 	p.P("match service.", RustIdent(method.Name), "(context, req).await {")
 	p.Indent()
@@ -592,8 +602,11 @@ func mustMethodPath(method *onkir.Method) string {
 func writeStreamOkArm(p *Printer, method *onkir.Method) {
 	p.P("Ok(stream) => {")
 	p.Indent()
-	p.P("let events = stream.map(|item| {")
+	p.P("let events = stream.then(move |item| {")
 	p.Indent()
+	p.P("let error_writer = error_writer.clone();")
+	p.P("let request_headers = request_headers.clone();")
+	p.P("async move {")
 	p.P("let event = match item {")
 	p.Indent()
 	if field := method.StreamEventOneof(); field != nil {
@@ -619,10 +632,11 @@ func writeStreamOkArm(p *Printer, method *onkir.Method) {
 			"|error| Event::default().event(\"error\").data(error.to_string())),",
 		)
 	}
-	p.P("Err(error) => Event::default().event(\"error\").json_data(error.error_body()).unwrap_or_default(),")
+	p.P("Err(error) => stream_error_event(error.into_response(), error_writer.as_ref(), &request_headers).await,")
 	p.Dedent()
 	p.P("};")
 	p.P("Ok::<Event, Infallible>(event)")
+	p.P("}")
 	p.Dedent()
 	p.P("});")
 	p.P("Sse::new(events).keep_alive(axum::response::sse::KeepAlive::default()).into_response()")

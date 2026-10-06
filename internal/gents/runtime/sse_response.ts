@@ -36,8 +36,7 @@ controller.enqueue(encoder.encode((name ? "event: " + name + "\n" : "") + "data:
 current = await reader.read();
 }
 } catch (err) {
-const errBody = err instanceof HttpError ? err.body : { message: "internal server error" };
-controller.enqueue(encoder.encode("event: error\ndata: " + JSON.stringify(errBody) + "\n\n"));
+controller.enqueue(encoder.encode("event: error\ndata: " + JSON.stringify(await midStreamErrorBody(req, err)) + "\n\n"));
 } finally {
 if (ping !== undefined) clearInterval(ping);
 try { controller.close(); } catch { }
@@ -53,5 +52,19 @@ return new Response(body, {
 status: 200,
 headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" },
 });
+}
+
+async function midStreamErrorBody(req: Request, err: unknown): Promise<unknown> {
+const response = errorResponse(err);
+const info = errorInfos.get(response);
+const write = sseErrorWriters.get(req);
+if (info && write) {
+try {
+const rendered = await write(info, req);
+return JSON.parse(await rendered.text());
+} catch {
+}
+}
+return await response.json();
 }
 

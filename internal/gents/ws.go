@@ -197,12 +197,12 @@ func tsWSCancelFrame(p *Printer, message *onkir.Message, idExpr string) (string,
 		return "", false
 	}
 	disc := oneofDiscriminatorKey(f)
-	idProp := CamelCase(idField.Name) + ": " + idExpr
-	payload := fmt.Sprintf("{ %s: %q, %s: { %s } }", disc, variant.Tag(), CamelCase(variant.Name), idProp)
+	idProp := p.naming.ident(idField.Name) + ": " + idExpr
+	payload := fmt.Sprintf("{ %s: %q, %s: { %s } }", disc, variant.Tag(), p.naming.ident(variant.Name), idProp)
 	if f.Oneof.Flatten() {
 		payload = fmt.Sprintf("{ %s: %q, %s }", disc, variant.Tag(), idProp)
 	}
-	return "JSON.stringify(" + p.MessageCodecName(message, "encode") + "({ " + CamelCase(f.Name) + ": " + payload +
+	return "JSON.stringify(" + p.MessageCodecName(message, "encode") + "({ " + p.naming.ident(f.Name) + ": " + payload +
 		" } as unknown as " + p.MessageTypeName(message) + "))", true
 }
 
@@ -307,7 +307,7 @@ func tsWSIDExpression(p *Printer, frameExpr string, message *onkir.Message, idFi
 		if f.Oneof != nil {
 			disc := oneofDiscriminatorKey(f)
 			flatten := f.Oneof.Flatten()
-			fieldAccess := frameExpr + "." + CamelCase(f.Name)
+			fieldAccess := frameExpr + "." + p.naming.ident(f.Name)
 			for _, variant := range f.Oneof.Variants {
 				// A cancel is never a reply: it goes to the handler/receive().
 				if variant.IsWSCancel() || variant.Type == nil || variant.Type.Kind != onkir.KindMessage || variant.Type.Message == nil {
@@ -319,17 +319,17 @@ func tsWSIDExpression(p *Printer, frameExpr string, message *onkir.Message, idFi
 				}
 				variantProp := fieldAccess
 				if !flatten {
-					variantProp = fieldAccess + "." + CamelCase(variant.Name)
+					variantProp = fieldAccess + "." + p.naming.ident(variant.Name)
 				}
 				fmt.Fprintf(&b, "if (%s && %s.%s === %q) return %s.%s;\n",
-					fieldAccess, fieldAccess, disc, variant.Tag(), variantProp, CamelCase(vf.Name))
+					fieldAccess, fieldAccess, disc, variant.Tag(), variantProp, p.naming.ident(vf.Name))
 			}
 			continue
 		}
 		if !f.HasDecorator("ws_id") {
 			continue
 		}
-		fmt.Fprintf(&b, "return %s.%s;\n", frameExpr, CamelCase(f.Name))
+		fmt.Fprintf(&b, "return %s.%s;\n", frameExpr, p.naming.ident(f.Name))
 	}
 	b.WriteString("return undefined;\n")
 	b.WriteString("})()")
@@ -339,7 +339,7 @@ func tsWSIDExpression(p *Printer, frameExpr string, message *onkir.Message, idFi
 // tsWSVariantExpression builds an expression evaluating to frameExpr's oneof
 // variant tag among the variants that carry @ws_id, or "" - what a call's
 // reply must differ from (see WSPending.resolve).
-func tsWSVariantExpression(frameExpr string, message *onkir.Message) string {
+func tsWSVariantExpression(p *Printer, frameExpr string, message *onkir.Message) string {
 	var b strings.Builder
 	b.WriteString("((): string => {\n")
 	for _, f := range message.Fields {
@@ -347,7 +347,7 @@ func tsWSVariantExpression(frameExpr string, message *onkir.Message) string {
 			continue
 		}
 		disc := oneofDiscriminatorKey(f)
-		fieldAccess := frameExpr + "." + CamelCase(f.Name)
+		fieldAccess := frameExpr + "." + p.naming.ident(f.Name)
 		for _, variant := range f.Oneof.Variants {
 			if variant.Type == nil || variant.Type.Kind != onkir.KindMessage || variant.Type.Message == nil {
 				continue
@@ -458,9 +458,9 @@ func writeTSWSSocketBody(p *Printer, m *onkir.Method, socketVar string) {
 			p.P("if (options.timeoutMs !== undefined) value = ", p.timeoutFnName(m.Response), "(value, options.timeoutMs);")
 		}
 		if cancelFrame, ok := tsWSCancelFrame(p, m.Response, "id"); ok {
-			p.P("const reply = pending.register(id, ", tsWSVariantExpression("value", m.Response), ", options, () => { if (", socketVar, ".readyState === 1) ", socketVar, ".send(", cancelFrame, "); });")
+			p.P("const reply = pending.register(id, ", tsWSVariantExpression(p, "value", m.Response), ", options, () => { if (", socketVar, ".readyState === 1) ", socketVar, ".send(", cancelFrame, "); });")
 		} else {
-			p.P("const reply = pending.register(id, ", tsWSVariantExpression("value", m.Response), ", options);")
+			p.P("const reply = pending.register(id, ", tsWSVariantExpression(p, "value", m.Response), ", options);")
 		}
 		p.P("if (!pending.closed) ", sendFrame, ";")
 		p.P("return reply;")
@@ -516,7 +516,7 @@ func writeTSWSSocketBody(p *Printer, m *onkir.Method, socketVar string) {
 	p.P("}")
 	if correlated {
 		p.P("const replyId = ", tsWSIDExpression(p, "frame", m.Request, idField), ";")
-		p.P("if (replyId !== undefined && pending.resolve(replyId, ", tsWSVariantExpression("frame", m.Request), ", frame)) return;")
+		p.P("if (replyId !== undefined && pending.resolve(replyId, ", tsWSVariantExpression(p, "frame", m.Request), ", frame)) return;")
 	}
 	p.P("await runHandler(frame);")
 	p.P("});")
@@ -737,7 +737,7 @@ func writeTSDuplexListen(p *Printer, m *onkir.Method, resRef string, correlated 
 	if correlated {
 		idField, _ := m.WSIDField()
 		p.P("const replyId = ", tsWSIDExpression(p, "frame", m.Response, idField), ";")
-		p.P("if (replyId !== undefined && this.pending.resolve(replyId, ", tsWSVariantExpression("frame", m.Response), ", frame)) return;")
+		p.P("if (replyId !== undefined && this.pending.resolve(replyId, ", tsWSVariantExpression(p, "frame", m.Response), ", frame)) return;")
 	}
 	p.P("const waiter = this.inboxWaiters.shift();")
 	p.P("if (waiter) { waiter.resolve(frame); return; }")
@@ -763,9 +763,9 @@ func writeTSDuplexCall(p *Printer, m *onkir.Method, reqRef, resRef string) {
 		p.P("if (options.timeoutMs !== undefined) value = ", p.timeoutFnName(m.Request), "(value, options.timeoutMs);")
 	}
 	if cancelFrame, ok := tsWSCancelFrame(p, m.Request, "id"); ok {
-		p.P("const reply = this.pending.register(id, ", tsWSVariantExpression("value", m.Request), ", options, () => { if (this.ws.readyState === 1) this.ws.send(", cancelFrame, "); });")
+		p.P("const reply = this.pending.register(id, ", tsWSVariantExpression(p, "value", m.Request), ", options, () => { if (this.ws.readyState === 1) this.ws.send(", cancelFrame, "); });")
 	} else {
-		p.P("const reply = this.pending.register(id, ", tsWSVariantExpression("value", m.Request), ", options);")
+		p.P("const reply = this.pending.register(id, ", tsWSVariantExpression(p, "value", m.Request), ", options);")
 	}
 	p.P("if (this.pending.closed) return reply;")
 	p.P("try {")
@@ -798,7 +798,7 @@ func writeTSWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		}
 		p.P(fmt.Sprintf(
 			"path = path.replace(%q, encodeURIComponent(String(req.%s)));",
-			"{"+paramName+"}", CamelCase(field.Name),
+			"{"+paramName+"}", p.naming.ident(field.Name),
 		))
 	}
 	writeClientQueryParams(p, m.Request)

@@ -68,7 +68,7 @@ func GenerateServerRuntime(packageName string, hasWS bool) ([]byte, error) {
 	p.P("package ", packageName)
 	p.P()
 	p.P("import (")
-	for _, imp := range []string{"context", "crypto/rand", "encoding/hex", "encoding/json", "errors", "net/http", "time"} {
+	for _, imp := range []string{"bytes", "context", "crypto/rand", "encoding/hex", "encoding/json", "errors", "net/http", "time"} {
 		p.P(strconv.Quote(imp))
 	}
 	if hasWS {
