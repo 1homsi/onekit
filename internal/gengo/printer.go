@@ -106,3 +106,10 @@ func (p *Printer) GoFieldType(t *onkir.Type) string {
 		return "any"
 	}
 }
+
+func (p *Printer) repeatedItemType(f *onkir.Field) string {
+	if f.ValueItems && f.Type.Kind == onkir.KindMessage {
+		return p.MessageTypeName(f.Type.Message)
+	}
+	return p.GoFieldType(f.Type)
+}

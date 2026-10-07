@@ -858,6 +858,16 @@ The setting applies to every `int64` and `uint64` field in every target, includi
 
 `oneof` variant payloads that are themselves 64-bit integers keep the string form.
 
+### Repeated messages as values in Go
+
+By default a repeated message field is `[]*T` in Go. For large lists that costs an allocation per item and forces conversion helpers, so one setting changes the Go types to `[]T`:
+
+```toml
+repeated_style = "values"
+```
+
+Validation, JSON, the getters and `@rule` expressions all follow, and the other targets are unchanged. Items are not pointers, so a nil item cannot occur. A message reachable from a `@ws` method keeps `[]*T`, since the WebSocket frame codec works with pointers. The default is `"pointers"`.
+
 ### JSON objects with `@object`
 
 A plain `json` field holds any JSON value. Add `@object` when it must be an object, as with a free-form settings blob: TypeScript types it `Record<string, unknown>` and validates it, Go keeps `json.RawMessage` (the bytes pass through untouched, so keys are never reordered, which a `map[string, json]` would not guarantee) and rejects arrays and scalars in `Validate()`, and OpenAPI declares `type: object`. `null` and an absent field stay allowed. The Python, Dart, Swift and Rust generators treat the field as any `json` value.

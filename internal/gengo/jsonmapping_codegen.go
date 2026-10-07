@@ -225,7 +225,7 @@ func writeAuxFieldDecls(p *Printer, m *onkir.Message, c fieldCategories, include
 
 func zeroCollectionType(p *Printer, f *onkir.Field) string {
 	if f.Repeated {
-		return "[]" + p.GoFieldType(f.Type)
+		return "[]" + p.repeatedItemType(f)
 	}
 	return p.GoFieldType(f.Type)
 }

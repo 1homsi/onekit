@@ -113,8 +113,9 @@ type Config struct {
 	// Version pins the onek release this project builds with. When it differs
 	// from the running binary, onek downloads that release (checksum
 	// verified), caches it and hands the command over to it.
-	Version string `toml:"version"`
-	Module  string `toml:"module"`
+	Version       string `toml:"version"`
+	RepeatedStyle string `toml:"repeated_style"`
+	Module        string `toml:"module"`
 	// SchemaRoot points at the directory holding the .onk schema tree,
 	// relative to the project directory (the one containing onekit.toml).
 	// It lets repositories keep schemas in a subdirectory while generator
@@ -233,6 +234,9 @@ func LoadConfig(dir string) (*Config, error) {
 	if err := validateInt64Encoding(cfg.Int64Encoding); err != nil {
 		return nil, &ConfigError{Path: path, Err: err}
 	}
+	if err := validateRepeatedStyle(cfg.RepeatedStyle); err != nil {
+		return nil, &ConfigError{Path: path, Err: err}
+	}
 	if err := validatePinnedVersion(cfg.Version); err != nil {
 		return nil, &ConfigError{Path: path, Err: err}
 	}
@@ -332,7 +336,7 @@ func (c *Config) CompileOptions() onkcompile.CompileOptions {
 	if c == nil {
 		return onkcompile.CompileOptions{}
 	}
-	return onkcompile.CompileOptions{AllowLegacyContracts: c.AllowLegacyContracts, Int64Encoding: c.Int64Encoding, EmitZeroValues: c.EmitZeroValues, Targets: c.targetNames()}
+	return onkcompile.CompileOptions{AllowLegacyContracts: c.AllowLegacyContracts, Int64Encoding: c.Int64Encoding, EmitZeroValues: c.EmitZeroValues, RepeatedValues: c.RepeatedStyle == repeatedStyleValues, Targets: c.targetNames()}
 }
 
 func (c *Config) targetNames() []string {
@@ -520,4 +524,14 @@ func validateJSONContentType(value string) error {
 		return fmt.Errorf("go-server json_content_type must be a JSON media type such as \"application/json; charset=utf-8\", not %q", value)
 	}
 	return nil
+}
+
+const repeatedStyleValues = "values"
+
+func validateRepeatedStyle(value string) error {
+	switch value {
+	case "", "pointers", repeatedStyleValues:
+		return nil
+	}
+	return fmt.Errorf("repeated_style must be \"pointers\" or \"values\", not %q", value)
 }

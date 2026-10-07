@@ -475,6 +475,10 @@ func writeNestedValidation(p *Printer, field *onkir.Field) {
 		p.P("if err := ", expression, ".Validate(); err != nil { violations = append(violations, ", fmt.Sprintf("%q", field.Name+": "), "+err.Error()) }")
 	}
 	switch {
+	case field.Repeated && field.Type.Kind == onkir.KindMessage && field.ValueItems:
+		p.P("for i := range m.", goName, " {")
+		appendError("m." + goName + "[i]")
+		p.P("}")
 	case field.Repeated && field.Type.Kind == onkir.KindMessage:
 		p.P("for _, value := range m.", goName, " {")
 		appendError("value")

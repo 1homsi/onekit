@@ -43,6 +43,8 @@ type CompileOptions struct {
 	// EmitZeroValues makes every non-optional scalar, enum, repeated, map and
 	// bytes field always appear on the wire (see onkir.Field.EmitZero).
 	EmitZeroValues bool
+	RepeatedValues bool
+
 	// Targets names the generator targets the project builds (go-server,
 	// python-client, ...). Naming rules that exist only because of one
 	// target language apply only when that target is listed. Nil means the
@@ -300,6 +302,10 @@ func CompileWithOptions(sources []Source, options CompileOptions) (*onkir.Packag
 	}
 
 	markResponseOnlyMessages(files, options.EmitZeroValues)
+	if options.RepeatedValues {
+		markValueItems(files)
+	}
+
 	bindBodylessQueryFields(files)
 	pkg := &onkir.Package{Files: files}
 	if err := validateContract(pkg, options); err != nil {

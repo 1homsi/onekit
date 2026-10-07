@@ -137,6 +137,7 @@ type Field struct {
 	// server always writes it (an unset message is written as its zero value),
 	// so the TypeScript type can require it.
 	AlwaysSent bool
+	ValueItems bool
 	// Nullable is set by the compiler on an optional field marked @nullable
 	// whose wire form is plain: the field can be absent, an explicit null, or
 	// a value, and each state survives a round trip.
