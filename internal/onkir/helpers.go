@@ -214,6 +214,22 @@ func (m *Method) RequiredScopes() []string {
 	return scopes
 }
 
+// Guards returns the @guard patterns, in declaration order. A pattern is a
+// slash-separated permission key whose ":name" segments stand for path
+// parameters, such as "object/level/:id".
+func (m *Method) Guards() []string {
+	var out []string
+	for _, d := range m.Decorators {
+		if d.Name != "guard" {
+			continue
+		}
+		for _, arg := range d.Args {
+			out = append(out, arg.Value)
+		}
+	}
+	return out
+}
+
 // IsStream reports whether the method streams its response over SSE.
 func (m *Method) IsStream() bool {
 	return m.HasDecorator("stream")
