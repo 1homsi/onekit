@@ -3,6 +3,8 @@ package api
 
 import (
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"strconv"
 )
 
@@ -14,14 +16,30 @@ type User struct {
 	CreatedAt int64  `json:"created_at,omitempty"`
 }
 
-func (m *User) MarshalJSON() ([]byte, error) {
+func (m *User) marshalAux() (any, error) {
 	type alias User
 	aux := struct {
 		*alias
 		CreatedAt string `json:"created_at,omitempty"`
 	}{alias: (*alias)(m)}
 	aux.CreatedAt = strconv.FormatInt(m.CreatedAt, 10)
+	return aux, nil
+}
+
+func (m *User) MarshalJSON() ([]byte, error) {
+	aux, err := m.marshalAux()
+	if err != nil {
+		return nil, err
+	}
 	return json.Marshal(aux)
+}
+
+func (m *User) MarshalJSONTo(enc *jsontext.Encoder) error {
+	aux, err := m.marshalAux()
+	if err != nil {
+		return err
+	}
+	return jsonv2.MarshalEncode(enc, aux)
 }
 
 func (m *User) UnmarshalJSON(data []byte) error {
@@ -153,14 +171,30 @@ type TokenAuth struct {
 	IssuedAt  int64  `json:"issued_at,omitempty"`
 }
 
-func (m *TokenAuth) MarshalJSON() ([]byte, error) {
+func (m *TokenAuth) marshalAux() (any, error) {
 	type alias TokenAuth
 	aux := struct {
 		*alias
 		IssuedAt string `json:"issued_at,omitempty"`
 	}{alias: (*alias)(m)}
 	aux.IssuedAt = strconv.FormatInt(m.IssuedAt, 10)
+	return aux, nil
+}
+
+func (m *TokenAuth) MarshalJSON() ([]byte, error) {
+	aux, err := m.marshalAux()
+	if err != nil {
+		return nil, err
+	}
 	return json.Marshal(aux)
+}
+
+func (m *TokenAuth) MarshalJSONTo(enc *jsontext.Encoder) error {
+	aux, err := m.marshalAux()
+	if err != nil {
+		return err
+	}
+	return jsonv2.MarshalEncode(enc, aux)
 }
 
 func (m *TokenAuth) UnmarshalJSON(data []byte) error {
@@ -266,7 +300,7 @@ type LoginRequest struct {
 	Scopes     []string               `json:"scopes,omitempty"`
 }
 
-func (m *LoginRequest) MarshalJSON() ([]byte, error) {
+func (m *LoginRequest) marshalAux() (any, error) {
 	type alias LoginRequest
 	aux := struct {
 		*alias
@@ -282,7 +316,23 @@ func (m *LoginRequest) MarshalJSON() ([]byte, error) {
 		aux.AuthMethod = &wireLoginRequestAuthMethod{Tag: "social", VSocial: v.Social}
 	}
 	aux.Timestamp = strconv.FormatInt(m.Timestamp, 10)
+	return aux, nil
+}
+
+func (m *LoginRequest) MarshalJSON() ([]byte, error) {
+	aux, err := m.marshalAux()
+	if err != nil {
+		return nil, err
+	}
 	return json.Marshal(aux)
+}
+
+func (m *LoginRequest) MarshalJSONTo(enc *jsontext.Encoder) error {
+	aux, err := m.marshalAux()
+	if err != nil {
+		return err
+	}
+	return jsonv2.MarshalEncode(enc, aux)
 }
 
 func (m *LoginRequest) UnmarshalJSON(data []byte) error {
@@ -446,14 +496,30 @@ type LoginResponse struct {
 	User         *User  `json:"user,omitempty"`
 }
 
-func (m *LoginResponse) MarshalJSON() ([]byte, error) {
+func (m *LoginResponse) marshalAux() (any, error) {
 	type alias LoginResponse
 	aux := struct {
 		*alias
 		ExpiresIn string `json:"expires_in,omitempty"`
 	}{alias: (*alias)(m)}
 	aux.ExpiresIn = strconv.FormatInt(m.ExpiresIn, 10)
+	return aux, nil
+}
+
+func (m *LoginResponse) MarshalJSON() ([]byte, error) {
+	aux, err := m.marshalAux()
+	if err != nil {
+		return nil, err
+	}
 	return json.Marshal(aux)
+}
+
+func (m *LoginResponse) MarshalJSONTo(enc *jsontext.Encoder) error {
+	aux, err := m.marshalAux()
+	if err != nil {
+		return err
+	}
+	return jsonv2.MarshalEncode(enc, aux)
 }
 
 func (m *LoginResponse) UnmarshalJSON(data []byte) error {
