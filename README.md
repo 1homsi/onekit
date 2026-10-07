@@ -807,6 +807,66 @@ func authorize(ctx context.Context, meta api.RequestMetadata, r *http.Request) e
 }
 ```
 
+### Routes that are not JSON in, JSON out
+
+Some routes do not fit a message-in, message-out shape: a JavaScript bundle with an `ETag`, an image, an upload that streams to object storage. Declare them in the schema with `@http` and implement them as ordinary `http.Handler` code. They still get the route, the generated bind-and-validate step, `@guard`, `@meta`, `@max_body`, middleware, the authorizer and the request observer.
+
+```onk
+message BundleRequest { slug: string  v: int32 @query }
+message UploadRequest { slug: string  key: string }
+message Nothing {}
+
+service Apps {
+  base_path: "/apps"
+  bundle(BundleRequest) -> Nothing @get("/{slug}/bundle.js") @http("application/javascript") @guard("apps/read/:slug")
+  put_object(UploadRequest) -> Nothing @put("/{slug}/objects/{key...}") @http @max_body("64MiB")
+}
+```
+
+The generated Go interface takes the response writer, the request and the bound request message, and returns an error:
+
+```go
+func (s *service) Bundle(w http.ResponseWriter, r *http.Request, req *api.BundleRequest) error {
+    body, err := s.bundles.Load(r.Context(), req.Slug)
+    if err != nil {
+        return err
+    }
+    etag := httpkit.ETag(body)
+    w.Header().Set("ETag", etag)
+    if httpkit.IfNoneMatch(r, etag) {
+        w.WriteHeader(http.StatusNotModified)
+        return nil
+    }
+    w.Header().Set("Content-Type", "application/javascript")
+    _, err = w.Write(body)
+    return err
+}
+```
+
+An error returned before the handler has written anything goes through the error writer, so it uses the same envelope as every other route; an error returned after the response started is not written on top of it. Only path parameters and `@query` fields may be declared on the request message, because the handler reads the body itself (`r.Body`, already limited by `@max_body` or `WithMaxRequestBodyBytes`).
+
+Clients return the raw response: the Go client returns `*http.Response` (and takes `body io.Reader, contentType string` for PUT, POST and PATCH), and the TypeScript client returns a `Response` (with `{ body, contentType }` in the options for routes with a body), so headers such as `ETag`, `res.blob()` and streaming all work. `@http` is supported by the `go-server`, `go-client`, `ts-client` and `openapi` targets; a project that also generates the other targets is rejected with a message that says so. OpenAPI documents the route with a binary body and the declared content type.
+
+### Cookies, redirects, 204 and 304
+
+A handler adjusts the response through its context:
+
+- `api.ResponseHeader(ctx).Set("ETag", ...)` and `Cache-Control` set headers.
+- `api.SetCookie(ctx, &http.Cookie{...})` adds a `Set-Cookie` header (invalid cookies are dropped).
+- `api.Redirect(ctx, url, http.StatusFound)` answers with a `Location` header and no body.
+- `api.NotModified(ctx)` answers `304` with no body, while the `200` case still uses the generated JSON encoding.
+- `api.SetResponseStatus(ctx, status)` chooses any 2xx or 3xx status; `204` and `304` send no body.
+
+`@success(204)` on an RPC makes `204 No Content` the default status of the method (`@success(201)` works too), and OpenAPI documents it as such. `onek compat` reports a change.
+
+### Hand-written routes with the same pipeline
+
+`api.Mount(mux, "/apps/{slug}/proxy/{resource}/{path...}", handler, api.RequestMetadata{Service: "Proxy", Method: "Forward", Route: "/apps/{slug}/proxy/{resource}/{path...}", Meta: map[string]string{"audit.event": "proxy"}, Guards: []string{"apps/use/:slug"}}, opts...)` registers any `http.Handler` with the options the generated routes get: middleware, `WithAuthorizer` and `WithScopes`, the request id and the request observer. Use it for routes the schema cannot describe, such as one that forwards every HTTP method. Pass the same `ServerOption` values you give `Register...Server`.
+
+A `RequestObserver` sees what an audit log needs: `RequestResult` carries the status (500 when the handler panicked, with the panic in `Panic`), `Bytes`, `PathValues` and the `Request`. `RequestStarted` can call `httpkit.EnsureState(ctx, api.HTTPRequestFromContext(ctx))` so the request id, the principal (`httpkit.SetPrincipal`) and per-request flags (`httpkit.SetFlag(ctx, "skip-audit")`) are shared with the handlers and readable in `RequestFinished`.
+
+`httpkit.Health(checks...)`, `httpkit.SPA(fsys, opts)` (client-side routes get `index.html`, a missing file with an extension is a 404, per-request headers through `OnServe`) and `httpkit.ETag` / `httpkit.IfNoneMatch` cover the usual non-schema routes.
+
 ### Shaping error responses
 
 By default every error the generated servers produce themselves, a malformed body, a bad path or query parameter, a missing header, a failed validation or `@authorize` rule, or a handler error with no declared body, is `{"message": "..."}` (with `"violations": [...]` when there are several). Errors a method declares with `@status` keep their declared body. To send a different shape, install one error writer per server:
@@ -883,6 +943,10 @@ A GET or DELETE has no body, so a request field reaches the server only through 
 ### Member names that are keywords
 
 A field called `in`, `from`, `default`, `type` or `class` keeps that exact name on the wire and in Go and TypeScript (`In`, `from`). Names that a target language cannot use are rejected only when that target is configured: with `[generate.python-client]` present, `in` and `from` fail the build, because Python cannot use them as attribute names; a project that generates only Go and TypeScript can use them freely. Rust, Dart and Swift generate escaped names (`r#in`, `in_`). A project that lists no targets keeps every rule.
+
+### Query parameters on POST, PUT and PATCH
+
+`@query` also works on routes with a body. The field is sent in the query string, the rest of the message is the body (or the single `@body` field), and the generated Go and TypeScript servers, clients and OpenAPI follow. The python, dart, swift and rust targets do not support it yet, so a project that generates them is rejected with a message that says so.
 
 ### Integer map keys
 

@@ -318,6 +318,8 @@ func writeServiceInterface(p *Printer, s *onkir.Service) {
 			}
 			p.P(PascalCase(m.Name), "(ctx context.Context, req *",
 				p.MessageTypeName(m.Request), ", out ", outType, ") error")
+		case m.IsRawHTTP():
+			writeRawServiceMethod(p, m)
 		case m.IsStream():
 			p.P(PascalCase(m.Name), "(ctx context.Context, req *",
 				p.MessageTypeName(m.Request), ", sender SSESender) error")
@@ -357,6 +359,8 @@ func writeRegisterFunc(p *Printer, s *onkir.Service) {
 		switch {
 		case m.IsWebSocket():
 			writeWSRoute(p, s, m)
+		case m.IsRawHTTP():
+			writeRawRoute(p, s, m)
 		case m.IsStream():
 			writeSSERoute(p, s, m)
 		default:
@@ -546,7 +550,7 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 	p.P("routeCtx, control := RouteContext(w, r)")
 	if status := m.SuccessStatus(); status != 200 {
-		p.P("SetResponseStatus(routeCtx, ", fmt.Sprint(status), ")")
+		p.P("SetResponseStatus(routeCtx, ", strconv.Itoa(status), ")")
 	}
 	p.P("resp, err := srv.", PascalCase(m.Name), "(routeCtx, req)")
 	p.P("if err != nil {")

@@ -199,7 +199,7 @@ func TestSPAServesFilesFallsBackToIndexAnd404sMissingAssets(t *testing.T) {
 		"robots.txt":        {Data: []byte("User-agent: *")},
 	}
 	var served []string
-	handler := SPA(fsys, SPAOptions{OnServe: func(w http.ResponseWriter, r *http.Request, name string) {
+	handler := SPA(fsys, SPAOptions{OnServe: func(w http.ResponseWriter, _ *http.Request, name string) {
 		served = append(served, name)
 		w.Header().Set("X-Frame-Options", "DENY")
 	}})
@@ -264,7 +264,7 @@ func TestEnsureStateIsSharedWithMiddlewareAndFlagsAreVisibleToObservers(t *testi
 	req.Header.Set("X-Request-ID", "outer")
 	ctx, outer := EnsureState(req.Context(), req, Config{})
 	var inner *State
-	handler := Middleware(Config{})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := Middleware(Config{})(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		inner = StateFrom(r.Context())
 		SetFlag(r.Context(), "skip-audit")
 		SetPrincipal(r.Context(), "alice")

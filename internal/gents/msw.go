@@ -43,7 +43,7 @@ func writeMSWService(p *Printer, s *onkir.Service) {
 	for _, m := range s.Methods {
 		// msw's http handlers can't serve a WebSocket, and emitting one used to
 		// produce http.(...) (no verb) - a syntax error in the whole module.
-		if m.IsWebSocket() {
+		if m.IsWebSocket() || m.IsRawHTTP() {
 			continue
 		}
 		writeMSWHandler(p, s, m)

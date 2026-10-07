@@ -55,6 +55,32 @@ func HTTPRequestContext(r *http.Request) context.Context {
 	return context.WithValue(r.Context(), httpRequestContextKey{}, r)
 }
 
+// routeResponseWriter records whether a hand-written @http handler has started
+// the response, so an error it returns afterwards is not written on top of it.
+type routeResponseWriter struct {
+	http.ResponseWriter
+	wrote bool
+}
+
+func (w *routeResponseWriter) WriteHeader(status int) {
+	w.wrote = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *routeResponseWriter) Write(data []byte) (int, error) {
+	w.wrote = true
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *routeResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *routeResponseWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		w.wrote = true
+		flusher.Flush()
+	}
+}
+
 // ResponseControl lets a handler adjust the success status and headers.
 type ResponseControl struct {
 	status int

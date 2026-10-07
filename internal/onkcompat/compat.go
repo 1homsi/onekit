@@ -417,6 +417,7 @@ var routePartLabels = map[string]string{
 	"meta":      "route metadata",
 	"guard":     "route guards",
 	"success":   "success status",
+	"http":      "raw HTTP handler",
 }
 
 func compareRoute(key string, old, current []string) []Finding {
@@ -484,6 +485,9 @@ func methodSignature(service *onkir.Service, method *onkir.Method) []string {
 	}
 	for _, rule := range method.AuthorizeRules() {
 		parts = append(parts, "authorize="+decoratorSignature(rule))
+	}
+	if method.IsRawHTTP() {
+		parts = append(parts, "http="+method.RawContentType())
 	}
 	if status := method.SuccessStatus(); status != 200 {
 		parts = append(parts, "success="+strconv.Itoa(status))

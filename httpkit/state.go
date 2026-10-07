@@ -124,7 +124,7 @@ func MustPrincipal[T any](ctx context.Context) T {
 // Config configures Middleware.
 type Config struct {
 	// RequestIDHeader is read from the request and echoed on the response.
-	// It defaults to "X-Request-Id".
+	// It defaults to defaultRequestIDHeader.
 	RequestIDHeader string
 	// NewRequestID creates ids for requests that carry none. It defaults to a
 	// random 16-byte hex string.
@@ -143,7 +143,7 @@ type Config struct {
 func Middleware(cfg Config) func(http.Handler) http.Handler {
 	header := cfg.RequestIDHeader
 	if header == "" {
-		header = "X-Request-Id"
+		header = defaultRequestIDHeader
 	}
 	newID := cfg.NewRequestID
 	if newID == nil {
@@ -171,7 +171,7 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 func EnsureState(ctx context.Context, r *http.Request, cfg Config) (context.Context, *State) {
 	header := cfg.RequestIDHeader
 	if header == "" {
-		header = "X-Request-Id"
+		header = defaultRequestIDHeader
 	}
 	newID := cfg.NewRequestID
 	if newID == nil {

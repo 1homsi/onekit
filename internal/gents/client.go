@@ -322,6 +322,8 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 		switch {
 		case m.IsWebSocket():
 			writeTSWSClientMethod(p, s, m)
+		case m.IsRawHTTP():
+			writeRawClientMethod(p, s, m)
 		case m.IsStream():
 			writeSSEClientMethod(p, s, m)
 		default:

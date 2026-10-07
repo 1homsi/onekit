@@ -529,16 +529,31 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 			requestSchema = base.CreateSchemaProxy(body)
 			required = len(body.Required) > 0
 		}
-		content.Set("application/json", &v3.MediaType{
-			Schema: requestSchema,
-		})
+		if m.IsRawHTTP() {
+			content = orderedmap.New[string, *v3.MediaType]()
+			content.Set("*/*", &v3.MediaType{Schema: base.CreateSchemaProxy(&base.Schema{Type: []string{"string"}, Format: "binary"})})
+			required = false
+		} else {
+			content.Set("application/json", &v3.MediaType{
+				Schema: requestSchema,
+			})
+		}
 		op.RequestBody = &v3.RequestBody{Required: new(required), Content: content}
 	}
 
 	responses := &v3.Responses{Codes: orderedmap.New[string, *v3.Response]()}
-	if m.IsStream() {
+	switch {
+	case m.IsRawHTTP():
+		raw := orderedmap.New[string, *v3.MediaType]()
+		contentType := m.RawContentType()
+		if contentType == "" {
+			contentType = "*/*"
+		}
+		raw.Set(contentType, &v3.MediaType{Schema: base.CreateSchemaProxy(&base.Schema{Type: []string{"string"}, Format: "binary"})})
+		responses.Codes.Set("200", &v3.Response{Description: "Handler-defined response", Content: raw})
+	case m.IsStream():
 		responses.Codes.Set("200", sseResponse(m))
-	} else {
+	default:
 		successContent := orderedmap.New[string, *v3.MediaType]()
 		successContent.Set("application/json", &v3.MediaType{
 			Schema: base.CreateSchemaProxyRef("#/components/schemas/" + componentName(m.Response.FullName())),

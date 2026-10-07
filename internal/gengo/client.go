@@ -40,6 +40,9 @@ func clientImportsNeeded(file *onkir.File) clientImports {
 			}
 			imp.url = imp.url || len(onkir.PathParamNames(path)) > 0
 			switch {
+			case m.IsRawHTTP():
+				imp.url = true
+				imp.strconv = imp.strconv || methodNeedsStrconv(m)
 			case m.IsStream():
 				imp.bufio = true
 				imp.strings = true
@@ -210,6 +213,10 @@ func writeClientType(p *Printer, s *onkir.Service) {
 }
 
 func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
+	if m.IsRawHTTP() {
+		writeRawClientMethod(p, s, m)
+		return
+	}
 	verb, _ := m.Verb()
 	path, _ := m.Path()
 	fullPath := s.BasePath + path
@@ -221,20 +228,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		p.MessageTypeName(m.Response), ", error) {")
 	p.P(`if validator, ok := any(req).(interface{ Validate() error }); ok { if err := validator.Validate(); err != nil { return nil, fmt.Errorf("validate request: %w", err) } }`)
 
-	p.P("path := ", fmt.Sprintf("%q", fullPath))
-	for _, paramName := range onkir.PathParamNames(path) {
-		field := onkir.FindField(m.Request, paramName)
-		if field == nil {
-			continue
-		}
-		if onkir.IsWildcardParam(path, paramName) {
-			p.P("for _, segment := range strings.Split(fmt.Sprint(req.", PascalCase(paramName), "), \"/\") {")
-			p.P(`if segment == "." || segment == ".." { return nil, fmt.Errorf("invalid path parameter ` + paramName + `: dot segments are not allowed") }`)
-			p.P("}")
-		}
-		p.P("path = strings.ReplaceAll(path, ", fmt.Sprintf("%q", onkir.PathPlaceholder(path, paramName)), ", ",
-			goPathEscapeExpr(path, paramName, "req."+PascalCase(paramName)), ")")
-	}
+	writeClientPathBuild(p, m, path, fullPath)
 
 	writeClientBodyOrQuery(p, m, bodyBearing)
 
@@ -518,5 +512,22 @@ func noteBodyQueryImports(imp *clientImports, m *onkir.Method) {
 	if hasQueryFields(m.Request) {
 		imp.url = true
 		imp.strconv = imp.strconv || methodNeedsStrconv(m)
+	}
+}
+
+func writeClientPathBuild(p *Printer, m *onkir.Method, path, fullPath string) {
+	p.P("path := ", fmt.Sprintf("%q", fullPath))
+	for _, paramName := range onkir.PathParamNames(path) {
+		field := onkir.FindField(m.Request, paramName)
+		if field == nil {
+			continue
+		}
+		if onkir.IsWildcardParam(path, paramName) {
+			p.P("for _, segment := range strings.Split(fmt.Sprint(req.", PascalCase(paramName), "), \"/\") {")
+			p.P(`if segment == "." || segment == ".." { return nil, fmt.Errorf("invalid path parameter ` + paramName + `: dot segments are not allowed") }`)
+			p.P("}")
+		}
+		p.P("path = strings.ReplaceAll(path, ", fmt.Sprintf("%q", onkir.PathPlaceholder(path, paramName)), ", ",
+			goPathEscapeExpr(path, paramName, "req."+PascalCase(paramName)), ")")
 	}
 }

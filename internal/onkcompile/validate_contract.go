@@ -36,6 +36,9 @@ func validateContract(pkg *onkir.Package, options CompileOptions) error {
 				if err := validateMethodBindings(file.Path, method, options, bodyRequests, pathUses); err != nil {
 					return err
 				}
+				if err := validateRawHTTPContract(file.Path, method, options); err != nil {
+					return err
+				}
 			}
 		}
 		if err := validateSecuritySchemes(file); err != nil {

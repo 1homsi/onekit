@@ -4,3 +4,5 @@
 // library and never imports generated code, so it works with every generated
 // package, inline or shared runtime.
 package httpkit
+
+const defaultRequestIDHeader = "X-Request-Id"
