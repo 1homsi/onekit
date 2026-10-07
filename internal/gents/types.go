@@ -335,6 +335,16 @@ func isTSNumeric(kind onkir.ScalarKind) bool {
 
 const tsTrueExpression = "true"
 
+func tsMapKeyCheck(key onkir.ScalarKind, expr string) string {
+	switch key {
+	case onkir.ScalarInt32, onkir.ScalarInt64:
+		return fmt.Sprintf(" && Object.keys(%s).every((k: string) => /^-?[0-9]+$/.test(k))", expr)
+	case onkir.ScalarUint32, onkir.ScalarUint64:
+		return fmt.Sprintf(" && Object.keys(%s).every((k: string) => /^[0-9]+$/.test(k))", expr)
+	}
+	return ""
+}
+
 func tsMapValueTypeExpression(value *onkir.Type, expr string) string {
 	if value != nil && value.Kind == onkir.KindScalar {
 		switch value.Scalar {
@@ -363,7 +373,7 @@ func tsRuntimeTypeExpression(field *onkir.Field, expr string) string {
 		return fmt.Sprintf("Array.isArray(%s) && (%s).every((item: any) => %s)", expr, expr, tsRuntimeTypeExpression(item, "item"))
 	}
 	if field.Type.Kind == onkir.KindMap {
-		return fmt.Sprintf("typeof %s === \"object\" && %s !== null && !Array.isArray(%s) && Object.values(%s).every((item: any) => %s)", expr, expr, expr, expr, tsMapValueTypeExpression(field.Type.MapValue, "item"))
+		return fmt.Sprintf("typeof %s === \"object\" && %s !== null && !Array.isArray(%s)%s && Object.values(%s).every((item: any) => %s)", expr, expr, expr, tsMapKeyCheck(field.Type.MapKey, expr), expr, tsMapValueTypeExpression(field.Type.MapValue, "item"))
 	}
 	switch field.Type.Kind {
 	case onkir.KindMessage:
@@ -429,7 +439,7 @@ func tsRuntimeTypeExpression(field *onkir.Field, expr string) string {
 func writeField(p *Printer, m *onkir.Message, f *onkir.Field, wirePrefix string) {
 	writeJSDoc(p, tsDeprecatedDoc(f.Doc, f.Deprecated))
 	separator, orUndefined := "?: ", " | undefined"
-	if f.HasDecorator("required") || (f.EmitZero && m.ResponseOnly) {
+	if f.HasDecorator("required") || (f.EmitZero && m.ResponseOnly) || f.AlwaysSent {
 		separator, orUndefined = ": ", ""
 	}
 	if f.Oneof != nil {

@@ -738,7 +738,7 @@ func TestCompileRejectsCrossTargetContractHazards(t *testing.T) {
 	tests := []struct {
 		name, schema, want string
 	}{
-		{"non-string map key", `message M { values: map[int32, string] }`, "map keys must be string"},
+		{"non-string map key", `message M { values: map[float64, string] }`, "map keys must be string, int32"},
 		{"missing path field", `
 message Req {}
 message Resp {}
