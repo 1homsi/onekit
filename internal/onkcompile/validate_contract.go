@@ -8,6 +8,8 @@ import (
 )
 
 func validateContract(pkg *onkir.Package, options CompileOptions) error {
+	bodyRequests := bodyRequestMessages(pkg.Files)
+	pathUses := requestPathNames(pkg.Files)
 	fullNames := map[string]string{}
 	for _, file := range pkg.Files {
 		for _, message := range file.Messages {
@@ -31,7 +33,7 @@ func validateContract(pkg *onkir.Package, options CompileOptions) error {
 		}
 		for _, service := range file.Services {
 			for _, method := range service.Methods {
-				if err := validateMethodBindings(file.Path, method); err != nil {
+				if err := validateMethodBindings(file.Path, method, options, bodyRequests, pathUses); err != nil {
 					return err
 				}
 			}
@@ -204,7 +206,7 @@ func isRootUnwrappedMessage(message *onkir.Message) bool {
 	return message != nil && len(message.Fields) == 1 && message.Fields[0].HasDecorator("unwrap")
 }
 
-func validateMethodBindings(filePath string, method *onkir.Method) error {
+func validateMethodBindings(filePath string, method *onkir.Method, options CompileOptions, bodyRequests map[*onkir.Message]bool, pathUses map[*onkir.Message]map[string]bool) error {
 	route, ok := method.WebSocketPath()
 	if !ok {
 		route, _ = method.Path()
@@ -263,7 +265,7 @@ func validateMethodBindings(filePath string, method *onkir.Method) error {
 			return &Error{Path: filePath, Msg: fmt.Sprintf("request field %q cannot be both a query and body binding", field.Name)}
 		}
 	}
-	if err := validateUnboundRequiredFields(filePath, method, verb, seenPath); err != nil {
+	if err := validateUnboundFields(filePath, method, verb, seenPath, options, bodyRequests, pathUses); err != nil {
 		return err
 	}
 	if method.IsWebSocket() {
@@ -274,7 +276,7 @@ func validateMethodBindings(filePath string, method *onkir.Method) error {
 	return nil
 }
 
-func validateUnboundRequiredFields(filePath string, method *onkir.Method, verb string, pathFields map[string]bool) error {
+func validateUnboundFields(filePath string, method *onkir.Method, verb string, pathFields map[string]bool, options CompileOptions, bodyRequests map[*onkir.Message]bool, pathUses map[*onkir.Message]map[string]bool) error {
 	if method.IsWebSocket() {
 		return nil
 	}
@@ -282,12 +284,21 @@ func validateUnboundRequiredFields(filePath string, method *onkir.Method, verb s
 	if isBodyBearingVerb(verb) && !hasBody {
 		return nil
 	}
+	allFields := !isBodyBearingVerb(verb) && !bodyRequests[method.Request]
 	for _, field := range method.Request.Fields {
-		if !field.HasDecorator("required") || pathFields[field.Name] || field.HasDecorator("query") || hasBody && field.Name == bodyName {
+		if pathFields[field.Name] || field.HasDecorator("query") || hasBody && field.Name == bodyName {
 			continue
 		}
+		if !field.HasDecorator("required") && (options.AllowLegacyContracts || !allFields || pathUses[method.Request][field.Name]) {
+			continue
+		}
+		kind := "field"
+		if field.HasDecorator("required") {
+			kind = "@required field"
+		}
 		return &Error{Path: filePath, Msg: fmt.Sprintf(
-			"@required field %q on RPC %s is never sent: %s requests carry only path, @query and @body fields", field.Name, method.Name, strings.ToUpper(verb),
+			"%s %q on RPC %s is never sent: %s requests carry only path, @query and @body fields; add @query (a scalar field), put it in the route as {%s}, or use a verb with a body",
+			kind, field.Name, method.Name, strings.ToUpper(verb), field.Name,
 		)}
 	}
 	return nil

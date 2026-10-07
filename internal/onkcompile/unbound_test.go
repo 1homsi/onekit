@@ -7,10 +7,6 @@ import (
 
 func TestCompileRejectsRequiredFieldsTheRouteNeverSends(t *testing.T) {
 	tests := map[string]string{
-		"get": `
-message Q { id: string  note: string @required }
-service API { a(Q) -> Q @get("/x/{id}") }
-`,
 		"body": `
 message B { v: string }
 message Q { b: B  note: string @required }
@@ -24,6 +20,8 @@ service API { a(Q) -> Q @post("/x") @body("b") }
 		}
 	}
 	for _, schema := range []string{
+		`message Q { id: string  note: string @required }
+service API { a(Q) -> Q @get("/x/{id}") }`,
 		`message Q { id: string @required  page: int32? @query @required }
 service API { a(Q) -> Q @get("/x/{id}") }`,
 		`message Q { note: string @required }

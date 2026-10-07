@@ -332,7 +332,31 @@ func (c *Config) CompileOptions() onkcompile.CompileOptions {
 	if c == nil {
 		return onkcompile.CompileOptions{}
 	}
-	return onkcompile.CompileOptions{AllowLegacyContracts: c.AllowLegacyContracts, Int64Encoding: c.Int64Encoding, EmitZeroValues: c.EmitZeroValues}
+	return onkcompile.CompileOptions{AllowLegacyContracts: c.AllowLegacyContracts, Int64Encoding: c.Int64Encoding, EmitZeroValues: c.EmitZeroValues, Targets: c.targetNames()}
+}
+
+func (c *Config) targetNames() []string {
+	var names []string
+	for _, target := range []struct {
+		name    string
+		enabled bool
+	}{
+		{"go-server", c.Generate.GoServer != nil},
+		{"go-client", c.Generate.GoClient != nil},
+		{"ts-client", c.Generate.TSClient != nil},
+		{"ts-server", c.Generate.TSServer != nil},
+		{"python-client", c.Generate.PythonClient != nil},
+		{"dart-client", c.Generate.DartClient != nil},
+		{"swift-client", c.Generate.SwiftClient != nil},
+		{"rust-client", c.Generate.RustClient != nil},
+		{"rust-server", c.Generate.RustServer != nil},
+		{"openapi", c.Generate.OpenAPI != nil},
+	} {
+		if target.enabled {
+			names = append(names, target.name)
+		}
+	}
+	return names
 }
 
 func validateRoutePrefix(prefix string) error {

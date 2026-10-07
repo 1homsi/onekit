@@ -12,7 +12,7 @@ import (
 )
 
 func validateServiceDecl(filePath string, service *onklang.ServiceDecl, routeScope string, seenRoutes map[string]string, options CompileOptions) error {
-	if err := validateDeclarationName(filePath, service.Line, service.Name); err != nil {
+	if err := validateDeclarationName(filePath, service.Line, service.Name, options); err != nil {
 		return err
 	}
 	if err := validateHTTPPath(service.BasePath, true); err != nil {
@@ -39,7 +39,7 @@ func validateServiceDecl(filePath string, service *onklang.ServiceDecl, routeSco
 
 func validateServiceRPC(filePath string, rpc *onklang.RPCDecl, service *onklang.ServiceDecl, routeScope string, seenRoutes, seenMethods map[string]string, serviceHeaderNames map[string]bool, options CompileOptions) error {
 	if !options.AllowLegacyContracts {
-		if err := validateMemberName(filePath, rpc.Line, rpc.Name); err != nil {
+		if err := validateMemberName(filePath, rpc.Line, rpc.Name, options); err != nil {
 			return err
 		}
 	}
