@@ -541,7 +541,7 @@ message Shared { value: string }`)},
 message Shared { other: string }`)},
 		{Path: "api/service.onk", AST: parseOrFatal(t, `package api
 import "../common/models.onk"
-message Request { value: string }
+message Request { value: string @query }
 service API { get(Request) -> Shared @get("/shared") }`)},
 	})
 	if err != nil {

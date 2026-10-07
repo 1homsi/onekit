@@ -825,6 +825,10 @@ The setting applies to every `int64` and `uint64` field in every target, includi
 
 `oneof` variant payloads that are themselves 64-bit integers keep the string form.
 
+### Request fields on GET and DELETE
+
+A GET or DELETE has no body, so a request field reaches the server only through the route (`{id}`) or the query string. Scalar fields (string, bool, integer, float) that are not in the route are bound to the query string automatically, as if they carried `@query`. A field that cannot be sent that way (a message, an enum or a repeated field) is a build error that names the field and the RPC, instead of arriving as a zero value. A request message that a body-carrying RPC also uses (a resource message shared by `get` and `update`) is left alone, since its other fields are meant for the body.
+
 ### Integer map keys
 
 A map key is a `string`, `int32`, `int64`, `uint32` or `uint64`: `map[int64, string]`. JSON object keys are strings on the wire, so the wire form is the same for every key type. Go generates `map[int64]string` and decoding rejects a key that is not an integer, Rust generates `HashMap<i64, String>`, and TypeScript keeps `Record<string, V>` and fails validation for a key that is not an integer (an unsigned key may not have a sign). Python, Dart and Swift keep string keys.
