@@ -1046,6 +1046,8 @@ The runtime directory must not share a name with a schema directory, and switchi
 
 Each client method takes one request object holding every field, path parameters included, plus an optional `RequestOptions` (`signal`, `headers`, `timeoutMs`): `client.update({ id, name })`, not `update(id, input)`. A failed call throws `ApiError` carrying `statusCode`, the raw `body`, and, when the response follows the error envelope, `code`, `message` and `requestId`; set `errorParser` in the client options to read a custom envelope. Calls time out after 30 seconds and read at most 8 MiB; both are settable per client (`timeoutMs`, `maxResponseBodyBytes`) and `timeoutMs` per call.
 
+`defaultHeaders` is a record or a function (sync or async) that runs before every request, so a token that changes is read fresh; headers passed per call win over it. `onResponse(res, { method, url })` sees every response before the body is read, and `onUnauthorized(res, { method, url })` runs on a 401 before the `ApiError` is thrown, which is where an app redirects to its sign-in page. A custom `fetch` is only needed for transport changes now.
+
 The client builds every URL as `baseUrl` plus the route path, and the route path already includes the service's `base_path`. So `baseUrl` is the origin the server answers on (`https://api.example.com`, or an empty string for same-origin calls), never the origin plus a prefix. If a service has `base_path: "/api/environments"` and the app is configured with `VITE_API_BASE_URL=/api`, pass `""`, or move the prefix into the schema's `base_path`; passing `/api` would call `/api/api/environments`.
 
 ## Validation rules
