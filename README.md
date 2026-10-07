@@ -825,6 +825,14 @@ The setting applies to every `int64` and `uint64` field in every target, includi
 
 `oneof` variant payloads that are themselves 64-bit integers keep the string form.
 
+### JSON objects with `@object`
+
+A plain `json` field holds any JSON value. Add `@object` when it must be an object, as with a free-form settings blob: TypeScript types it `Record<string, unknown>` and validates it, Go keeps `json.RawMessage` (the bytes pass through untouched, so keys are never reordered, which a `map[string, json]` would not guarantee) and rejects arrays and scalars in `Validate()`, and OpenAPI declares `type: object`. `null` and an absent field stay allowed. The Python, Dart, Swift and Rust generators treat the field as any `json` value.
+
+### Rejecting non-positive ids
+
+Put `@range(1, 9223372036854775807)` on an `int64` id field to reject zero and negative ids in the generated Go, TypeScript and Rust validators (use `4294967295` for a `uint32`). With 64-bit integers carried as strings, that is the one place the bound is spelled, and `onek compat` reports it if it changes.
+
 ### Integer map keys
 
 A map key is a `string`, `int32`, `int64`, `uint32` or `uint64`: `map[int64, string]`. JSON object keys are strings on the wire, so the wire form is the same for every key type. Go generates `map[int64]string` and decoding rejects a key that is not an integer, Rust generates `HashMap<i64, String>`, and TypeScript keeps `Record<string, V>` and fails validation for a key that is not an integer (an unsigned key may not have a sign). Python, Dart and Swift keep string keys.

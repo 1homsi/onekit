@@ -135,6 +135,9 @@ func (p *Printer) scalarWireTSType(f *onkir.Field) string {
 	if isRawBytes(f) {
 		return "Uint8Array"
 	}
+	if isJSONObject(f) {
+		return "Record<string, unknown>"
+	}
 	switch f.Type.Scalar {
 	case onkir.ScalarInt64, onkir.ScalarUint64:
 		if needsInt64NumberEncoding(f) {
@@ -393,6 +396,9 @@ func tsRuntimeTypeExpression(field *onkir.Field, expr string) string {
 	case onkir.KindScalar:
 		if isRawBytes(field) {
 			return fmt.Sprintf("%s instanceof Uint8Array", expr)
+		}
+		if isJSONObject(field) {
+			return fmt.Sprintf("typeof %s === \"object\" && %s !== null && !Array.isArray(%s)", expr, expr, expr)
 		}
 		switch field.Type.Scalar {
 		case onkir.ScalarString, onkir.ScalarBytes:
@@ -773,4 +779,8 @@ func tsZeroLiteral(f *onkir.Field) string {
 		}
 	}
 	return "0"
+}
+
+func isJSONObject(f *onkir.Field) bool {
+	return f.HasDecorator("object") && f.Type != nil && f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarJSON && !f.Repeated
 }

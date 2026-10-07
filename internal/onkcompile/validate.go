@@ -94,7 +94,7 @@ var (
 		"unix_millis": true, "date": true,
 	}
 	fieldDecorators = map[string]decoratorRule{
-		"email": {}, "uuid": {}, "uri": {}, "required": {}, "nullable": {}, "unwrap": {},
+		"email": {}, "uuid": {}, "uri": {}, "required": {}, "nullable": {}, "unwrap": {}, "object": {},
 		"len": {minArgs: 2, maxArgs: 2}, "range": {minArgs: 2, maxArgs: 2},
 		"in": {minArgs: 1, maxArgs: -1}, "pattern": {minArgs: 1, maxArgs: 1},
 		"gt": {minArgs: 1, maxArgs: 1}, "gte": {minArgs: 1, maxArgs: 1},
@@ -303,6 +303,10 @@ func validateFieldDecoratorType(filePath string, field *onklang.FieldDecl, name 
 	case "gt", "gte", "lt", "lte", "range":
 		if !isNumericTypeRef(field.Type) || field.Repeated {
 			return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@%s requires a non-repeated numeric field", name)}
+		}
+	case "object":
+		if !isScalarNamed(field.Type, "json") || field.Repeated {
+			return &Error{Path: filePath, Line: field.Line, Msg: "@object requires a non-repeated json field"}
 		}
 	case "min_items", "max_items":
 		if !field.Repeated {
