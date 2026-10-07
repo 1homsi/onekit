@@ -13,7 +13,7 @@ func ResolveGuard(pattern string, pathValue func(name string) string) (string, b
 			continue
 		}
 		value := pathValue(name)
-		if value == "" {
+		if !safeGuardValue(value) {
 			return "", false
 		}
 		segments[i] = value
@@ -35,4 +35,16 @@ func ResolveGuards(patterns []string, pathValue func(name string) string) ([]str
 		out = append(out, resolved)
 	}
 	return out, true
+}
+
+func safeGuardValue(value string) bool {
+	if value == "" || value == "." || value == ".." {
+		return false
+	}
+	for _, r := range value {
+		if r == '/' || r == '\\' || r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }
