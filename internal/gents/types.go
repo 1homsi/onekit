@@ -519,7 +519,11 @@ func writeDecodeFunc(p *Printer, m *onkir.Message) {
 	p.P("if (v === null || v === undefined) return v;")
 	p.P("return {")
 	for _, cf := range collectCodecFields(p.naming, m, "") {
-		p.P(cf.ts, ": ", decodeExpr(p, cf.field, "v."+cf.wire), ",")
+		decoded := decodeExpr(p, cf.field, "v."+cf.wire)
+		if cf.field.Nullable && cf.field.AlwaysSent {
+			decoded = fmt.Sprintf("(v.%s === undefined || v.%s === null ? null : %s)", cf.wire, cf.wire, decoded)
+		}
+		p.P(cf.ts, ": ", decoded, ",")
 	}
 	p.P("};")
 	p.P("}")
