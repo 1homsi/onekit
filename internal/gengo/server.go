@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/1homsi/onekit/internal/onkir"
@@ -49,6 +50,18 @@ type Options struct {
 	// SharedRuntime, when set, makes the server import its core from one
 	// shared package instead of carrying a copy.
 	SharedRuntime *SharedRuntime
+	// JSONContentType is the Content-Type the server writes on JSON
+	// responses. It defaults to application/json.
+	JSONContentType string
+}
+
+const defaultJSONContentType = "application/json"
+
+func jsonContentTypeLiteral(contentType string) string {
+	if contentType == "" {
+		contentType = defaultJSONContentType
+	}
+	return strconv.Quote(contentType)
 }
 
 func GenerateServerWithOptions(file *onkir.File, resolver PackageResolver, opts Options) ([]byte, error) {
@@ -103,7 +116,7 @@ func GenerateServerWithOptions(file *onkir.File, resolver PackageResolver, opts 
 	p.P(")")
 	p.P()
 
-	writeRuntimeHelpers(p)
+	writeRuntimeHelpers(p, opts.JSONContentType)
 	writeHeaderFormatPatterns(p)
 	writeServerOptions(p, hasWS, opts.SharedRuntime)
 	if hasWS {
@@ -219,20 +232,20 @@ func writeServerOptions(p *Printer, hasWS bool, shared *SharedRuntime) {
 	}
 }
 
-func writeRuntimeHelpers(p *Printer) {
+func writeRuntimeHelpers(p *Printer, contentType string) {
 	p.P(`func writeJSON(w http.ResponseWriter, status int, value any) {`)
 	p.P(`data, err := json.Marshal(value)`)
 	p.P(`if err != nil {`)
 	p.P(`writeJSONError(w, http.StatusInternalServerError, "internal server error")`)
 	p.P(`return`)
 	p.P(`}`)
-	p.P(`w.Header().Set("Content-Type", "application/json")`)
+	p.P(`w.Header().Set("Content-Type", `, jsonContentTypeLiteral(contentType), `)`)
 	p.P(`w.WriteHeader(status)`)
 	p.P(`_, _ = w.Write(append(data, '\n'))`)
 	p.P(`}`)
 	p.P()
 	p.P(`func writeJSONError(w http.ResponseWriter, status int, message string) {`)
-	p.P(`w.Header().Set("Content-Type", "application/json")`)
+	p.P(`w.Header().Set("Content-Type", `, jsonContentTypeLiteral(contentType), `)`)
 	p.P(`w.WriteHeader(status)`)
 	p.P(`_ = json.NewEncoder(w).Encode(map[string]string{"message": message})`)
 	p.P(`}`)

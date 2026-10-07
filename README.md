@@ -800,6 +800,18 @@ A message may have a field called `error` (the Go field is `Error_` on an error 
 
 The generated TypeScript client throws `ApiError` for any undeclared status. Besides `statusCode` and the raw `body` it now has the parsed `json`, `message`, `code` and `requestId`. The default parser reads `{message}`, `{code, message, request_id}` and the nested `{error: {...}}` envelope and falls back to the `X-Request-ID` header; pass `errorParser` in the client options for any other shape.
 
+### The JSON content type
+
+Generated Go servers answer JSON with `Content-Type: application/json`. To match an existing API that sends a charset, set it on the target:
+
+```toml
+[generate.go-server]
+out = "./api"
+json_content_type = "application/json; charset=utf-8"
+```
+
+It applies to every JSON response the server writes, errors included, and to the shared runtime when `runtime = "shared"`. The value must be a JSON media type (`application/json` or a `+json` type).
+
 ### 64-bit integers as JSON numbers
 
 `int64` and `uint64` cross the wire as JSON strings by default, so JavaScript and other double-based parsers never silently lose precision. When your IDs are numbers everywhere and you accept that trade, set it once for the whole project instead of marking every field with `@encode("number")`:
@@ -1033,6 +1045,8 @@ The runtime directory must not share a name with a schema directory, and switchi
 ### TypeScript client call shape
 
 Each client method takes one request object holding every field, path parameters included, plus an optional `RequestOptions` (`signal`, `headers`, `timeoutMs`): `client.update({ id, name })`, not `update(id, input)`. A failed call throws `ApiError` carrying `statusCode`, the raw `body`, and, when the response follows the error envelope, `code`, `message` and `requestId`; set `errorParser` in the client options to read a custom envelope. Calls time out after 30 seconds and read at most 8 MiB; both are settable per client (`timeoutMs`, `maxResponseBodyBytes`) and `timeoutMs` per call.
+
+The client builds every URL as `baseUrl` plus the route path, and the route path already includes the service's `base_path`. So `baseUrl` is the origin the server answers on (`https://api.example.com`, or an empty string for same-origin calls), never the origin plus a prefix. If a service has `base_path: "/api/environments"` and the app is configured with `VITE_API_BASE_URL=/api`, pass `""`, or move the prefix into the schema's `base_path`; passing `/api` would call `/api/api/environments`.
 
 ## Validation rules
 

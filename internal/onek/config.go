@@ -3,6 +3,7 @@ package onek
 import (
 	"errors"
 	"fmt"
+	"mime"
 	"os"
 	"path"
 	"path/filepath"
@@ -31,6 +32,10 @@ type GoServerTargetConfig struct {
 	// RuntimeDir is where the shared runtime package is written, relative to
 	// Out. It defaults to "onekitrt".
 	RuntimeDir string `toml:"runtime_dir"`
+	// JSONContentType is the Content-Type of JSON responses the server
+	// writes, for example "application/json; charset=utf-8". It defaults to
+	// "application/json".
+	JSONContentType string `toml:"json_content_type"`
 	ServiceFilter
 }
 
@@ -275,6 +280,9 @@ func resolveSchemaRootConfig(cfg *Config) error {
 }
 
 func validateGoRuntime(target *GoServerTargetConfig) error {
+	if err := validateJSONContentType(target.JSONContentType); err != nil {
+		return err
+	}
 	return validateRuntimeOptions("go-server", target.Runtime, target.RuntimeDir)
 }
 
@@ -474,4 +482,18 @@ func tomlKeyPosition(text string, key toml.Key) (int, int) {
 		}
 	}
 	return 0, 0
+}
+
+func validateJSONContentType(value string) error {
+	if value == "" {
+		return nil
+	}
+	mediaType, _, err := mime.ParseMediaType(value)
+	if err != nil {
+		return fmt.Errorf("go-server json_content_type %q: %w", value, err)
+	}
+	if mediaType != "application/json" && !strings.HasSuffix(mediaType, "+json") {
+		return fmt.Errorf("go-server json_content_type must be a JSON media type such as \"application/json; charset=utf-8\", not %q", value)
+	}
+	return nil
 }
