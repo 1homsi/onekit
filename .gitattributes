@@ -6,3 +6,5 @@
 # check-generated`'s `git diff --exit-code` would then see a spurious
 # full-file diff on every generated file on every Windows checkout.
 * text=auto eol=lf
+
+*.onk linguist-language=protobuf
