@@ -167,7 +167,7 @@ func validateRPC(path string, rpc *onklang.RPCDecl, allowEmptyRoute bool) (strin
 			if len(decorator.Args) > 1 {
 				return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@deprecated accepts at most one reason"}
 			}
-		case requiresDecorator, authorizeDecorator, metaDecorator:
+		case requiresDecorator, authorizeDecorator, metaDecorator, guardDecorator:
 			if err := validateAuthorization(path, rpc, decorator); err != nil {
 				return "", "", err
 			}

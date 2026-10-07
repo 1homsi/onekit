@@ -97,6 +97,7 @@ func GenerateServerWithOptions(file *onkir.File, resolver PackageResolver, opts 
 	p.P(`"net/http"`)
 	p.P(`"regexp"`)
 	p.P(`"strconv"`)
+	p.P(`"strings"`)
 	p.P(`"time"`)
 	if hasWS {
 		p.P(`"net"`)
@@ -552,7 +553,7 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("return")
 	p.P("}")
 	p.P("writeJSON(w, control.Status(), resp)")
-	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", strings.ToUpper(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), ", Scopes: ", scopesLiteral(m), ", Meta: ", metaLiteral(m), "}))")
+	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", strings.ToUpper(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), ", Scopes: ", scopesLiteral(m), ", Meta: ", metaLiteral(m), ", Guards: ", guardsLiteral(m), "}))")
 }
 
 const goNilLiteral = "nil"
@@ -567,6 +568,18 @@ func metaLiteral(m *onkir.Method) string {
 		entries = append(entries, fmt.Sprintf("%q: %q", entry.Key, entry.Value))
 	}
 	return "map[string]string{" + strings.Join(entries, ", ") + "}"
+}
+
+func guardsLiteral(m *onkir.Method) string {
+	guards := m.Guards()
+	if len(guards) == 0 {
+		return goNilLiteral
+	}
+	quoted := make([]string, 0, len(guards))
+	for _, guard := range guards {
+		quoted = append(quoted, fmt.Sprintf("%q", guard))
+	}
+	return "[]string{" + strings.Join(quoted, ", ") + "}"
 }
 
 func scopesLiteral(m *onkir.Method) string {

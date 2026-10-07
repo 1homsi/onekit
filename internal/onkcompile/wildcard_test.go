@@ -64,3 +64,30 @@ func TestMaxBodyDecoratorValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestGuardPlaceholdersMustBePathParameters(t *testing.T) {
+	cases := []struct {
+		name string
+		rpc  string
+		want string
+	}{
+		{"path placeholder accepted", `get(Req) -> Res @get("/x/{id}") @guard("obj/read/:id", "audit")`, ""},
+		{"unknown placeholder rejected", `get(Req) -> Res @get("/x/{id}") @guard("obj/read/:other")`, "not a path parameter"},
+		{"empty guard rejected", `get(Req) -> Res @get("/x/{id}") @guard`, "at least one pattern"},
+		{"websocket rejected", `get(Req) -> Res @ws("/x") @guard("a")`, "@guard"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := compileRules(t, "package api\nmessage Req { id: string }\nmessage Res { ok: bool }\nservice S { "+tc.rpc+" }\n")
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want containing %q", err, tc.want)
+			}
+		})
+	}
+}
