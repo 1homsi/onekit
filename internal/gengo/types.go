@@ -653,7 +653,7 @@ func writeField(p *Printer, m *onkir.Message, f *onkir.Field) {
 
 	goType := p.GoFieldType(f.Type)
 	if f.Repeated {
-		goType = "[]" + goType
+		goType = "[]" + p.repeatedItemType(f)
 	} else if f.Optional && f.Type.Kind != onkir.KindMessage {
 		goType = "*" + goType
 	}
@@ -686,7 +686,7 @@ func writeFieldGetter(p *Printer, m *onkir.Message, f *onkir.Field) {
 	getterName := PascalCase(f.Name)
 	getterType := p.GoFieldType(f.Type)
 	if f.Repeated {
-		getterType = "[]" + getterType
+		getterType = "[]" + p.repeatedItemType(f)
 	}
 	dereference := !f.Repeated && f.Optional && f.Type.Kind != onkir.KindMessage
 

@@ -42,6 +42,7 @@ type CompileOptions struct {
 	// EmitZeroValues makes every non-optional scalar, enum, repeated, map and
 	// bytes field always appear on the wire (see onkir.Field.EmitZero).
 	EmitZeroValues bool
+	RepeatedValues bool
 }
 
 const Int64EncodingNumber = "number"
@@ -276,6 +277,9 @@ func CompileWithOptions(sources []Source, options CompileOptions) (*onkir.Packag
 	}
 
 	markResponseOnlyMessages(files, options.EmitZeroValues)
+	if options.RepeatedValues {
+		markValueItems(files)
+	}
 	pkg := &onkir.Package{Files: files}
 	if err := validateContract(pkg, options); err != nil {
 		return nil, err

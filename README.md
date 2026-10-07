@@ -825,6 +825,16 @@ The setting applies to every `int64` and `uint64` field in every target, includi
 
 `oneof` variant payloads that are themselves 64-bit integers keep the string form.
 
+### Repeated messages as values in Go
+
+By default a repeated message field is `[]*T` in Go. For large lists that costs an allocation per item and forces conversion helpers, so one setting changes the Go types to `[]T`:
+
+```toml
+repeated_style = "values"
+```
+
+Validation, JSON, the getters and `@rule` expressions all follow, and the other targets are unchanged. Items are not pointers, so a nil item cannot occur. A message reachable from a `@ws` method keeps `[]*T`, since the WebSocket frame codec works with pointers. The default is `"pointers"`.
+
 ### Integer map keys
 
 A map key is a `string`, `int32`, `int64`, `uint32` or `uint64`: `map[int64, string]`. JSON object keys are strings on the wire, so the wire form is the same for every key type. Go generates `map[int64]string` and decoding rejects a key that is not an integer, Rust generates `HashMap<i64, String>`, and TypeScript keeps `Record<string, V>` and fails validation for a key that is not an integer (an unsigned key may not have a sign). Python, Dart and Swift keep string keys.
