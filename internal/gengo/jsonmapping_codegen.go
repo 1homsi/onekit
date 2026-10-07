@@ -341,8 +341,60 @@ func writeFlattenMarshalMerge(p *Printer, c fieldCategories) {
 	p.P("return json.Marshal(merged)")
 }
 
-func writeCustomMarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
+func (c fieldCategories) streamsMarshal() bool {
+	return len(c.flattens) == 0 && len(c.nulls) == 0
+}
+
+func messageStreamsJSON(m *onkir.Message) bool {
+	return messageNeedsCustomJSON(m) && categorizeFields(m).streamsMarshal()
+}
+
+func messageOrNestedStreamsJSON(m *onkir.Message) bool {
+	if messageStreamsJSON(m) {
+		return true
+	}
+	for _, nested := range m.Nested {
+		if messageOrNestedStreamsJSON(nested) {
+			return true
+		}
+	}
+	return false
+}
+
+func fileStreamsJSON(file *onkir.File) bool {
+	for _, m := range file.Messages {
+		if messageOrNestedStreamsJSON(m) {
+			return true
+		}
+	}
+	return false
+}
+
+func writeStreamingMarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
+	p.P("func (m *", m.Name, ") marshalAux() (any, error) {")
+	writeMarshalAuxBuild(p, m, c)
+	p.P("return aux, nil")
+	p.P("}")
+	p.P()
 	p.P("func (m *", m.Name, ") MarshalJSON() ([]byte, error) {")
+	p.P("aux, err := m.marshalAux()")
+	p.P("if err != nil {")
+	p.P("return nil, err")
+	p.P("}")
+	p.P("return json.Marshal(aux)")
+	p.P("}")
+	p.P()
+	p.P("func (m *", m.Name, ") MarshalJSONTo(enc *jsontext.Encoder) error {")
+	p.P("aux, err := m.marshalAux()")
+	p.P("if err != nil {")
+	p.P("return err")
+	p.P("}")
+	p.P("return jsonv2.MarshalEncode(enc, aux)")
+	p.P("}")
+	p.P()
+}
+
+func writeMarshalAuxBuild(p *Printer, m *onkir.Message, c fieldCategories) {
 	p.P("type alias ", m.Name)
 	p.P("aux := struct {")
 	p.P("*alias")
@@ -358,13 +410,15 @@ func writeCustomMarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
 	writeTimestampMarshalAssignments(p, c)
 	writeEmptyMarshalAssignments(p, c)
 	writeZeroCollectionAssignments(p, c)
+}
 
-	if len(c.flattens) == 0 && len(c.nulls) == 0 {
-		p.P("return json.Marshal(aux)")
-		p.P("}")
-		p.P()
+func writeCustomMarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
+	if c.streamsMarshal() {
+		writeStreamingMarshalJSON(p, m, c)
 		return
 	}
+	p.P("func (m *", m.Name, ") MarshalJSON() ([]byte, error) {")
+	writeMarshalAuxBuild(p, m, c)
 
 	if len(c.flattens) == 0 {
 		writeNullMarshalMerge(p, c)

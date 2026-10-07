@@ -810,6 +810,8 @@ emit_zero_values = true
 
 Every non-optional scalar, enum, `bytes`, repeated and map field is then always written, in every target: `""`, `0`, `false`, the enum's first name (or `0` for a number-encoded enum), `[]` and `{}`. A nil list or map in Go is written as `[]` or `{}`, never `null`. Optional (`?`) fields keep their meaning, absent when unset, and a singular message field is still omitted when it is not set. Timestamps and `json` values are left as they were, because a zero timestamp has no single form that every language agrees on.
 
+Messages that need this (and other wire adjustments such as 64-bit strings) implement both `MarshalJSON` and the streaming `MarshalJSONTo` method, so `encoding/json` writes them straight into its output buffer with no second pass over the bytes. The generated types import `encoding/json/v2` for that, which needs Go 1.27 or newer.
+
 This applies to requests as well as responses, since both use the same types, so a message used as a partial update should declare its patchable fields optional (`name: string?`) to say "not provided". `onek compat` reports the change.
 
 ### Declaring what a method requires
