@@ -511,9 +511,7 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 			params = append(params, headerParameter(h))
 		}
 	}
-	if !bodyBearing {
-		params = append(params, queryParameters(m.Request)...)
-	}
+	params = append(params, queryParameters(m.Request)...)
 	if len(params) > 0 {
 		op.Parameters = params
 	}
@@ -526,7 +524,7 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 			if field := onkir.FindField(m.Request, bodyField); field != nil {
 				requestSchema = fieldSchemaProxy(field)
 			}
-		} else if names := onkir.PathParamNames(path); len(names) > 0 {
+		} else if names := append(onkir.PathParamNames(path), queryFieldNames(m.Request)...); len(names) > 0 {
 			body := bodyWithoutPathParams(m.Request, names)
 			requestSchema = base.CreateSchemaProxy(body)
 			required = len(body.Required) > 0
@@ -788,4 +786,14 @@ func documentServers(urls []string) []*v3.Server {
 		servers = append(servers, &v3.Server{URL: url})
 	}
 	return servers
+}
+
+func queryFieldNames(req *onkir.Message) []string {
+	var names []string
+	for _, field := range req.Fields {
+		if _, ok := field.Decorator("query"); ok && field.Type != nil && field.Type.Kind == onkir.KindScalar {
+			names = append(names, field.Name)
+		}
+	}
+	return names
 }

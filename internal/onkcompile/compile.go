@@ -56,6 +56,8 @@ const (
 	targetPythonClient = "python-client"
 )
 
+var queryOnBodyUnsupportedTargets = []string{targetPythonClient, "dart-client", "swift-client", "rust-client", "rust-server"}
+
 var reservedDeclarationTargets = []string{targetPythonClient, "rust-client", "rust-server", "dart-client", "swift-client"}
 
 func (o CompileOptions) generates(targets ...string) bool {

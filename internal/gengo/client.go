@@ -45,12 +45,14 @@ func clientImportsNeeded(file *onkir.File) clientImports {
 				imp.strings = true
 				if onkir.IsBodyBearingVerb(verb) {
 					noteBodyImports(&imp, m)
+					noteBodyQueryImports(&imp, m)
 				} else {
 					imp.url = true
 					imp.strconv = imp.strconv || methodNeedsStrconv(m)
 				}
 			case onkir.IsBodyBearingVerb(verb):
 				noteBodyImports(&imp, m)
+				noteBodyQueryImports(&imp, m)
 			default:
 				imp.url = true
 				imp.strconv = imp.strconv || methodNeedsStrconv(m)
@@ -482,7 +484,8 @@ func writeClientBodyOrQuery(p *Printer, m *onkir.Method, bodyBearing bool) {
 		p.P("if err != nil {")
 		p.P(`return nil, fmt.Errorf("marshal request: %w", err)`)
 		p.P("}")
-	} else {
+	}
+	if !bodyBearing || hasQueryFields(m.Request) {
 		writeClientQueryParams(p, m.Request)
 	}
 }
@@ -499,5 +502,21 @@ func noteBodyImports(imp *clientImports, m *onkir.Method) {
 				imp.base64 = true
 			}
 		}
+	}
+}
+
+func hasQueryFields(req *onkir.Message) bool {
+	for _, field := range req.Fields {
+		if _, ok := field.Decorator("query"); ok && field.Type != nil && field.Type.Kind == onkir.KindScalar {
+			return true
+		}
+	}
+	return false
+}
+
+func noteBodyQueryImports(imp *clientImports, m *onkir.Method) {
+	if hasQueryFields(m.Request) {
+		imp.url = true
+		imp.strconv = imp.strconv || methodNeedsStrconv(m)
 	}
 }

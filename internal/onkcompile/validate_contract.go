@@ -242,8 +242,8 @@ func validateMethodBindings(filePath string, method *onkir.Method, options Compi
 		if name == "" {
 			name = field.Name
 		}
-		if isBodyBearingVerb(verb) {
-			return &Error{Path: filePath, Msg: fmt.Sprintf("@query field %q is not allowed on body-bearing RPC %s", field.Name, method.Name)}
+		if isBodyBearingVerb(verb) && options.generates(queryOnBodyUnsupportedTargets...) {
+			return &Error{Path: filePath, Msg: fmt.Sprintf("@query field %q on body-bearing RPC %s is supported by the go, ts and openapi targets only; remove the python, dart, swift and rust targets or move the field into the body", field.Name, method.Name)}
 		}
 		if seenPath[field.Name] {
 			return &Error{Path: filePath, Msg: fmt.Sprintf("request field %q cannot be both a path and query binding", field.Name)}

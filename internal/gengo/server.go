@@ -532,9 +532,7 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		writeBodyBinding(p, m)
 	}
 	writePathParamBinding(p, path, m.Request)
-	if !bodyBearing {
-		writeQueryParamBinding(p, m.Request)
-	}
+	writeQueryParamBinding(p, m.Request)
 
 	for _, h := range m.Service.Headers {
 		writeHeaderCheck(p, h)

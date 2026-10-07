@@ -361,7 +361,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		))
 	}
 
-	if !bodyBearing {
+	if !bodyBearing || hasQueryFields(m.Request) {
 		writeClientQueryParams(p, m.Request)
 	}
 
