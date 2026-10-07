@@ -22,6 +22,7 @@ import (
 )
 
 const (
+	goosWindows        = "windows"
 	DefaultReleaseBase = "https://github.com/1homsi/onekit/releases/download"
 	releaseBaseEnv     = "ONEK_DOWNLOAD_BASE"
 	maxReleaseDownload = 256 << 20
@@ -108,7 +109,7 @@ func releaseAssetName(version, goos, goarch string) (string, error) {
 		osName = "Linux"
 	case "darwin":
 		osName = "Darwin"
-	case "windows":
+	case goosWindows:
 		osName = "Windows"
 	default:
 		return "", fmt.Errorf("no onekit release for %s", goos)
@@ -123,14 +124,14 @@ func releaseAssetName(version, goos, goarch string) (string, error) {
 		return "", fmt.Errorf("no onekit release for %s/%s", goos, goarch)
 	}
 	ext := "tar.gz"
-	if goos == "windows" {
+	if goos == goosWindows {
 		ext = "zip"
 	}
 	return fmt.Sprintf("onekit_%s_%s_%s.%s", version, osName, arch, ext), nil
 }
 
 func binaryName(goos string) string {
-	if goos == "windows" {
+	if goos == goosWindows {
 		return "onek.exe"
 	}
 	return "onek"
@@ -215,7 +216,7 @@ func (s ReleaseSource) Fetch(ctx context.Context, version string) (string, error
 	if err != nil {
 		return "", fmt.Errorf("unpack %s: %w", asset, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
 		return "", err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(dest), ".onek-download-*")
@@ -224,20 +225,20 @@ func (s ReleaseSource) Fetch(ctx context.Context, version string) (string, error
 	}
 	tmpName := tmp.Name()
 	if _, err := tmp.Write(binary); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
 		return "", err
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		return "", err
 	}
-	if err := os.Chmod(tmpName, 0o755); err != nil {
-		os.Remove(tmpName)
+	if err := os.Chmod(tmpName, 0o700); err != nil { //nolint:gosec // the cached binary must be executable
+		_ = os.Remove(tmpName)
 		return "", err
 	}
 	if err := os.Rename(tmpName, dest); err != nil {
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		return "", err
 	}
 	return dest, nil
