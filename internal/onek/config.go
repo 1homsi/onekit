@@ -110,7 +110,11 @@ type GenerateConfig struct {
 }
 
 type Config struct {
-	Module string `toml:"module"`
+	// Version pins the onek release this project builds with. When it differs
+	// from the running binary, onek downloads that release (checksum
+	// verified), caches it and hands the command over to it.
+	Version string `toml:"version"`
+	Module  string `toml:"module"`
 	// SchemaRoot points at the directory holding the .onk schema tree,
 	// relative to the project directory (the one containing onekit.toml).
 	// It lets repositories keep schemas in a subdirectory while generator
@@ -227,6 +231,9 @@ func LoadConfig(dir string) (*Config, error) {
 		return nil, &ConfigError{Path: path, Err: err}
 	}
 	if err := validateInt64Encoding(cfg.Int64Encoding); err != nil {
+		return nil, &ConfigError{Path: path, Err: err}
+	}
+	if err := validatePinnedVersion(cfg.Version); err != nil {
 		return nil, &ConfigError{Path: path, Err: err}
 	}
 	cfg.dir = root

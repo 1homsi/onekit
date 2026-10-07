@@ -169,10 +169,11 @@ type typesImports struct {
 	utf8    bool
 	sync    bool
 	context bool
+	stream  bool
 }
 
 func (imp typesImports) any() bool {
-	return imp.time || imp.fmt || imp.json || imp.hex || imp.base64 || imp.strconv || imp.strings || imp.binary || imp.errors || imp.unsafe || imp.io || imp.math || imp.utf8 || imp.sync || imp.context
+	return imp.time || imp.fmt || imp.json || imp.hex || imp.base64 || imp.strconv || imp.strings || imp.binary || imp.errors || imp.unsafe || imp.io || imp.math || imp.utf8 || imp.sync || imp.context || imp.stream
 }
 
 func computeTypesImports(file *onkir.File) typesImports {
@@ -187,6 +188,7 @@ func computeTypesImports(file *onkir.File) typesImports {
 		base64:  enc.base64,
 		strconv: enc.strconv,
 		strings: hasErrors || fileHasFlattenFields(file),
+		stream:  fileStreamsJSON(file),
 	}
 }
 
@@ -243,6 +245,10 @@ func writeTypesImports(p *Printer, imp typesImports, externalRefs []PackageRef) 
 	}
 	if imp.json {
 		p.P(`"encoding/json"`)
+	}
+	if imp.stream {
+		p.P(`jsonv2 "encoding/json/v2"`)
+		p.P(`"encoding/json/jsontext"`)
 	}
 	if imp.base64 {
 		p.P(`"encoding/base64"`)

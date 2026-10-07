@@ -12,10 +12,13 @@ import (
 // Patterns are shell-style globs over the service name (Orders, Admin*).
 // With include_services set, only matching services are generated; any
 // service matching exclude_services is then dropped. Types are always
-// generated in full, so a client and a server can keep sharing them.
+// generated in full unless include_packages / exclude_packages narrow the
+// schema directories (packages) the target emits at all.
 type ServiceFilter struct {
 	IncludeServices []string `toml:"include_services"`
 	ExcludeServices []string `toml:"exclude_services"`
+	IncludePackages []string `toml:"include_packages"`
+	ExcludePackages []string `toml:"exclude_packages"`
 }
 
 func (f ServiceFilter) active() bool {
@@ -63,7 +66,7 @@ func (f ServiceFilter) validate(target string) error {
 			}
 		}
 	}
-	return nil
+	return validatePackagePatterns(target, f)
 }
 
 // checkMatches reports a pattern that matches no service anywhere in the

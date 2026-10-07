@@ -79,6 +79,12 @@ func build(dir string) (bool, error) {
 		if err := named.filter.checkMatches(named.target, idx); err != nil {
 			return false, err
 		}
+		if err := named.filter.checkPackageMatches(named.target, idx); err != nil {
+			return false, err
+		}
+		if err := idx.checkSelfContained(named.target, idx.view(named.filter)); err != nil {
+			return false, err
+		}
 	}
 
 	steps := []struct {
@@ -86,13 +92,13 @@ func build(dir string) (bool, error) {
 		run     func() error
 	}{
 		{cfg.Generate.GoServer != nil || cfg.Generate.GoClient != nil, func() error { return buildGo(cfg, idx) }},
-		{cfg.Generate.TSClient != nil, func() error { return buildTSClient(cfg, idx) }},
-		{cfg.Generate.TSServer != nil, func() error { return buildTSServer(cfg, idx) }},
-		{cfg.Generate.PythonClient != nil, func() error { return buildPythonClient(cfg, idx) }},
-		{cfg.Generate.DartClient != nil, func() error { return buildDartClient(cfg, idx) }},
-		{cfg.Generate.SwiftClient != nil, func() error { return buildSwiftClient(cfg, idx) }},
+		{cfg.Generate.TSClient != nil, func() error { return buildTSClient(cfg, idx.view(cfg.Generate.TSClient.ServiceFilter)) }},
+		{cfg.Generate.TSServer != nil, func() error { return buildTSServer(cfg, idx.view(cfg.Generate.TSServer.ServiceFilter)) }},
+		{cfg.Generate.PythonClient != nil, func() error { return buildPythonClient(cfg, idx.view(cfg.Generate.PythonClient.ServiceFilter)) }},
+		{cfg.Generate.DartClient != nil, func() error { return buildDartClient(cfg, idx.view(cfg.Generate.DartClient.ServiceFilter)) }},
+		{cfg.Generate.SwiftClient != nil, func() error { return buildSwiftClient(cfg, idx.view(cfg.Generate.SwiftClient.ServiceFilter)) }},
 		{cfg.Generate.RustClient != nil || cfg.Generate.RustServer != nil, func() error { return buildRust(cfg, idx) }},
-		{cfg.Generate.OpenAPI != nil, func() error { return buildOpenAPI(cfg, idx) }},
+		{cfg.Generate.OpenAPI != nil, func() error { return buildOpenAPI(cfg, idx.view(cfg.Generate.OpenAPI.ServiceFilter)) }},
 	}
 	for _, step := range steps {
 		if !step.enabled {

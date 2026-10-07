@@ -93,7 +93,26 @@ func buildGoPackageRefs(module string, groups []*sourceGroup) map[string]gengo.P
 	return refs
 }
 
-func buildGo(cfg *Config, idx *sourceIndex) error {
+func goPackageFilters(cfg *Config) (*ServiceFilter, *ServiceFilter) {
+	var server, client *ServiceFilter
+	if cfg.Generate.GoServer != nil {
+		server = &cfg.Generate.GoServer.ServiceFilter
+	}
+	if cfg.Generate.GoClient != nil {
+		client = &cfg.Generate.GoClient.ServiceFilter
+	}
+	return server, client
+}
+
+func keepsPackage(filter *ServiceFilter, relDir string) bool {
+	return filter != nil && filter.keepsPackage(relDir)
+}
+
+func buildGo(cfg *Config, full *sourceIndex) error {
+	serverFilter, clientFilter := goPackageFilters(cfg)
+	idx := full.keeping(func(relDir string) bool {
+		return keepsPackage(serverFilter, relDir) || keepsPackage(clientFilter, relDir)
+	})
 	var outPath string
 	if cfg.Generate.GoServer != nil {
 		outPath = cfg.Generate.GoServer.Out
@@ -115,13 +134,13 @@ func buildGo(cfg *Config, idx *sourceIndex) error {
 		if err := writeGoTypesAndValidation(g.file, outDir, resolver); err != nil {
 			return err
 		}
-		if cfg.Generate.GoServer != nil {
+		if keepsPackage(serverFilter, g.relDir) {
 			serverOutDir := groupOutDir(cfg.resolve(cfg.Generate.GoServer.Out), g.relDir)
 			if err := writeGoServer(cfg.Generate.GoServer.apply(g.file), serverOutDir, resolver, goOptions); err != nil {
 				return err
 			}
 		}
-		if cfg.Generate.GoClient != nil {
+		if keepsPackage(clientFilter, g.relDir) {
 			clientOutDir := groupOutDir(cfg.resolve(cfg.Generate.GoClient.Out), g.relDir)
 			if err := writeGoClient(cfg.Generate.GoClient.apply(g.file), clientOutDir, resolver); err != nil {
 				return err
