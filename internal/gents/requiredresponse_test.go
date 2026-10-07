@@ -25,6 +25,9 @@ message Env {
   note: string?
   inner: Inner
   items: Inner[]
+  created_at: timestamp
+  parent: Env
+  maybe_inner: Inner?
 }
 message Patch { id: int64 @encode("number")  is_default: bool  name: string }
 message Shared { id: int32  flag: bool }
@@ -62,14 +65,14 @@ func TestTSResponseOnlyFieldsAreRequiredWhenZeroValuesAreAlwaysSent(t *testing.T
 		return types[start : start+strings.Index(types[start:], "\n}")]
 	}
 	env := body("Env")
-	for _, want := range []string{"id: number;", "isDefault: boolean;", "name: string;", "level: Level;", "tags: (string)[];", "byName: Record<string, string>;"} {
+	for _, want := range []string{"id: number;", "isDefault: boolean;", "name: string;", "level: Level;", "tags: (string)[];", "byName: Record<string, string>;", "inner: Inner;", "createdAt: string;"} {
 		if !strings.Contains(env, want) {
 			t.Errorf("a response-only field that is always sent must be required, missing %q in:\n%s", want, env)
 		}
 	}
-	for _, want := range []string{"note?: string | undefined", "inner?: Inner | undefined"} {
+	for _, want := range []string{"note?: string | undefined", "maybeInner?: Inner | undefined", "parent?: Env | undefined"} {
 		if !strings.Contains(env, want) {
-			t.Errorf("optional and message-valued fields stay optional, missing %q in:\n%s", want, env)
+			t.Errorf("optional fields and self-referencing messages stay optional, missing %q in:\n%s", want, env)
 		}
 	}
 	if !strings.Contains(body("Inner"), "count: number;") || !strings.Contains(body("Gone"), "reason: string;") {

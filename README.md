@@ -803,6 +803,17 @@ The setting applies to every `int64` and `uint64` field in every target, includi
 
 A map key is a `string`, `int32`, `int64`, `uint32` or `uint64`: `map[int64, string]`. JSON object keys are strings on the wire, so the wire form is the same for every key type. Go generates `map[int64]string` and decoding rejects a key that is not an integer, Rust generates `HashMap<i64, String>`, and TypeScript keeps `Record<string, V>` and fails validation for a key that is not an integer (an unsigned key may not have a sign). Python, Dart and Swift keep string keys.
 
+### Pinning the onek version
+
+Set `version` in `onekit.toml` and every machine builds with that release, with no Go toolchain and nothing to install beyond a first `onek`:
+
+```toml
+version = "0.26.0"
+module = "example.com/api"
+```
+
+When `onek build`, `check`, `generate`, `watch` or `mock` runs with a different version, it downloads the pinned release from GitHub, checks its SHA-256 against the release's `checksums.txt`, keeps it in the cache directory (`ONEK_CACHE_DIR`, default the user cache dir) and hands the command over to it. The download happens once per version. Set `ONEK_NO_PIN=1` to skip the pin, or `ONEK_DOWNLOAD_BASE` to fetch from a mirror. A development build ignores the pin. Pin a release that already knows the `version` key (0.26.0 or newer), since older releases reject unknown keys.
+
 ### Writing zero values
 
 By default the Go and TypeScript targets leave a field out of the JSON when it holds its zero value (`""`, `0`, `false`, an empty list), because on the wire an absent field and a zero field read the same. If consumers expect every field to be present, say so once for the project:
@@ -813,6 +824,8 @@ emit_zero_values = true
 ```
 
 Every non-optional scalar, enum, `bytes`, repeated and map field is then always written, in every target: `""`, `0`, `false`, the enum's first name (or `0` for a number-encoded enum), `[]` and `{}`. A nil list or map in Go is written as `[]` or `{}`, never `null`. Optional (`?`) fields keep their meaning, absent when unset, and a singular message field is still omitted when it is not set. Timestamps and `json` values are left as they were, because a zero timestamp has no single form that every language agrees on.
+
+Messages that need this (and other wire adjustments such as 64-bit strings) implement both `MarshalJSON` and the streaming `MarshalJSONTo` method, so `encoding/json` writes them straight into its output buffer with no second pass over the bytes. The generated types import `encoding/json/v2` for that, which needs Go 1.27 or newer.
 
 This applies to requests as well as responses, since both use the same types, so a message used as a partial update should declare its patchable fields optional (`name: string?`) to say "not provided". `onek compat` reports the change.
 
@@ -973,7 +986,7 @@ With `"wire"`, `is_default` stays `is_default` in the types, requests, responses
 
 ### Required fields in TypeScript responses
 
-A TypeScript field is optional (`id?: number | undefined`) unless it is `@required`, because a server may omit a field that holds its zero value. With `emit_zero_values = true` every non-optional scalar, enum, repeated and map field is always sent, so the types say so: in a message that some method returns (a response, a stream event or a declared error, directly or nested) and that no method accepts as a request, those fields are required (`id: number`, `is_default: boolean`). Fields that can still be absent stay optional: `?` fields, message-valued fields, timestamps and `json`. Request messages keep optional fields so callers can send partial objects, and a message used as both a request and a response stays optional. Without `emit_zero_values` nothing changes.
+A TypeScript field is optional (`id?: number | undefined`) unless it is `@required`, because a server may omit a field that holds its zero value. With `emit_zero_values = true` every non-optional scalar, enum, repeated and map field is always sent, so the types say so: in a message that some method returns (a response, a stream event or a declared error, directly or nested) and that no method accepts as a request, those fields are required (`id: number`, `is_default: boolean`). Timestamps and singular message fields are required there too: the Go server always writes a timestamp, and writes a message field that the handler left unset as an empty message. A message field whose type can lead back to itself (a tree node's `parent`) is not given this treatment and stays optional, as do `?` fields and `json`. Request messages keep optional fields so callers can send partial objects, and a message used as both a request and a response stays optional. Without `emit_zero_values` nothing changes.
 
 Generated TypeScript compiles under `"strict": true` with `noUnusedLocals` and `noUnusedParameters`: imports, private helpers and parameters that a given schema never uses are not emitted, so the output can sit inside a project that type-checks it.
 

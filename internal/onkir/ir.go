@@ -132,6 +132,11 @@ type Field struct {
 	// the wire, as "", 0, false, [], {} or the enum's first name, instead of
 	// being omitted when it holds its zero value.
 	EmitZero bool
+	// AlwaysSent is set by the compiler, under emit_zero_values, on a
+	// timestamp or singular message field of a response-only message: the Go
+	// server always writes it (an unset message is written as its zero value),
+	// so the TypeScript type can require it.
+	AlwaysSent bool
 	// Nullable is set by the compiler on an optional field marked @nullable
 	// whose wire form is plain: the field can be absent, an explicit null, or
 	// a value, and each state survives a round trip.

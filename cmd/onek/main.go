@@ -78,12 +78,19 @@ func run(args []string) error {
 		return runVersion(args[1:])
 	}
 
+	pinned, err := pinnedBinary(args[0], args[1:])
+	if err != nil {
+		return err
+	}
+	if pinned != "" {
+		return reexecPinned(pinned, args)
+	}
 	switch args[0] {
 	case "mcp", "lsp":
 		return runLanguageServer(args[0], args[1:])
 	case "version":
 		return runVersion(args[1:])
-	case "build", "generate", "check":
+	case commandBuild, "generate", commandCheck:
 		return runProjectCommand(args[0], args[1:])
 	case "fmt":
 		return runFormat(args[1:])
@@ -133,7 +140,7 @@ func runProjectCommand(command string, args []string) error {
 	dir := fs.String("dir", ".", "schema project directory")
 	asJSON := fs.Bool("json", false, "emit machine-readable diagnostics")
 	verify := false
-	if command == "build" {
+	if command == commandBuild {
 		fs.BoolVar(&verify, "check", false, "fail if generated output differs from what build would write, without writing")
 	}
 	format := fs.String("format", "text", "diagnostic format: text, json or github")
@@ -154,7 +161,7 @@ func runProjectCommand(command string, args []string) error {
 	}
 	var operationErr error
 	switch {
-	case command == "check":
+	case command == commandCheck:
 		operationErr = onek.Check(*dir)
 	case verify:
 		operationErr = onek.VerifyGenerated(*dir)

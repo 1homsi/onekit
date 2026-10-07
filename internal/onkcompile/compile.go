@@ -275,7 +275,7 @@ func CompileWithOptions(sources []Source, options CompileOptions) (*onkir.Packag
 		return nil, err
 	}
 
-	markResponseOnlyMessages(files)
+	markResponseOnlyMessages(files, options.EmitZeroValues)
 	pkg := &onkir.Package{Files: files}
 	if err := validateContract(pkg, options); err != nil {
 		return nil, err
