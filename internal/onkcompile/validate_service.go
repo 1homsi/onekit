@@ -167,6 +167,10 @@ func validateRPC(path string, rpc *onklang.RPCDecl, allowEmptyRoute bool) (strin
 			if len(decorator.Args) > 1 {
 				return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@deprecated accepts at most one reason"}
 			}
+		case httpDecorator, successDecorator:
+			if err := validateResponseDecorator(path, rpc, decorator); err != nil {
+				return "", "", err
+			}
 		case requiresDecorator, authorizeDecorator, metaDecorator, guardDecorator:
 			if err := validateAuthorization(path, rpc, decorator); err != nil {
 				return "", "", err
@@ -190,6 +194,9 @@ func validateRPC(path string, rpc *onklang.RPCDecl, allowEmptyRoute bool) (strin
 	}
 	if err := validateHTTPPath(route, allowEmptyRoute); err != nil {
 		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "invalid RPC route: " + err.Error()}
+	}
+	if err := validateRawHTTPRPC(path, rpc); err != nil {
+		return "", "", err
 	}
 	if hasDecorator(rpc.Decorators, "max_body") && !isBodyBearingVerb(verb) {
 		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@max_body requires a body-bearing HTTP verb"}

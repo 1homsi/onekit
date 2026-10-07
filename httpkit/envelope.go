@@ -32,7 +32,7 @@ type Envelope struct {
 	ContentType string
 	// RequestIDHeader names the response header that carries the request id
 	// when Middleware is not installed, as generated servers set it with
-	// WithRequestID. It defaults to "X-Request-Id".
+	// WithRequestID. It defaults to defaultRequestIDHeader.
 	RequestIDHeader string
 	// Wrap customizes the body. It receives the default body map and may
 	// return any value to encode instead.
@@ -45,7 +45,7 @@ func (e Envelope) Write(w http.ResponseWriter, r *http.Request, f Failure) {
 	if requestID == "" {
 		header := e.RequestIDHeader
 		if header == "" {
-			header = "X-Request-Id"
+			header = defaultRequestIDHeader
 		}
 		requestID = w.Header().Get(header)
 	}

@@ -511,9 +511,7 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 			params = append(params, headerParameter(h))
 		}
 	}
-	if !bodyBearing {
-		params = append(params, queryParameters(m.Request)...)
-	}
+	params = append(params, queryParameters(m.Request)...)
 	if len(params) > 0 {
 		op.Parameters = params
 	}
@@ -526,26 +524,45 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 			if field := onkir.FindField(m.Request, bodyField); field != nil {
 				requestSchema = fieldSchemaProxy(field)
 			}
-		} else if names := onkir.PathParamNames(path); len(names) > 0 {
+		} else if names := append(onkir.PathParamNames(path), queryFieldNames(m.Request)...); len(names) > 0 {
 			body := bodyWithoutPathParams(m.Request, names)
 			requestSchema = base.CreateSchemaProxy(body)
 			required = len(body.Required) > 0
 		}
-		content.Set("application/json", &v3.MediaType{
-			Schema: requestSchema,
-		})
+		if m.IsRawHTTP() {
+			content = orderedmap.New[string, *v3.MediaType]()
+			content.Set("*/*", &v3.MediaType{Schema: base.CreateSchemaProxy(&base.Schema{Type: []string{"string"}, Format: "binary"})})
+			required = false
+		} else {
+			content.Set("application/json", &v3.MediaType{
+				Schema: requestSchema,
+			})
+		}
 		op.RequestBody = &v3.RequestBody{Required: new(required), Content: content}
 	}
 
 	responses := &v3.Responses{Codes: orderedmap.New[string, *v3.Response]()}
-	if m.IsStream() {
+	switch {
+	case m.IsRawHTTP():
+		raw := orderedmap.New[string, *v3.MediaType]()
+		contentType := m.RawContentType()
+		if contentType == "" {
+			contentType = "*/*"
+		}
+		raw.Set(contentType, &v3.MediaType{Schema: base.CreateSchemaProxy(&base.Schema{Type: []string{"string"}, Format: "binary"})})
+		responses.Codes.Set("200", &v3.Response{Description: "Handler-defined response", Content: raw})
+	case m.IsStream():
 		responses.Codes.Set("200", sseResponse(m))
-	} else {
+	default:
 		successContent := orderedmap.New[string, *v3.MediaType]()
 		successContent.Set("application/json", &v3.MediaType{
 			Schema: base.CreateSchemaProxyRef("#/components/schemas/" + componentName(m.Response.FullName())),
 		})
-		responses.Codes.Set("200", &v3.Response{Description: "OK", Content: successContent})
+		if status := m.SuccessStatus(); status == 204 {
+			responses.Codes.Set("204", &v3.Response{Description: "No Content"})
+		} else {
+			responses.Codes.Set(strconv.Itoa(status), &v3.Response{Description: "OK", Content: successContent})
+		}
 	}
 
 	for _, errType := range m.ErrorTypes {
@@ -788,4 +805,14 @@ func documentServers(urls []string) []*v3.Server {
 		servers = append(servers, &v3.Server{URL: url})
 	}
 	return servers
+}
+
+func queryFieldNames(req *onkir.Message) []string {
+	var names []string
+	for _, field := range req.Fields {
+		if _, ok := field.Decorator("query"); ok && field.Type != nil && field.Type.Kind == onkir.KindScalar {
+			names = append(names, field.Name)
+		}
+	}
+	return names
 }

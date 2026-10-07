@@ -230,6 +230,37 @@ func (m *Method) Guards() []string {
 	return out
 }
 
+// IsRawHTTP reports whether the method is implemented as a plain HTTP
+// handler (@http): the generated route binds and checks the request, then the
+// handler reads the body and writes the response itself.
+func (m *Method) IsRawHTTP() bool {
+	return m.HasDecorator("http")
+}
+
+// RawContentType returns the content type declared with @http("type"), or "".
+func (m *Method) RawContentType() string {
+	d, ok := m.Decorator("http")
+	if !ok {
+		return ""
+	}
+	value, _ := d.Value()
+	return value
+}
+
+// SuccessStatus returns the status declared with @success(code), or 200.
+func (m *Method) SuccessStatus() int {
+	d, ok := m.Decorator("success")
+	if !ok {
+		return 200
+	}
+	value, _ := d.Value()
+	status, err := strconv.Atoi(value)
+	if err != nil {
+		return 200
+	}
+	return status
+}
+
 // IsStream reports whether the method streams its response over SSE.
 func (m *Method) IsStream() bool {
 	return m.HasDecorator("stream")

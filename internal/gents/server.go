@@ -358,7 +358,7 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeRoutePrincipalFlag(p, m)
 	p.P("handler: async (req: Request): Promise<Response> => {")
 
-	if hasPathParams || (!bodyBearing && hasQueryFields(m.Request)) {
+	if hasPathParams || hasQueryFields(m.Request) {
 		p.P("const url = new URL(req.url);")
 	}
 	if hasPathParams {
@@ -386,9 +386,8 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		} else {
 			p.P("body = (await readJSONBody(req", tsBodyLimitArg(m), ")) ?? {};")
 		}
-	} else {
-		writeServerQueryParams(p, m.Request)
 	}
+	writeServerQueryParams(p, m.Request)
 	if hasPathParams {
 		for _, paramName := range onkir.PathParamNames(path) {
 			field := onkir.FindField(m.Request, paramName)

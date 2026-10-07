@@ -2,6 +2,7 @@ package onkcompile
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/1homsi/onekit/internal/onklang"
@@ -168,4 +169,20 @@ func rpcRoute(rpc *onklang.RPCDecl) string {
 		}
 	}
 	return ""
+}
+
+const successDecorator = "success"
+
+func validateSuccess(path string, rpc *onklang.RPCDecl, decorator onklang.Decorator) error {
+	if len(decorator.Args) != 1 {
+		return &Error{Path: path, Line: rpc.Line, Msg: "@success takes one status, as in @success(204)"}
+	}
+	status, err := strconv.Atoi(decorator.Args[0].Value)
+	if err != nil || status < 200 || status > 299 {
+		return &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("@success status %q must be a 2xx code", decorator.Args[0].Value)}
+	}
+	if hasDecorator(rpc.Decorators, "stream") || hasDecorator(rpc.Decorators, wsDecorator) {
+		return &Error{Path: path, Line: rpc.Line, Msg: "@success is not supported on @stream and @ws methods"}
+	}
+	return nil
 }

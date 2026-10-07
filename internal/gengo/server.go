@@ -318,6 +318,8 @@ func writeServiceInterface(p *Printer, s *onkir.Service) {
 			}
 			p.P(PascalCase(m.Name), "(ctx context.Context, req *",
 				p.MessageTypeName(m.Request), ", out ", outType, ") error")
+		case m.IsRawHTTP():
+			writeRawServiceMethod(p, m)
 		case m.IsStream():
 			p.P(PascalCase(m.Name), "(ctx context.Context, req *",
 				p.MessageTypeName(m.Request), ", sender SSESender) error")
@@ -357,6 +359,8 @@ func writeRegisterFunc(p *Printer, s *onkir.Service) {
 		switch {
 		case m.IsWebSocket():
 			writeWSRoute(p, s, m)
+		case m.IsRawHTTP():
+			writeRawRoute(p, s, m)
 		case m.IsStream():
 			writeSSERoute(p, s, m)
 		default:
@@ -532,9 +536,7 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 		writeBodyBinding(p, m)
 	}
 	writePathParamBinding(p, path, m.Request)
-	if !bodyBearing {
-		writeQueryParamBinding(p, m.Request)
-	}
+	writeQueryParamBinding(p, m.Request)
 
 	for _, h := range m.Service.Headers {
 		writeHeaderCheck(p, h)
@@ -547,12 +549,15 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeAuthorizeCall(p, m)
 
 	p.P("routeCtx, control := RouteContext(w, r)")
+	if status := m.SuccessStatus(); status != 200 {
+		p.P("SetResponseStatus(routeCtx, ", strconv.Itoa(status), ")")
+	}
 	p.P("resp, err := srv.", PascalCase(m.Name), "(routeCtx, req)")
 	p.P("if err != nil {")
 	writeErrorHandling(p, m)
 	p.P("return")
 	p.P("}")
-	p.P("writeJSON(w, control.Status(), resp)")
+	p.P("control.Write(w, resp)")
 	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", strings.ToUpper(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), ", Scopes: ", scopesLiteral(m), ", Meta: ", metaLiteral(m), ", Guards: ", guardsLiteral(m), "}))")
 }
 
