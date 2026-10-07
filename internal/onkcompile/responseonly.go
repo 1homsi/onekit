@@ -19,9 +19,13 @@ func markResponseOnlyMessages(files []*onkir.File, emitZero bool) {
 	var mark func(*onkir.Message)
 	mark = func(message *onkir.Message) {
 		message.ResponseOnly = responses[message] && !requests[message]
-		if emitZero && message.ResponseOnly {
+		if message.ResponseOnly {
 			for _, field := range message.Fields {
-				field.AlwaysSent = alwaysSentField(message, field)
+				if field.Nullable {
+					field.AlwaysSent = true
+				} else if emitZero {
+					field.AlwaysSent = alwaysSentField(message, field)
+				}
 			}
 		}
 		for _, nested := range message.Nested {

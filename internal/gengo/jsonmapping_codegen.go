@@ -446,16 +446,14 @@ func writeCustomMarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
 func nullPendingCondition(c fieldCategories) string {
 	conds := make([]string, 0, len(c.nulls))
 	for _, f := range c.nulls {
-		goName := GoFieldName(f)
-		conds = append(conds, "(m."+goName+"Null && m."+goName+" == nil)")
+		conds = append(conds, "("+nullFieldCondition(f)+")")
 	}
 	return strings.Join(conds, " || ")
 }
 
 func writeNullMarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.nulls {
-		goName := GoFieldName(f)
-		p.P("if m.", goName, "Null && m.", goName, " == nil {")
+		p.P("if ", nullFieldCondition(f), " {")
 		p.P("merged[", fmt.Sprintf("%q", f.Name), `] = json.RawMessage("null")`)
 		p.P("}")
 	}
@@ -784,4 +782,12 @@ func writeRootUnwrapInt64JSON(p *Printer, m *onkir.Message, field *onkir.Field) 
 	}
 	p.P("}")
 	p.P()
+}
+
+func nullFieldCondition(f *onkir.Field) string {
+	goName := GoFieldName(f)
+	if f.AlwaysSent {
+		return "m." + goName + " == nil"
+	}
+	return "m." + goName + "Null && m." + goName + " == nil"
 }

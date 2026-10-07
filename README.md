@@ -662,6 +662,8 @@ message UpdateEnvironment {
 | Swift | the field plus `nameNull` |
 | OpenAPI | the schema allows `null` |
 
+In a message that only responses use (some RPC returns it and no RPC accepts it), a `@nullable` field is always on the wire: Go writes `null` for an unset field without needing the `Null` flag, so the TypeScript property is required and typed `T | null` (`folder_id: number | null`, `app: App | null`) and the decoder turns a missing key into `null`. A message that is also a request keeps the three-state form above. A plain `?` field without `@nullable` stays optional, since Go omits it when unset.
+
 `@nullable` needs the `?` marker and a plain wire form: it cannot be combined with `@required`, `@query`, `@flatten`, `@unwrap`, `@empty`, an `@encode` on an enum, message or timestamp, or `bytes`, and a 64-bit integer must be numeric (`int64_encoding = "number"` or `@encode("number")`). Rules and validators treat `null` as absent.
 
 ### Wildcard path parameters and empty routes
