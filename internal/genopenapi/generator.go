@@ -543,7 +543,11 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 		successContent.Set("application/json", &v3.MediaType{
 			Schema: base.CreateSchemaProxyRef("#/components/schemas/" + componentName(m.Response.FullName())),
 		})
-		responses.Codes.Set("200", &v3.Response{Description: "OK", Content: successContent})
+		if status := m.SuccessStatus(); status == 204 {
+			responses.Codes.Set("204", &v3.Response{Description: "No Content"})
+		} else {
+			responses.Codes.Set(strconv.Itoa(status), &v3.Response{Description: "OK", Content: successContent})
+		}
 	}
 
 	for _, errType := range m.ErrorTypes {

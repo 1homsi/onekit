@@ -72,10 +72,47 @@ func RouteContext(w http.ResponseWriter, r *http.Request) (context.Context, *Res
 	return context.WithValue(HTTPRequestContext(r), responseControlKey{}, control), control
 }
 
+// SetResponseStatus chooses the success status: 2xx, or a 3xx such as 304.
+// 204, 304 and redirects (a 3xx with a Location header) send no body.
 func SetResponseStatus(ctx context.Context, status int) {
-	if control, ok := ctx.Value(responseControlKey{}).(*ResponseControl); ok && status >= 200 && status <= 299 {
+	if control, ok := ctx.Value(responseControlKey{}).(*ResponseControl); ok && status >= 200 && status <= 399 {
 		control.status = status
 	}
+}
+
+// NotModified answers 304 with no body. Set ETag and Cache-Control through
+// ResponseHeader first.
+func NotModified(ctx context.Context) { SetResponseStatus(ctx, http.StatusNotModified) }
+
+// Redirect answers with status (301, 302, 303, 307 or 308) and a Location
+// header, and no body.
+func Redirect(ctx context.Context, location string, status int) {
+	if control, ok := ctx.Value(responseControlKey{}).(*ResponseControl); ok && status >= 300 && status <= 399 {
+		control.header.Set("Location", location)
+		control.status = status
+	}
+}
+
+// SetCookie adds a Set-Cookie header to the response. A cookie with an
+// invalid name or value is dropped.
+func SetCookie(ctx context.Context, cookie *http.Cookie) {
+	if control, ok := ctx.Value(responseControlKey{}).(*ResponseControl); ok && cookie != nil {
+		if value := cookie.String(); value != "" {
+			control.header.Add("Set-Cookie", value)
+		}
+	}
+}
+
+// Write sends value as the JSON response with the chosen status, or only the
+// status when it carries no body.
+func (c *ResponseControl) Write(w http.ResponseWriter, value any) {
+	status := c.status
+	if status == http.StatusNoContent || status == http.StatusNotModified ||
+		(status >= 300 && status < 400 && w.Header().Get("Location") != "") {
+		w.WriteHeader(status)
+		return
+	}
+	writeJSON(w, status, value)
 }
 
 func ResponseHeader(ctx context.Context) http.Header {

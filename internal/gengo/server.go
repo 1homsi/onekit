@@ -545,12 +545,15 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeAuthorizeCall(p, m)
 
 	p.P("routeCtx, control := RouteContext(w, r)")
+	if status := m.SuccessStatus(); status != 200 {
+		p.P("SetResponseStatus(routeCtx, ", fmt.Sprint(status), ")")
+	}
 	p.P("resp, err := srv.", PascalCase(m.Name), "(routeCtx, req)")
 	p.P("if err != nil {")
 	writeErrorHandling(p, m)
 	p.P("return")
 	p.P("}")
-	p.P("writeJSON(w, control.Status(), resp)")
+	p.P("control.Write(w, resp)")
 	p.P("}), RequestMetadata{Service: ", fmt.Sprintf("%q", s.Name), ", Method: ", fmt.Sprintf("%q", m.Name), ", HTTPMethod: ", fmt.Sprintf("%q", strings.ToUpper(verb)), ", Route: ", fmt.Sprintf("%q", fullPath), ", AuthSchemes: ", authSchemesLiteral(s, m), ", Scopes: ", scopesLiteral(m), ", Meta: ", metaLiteral(m), ", Guards: ", guardsLiteral(m), "}))")
 }
 

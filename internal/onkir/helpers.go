@@ -230,6 +230,20 @@ func (m *Method) Guards() []string {
 	return out
 }
 
+// SuccessStatus returns the status declared with @success(code), or 200.
+func (m *Method) SuccessStatus() int {
+	d, ok := m.Decorator("success")
+	if !ok {
+		return 200
+	}
+	value, _ := d.Value()
+	status, err := strconv.Atoi(value)
+	if err != nil {
+		return 200
+	}
+	return status
+}
+
 // IsStream reports whether the method streams its response over SSE.
 func (m *Method) IsStream() bool {
 	return m.HasDecorator("stream")

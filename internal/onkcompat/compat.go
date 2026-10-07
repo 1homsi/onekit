@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/1homsi/onekit/internal/onkir"
@@ -415,6 +416,7 @@ var routePartLabels = map[string]string{
 	"authorize": "authorization rules",
 	"meta":      "route metadata",
 	"guard":     "route guards",
+	"success":   "success status",
 }
 
 func compareRoute(key string, old, current []string) []Finding {
@@ -482,6 +484,9 @@ func methodSignature(service *onkir.Service, method *onkir.Method) []string {
 	}
 	for _, rule := range method.AuthorizeRules() {
 		parts = append(parts, "authorize="+decoratorSignature(rule))
+	}
+	if status := method.SuccessStatus(); status != 200 {
+		parts = append(parts, "success="+strconv.Itoa(status))
 	}
 	for _, entry := range method.Meta() {
 		parts = append(parts, "meta="+entry.Key+"="+entry.Value)

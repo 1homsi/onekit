@@ -30,7 +30,7 @@ var sharedRuntimeTypes = []string{
 
 var sharedRuntimeFuncs = []string{
 	"RequestMetadataFromContext", "SetResponseStatus", "ResponseHeader", "HTTPRequestFromContext",
-	"RequestIDFromContext", "HTTPRequestContext", "RouteContext", "WithMux", "WithMiddleware",
+	"RequestIDFromContext", "HTTPRequestContext", "RouteContext", "NotModified", "Redirect", "SetCookie", "WithMux", "WithMiddleware",
 	"WithRequestID", "WithRequestIDGenerator", "WithAuthorizer", "WithScopes", "WithErrorWriter",
 	"ErrorHandler", "WithRequestObserver", "WithMaxRequestBodyBytes", "WithSSEHeartbeat",
 }
