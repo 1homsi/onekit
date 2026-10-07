@@ -665,8 +665,8 @@ func (c *compiler) resolveType(t *onklang.TypeRef, path string, line, column int
 		if !ok {
 			return nil, &Error{Path: path, Line: line, Column: column, Msg: fmt.Sprintf("invalid map key type %q", t.MapKey)}
 		}
-		if keyKind != onkir.ScalarString {
-			return nil, &Error{Path: path, Line: line, Column: column, Msg: "map keys must be string for JSON and target-language parity"}
+		if !validMapKey(keyKind) {
+			return nil, &Error{Path: path, Line: line, Column: column, Msg: "map keys must be string, int32, int64, uint32 or uint64"}
 		}
 		val, err := c.resolveType(t.MapVal, path, line, column)
 		if err != nil {
@@ -852,4 +852,12 @@ func fieldEncodesAsNumber(f *onkir.Field) bool {
 	}
 	value, _ := d.Value()
 	return value == Int64EncodingNumber
+}
+
+func validMapKey(kind onkir.ScalarKind) bool {
+	switch kind {
+	case onkir.ScalarString, onkir.ScalarInt32, onkir.ScalarInt64, onkir.ScalarUint32, onkir.ScalarUint64:
+		return true
+	}
+	return false
 }

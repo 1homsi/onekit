@@ -92,7 +92,8 @@ type Type struct {
 	Message *Message
 	// Enum is set when Kind is KindEnum.
 	Enum *Enum
-	// MapKey is set when Kind is KindMap and is always ScalarString on the wire.
+	// MapKey is set when Kind is KindMap: a string or integer scalar. JSON object
+	// keys are strings on the wire whatever the declared key type.
 	MapKey ScalarKind
 	// MapValue is set when Kind is KindMap.
 	MapValue *Type

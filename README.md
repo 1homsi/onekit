@@ -799,6 +799,10 @@ The setting applies to every `int64` and `uint64` field in every target, includi
 
 `oneof` variant payloads that are themselves 64-bit integers keep the string form.
 
+### Integer map keys
+
+A map key is a `string`, `int32`, `int64`, `uint32` or `uint64`: `map[int64, string]`. JSON object keys are strings on the wire, so the wire form is the same for every key type. Go generates `map[int64]string` and decoding rejects a key that is not an integer, Rust generates `HashMap<i64, String>`, and TypeScript keeps `Record<string, V>` and fails validation for a key that is not an integer (an unsigned key may not have a sign). Python, Dart and Swift keep string keys.
+
 ### Writing zero values
 
 By default the Go and TypeScript targets leave a field out of the JSON when it holds its zero value (`""`, `0`, `false`, an empty list), because on the wire an absent field and a zero field read the same. If consumers expect every field to be present, say so once for the project:
