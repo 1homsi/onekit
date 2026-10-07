@@ -189,6 +189,32 @@ func HTTPRequestContext(r *http.Request) context.Context {
 	return context.WithValue(r.Context(), httpRequestContextKey{}, r)
 }
 
+// routeResponseWriter records whether a hand-written @http handler has started
+// the response, so an error it returns afterwards is not written on top of it.
+type routeResponseWriter struct {
+	http.ResponseWriter
+	wrote bool
+}
+
+func (w *routeResponseWriter) WriteHeader(status int) {
+	w.wrote = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *routeResponseWriter) Write(data []byte) (int, error) {
+	w.wrote = true
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *routeResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *routeResponseWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		w.wrote = true
+		flusher.Flush()
+	}
+}
+
 // ResponseControl lets a handler adjust the success status and headers.
 type ResponseControl struct {
 	status int
@@ -206,10 +232,47 @@ func RouteContext(w http.ResponseWriter, r *http.Request) (context.Context, *Res
 	return context.WithValue(HTTPRequestContext(r), responseControlKey{}, control), control
 }
 
+// SetResponseStatus chooses the success status: 2xx, or a 3xx such as 304.
+// 204, 304 and redirects (a 3xx with a Location header) send no body.
 func SetResponseStatus(ctx context.Context, status int) {
-	if control, ok := ctx.Value(responseControlKey{}).(*ResponseControl); ok && status >= 200 && status <= 299 {
+	if control, ok := ctx.Value(responseControlKey{}).(*ResponseControl); ok && status >= 200 && status <= 399 {
 		control.status = status
 	}
+}
+
+// NotModified answers 304 with no body. Set ETag and Cache-Control through
+// ResponseHeader first.
+func NotModified(ctx context.Context) { SetResponseStatus(ctx, http.StatusNotModified) }
+
+// Redirect answers with status (301, 302, 303, 307 or 308) and a Location
+// header, and no body.
+func Redirect(ctx context.Context, location string, status int) {
+	if control, ok := ctx.Value(responseControlKey{}).(*ResponseControl); ok && status >= 300 && status <= 399 {
+		control.header.Set("Location", location)
+		control.status = status
+	}
+}
+
+// SetCookie adds a Set-Cookie header to the response. A cookie with an
+// invalid name or value is dropped.
+func SetCookie(ctx context.Context, cookie *http.Cookie) {
+	if control, ok := ctx.Value(responseControlKey{}).(*ResponseControl); ok && cookie != nil {
+		if value := cookie.String(); value != "" {
+			control.header.Add("Set-Cookie", value)
+		}
+	}
+}
+
+// Write sends value as the JSON response with the chosen status, or only the
+// status when it carries no body.
+func (c *ResponseControl) Write(w http.ResponseWriter, value any) {
+	status := c.status
+	if status == http.StatusNoContent || status == http.StatusNotModified ||
+		(status >= 300 && status < 400 && w.Header().Get("Location") != "") {
+		w.WriteHeader(status)
+		return
+	}
+	writeJSON(w, status, value)
 }
 
 func ResponseHeader(ctx context.Context) http.Header {
@@ -242,6 +305,11 @@ type RequestResult struct {
 	Bytes int64
 	// PathValues holds the values of the route's path parameters.
 	PathValues map[string]string
+	// Request is the request the handler saw, with its context.
+	Request *http.Request
+	// Panic is the value the handler panicked with, or nil. The status is 500
+	// unless the handler had already sent one.
+	Panic any
 }
 
 type RequestObserver interface {
@@ -515,6 +583,18 @@ func defaultRequestIDGenerator() string {
 	return hex.EncodeToString(value[:])
 }
 
+// Mount registers a hand-written handler on mux with the options and route
+// metadata a generated route gets: middleware, the authorizer (and WithScopes),
+// the request id and the request observer all apply. Fill RequestMetadata the
+// way a schema would (Service, Method, Route, Scopes, Meta, Guards).
+func Mount(mux *http.ServeMux, pattern string, handler http.Handler, metadata RequestMetadata, opts ...ServerOption) {
+	var o ServerOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	mux.Handle(pattern, o.WrapHandler(handler, metadata))
+}
+
 func (o ServerOptions) WrapHandler(handler http.Handler, metadata RequestMetadata) http.Handler {
 	if o.Authorizer != nil {
 		next := handler
@@ -553,12 +633,23 @@ func (o ServerOptions) WrapHandler(handler http.Handler, metadata RequestMetadat
 			return
 		}
 		started := time.Now()
+		ctx = context.WithValue(ctx, httpRequestContextKey{}, r)
 		ctx = o.Observer.RequestStarted(ctx, metadata)
 		rw := &statusResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		request := r.WithContext(ctx)
 		defer func() {
-			o.Observer.RequestFinished(ctx, metadata, RequestResult{StatusCode: rw.statusCode, Duration: time.Since(started), Bytes: rw.bytes, PathValues: routePathValues(metadata.Route, r)})
+			result := RequestResult{StatusCode: rw.statusCode, Duration: time.Since(started), Bytes: rw.bytes, PathValues: routePathValues(metadata.Route, r), Request: request}
+			if recovered := recover(); recovered != nil {
+				if !rw.wroteHeader {
+					result.StatusCode = http.StatusInternalServerError
+				}
+				result.Panic = recovered
+				o.Observer.RequestFinished(ctx, metadata, result)
+				panic(recovered)
+			}
+			o.Observer.RequestFinished(ctx, metadata, result)
 		}()
-		handler.ServeHTTP(rw, r.WithContext(ctx))
+		handler.ServeHTTP(rw, request)
 	})
 }
 
@@ -722,7 +813,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			o.WriteHandlerError(w, r, err)
 			return
 		}
-		writeJSON(w, control.Status(), resp)
+		control.Write(w, resp)
 	}), RequestMetadata{Service: "UserService", Method: "createUser", HTTPMethod: "POST", Route: "/api/v1/users", AuthSchemes: nil, Scopes: nil, Meta: nil, Guards: nil}))
 	mux.Handle("POST /api/v1/users/get", o.WrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := new(GetUserRequest)
@@ -761,7 +852,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			o.WriteHandlerError(w, r, err)
 			return
 		}
-		writeJSON(w, control.Status(), resp)
+		control.Write(w, resp)
 	}), RequestMetadata{Service: "UserService", Method: "getUser", HTTPMethod: "POST", Route: "/api/v1/users/get", AuthSchemes: nil, Scopes: nil, Meta: nil, Guards: nil}))
 	mux.Handle("POST /api/v1/auth/login", o.WrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := new(LoginRequest)
@@ -811,7 +902,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			o.WriteHandlerError(w, r, err)
 			return
 		}
-		writeJSON(w, control.Status(), resp)
+		control.Write(w, resp)
 	}), RequestMetadata{Service: "UserService", Method: "login", HTTPMethod: "POST", Route: "/api/v1/auth/login", AuthSchemes: nil, Scopes: nil, Meta: nil, Guards: nil}))
 	return nil
 }
