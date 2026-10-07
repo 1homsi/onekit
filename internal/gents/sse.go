@@ -125,14 +125,14 @@ func writeSSEClientFetch(p *Printer, m *onkir.Method) {
 	p.P("const res = await this.request(this.baseUrl + path, {")
 	p.P(fmt.Sprintf("method: %q,", strings.ToUpper(verb)))
 	if onkir.IsBodyBearingVerb(verb) {
-		p.P(`headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...this.options.defaultHeaders, ...opts?.headers },`)
+		p.P(`headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...opts?.headers },`)
 		if bodyField, ok := m.BodyField(); ok {
 			p.P("body: JSON.stringify(", p.MessageCodecName(m.Request, "encode"), "(req)[", fmt.Sprintf("%q", bodyField), "]),")
 		} else {
 			p.P("body: JSON.stringify(", p.MessageCodecName(m.Request, "encode"), "(req)),")
 		}
 	} else {
-		p.P(`headers: { Accept: "text/event-stream", ...this.options.defaultHeaders, ...opts?.headers },`)
+		p.P(`headers: { Accept: "text/event-stream", ...opts?.headers },`)
 	}
 	p.P("signal: opts?.signal ?? null,")
 	p.P("});")

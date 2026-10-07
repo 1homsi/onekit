@@ -16,7 +16,7 @@ enum Status {
 }
 message Order { status: Status }
 /// Manages orders.
-service Orders { get(Order) -> Order @get("/orders") }
+service Orders { get(Order) -> Order @post("/orders") }
 `)
 	flat := strings.Join(strings.Fields(doc), " ")
 	for _, want := range []string{

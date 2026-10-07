@@ -94,7 +94,7 @@ var (
 		"unix_millis": true, "date": true,
 	}
 	fieldDecorators = map[string]decoratorRule{
-		"email": {}, "uuid": {}, "uri": {}, "required": {}, "nullable": {}, "unwrap": {},
+		"email": {}, "uuid": {}, "uri": {}, "required": {}, "nullable": {}, "unwrap": {}, "object": {},
 		"len": {minArgs: 2, maxArgs: 2}, "range": {minArgs: 2, maxArgs: 2},
 		"in": {minArgs: 1, maxArgs: -1}, "pattern": {minArgs: 1, maxArgs: 1},
 		"gt": {minArgs: 1, maxArgs: 1}, "gte": {minArgs: 1, maxArgs: 1},
@@ -114,7 +114,7 @@ var (
 )
 
 func validateMessageDecl(path string, message *onklang.MessageDecl, options CompileOptions) error {
-	if err := validateDeclarationName(path, message.Line, message.Name); err != nil {
+	if err := validateDeclarationName(path, message.Line, message.Name, options); err != nil {
 		return err
 	}
 	if err := validateDecorators(path, message.Line, message.Decorators, messageDecorators); err != nil {
@@ -124,7 +124,7 @@ func validateMessageDecl(path string, message *onklang.MessageDecl, options Comp
 	unwrapCount := 0
 	for _, field := range message.Fields {
 		if !options.AllowLegacyContracts {
-			if err := validateMemberName(path, field.Line, field.Name); err != nil {
+			if err := validateMemberName(path, field.Line, field.Name, options); err != nil {
 				return err
 			}
 		}
@@ -180,7 +180,7 @@ func validateFieldDecl(path string, field *onklang.FieldDecl, options CompileOpt
 	seenNames := map[string]string{}
 	seenTags := map[string]string{}
 	for _, variant := range field.Oneof.Variants {
-		if err := validateNamedMember(path, variant.Line, variant.Name, variant.Decorators, variantDecorators, seenNames, "oneof variant"); err != nil {
+		if err := validateNamedMember(path, variant.Line, variant.Name, variant.Decorators, variantDecorators, seenNames, "oneof variant", options); err != nil {
 			return err
 		}
 		tag := variant.Name
@@ -212,7 +212,7 @@ func oneofDiscriminator(args []onklang.Arg) string {
 }
 
 func validateEnumDecl(path string, enum *onklang.EnumDecl, options CompileOptions) error {
-	if err := validateDeclarationName(path, enum.Line, enum.Name); err != nil {
+	if err := validateDeclarationName(path, enum.Line, enum.Name, options); err != nil {
 		return err
 	}
 	if len(enum.Values) == 0 {
@@ -222,7 +222,7 @@ func validateEnumDecl(path string, enum *onklang.EnumDecl, options CompileOption
 	seenJSON := map[string]string{}
 	for _, value := range enum.Values {
 		if !options.AllowLegacyContracts {
-			if err := validateMemberName(path, value.Line, value.Name); err != nil {
+			if err := validateMemberName(path, value.Line, value.Name, options); err != nil {
 				return err
 			}
 		}
@@ -250,8 +250,8 @@ func validateEnumDecl(path string, enum *onklang.EnumDecl, options CompileOption
 	return nil
 }
 
-func validateNamedMember(path string, line int, name string, decorators []onklang.Decorator, rules map[string]decoratorRule, seen map[string]string, kind string) error {
-	if err := validateMemberName(path, line, name); err != nil {
+func validateNamedMember(path string, line int, name string, decorators []onklang.Decorator, rules map[string]decoratorRule, seen map[string]string, kind string, options CompileOptions) error {
+	if err := validateMemberName(path, line, name, options); err != nil {
 		return err
 	}
 	if err := validateDecorators(path, line, decorators, rules); err != nil {
@@ -303,6 +303,10 @@ func validateFieldDecoratorType(filePath string, field *onklang.FieldDecl, name 
 	case "gt", "gte", "lt", "lte", "range":
 		if !isNumericTypeRef(field.Type) || field.Repeated {
 			return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@%s requires a non-repeated numeric field", name)}
+		}
+	case "object":
+		if !isScalarNamed(field.Type, "json") || field.Repeated {
+			return &Error{Path: filePath, Line: field.Line, Msg: "@object requires a non-repeated json field"}
 		}
 	case "min_items", "max_items":
 		if !field.Repeated {
@@ -609,11 +613,11 @@ var pythonMemberKeywords = map[string]bool{
 	"true": true, "try": true, "while": true, "with": true, "yield": true,
 }
 
-func validateDeclarationName(path string, line int, name string) error {
+func validateDeclarationName(path string, line int, name string, options CompileOptions) error {
 	if generatedIdentifier(name) == "" {
 		return &Error{Path: path, Line: line, Msg: fmt.Sprintf("declaration name %q does not produce a valid generated identifier", name)}
 	}
-	if reservedDeclarationNames[strings.ToLower(name)] {
+	if options.generates(reservedDeclarationTargets...) && reservedDeclarationNames[strings.ToLower(name)] {
 		return &Error{Path: path, Line: line, Msg: fmt.Sprintf("declaration name %q is reserved in a generated target language", name)}
 	}
 	if first, _ := utf8.DecodeRuneInString(name); !unicode.IsUpper(first) {
@@ -622,11 +626,11 @@ func validateDeclarationName(path string, line int, name string) error {
 	return nil
 }
 
-func validateMemberName(path string, line int, name string) error {
+func validateMemberName(path string, line int, name string, options CompileOptions) error {
 	if generatedIdentifier(name) == "" {
 		return &Error{Path: path, Line: line, Msg: fmt.Sprintf("member name %q does not produce a valid generated identifier", name)}
 	}
-	if pythonMemberKeywords[strings.ToLower(name)] {
+	if options.generates(targetPythonClient) && pythonMemberKeywords[strings.ToLower(name)] {
 		return &Error{Path: path, Line: line, Msg: fmt.Sprintf("member name %q is reserved in Python", name)}
 	}
 	return nil

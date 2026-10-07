@@ -9,6 +9,7 @@ import (
 
 const (
 	metaDecorator      = "meta"
+	guardDecorator     = "guard"
 	requiresDecorator  = "requires"
 	authorizeDecorator = "authorize"
 	principalDecorator = "principal"
@@ -61,6 +62,8 @@ func validateAuthorization(path string, rpc *onklang.RPCDecl, decorator onklang.
 		return validateRequires(path, rpc, decorator)
 	case metaDecorator:
 		return validateMeta(path, rpc, decorator)
+	case guardDecorator:
+		return validateGuard(path, rpc, decorator)
 	}
 	if len(decorator.Args) != 2 {
 		return &Error{Path: path, Line: rpc.Line, Column: decorator.Col, Msg: "@authorize expects an expression and a message"}
@@ -69,7 +72,7 @@ func validateAuthorization(path string, rpc *onklang.RPCDecl, decorator onklang.
 }
 
 func rejectAuthorizationOnWS(path string, rpc *onklang.RPCDecl) error {
-	for _, name := range []string{requiresDecorator, authorizeDecorator, metaDecorator} {
+	for _, name := range []string{requiresDecorator, authorizeDecorator, metaDecorator, guardDecorator} {
 		if hasDecorator(rpc.Decorators, name) {
 			return &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("@%s is not supported on @ws methods yet; authorize the upgrade request in middleware", name)}
 		}
@@ -120,4 +123,49 @@ func validMetaKey(key string) bool {
 		}
 	}
 	return true
+}
+
+const maxGuardBytes = 200
+
+func validateGuard(path string, rpc *onklang.RPCDecl, decorator onklang.Decorator) error {
+	line, col := decorator.Line, decorator.Col
+	if line == 0 {
+		line, col = rpc.Line, rpc.Col
+	}
+	fail := func(format string, args ...any) error {
+		return &Error{Path: path, Line: line, Column: col, Code: "invalid_guard", Msg: fmt.Sprintf(format, args...)}
+	}
+	if len(decorator.Args) == 0 {
+		return fail("@guard needs at least one pattern, as in @guard(\"object/level/:id\")")
+	}
+	route := rpcRoute(rpc)
+	params := map[string]bool{}
+	for _, name := range pathParameterNames(route) {
+		params[name] = true
+	}
+	for _, arg := range decorator.Args {
+		pattern := arg.Value
+		if pattern == "" || len(pattern) > maxGuardBytes {
+			return fail("@guard patterns must be 1 to %d bytes", maxGuardBytes)
+		}
+		for _, segment := range strings.Split(pattern, "/") {
+			name, ok := strings.CutPrefix(segment, ":")
+			if !ok {
+				continue
+			}
+			if !params[name] {
+				return fail("@guard placeholder :%s in %q is not a path parameter of the route", name, pattern)
+			}
+		}
+	}
+	return nil
+}
+
+func rpcRoute(rpc *onklang.RPCDecl) string {
+	for _, decorator := range rpc.Decorators {
+		if isHTTPVerb(decorator.Name) && len(decorator.Args) == 1 {
+			return decorator.Args[0].Value
+		}
+	}
+	return ""
 }

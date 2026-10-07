@@ -3,6 +3,7 @@ package onkcompile
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -43,6 +44,30 @@ type CompileOptions struct {
 	// bytes field always appear on the wire (see onkir.Field.EmitZero).
 	EmitZeroValues bool
 	RepeatedValues bool
+
+	// Targets names the generator targets the project builds (go-server,
+	// python-client, ...). Naming rules that exist only because of one
+	// target language apply only when that target is listed. Nil means the
+	// targets are unknown, so every rule applies.
+	Targets []string
+}
+
+const (
+	targetPythonClient = "python-client"
+)
+
+var reservedDeclarationTargets = []string{targetPythonClient, "rust-client", "rust-server", "dart-client", "swift-client"}
+
+func (o CompileOptions) generates(targets ...string) bool {
+	if o.Targets == nil {
+		return true
+	}
+	for _, name := range targets {
+		if slices.Contains(o.Targets, name) {
+			return true
+		}
+	}
+	return false
 }
 
 const Int64EncodingNumber = "number"
@@ -280,6 +305,8 @@ func CompileWithOptions(sources []Source, options CompileOptions) (*onkir.Packag
 	if options.RepeatedValues {
 		markValueItems(files)
 	}
+
+	bindBodylessQueryFields(files)
 	pkg := &onkir.Package{Files: files}
 	if err := validateContract(pkg, options); err != nil {
 		return nil, err
