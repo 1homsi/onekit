@@ -75,3 +75,22 @@ if (unauthorized.join() !== "http://api/notes/2") throw new Error("onUnauthorize
 console.log("OK");
 `)
 }
+
+func TestTSJSONObjectIsARecordAndValidated(t *testing.T) {
+	runTSSchema(t, `
+package app
+message Doc { id: string  settings: json @object  any: json }
+service Docs { put(Doc) -> Doc @put("/docs") }
+`, `
+import type { Doc } from "./types.ts";
+import { validateDoc } from "./types.ts";
+
+const ok: Doc = { id: "1", settings: { a: 1, nested: { b: [1] } }, any: [1] };
+const settings: Record<string, unknown> | undefined = ok.settings;
+if (!settings || validateDoc(ok).length !== 0) throw new Error("an object must validate");
+for (const bad of [[1], "x", 5]) {
+  if (validateDoc({ id: "1", settings: bad as any }).length === 0) throw new Error("a non-object must not validate: " + JSON.stringify(bad));
+}
+console.log("OK");
+`)
+}

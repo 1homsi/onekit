@@ -126,6 +126,9 @@ func fieldSchemaProxy(f *onkir.Field) *base.SchemaProxy {
 		return base.CreateSchemaProxy(schema)
 	}
 	schema := concreteTypeSchema(f)
+	if f.HasDecorator("object") && f.Type != nil && f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarJSON {
+		schema.Type = []string{"object"}
+	}
 	applyFieldValidation(schema, f)
 	if f.Nullable {
 		schema = nullableSchema(schema)

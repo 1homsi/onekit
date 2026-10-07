@@ -191,6 +191,12 @@ func fieldValidationRules(m *onkir.Message, f *onkir.Field) []string {
 		return dedupeEmpty(append(required, valueRules...))
 	}
 
+	if f.Type.Scalar == onkir.ScalarJSON && f.HasDecorator("object") {
+		valueRules = append(valueRules, fmt.Sprintf(
+			"if len(m.%s) > 0 && !jsonIsObject(m.%s) { violations = append(violations, %q) }",
+			GoFieldName(f), GoFieldName(f), f.Name+" must be a JSON object",
+		))
+	}
 	if f.Type.Scalar == onkir.ScalarString {
 		valueRules = append(valueRules, stringValidationRules(m, f)...)
 	} else if isNumericScalar(f.Type.Scalar) {
@@ -313,6 +319,13 @@ func GenerateValidationWithResolver(file *onkir.File, resolver PackageResolver) 
 	if len(patternDecls) > 0 && (usage.email || usage.uuid || usage.uri) {
 		p.P()
 	}
+	if usage.object {
+		p.P("func jsonIsObject(raw []byte) bool {")
+		p.P("trimmed := strings.TrimSpace(string(raw))")
+		p.P(`return trimmed == "null" || strings.HasPrefix(trimmed, "{")`)
+		p.P("}")
+		p.P()
+	}
 	if usage.in {
 		p.P("func inSet(v string, allowed ...string) bool {")
 		p.P("for _, a := range allowed {")
@@ -357,6 +370,7 @@ type validationFeatureUsage struct {
 	uri      bool
 	in       bool
 	length   bool
+	object   bool
 	patterns []patternDecl
 }
 
@@ -381,6 +395,9 @@ func scanValidationUsage(file *onkir.File) validationFeatureUsage {
 			}
 			if _, ok := f.Decorator("len"); ok {
 				usage.length = true
+			}
+			if f.HasDecorator("object") && f.Type != nil && f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarJSON && !f.Repeated {
+				usage.object = true
 			}
 		}
 		for _, nested := range m.Nested {

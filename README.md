@@ -858,6 +858,14 @@ The setting applies to every `int64` and `uint64` field in every target, includi
 
 `oneof` variant payloads that are themselves 64-bit integers keep the string form.
 
+### JSON objects with `@object`
+
+A plain `json` field holds any JSON value. Add `@object` when it must be an object, as with a free-form settings blob: TypeScript types it `Record<string, unknown>` and validates it, Go keeps `json.RawMessage` (the bytes pass through untouched, so keys are never reordered, which a `map[string, json]` would not guarantee) and rejects arrays and scalars in `Validate()`, and OpenAPI declares `type: object`. `null` and an absent field stay allowed. The Python, Dart, Swift and Rust generators treat the field as any `json` value.
+
+### Rejecting non-positive ids
+
+Put `@range(1, 9223372036854775807)` on an `int64` id field to reject zero and negative ids in the generated Go, TypeScript and Rust validators (use `4294967295` for a `uint32`). With 64-bit integers carried as strings, that is the one place the bound is spelled, and `onek compat` reports it if it changes.
+
 ### Request fields on GET and DELETE
 
 A GET or DELETE has no body, so a request field reaches the server only through the route (`{id}`) or the query string. Scalar fields (string, bool, integer, float) that are not in the route are bound to the query string automatically, as if they carried `@query`. A field that cannot be sent that way (a message, an enum or a repeated field) is a build error that names the field and the RPC, instead of arriving as a zero value. A request message that a body-carrying RPC also uses (a resource message shared by `get` and `update`) is left alone, since its other fields are meant for the body.
