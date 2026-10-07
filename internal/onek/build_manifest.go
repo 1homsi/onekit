@@ -166,11 +166,11 @@ func expectedGeneratedOutputs(cfg *Config, idx *sourceIndex) map[string]map[stri
 		if rel == "." {
 			rel = ""
 		}
-		roots.addGoOutputs(cfg, rel)
-		roots.addTSOutputs(cfg, rel)
+		roots.addGoOutputs(cfg, rel, group.relDir)
+		roots.addTSOutputs(cfg, rel, group.relDir)
 		roots.addDartOutputs(cfg, idx, group, rel)
 		roots.addSwiftOutputs(cfg, group, rel)
-		roots.addPythonOutputs(cfg, rel)
+		roots.addPythonOutputs(cfg, rel, group.relDir)
 	}
 	if cfg.Generate.RustClient != nil && cfg.Generate.RustServer != nil &&
 		filepath.Clean(cfg.resolve(cfg.Generate.RustClient.Out)) == filepath.Clean(cfg.resolve(cfg.Generate.RustServer.Out)) {
@@ -186,8 +186,10 @@ func expectedGeneratedOutputs(cfg *Config, idx *sourceIndex) map[string]map[stri
 	return roots
 }
 
-func (e expectedOutputs) addGoOutputs(cfg *Config, rel string) {
-	if cfg.Generate.GoServer == nil && cfg.Generate.GoClient == nil {
+func (e expectedOutputs) addGoOutputs(cfg *Config, rel, relDir string) {
+	server, client := goPackageFilters(cfg)
+	serverKept, clientKept := keepsPackage(server, relDir), keepsPackage(client, relDir)
+	if !serverKept && !clientKept {
 		return
 	}
 	var outPath string
@@ -199,16 +201,16 @@ func (e expectedOutputs) addGoOutputs(cfg *Config, rel string) {
 	root := cfg.resolve(outPath)
 	e.add(root, filepath.Join(rel, "types.gen.go"))
 	e.add(root, filepath.Join(rel, "validate.gen.go"))
-	if cfg.Generate.GoServer != nil {
+	if serverKept {
 		e.add(root, filepath.Join(rel, "server.gen.go"))
 	}
-	if cfg.Generate.GoClient != nil {
+	if clientKept {
 		e.add(root, filepath.Join(rel, "client.gen.go"))
 	}
 }
 
-func (e expectedOutputs) addTSOutputs(cfg *Config, rel string) {
-	if cfg.Generate.TSClient != nil {
+func (e expectedOutputs) addTSOutputs(cfg *Config, rel, relDir string) {
+	if cfg.Generate.TSClient != nil && cfg.Generate.TSClient.keepsPackage(relDir) {
 		root := cfg.resolve(cfg.Generate.TSClient.Out)
 		if dir, ok := cfg.Generate.TSClient.sharedRuntimeDir(); ok {
 			e.add(root, filepath.Join(filepath.FromSlash(dir), "runtime.ts"))
@@ -219,7 +221,7 @@ func (e expectedOutputs) addTSOutputs(cfg *Config, rel string) {
 			e.add(root, filepath.Join(rel, "msw.ts"))
 		}
 	}
-	if cfg.Generate.TSServer != nil {
+	if cfg.Generate.TSServer != nil && cfg.Generate.TSServer.keepsPackage(relDir) {
 		root := cfg.resolve(cfg.Generate.TSServer.Out)
 		e.add(root, filepath.Join(rel, "types.ts"))
 		e.add(root, filepath.Join(rel, "server.ts"))
@@ -227,12 +229,12 @@ func (e expectedOutputs) addTSOutputs(cfg *Config, rel string) {
 }
 
 func (e expectedOutputs) addDartOutputs(cfg *Config, idx *sourceIndex, group *sourceGroup, rel string) {
-	if cfg.Generate.DartClient == nil {
+	if cfg.Generate.DartClient == nil || !cfg.Generate.DartClient.keepsPackage(group.relDir) {
 		return
 	}
 	root := cfg.resolve(cfg.Generate.DartClient.Out)
 	e.add(root, "onekit.dart")
-	if idx.hasWS() {
+	if idx.view(cfg.Generate.DartClient.ServiceFilter).hasWS() {
 		e.add(root, "onekit_ws.dart")
 		e.add(root, "onekit_ws_io.dart")
 		e.add(root, "onekit_ws_web.dart")
@@ -244,7 +246,7 @@ func (e expectedOutputs) addDartOutputs(cfg *Config, idx *sourceIndex, group *so
 }
 
 func (e expectedOutputs) addSwiftOutputs(cfg *Config, group *sourceGroup, rel string) {
-	if cfg.Generate.SwiftClient == nil {
+	if cfg.Generate.SwiftClient == nil || !cfg.Generate.SwiftClient.keepsPackage(group.relDir) {
 		return
 	}
 	root := cfg.resolve(cfg.Generate.SwiftClient.Out)
@@ -256,8 +258,8 @@ func (e expectedOutputs) addSwiftOutputs(cfg *Config, group *sourceGroup, rel st
 	}
 }
 
-func (e expectedOutputs) addPythonOutputs(cfg *Config, rel string) {
-	if cfg.Generate.PythonClient == nil {
+func (e expectedOutputs) addPythonOutputs(cfg *Config, rel, relDir string) {
+	if cfg.Generate.PythonClient == nil || !cfg.Generate.PythonClient.keepsPackage(relDir) {
 		return
 	}
 	root := cfg.resolve(cfg.Generate.PythonClient.Out)
@@ -284,15 +286,18 @@ func (e expectedOutputs) addRustOutputs(cfg *Config, idx *sourceIndex, target *T
 	root := cfg.resolve(target.Out)
 	e.add(root, "mod.rs")
 	for _, group := range idx.groups {
+		if !keepsPackage(client, group.relDir) && !keepsPackage(server, group.relDir) {
+			continue
+		}
 		rel := filepath.FromSlash(group.relDir)
 		if rel == "." {
 			rel = ""
 		}
 		e.add(root, filepath.Join(rel, "types.rs"))
-		if client != nil && len(client.apply(group.file).Services) > 0 {
+		if keepsPackage(client, group.relDir) && len(client.apply(group.file).Services) > 0 {
 			e.add(root, filepath.Join(rel, "client.rs"))
 		}
-		if server != nil && len(server.apply(group.file).Services) > 0 {
+		if keepsPackage(server, group.relDir) && len(server.apply(group.file).Services) > 0 {
 			e.add(root, filepath.Join(rel, "server.rs"))
 		}
 		for parent := filepath.Dir(rel); parent != "." && parent != ""; parent = filepath.Dir(parent) {
@@ -312,7 +317,7 @@ func (e expectedOutputs) addOpenAPIOutputs(cfg *Config, idx *sourceIndex) {
 	if e[root] == nil {
 		e[root] = map[string]bool{}
 	}
-	for _, full := range idx.groups {
+	for _, full := range idx.view(cfg.Generate.OpenAPI.ServiceFilter).groups {
 		group := filteredGroup(full, cfg.Generate.OpenAPI.ServiceFilter)
 		for _, service := range group.file.Services {
 			base := openAPIBasePath(group, service)
