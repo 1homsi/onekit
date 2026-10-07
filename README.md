@@ -825,6 +825,10 @@ The setting applies to every `int64` and `uint64` field in every target, includi
 
 `oneof` variant payloads that are themselves 64-bit integers keep the string form.
 
+### Request fields on GET and DELETE
+
+A GET or DELETE has no body, so a request field reaches the server only through the route (`{id}`) or the query string. Scalar fields (string, bool, integer, float) that are not in the route are bound to the query string automatically, as if they carried `@query`. A field that cannot be sent that way (a message, an enum or a repeated field) is a build error that names the field and the RPC, instead of arriving as a zero value. A request message that a body-carrying RPC also uses (a resource message shared by `get` and `update`) is left alone, since its other fields are meant for the body.
+
 ### Member names that are keywords
 
 A field called `in`, `from`, `default`, `type` or `class` keeps that exact name on the wire and in Go and TypeScript (`In`, `from`). Names that a target language cannot use are rejected only when that target is configured: with `[generate.python-client]` present, `in` and `from` fail the build, because Python cannot use them as attribute names; a project that generates only Go and TypeScript can use them freely. Rust, Dart and Swift generate escaped names (`r#in`, `in_`). A project that lists no targets keeps every rule.

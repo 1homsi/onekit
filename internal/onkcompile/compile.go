@@ -300,6 +300,7 @@ func CompileWithOptions(sources []Source, options CompileOptions) (*onkir.Packag
 	}
 
 	markResponseOnlyMessages(files, options.EmitZeroValues)
+	bindBodylessQueryFields(files)
 	pkg := &onkir.Package{Files: files}
 	if err := validateContract(pkg, options); err != nil {
 		return nil, err

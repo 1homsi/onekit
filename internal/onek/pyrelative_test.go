@@ -15,7 +15,7 @@ func TestPythonPackagesImportFromANestedLocation(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "common", "models.onk"), "message Addr { city: string }\n")
 	writeTestFile(t, filepath.Join(dir, "users", "api.onk"), `import "../common/models.onk"
 message U { id: string  addr: Addr }
-service Users { get(U) -> U @get("/u/{id}") }
+service Users { get(U) -> U @put("/u/{id}") }
 `)
 	writeTestFile(t, filepath.Join(dir, "src", "app", "__init__.py"), "")
 	if err := Build(dir); err != nil {
