@@ -29,7 +29,14 @@ func (c fieldCategories) needsUnmarshal() bool {
 		len(c.bytesF)+len(c.timestamps)+len(c.flattens)+len(c.emptys)+len(c.nulls) > 0
 }
 
+func zeroMessageField(f *onkir.Field) bool {
+	return f.AlwaysSent && f.Type != nil && f.Type.Kind == onkir.KindMessage
+}
+
 func zeroCollectionField(f *onkir.Field) bool {
+	if zeroMessageField(f) {
+		return true
+	}
 	if !f.EmitZero || f.Oneof != nil {
 		return false
 	}
@@ -229,7 +236,11 @@ func writeZeroCollectionAssignments(p *Printer, c fieldCategories) {
 		typ := zeroCollectionType(p, f)
 		p.P("aux.", goName, " = m.", goName)
 		p.P("if aux.", goName, " == nil {")
-		p.P("aux.", goName, " = ", typ, "{}")
+		if zeroMessageField(f) {
+			p.P("aux.", goName, " = &", p.MessageTypeName(f.Type.Message), "{}")
+		} else {
+			p.P("aux.", goName, " = ", typ, "{}")
+		}
 		p.P("}")
 	}
 }
