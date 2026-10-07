@@ -237,18 +237,21 @@ func buildRust(cfg *Config, idx *sourceIndex) error {
 	sort.Strings(orderedRoots)
 	for _, root := range orderedRoots {
 		target := targets[root]
-		err := eachGroup(idx, func(group *sourceGroup) error {
+		rootIdx := idx.keeping(func(relDir string) bool {
+			return target.client && target.clientFilter.keepsPackage(relDir) || target.server && target.serverFilter.keepsPackage(relDir)
+		})
+		err := eachGroup(rootIdx, func(group *sourceGroup) error {
 			outDir := groupOutDir(target.outRoot, group.relDir)
-			resolver := &rustResolver{currentDir: group.relDir, idx: idx}
+			resolver := &rustResolver{currentDir: group.relDir, idx: rootIdx}
 			if err := writeFile(filepath.Join(outDir, "types.rs"), genrust.GenerateTypesWithResolver(group.file, resolver)); err != nil {
 				return err
 			}
-			if target.client {
+			if target.client && target.clientFilter.keepsPackage(group.relDir) {
 				if err := writeFile(filepath.Join(outDir, "client.rs"), genrust.GenerateClientWithResolver(target.clientFilter.apply(group.file), resolver)); err != nil {
 					return err
 				}
 			}
-			if target.server {
+			if target.server && target.serverFilter.keepsPackage(group.relDir) {
 				if err := writeFile(filepath.Join(outDir, "server.rs"), genrust.GenerateServerWithResolver(target.serverFilter.apply(group.file), resolver)); err != nil {
 					return err
 				}
@@ -258,7 +261,7 @@ func buildRust(cfg *Config, idx *sourceIndex) error {
 		if err != nil {
 			return err
 		}
-		if err := writeRustModuleFiles(target.outRoot, idx.groups, rustSide{target.client, target.clientFilter}, rustSide{target.server, target.serverFilter}); err != nil {
+		if err := writeRustModuleFiles(target.outRoot, rootIdx.groups, rustSide{target.client, target.clientFilter}, rustSide{target.server, target.serverFilter}); err != nil {
 			return err
 		}
 	}
@@ -278,7 +281,7 @@ type rustSide struct {
 }
 
 func (s rustSide) hasServicesIn(group *sourceGroup) bool {
-	return s.enabled && len(s.filter.apply(group.file).Services) > 0
+	return s.enabled && s.filter.keepsPackage(group.relDir) && len(s.filter.apply(group.file).Services) > 0
 }
 
 func writeRustModuleFiles(outRoot string, groups []*sourceGroup, client, server rustSide) error {

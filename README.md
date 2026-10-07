@@ -758,7 +758,21 @@ out = "./docs"
 include_services = ["Public"]
 ```
 
-With `include_services`, only matching services are generated; anything matching `exclude_services` is then dropped. Types are always generated in full, so a client and a server built from one schema keep sharing them. If a package has no service left for a target, that target's client or server file is removed. A pattern that matches no service anywhere in the project is an error, since it is almost always a typo. The options work on every target (`go-server`, `go-client`, `ts-client`, `ts-server`, `python-client`, `dart-client`, `swift-client`, `rust-client`, `rust-server`, `openapi`).
+With `include_services`, only matching services are generated; anything matching `exclude_services` is then dropped. Within a package, types are generated in full, so a client and a server built from one schema keep sharing them. If a package has no service left for a target, that target's client or server file is removed. A pattern that matches no service anywhere in the project is an error, since it is almost always a typo. The options work on every target (`go-server`, `go-client`, `ts-client`, `ts-server`, `python-client`, `dart-client`, `swift-client`, `rust-client`, `rust-server`, `openapi`).
+
+To leave whole packages out of a target, use `include_packages` and `exclude_packages`. They are globs over the schema directories, relative to the schema root (`common`, `hub/*`, `jsruntime`; the root itself is `.`):
+
+```toml
+[generate.ts-client]
+out = "./web/client"
+exclude_packages = ["jsruntime"]
+
+[generate.ts-server]
+out = "./runtime/api"
+include_packages = ["jsruntime"]
+```
+
+An excluded package gets no types, client or server file in that target, and files left from an earlier build are removed. If a package that stays uses a type from one that is left out, the build fails and names both packages, so nothing is generated against a missing import. A pattern that matches no package is an error.
 
 ### Shaping error responses
 
