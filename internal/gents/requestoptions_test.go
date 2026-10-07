@@ -32,6 +32,50 @@ console.log("OK");
 `)
 }
 
+func TestTSClientDynamicHeadersAndResponseHooks(t *testing.T) {
+	runTSSchema(t, `
+package app
+message Note { id: string  text: string }
+service Notes {
+  get(Note) -> Note @get("/notes/{id}")
+  create(Note) -> Note @post("/notes")
+}
+`, `
+import { NotesClient } from "./client.ts";
+import { ApiError } from "./client.ts";
+
+let token = "t1";
+const seen: Record<string, string>[] = [];
+const responses: string[] = [];
+const unauthorized: string[] = [];
+let status = 200;
+const client = new NotesClient("http://api", {
+  defaultHeaders: async () => ({ Authorization: "Bearer " + token, "X-Override": "default" }),
+  onResponse: (res, request) => { responses.push(request.method + " " + res.status); },
+  onUnauthorized: (_res, request) => { unauthorized.push(request.url); },
+  fetch: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.push(init?.headers as Record<string, string>);
+    return new Response(JSON.stringify({ id: "1", text: "t" }), { status });
+  }) as typeof fetch,
+});
+await client.get({ id: "1", text: "" });
+token = "t2";
+await client.create({ id: "1", text: "t" }, { headers: { "X-Override": "call" } });
+if (seen[0].Authorization !== "Bearer t1" || seen[1].Authorization !== "Bearer t2") throw new Error("the header function must run before every request");
+if (seen[1]["X-Override"] !== "call" || seen[1]["Content-Type"] !== "application/json") throw new Error("per-call headers must win and Content-Type must survive");
+if (responses.join() !== "GET 200,POST 200") throw new Error("onResponse: " + responses.join());
+status = 401;
+try {
+  await client.get({ id: "2", text: "" });
+  throw new Error("expected an ApiError");
+} catch (err) {
+  if (!(err instanceof ApiError) || err.statusCode !== 401) throw err;
+}
+if (unauthorized.join() !== "http://api/notes/2") throw new Error("onUnauthorized: " + unauthorized.join());
+console.log("OK");
+`)
+}
+
 func TestTSJSONObjectIsARecordAndValidated(t *testing.T) {
 	runTSSchema(t, `
 package app

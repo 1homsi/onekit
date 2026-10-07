@@ -774,6 +774,39 @@ include_packages = ["jsruntime"]
 
 An excluded package gets no types, client or server file in that target, and files left from an earlier build are removed. If a package that stays uses a type from one that is left out, the build fails and names both packages, so nothing is generated against a missing import. A pattern that matches no package is an error.
 
+### The `httpkit` package
+
+`github.com/1homsi/onekit/httpkit` holds the glue most services write around a generated Go server. It uses only the standard library and never imports generated code, so it works with inline and shared runtimes alike.
+
+```go
+mux := http.NewServeMux()
+api.RegisterOrdersServer(mux, impl{},
+    api.WithMiddleware(httpkit.Middleware(httpkit.Config{TrustedProxies: []string{"10.0.0.0/8"}})),
+    api.WithErrorWriter(httpkit.ErrorWriter[*api.ServerError](httpkit.Envelope{})),
+    api.WithAuthorizer(authorize),
+)
+```
+
+- **Error envelope.** `httpkit.Envelope` writes `{"error": {"code", "message", "request_id"}}`, plus `field` and `violations` when there are any. The cause of a 5xx is logged with the request id (`slog`, or `Envelope.Logger`) and never sent. `Envelope.ContentType` and `Envelope.Wrap` change the content type and the body shape.
+- **Request state.** `httpkit.Middleware` puts a `*State` in the context: `RequestID` (the incoming header, or a generated id, echoed on the response), `Start`, `ClientIP` and the response `Status()` and `Bytes()`. `X-Forwarded-For` is believed only when the connection comes from a `TrustedProxies` address, and the client address is the closest hop that is not itself a trusted proxy. `httpkit.SetPrincipal(ctx, p)` records the authenticated caller, `httpkit.Principal[T](ctx)` reads it, and `httpkit.MustPrincipal[T](ctx)` panics when it is missing, for routes behind authentication. The principal lives on the shared state, so an `Authorizer` can set it and the handler and observers can read it.
+- **Response size and path values.** `RequestResult` now carries `Bytes` and `PathValues` (the route's path parameters), so an audit log can be a plain `RequestObserver`. `httpkit.NewRecorder` wraps a `ResponseWriter` when you need the same numbers outside the generated server.
+- **Guards.** `@guard("object/level/:id")` on an RPC attaches permission patterns whose `:name` segments must be path parameters of the route. The server passes them to your authorizer as `RequestMetadata.Guards`, and `httpkit.ResolveGuards(meta.Guards, r.PathValue)` fills in the request's values:
+
+```go
+func authorize(ctx context.Context, meta api.RequestMetadata, r *http.Request) error {
+    guards, ok := httpkit.ResolveGuards(meta.Guards, r.PathValue)
+    if !ok {
+        return errors.New("unresolvable guard")
+    }
+    user, err := authenticate(r)
+    if err != nil {
+        return err
+    }
+    httpkit.SetPrincipal(ctx, user)
+    return user.Can(guards...)
+}
+```
+
 ### Shaping error responses
 
 By default every error the generated servers produce themselves, a malformed body, a bad path or query parameter, a missing header, a failed validation or `@authorize` rule, or a handler error with no declared body, is `{"message": "..."}` (with `"violations": [...]` when there are several). Errors a method declares with `@status` keep their declared body. To send a different shape, install one error writer per server:
@@ -832,6 +865,14 @@ A plain `json` field holds any JSON value. Add `@object` when it must be an obje
 ### Rejecting non-positive ids
 
 Put `@range(1, 9223372036854775807)` on an `int64` id field to reject zero and negative ids in the generated Go, TypeScript and Rust validators (use `4294967295` for a `uint32`). With 64-bit integers carried as strings, that is the one place the bound is spelled, and `onek compat` reports it if it changes.
+
+### Request fields on GET and DELETE
+
+A GET or DELETE has no body, so a request field reaches the server only through the route (`{id}`) or the query string. Scalar fields (string, bool, integer, float) that are not in the route are bound to the query string automatically, as if they carried `@query`. A field that cannot be sent that way (a message, an enum or a repeated field) is a build error that names the field and the RPC, instead of arriving as a zero value. A request message that a body-carrying RPC also uses (a resource message shared by `get` and `update`) is left alone, since its other fields are meant for the body.
+
+### Member names that are keywords
+
+A field called `in`, `from`, `default`, `type` or `class` keeps that exact name on the wire and in Go and TypeScript (`In`, `from`). Names that a target language cannot use are rejected only when that target is configured: with `[generate.python-client]` present, `in` and `from` fail the build, because Python cannot use them as attribute names; a project that generates only Go and TypeScript can use them freely. Rust, Dart and Swift generate escaped names (`r#in`, `in_`). A project that lists no targets keeps every rule.
 
 ### Integer map keys
 
@@ -1053,6 +1094,8 @@ The runtime directory must not share a name with a schema directory, and switchi
 ### TypeScript client call shape
 
 Each client method takes one request object holding every field, path parameters included, plus an optional `RequestOptions` (`signal`, `headers`, `timeoutMs`): `client.update({ id, name })`, not `update(id, input)`. A failed call throws `ApiError` carrying `statusCode`, the raw `body`, and, when the response follows the error envelope, `code`, `message` and `requestId`; set `errorParser` in the client options to read a custom envelope. Calls time out after 30 seconds and read at most 8 MiB; both are settable per client (`timeoutMs`, `maxResponseBodyBytes`) and `timeoutMs` per call.
+
+`defaultHeaders` is a record or a function (sync or async) that runs before every request, so a token that changes is read fresh; headers passed per call win over it. `onResponse(res, { method, url })` sees every response before the body is read, and `onUnauthorized(res, { method, url })` runs on a 401 before the `ApiError` is thrown, which is where an app redirects to its sign-in page. A custom `fetch` is only needed for transport changes now.
 
 The client builds every URL as `baseUrl` plus the route path, and the route path already includes the service's `base_path`. So `baseUrl` is the origin the server answers on (`https://api.example.com`, or an empty string for same-origin calls), never the origin plus a prefix. If a service has `base_path: "/api/environments"` and the app is configured with `VITE_API_BASE_URL=/api`, pass `""`, or move the prefix into the schema's `base_path`; passing `/api` would call `/api/api/environments`.
 

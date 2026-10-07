@@ -153,6 +153,8 @@ func writeAPIError(p *Printer) {
 	p.P()
 	p.P("export type ApiErrorParser = (error: { statusCode: number; body: string; json: unknown; headers: Headers | undefined }) => ApiErrorDetails | undefined;")
 	p.P()
+	p.P("export type DefaultHeaders = Record<string, string> | (() => Record<string, string> | Promise<Record<string, string>>);")
+	p.P()
 	p.P("function isRecord(value: unknown): value is Record<string, unknown> {")
 	p.P(`return typeof value === "object" && value !== null && !Array.isArray(value);`)
 	p.P("}")
@@ -266,7 +268,14 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 
 	p.P("export interface ", s.Name, "ClientOptions {")
 	p.P("fetch?: typeof fetch;")
-	p.P("defaultHeaders?: Record<string, string>;")
+	p.P("// Headers sent on every request. A function is called before each request,")
+	p.P("// so a token that changes can be read fresh; per-call headers win.")
+	p.P("defaultHeaders?: DefaultHeaders;")
+	p.P("// Called with every response before it is read or turned into an error.")
+	p.P("onResponse?: (res: Response, request: { method: string; url: string }) => void | Promise<void>;")
+	p.P("// Called when a response is 401, before the ApiError is thrown, for")
+	p.P("// example to redirect to a sign-in page.")
+	p.P("onUnauthorized?: (res: Response, request: { method: string; url: string }) => void | Promise<void>;")
 	p.P("maxResponseBodyBytes?: number;")
 	p.P("maxSSELineBytes?: number;")
 	p.P("timeoutMs?: number;")
@@ -297,9 +306,14 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 	p.P("}")
 	p.P()
 	if serviceHasHTTPRoutes(s) {
-		p.P("private request(input: string, init: RequestInit): Promise<Response> {")
+		p.P("private async request(input: string, init: RequestInit): Promise<Response> {")
 		p.P("const doFetch = this.options.fetch ?? fetch;")
-		p.P("return doFetch(input, init);")
+		p.P("const defaults = typeof this.options.defaultHeaders === \"function\" ? await this.options.defaultHeaders() : this.options.defaultHeaders;")
+		p.P("const res = await doFetch(input, { ...init, headers: { ...defaults, ...(init.headers as Record<string, string> | undefined) } });")
+		p.P("const info = { method: init.method ?? \"GET\", url: input };")
+		p.P("if (this.options.onResponse) await this.options.onResponse(res, info);")
+		p.P("if (res.status === 401 && this.options.onUnauthorized) await this.options.onUnauthorized(res, info);")
+		p.P("return res;")
 		p.P("}")
 		p.P()
 	}
@@ -354,14 +368,14 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("const res = await this.request(this.baseUrl + path, {")
 	p.P(fmt.Sprintf("method: %q,", strings.ToUpper(verb)))
 	if bodyBearing {
-		p.P(`headers: { "Content-Type": "application/json", ...this.options.defaultHeaders, ...opts?.headers },`)
+		p.P(`headers: { "Content-Type": "application/json", ...opts?.headers },`)
 		if bodyField, ok := m.BodyField(); ok {
 			p.P("body: JSON.stringify(", p.MessageCodecName(m.Request, "encode"), "(req)[", fmt.Sprintf("%q", bodyField), "]),")
 		} else {
 			p.P("body: JSON.stringify(", p.MessageCodecName(m.Request, "encode"), "(req)),")
 		}
 	} else {
-		p.P("headers: { ...this.options.defaultHeaders, ...opts?.headers },")
+		p.P("headers: { ...opts?.headers },")
 	}
 	p.P("signal: requestSignal(opts?.signal, opts?.timeoutMs ?? this.options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS),")
 	p.P("});")

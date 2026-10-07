@@ -15,7 +15,7 @@ func TestPythonBuildWritesImportableHyphenatedPackages(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "shared-types", "models.onk"), "message Addr { city: string }\n")
 	writeTestFile(t, filepath.Join(dir, "user-service", "api.onk"), `import "../shared-types/models.onk"
 message U { id: string  addr: Addr }
-service Users { get(U) -> U @get("/u/{id}") }
+service Users { get(U) -> U @put("/u/{id}") }
 `)
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build error: %v", err)

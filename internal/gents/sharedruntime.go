@@ -13,7 +13,7 @@ var sharedRuntimeValues = []string{
 	"responseBodyLimit", "readResponseText", "requestSignal",
 }
 
-var sharedRuntimeTypes = []string{"RequestOptions", "ApiErrorParser", "ApiErrorDetails"}
+var sharedRuntimeTypes = []string{"RequestOptions", "ApiErrorParser", "ApiErrorDetails", "DefaultHeaders"}
 
 var sharedRuntimeReexportedValues = []string{"ApiError", "TypedApiError", "RequestValidationError", "DEFAULT_REQUEST_TIMEOUT_MS"}
 

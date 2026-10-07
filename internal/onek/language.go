@@ -420,7 +420,9 @@ var decoratorDocs = map[string]string{
 	"authorize":  "@authorize(expression, message): a server-side authorization rule written in the OneKit expression language. `auth` is the message marked @principal (the authenticated caller) and `req` is the request. The method answers 403 with the message when the rule is false or cannot be evaluated; repeatable, and every rule must hold.",
 	"principal":  "@principal: marks the message that describes the authenticated caller, bound to `auth` in @authorize rules. At most one message may carry it. Go servers take it from WithPrincipal, TypeScript servers from the principal option, and Rust servers from a request extension.",
 	"object":     "@object: a json field that must hold a JSON object. TypeScript types it as Record<string, unknown>, Go keeps the raw bytes (key order preserved) and validates that they are an object, and OpenAPI declares type: object.",
-	"requires":   "@requires(scope, ...): the scopes a caller must hold for this RPC (all of them). Servers expose them to your authorization hook, OpenAPI lists them under the auth scheme, and onek compat reports changes.",
+
+	"guard":    "@guard(pattern, ...): a permission key for this RPC whose :name segments stand for path parameters, such as @guard(\"object/level/:id\"). Go servers expose the patterns as RequestMetadata.Guards and httpkit.ResolveGuards fills in the request's path values for your Authorizer. Repeatable; onek compat reports changes.",
+	"requires": "@requires(scope, ...): the scopes a caller must hold for this RPC (all of them). Servers expose them to your authorization hook, OpenAPI lists them under the auth scheme, and onek compat reports changes.",
 }
 
 func withDecoratorDocs(doc string, decorators []onklang.Decorator) string {
