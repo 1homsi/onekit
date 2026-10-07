@@ -825,6 +825,10 @@ The setting applies to every `int64` and `uint64` field in every target, includi
 
 `oneof` variant payloads that are themselves 64-bit integers keep the string form.
 
+### Member names that are keywords
+
+A field called `in`, `from`, `default`, `type` or `class` keeps that exact name on the wire and in Go and TypeScript (`In`, `from`). Names that a target language cannot use are rejected only when that target is configured: with `[generate.python-client]` present, `in` and `from` fail the build, because Python cannot use them as attribute names; a project that generates only Go and TypeScript can use them freely. Rust, Dart and Swift generate escaped names (`r#in`, `in_`). A project that lists no targets keeps every rule.
+
 ### Integer map keys
 
 A map key is a `string`, `int32`, `int64`, `uint32` or `uint64`: `map[int64, string]`. JSON object keys are strings on the wire, so the wire form is the same for every key type. Go generates `map[int64]string` and decoding rejects a key that is not an integer, Rust generates `HashMap<i64, String>`, and TypeScript keeps `Record<string, V>` and fails validation for a key that is not an integer (an unsigned key may not have a sign). Python, Dart and Swift keep string keys.
