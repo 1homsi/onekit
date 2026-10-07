@@ -26,7 +26,7 @@ message Item { id: string @uuid  status: Status  tags: string[] }
 message ListItems { limit: int32 @query }
 service Items {
   headers: { "X-Key": string @required @format("uuid") }
-  get(Item) -> Item @get("/items/{id}")
+  get(Item) -> Item @put("/items/{id}")
   list(ListItems) -> Item @get("/items")
   create(Item) -> Item @post("/items")
   watch(ListItems) -> Item @get("/items/watch") @stream

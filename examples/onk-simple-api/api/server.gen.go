@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -142,6 +143,10 @@ type RequestMetadata struct {
 	// Meta holds the route's @meta(key, value) pairs. The map is shared by
 	// every request to the route: read it, do not modify it.
 	Meta map[string]string
+	// Guards holds the route's @guard patterns, for example
+	// "object/level/:id". The ":name" segments name path parameters; read
+	// them from the request with PathValue.
+	Guards []string
 }
 
 // MetaValue returns the route's @meta value for key, or "" when it has none.
@@ -233,6 +238,10 @@ type Authorizer func(context.Context, RequestMetadata, *http.Request) error
 type RequestResult struct {
 	StatusCode int
 	Duration   time.Duration
+	// Bytes is the number of response body bytes written.
+	Bytes int64
+	// PathValues holds the values of the route's path parameters.
+	PathValues map[string]string
 }
 
 type RequestObserver interface {
@@ -333,6 +342,12 @@ type ServerError struct {
 	Violations []string
 	// Cause is the underlying error. It is never sent by the default writer.
 	Cause error
+}
+
+// Parts returns the fields of the error, so a writer built outside the
+// generated package can read them without importing it.
+func (e *ServerError) Parts() (status int, code, message, field string, violations []string, cause error) {
+	return e.Status, e.Code, e.Message, e.Field, e.Violations, e.Cause
 }
 
 // ErrorWriter writes a ServerError as the response. The request carries the
@@ -541,7 +556,7 @@ func (o ServerOptions) WrapHandler(handler http.Handler, metadata RequestMetadat
 		ctx = o.Observer.RequestStarted(ctx, metadata)
 		rw := &statusResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 		defer func() {
-			o.Observer.RequestFinished(ctx, metadata, RequestResult{StatusCode: rw.statusCode, Duration: time.Since(started)})
+			o.Observer.RequestFinished(ctx, metadata, RequestResult{StatusCode: rw.statusCode, Duration: time.Since(started), Bytes: rw.bytes, PathValues: routePathValues(metadata.Route, r)})
 		}()
 		handler.ServeHTTP(rw, r.WithContext(ctx))
 	})
@@ -551,6 +566,7 @@ type statusResponseWriter struct {
 	http.ResponseWriter
 	statusCode  int
 	wroteHeader bool
+	bytes       int64
 }
 
 func (w *statusResponseWriter) WriteHeader(statusCode int) {
@@ -566,7 +582,33 @@ func (w *statusResponseWriter) Write(data []byte) (int, error) {
 	if !w.wroteHeader {
 		w.WriteHeader(http.StatusOK)
 	}
-	return w.ResponseWriter.Write(data)
+	n, err := w.ResponseWriter.Write(data)
+	w.bytes += int64(n)
+	return n, err
+}
+
+func routePathValues(route string, r *http.Request) map[string]string {
+	var values map[string]string
+	for rest := route; ; {
+		start := strings.IndexByte(rest, '{')
+		if start < 0 {
+			return values
+		}
+		rest = rest[start+1:]
+		end := strings.IndexByte(rest, '}')
+		if end < 0 {
+			return values
+		}
+		name := strings.TrimSuffix(rest[:end], "...")
+		rest = rest[end+1:]
+		if name == "" || name == "$" {
+			continue
+		}
+		if values == nil {
+			values = map[string]string{}
+		}
+		values[name] = r.PathValue(name)
+	}
 }
 
 func (w *statusResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
@@ -681,7 +723,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			return
 		}
 		writeJSON(w, control.Status(), resp)
-	}), RequestMetadata{Service: "UserService", Method: "createUser", HTTPMethod: "POST", Route: "/api/v1/users", AuthSchemes: nil, Scopes: nil, Meta: nil}))
+	}), RequestMetadata{Service: "UserService", Method: "createUser", HTTPMethod: "POST", Route: "/api/v1/users", AuthSchemes: nil, Scopes: nil, Meta: nil, Guards: nil}))
 	mux.Handle("POST /api/v1/users/get", o.WrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := new(GetUserRequest)
 		if r.Body != nil {
@@ -720,7 +762,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			return
 		}
 		writeJSON(w, control.Status(), resp)
-	}), RequestMetadata{Service: "UserService", Method: "getUser", HTTPMethod: "POST", Route: "/api/v1/users/get", AuthSchemes: nil, Scopes: nil, Meta: nil}))
+	}), RequestMetadata{Service: "UserService", Method: "getUser", HTTPMethod: "POST", Route: "/api/v1/users/get", AuthSchemes: nil, Scopes: nil, Meta: nil, Guards: nil}))
 	mux.Handle("POST /api/v1/auth/login", o.WrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := new(LoginRequest)
 		if r.Body != nil {
@@ -770,6 +812,6 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 			return
 		}
 		writeJSON(w, control.Status(), resp)
-	}), RequestMetadata{Service: "UserService", Method: "login", HTTPMethod: "POST", Route: "/api/v1/auth/login", AuthSchemes: nil, Scopes: nil, Meta: nil}))
+	}), RequestMetadata{Service: "UserService", Method: "login", HTTPMethod: "POST", Route: "/api/v1/auth/login", AuthSchemes: nil, Scopes: nil, Meta: nil, Guards: nil}))
 	return nil
 }
