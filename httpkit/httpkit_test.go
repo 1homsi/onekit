@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -174,5 +175,102 @@ func TestResolveGuardRefusesValuesThatWouldChangeTheKey(t *testing.T) {
 	}
 	if resolved, ok := ResolveGuard("object/level/:id", func(string) string { return "a b:c" }); !ok || resolved != "object/level/a b:c" {
 		t.Errorf("ordinary values still resolve: %q %v", resolved, ok)
+	}
+}
+
+func TestHealthReportsFailedChecksWithoutErrorText(t *testing.T) {
+	handler := Health(Check{Name: "db", Run: func(context.Context) error { return errors.New("dial tcp 10.0.0.5: refused") }}, Check{Name: "cache"})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if rec.Code != 503 || !strings.Contains(rec.Body.String(), `"failed":["db"]`) || strings.Contains(rec.Body.String(), "10.0.0.5") {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	rec = httptest.NewRecorder()
+	Health(Check{Name: "cache", Run: func(context.Context) error { return nil }}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"status":"ok"`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestSPAServesFilesFallsBackToIndexAnd404sMissingAssets(t *testing.T) {
+	fsys := fstest.MapFS{
+		"index.html":        {Data: []byte("<html>app</html>")},
+		"assets/app-abc.js": {Data: []byte("console.log(1)")},
+		"robots.txt":        {Data: []byte("User-agent: *")},
+	}
+	var served []string
+	handler := SPA(fsys, SPAOptions{OnServe: func(w http.ResponseWriter, r *http.Request, name string) {
+		served = append(served, name)
+		w.Header().Set("X-Frame-Options", "DENY")
+	}})
+	get := func(target string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		return rec
+	}
+	if rec := get("/"); rec.Code != 200 || !strings.Contains(rec.Body.String(), "app") || rec.Header().Get("Cache-Control") != "no-cache" || rec.Header().Get("X-Frame-Options") != "DENY" {
+		t.Fatalf("index: %d %v %s", rec.Code, rec.Header(), rec.Body)
+	}
+	if rec := get("/apps/42/settings"); rec.Code != 200 || !strings.Contains(rec.Body.String(), "<html>") {
+		t.Fatalf("client route must get index.html: %d %s", rec.Code, rec.Body)
+	}
+	if rec := get("/assets/app-abc.js"); rec.Code != 200 || !strings.Contains(rec.Header().Get("Cache-Control"), "immutable") {
+		t.Fatalf("hashed asset: %d %v", rec.Code, rec.Header())
+	}
+	if rec := get("/assets/missing.js"); rec.Code != 404 {
+		t.Fatalf("a missing file with an extension is a 404, got %d", rec.Code)
+	}
+	if rec := get("/robots.txt"); rec.Code != 200 || rec.Body.String() != "User-agent: *" {
+		t.Fatalf("plain file: %d %s", rec.Code, rec.Body)
+	}
+	if rec := get("/../../etc/passwd"); rec.Code == 200 && strings.Contains(rec.Body.String(), "root:") {
+		t.Fatal("path traversal")
+	}
+	post := httptest.NewRecorder()
+	handler.ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/", nil))
+	if post.Code != 405 {
+		t.Fatalf("POST: %d", post.Code)
+	}
+	if len(served) == 0 {
+		t.Fatal("OnServe must run")
+	}
+}
+
+func TestETagAndIfNoneMatch(t *testing.T) {
+	tag := ETag([]byte("bundle"))
+	if !strings.HasPrefix(tag, `"`) || tag != ETag([]byte("bundle")) || tag == ETag([]byte("other")) {
+		t.Fatalf("etag %q", tag)
+	}
+	for header, want := range map[string]bool{
+		tag:              true,
+		"W/" + tag:       true,
+		`"nope", ` + tag: true,
+		"*":              true,
+		`"nope"`:         false,
+		"":               false,
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		if header != "" {
+			req.Header.Set("If-None-Match", header)
+		}
+		if got := IfNoneMatch(req, tag); got != want {
+			t.Errorf("If-None-Match %q = %v, want %v", header, got, want)
+		}
+	}
+}
+
+func TestEnsureStateIsSharedWithMiddlewareAndFlagsAreVisibleToObservers(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.Header.Set("X-Request-ID", "outer")
+	ctx, outer := EnsureState(req.Context(), req, Config{})
+	var inner *State
+	handler := Middleware(Config{})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		inner = StateFrom(r.Context())
+		SetFlag(r.Context(), "skip-audit")
+		SetPrincipal(r.Context(), "alice")
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), req.WithContext(ctx))
+	if inner != outer || outer.RequestID != "outer" || !outer.Flag("skip-audit") || outer.Principal() != "alice" {
+		t.Fatalf("the middleware must reuse the observer's state: %+v", outer)
 	}
 }

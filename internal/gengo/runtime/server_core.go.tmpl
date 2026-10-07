@@ -145,6 +145,11 @@ type RequestResult struct {
 	Bytes int64
 	// PathValues holds the values of the route's path parameters.
 	PathValues map[string]string
+	// Request is the request the handler saw, with its context.
+	Request *http.Request
+	// Panic is the value the handler panicked with, or nil. The status is 500
+	// unless the handler had already sent one.
+	Panic any
 }
 
 type RequestObserver interface {
@@ -424,6 +429,18 @@ func defaultRequestIDGenerator() string {
 	return hex.EncodeToString(value[:])
 }
 
+// Mount registers a hand-written handler on mux with the options and route
+// metadata a generated route gets: middleware, the authorizer (and WithScopes),
+// the request id and the request observer all apply. Fill RequestMetadata the
+// way a schema would (Service, Method, Route, Scopes, Meta, Guards).
+func Mount(mux *http.ServeMux, pattern string, handler http.Handler, metadata RequestMetadata, opts ...ServerOption) {
+	var o ServerOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	mux.Handle(pattern, o.WrapHandler(handler, metadata))
+}
+
 func (o ServerOptions) WrapHandler(handler http.Handler, metadata RequestMetadata) http.Handler {
 	if o.Authorizer != nil {
 		next := handler
@@ -462,12 +479,23 @@ func (o ServerOptions) WrapHandler(handler http.Handler, metadata RequestMetadat
 			return
 		}
 		started := time.Now()
+		ctx = context.WithValue(ctx, httpRequestContextKey{}, r)
 		ctx = o.Observer.RequestStarted(ctx, metadata)
 		rw := &statusResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		request := r.WithContext(ctx)
 		defer func() {
-			o.Observer.RequestFinished(ctx, metadata, RequestResult{StatusCode: rw.statusCode, Duration: time.Since(started), Bytes: rw.bytes, PathValues: routePathValues(metadata.Route, r)})
+			result := RequestResult{StatusCode: rw.statusCode, Duration: time.Since(started), Bytes: rw.bytes, PathValues: routePathValues(metadata.Route, r), Request: request}
+			if recovered := recover(); recovered != nil {
+				if !rw.wroteHeader {
+					result.StatusCode = http.StatusInternalServerError
+				}
+				result.Panic = recovered
+				o.Observer.RequestFinished(ctx, metadata, result)
+				panic(recovered)
+			}
+			o.Observer.RequestFinished(ctx, metadata, result)
 		}()
-		handler.ServeHTTP(rw, r.WithContext(ctx))
+		handler.ServeHTTP(rw, request)
 	})
 }
 

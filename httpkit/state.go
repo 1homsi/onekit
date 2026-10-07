@@ -21,6 +21,7 @@ type State struct {
 	ClientIP  string
 
 	mu        sync.Mutex
+	flags     map[string]bool
 	principal any
 	status    int
 	bytes     int64
@@ -59,6 +60,33 @@ func (s *State) Bytes() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.bytes
+}
+
+// SetFlag marks the request with name, for example "skip-audit". The flag is
+// visible to observers and middleware that share the State.
+func SetFlag(ctx context.Context, name string) {
+	if state := StateFrom(ctx); state != nil {
+		state.mu.Lock()
+		if state.flags == nil {
+			state.flags = map[string]bool{}
+		}
+		state.flags[name] = true
+		state.mu.Unlock()
+	}
+}
+
+// Flag reports whether SetFlag marked the request with name.
+func (s *State) Flag(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.flags[name]
+}
+
+// Principal returns the principal recorded with SetPrincipal, or nil.
+func (s *State) Principal() any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.principal
 }
 
 // SetPrincipal records the authenticated principal on the request state.
@@ -128,15 +156,47 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 	trusted := parseProxies(cfg.TrustedProxies)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			state := &State{RequestID: r.Header.Get(header), Start: now(), ClientIP: ClientIP(r, trusted)}
-			if state.RequestID == "" {
-				state.RequestID = newID()
-			}
+			ctx, state := ensureState(r.Context(), r, header, newID, now, trusted)
 			w.Header().Set(header, state.RequestID)
 			recorder := &Recorder{ResponseWriter: w, state: state}
-			next.ServeHTTP(recorder, r.WithContext(WithState(r.Context(), state)))
+			next.ServeHTTP(recorder, r.WithContext(ctx))
 		})
 	}
+}
+
+// EnsureState returns a context carrying the request State, creating it from r
+// when there is none. A request observer calls it in RequestStarted so the
+// State exists before the handler chain runs and is still readable in
+// RequestFinished; Middleware then reuses it.
+func EnsureState(ctx context.Context, r *http.Request, cfg Config) (context.Context, *State) {
+	header := cfg.RequestIDHeader
+	if header == "" {
+		header = "X-Request-Id"
+	}
+	newID := cfg.NewRequestID
+	if newID == nil {
+		newID = randomID
+	}
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
+	}
+	return ensureState(ctx, r, header, newID, now, parseProxies(cfg.TrustedProxies))
+}
+
+func ensureState(ctx context.Context, r *http.Request, header string, newID func() string, now func() time.Time, trusted Proxies) (context.Context, *State) {
+	if state := StateFrom(ctx); state != nil {
+		return ctx, state
+	}
+	state := &State{Start: now()}
+	if r != nil {
+		state.RequestID = r.Header.Get(header)
+		state.ClientIP = ClientIP(r, trusted)
+	}
+	if state.RequestID == "" {
+		state.RequestID = newID()
+	}
+	return WithState(ctx, state), state
 }
 
 func randomID() string {
