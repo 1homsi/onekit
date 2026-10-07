@@ -799,6 +799,17 @@ The setting applies to every `int64` and `uint64` field in every target, includi
 
 `oneof` variant payloads that are themselves 64-bit integers keep the string form.
 
+### Pinning the onek version
+
+Set `version` in `onekit.toml` and every machine builds with that release, with no Go toolchain and nothing to install beyond a first `onek`:
+
+```toml
+version = "0.26.0"
+module = "example.com/api"
+```
+
+When `onek build`, `check`, `generate`, `watch` or `mock` runs with a different version, it downloads the pinned release from GitHub, checks its SHA-256 against the release's `checksums.txt`, keeps it in the cache directory (`ONEK_CACHE_DIR`, default the user cache dir) and hands the command over to it. The download happens once per version. Set `ONEK_NO_PIN=1` to skip the pin, or `ONEK_DOWNLOAD_BASE` to fetch from a mirror. A development build ignores the pin. Pin a release that already knows the `version` key (0.26.0 or newer), since older releases reject unknown keys.
+
 ### Writing zero values
 
 By default the Go and TypeScript targets leave a field out of the JSON when it holds its zero value (`""`, `0`, `false`, an empty list), because on the wire an absent field and a zero field read the same. If consumers expect every field to be present, say so once for the project:
