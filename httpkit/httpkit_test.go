@@ -164,3 +164,15 @@ func TestRecorderStandaloneAndFlush(t *testing.T) {
 		t.Fatalf("%d %d %v", r.Status(), r.Bytes(), rec.Flushed)
 	}
 }
+
+func TestResolveGuardRefusesValuesThatWouldChangeTheKey(t *testing.T) {
+	for _, value := range []string{"", ".", "..", "1/admin", "a\\b", "x\ny", "42\x00"} {
+		get := func(string) string { return value }
+		if resolved, ok := ResolveGuard("object/level/:id", get); ok {
+			t.Errorf("%q must not resolve, got %q", value, resolved)
+		}
+	}
+	if resolved, ok := ResolveGuard("object/level/:id", func(string) string { return "a b:c" }); !ok || resolved != "object/level/a b:c" {
+		t.Errorf("ordinary values still resolve: %q %v", resolved, ok)
+	}
+}
