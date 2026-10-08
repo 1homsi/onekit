@@ -954,6 +954,16 @@ A field called `in`, `from`, `default`, `type` or `class` keeps that exact name 
 
 A map key is a `string`, `int32`, `int64`, `uint32` or `uint64`: `map[int64, string]`. JSON object keys are strings on the wire, so the wire form is the same for every key type. Go generates `map[int64]string` and decoding rejects a key that is not an integer, Rust generates `HashMap<i64, String>`, and TypeScript keeps `Record<string, V>` and fails validation for a key that is not an integer (an unsigned key may not have a sign). Python, Dart and Swift keep string keys.
 
+### Schemas in `.proto` files
+
+Schemas are `.onk` files. If you want protobuf-aware editors and GitHub to highlight them, name them `.proto` and say so in `onekit.toml`:
+
+```toml
+schema_extensions = [".onk", ".proto"]
+```
+
+A `.proto` file is then read as OneKit when it is OneKit text. A real Protocol Buffers file, one with a `syntax = ...` line or numbered fields such as `string id = 1;`, is skipped, so a directory that also holds gRPC definitions still builds; convert those with `onek import`. `build`, `check`, `fmt`, `watch`, the language server and MCP all follow the setting. Without it only `.onk` files are schemas. Tools such as `protoc` and `buf` cannot parse OneKit syntax, so keep them away from these files.
+
 ### Pinning the onek version
 
 Set `version` in `onekit.toml` and every machine builds with that release, with no Go toolchain and nothing to install beyond a first `onek`:

@@ -75,7 +75,7 @@ func AnalyzeLanguage(dir string, overlays map[string]string) (*LanguageSnapshot,
 	if cfg != nil {
 		root = cfg.SchemaDir()
 	}
-	paths, err := discoverOnkFiles(root)
+	paths, err := discoverSchemaFiles(root, cfg.schemaExtensions())
 	if err != nil {
 		return fail(err)
 	}
@@ -84,8 +84,8 @@ func AnalyzeLanguage(dir string, overlays map[string]string) (*LanguageSnapshot,
 		seen[path] = true
 	}
 	for path, text := range overlays {
-		if !filepath.IsAbs(path) || !pathWithin(root, path) || filepath.Ext(path) != ".onk" {
-			return nil, fmt.Errorf("overlay must be a .onk file inside the schema root: %s", path)
+		if !filepath.IsAbs(path) || !pathWithin(root, path) || !isSchemaFileName(path) {
+			return nil, fmt.Errorf("overlay must be a .onk or .proto schema file inside the schema root: %s", path)
 		}
 		if len(text) > maxInputFileBytes {
 			return nil, fmt.Errorf("overlay exceeds input limit: %s", path)
@@ -395,8 +395,8 @@ func languagePath(root, path string) (string, error) {
 		path = filepath.Join(root, path)
 	}
 	path = filepath.Clean(path)
-	if !pathWithin(root, path) || filepath.Ext(path) != ".onk" {
-		return "", errors.New("path must be a .onk file inside the project")
+	if !pathWithin(root, path) || !isSchemaFileName(path) {
+		return "", errors.New("path must be a .onk or .proto file inside the project")
 	}
 	if err := rejectSymlinkPath(path); err != nil {
 		return "", err

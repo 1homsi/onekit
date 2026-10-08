@@ -206,7 +206,7 @@ func runFormat(args []string) error {
 
 func allOnkFiles(paths []string) bool {
 	for _, path := range paths {
-		if !strings.HasSuffix(path, ".onk") {
+		if !strings.HasSuffix(path, ".onk") && !strings.HasSuffix(path, ".proto") {
 			return false
 		}
 	}
