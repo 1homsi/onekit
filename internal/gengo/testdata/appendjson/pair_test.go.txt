@@ -1,0 +1,156 @@
+package diff
+
+import (
+	"bytes"
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
+	"math"
+	"math/rand"
+	"reflect"
+	"testing"
+
+	fresh "example.com/diff/FRESHDIR"
+	legacy "example.com/diff/LEGACYDIR"
+)
+
+func freshVariants() []reflect.Type {
+	return []reflect.Type{
+		reflect.TypeOf((*fresh.KitchenChoiceText)(nil)), reflect.TypeOf((*fresh.KitchenChoiceCount)(nil)),
+		reflect.TypeOf((*fresh.KitchenChoiceItem)(nil)), reflect.TypeOf((*fresh.KitchenChoiceLevel)(nil)),
+	}
+}
+
+func legacyVariants() []reflect.Type {
+	return []reflect.Type{
+		reflect.TypeOf((*legacy.KitchenChoiceText)(nil)), reflect.TypeOf((*legacy.KitchenChoiceCount)(nil)),
+		reflect.TypeOf((*legacy.KitchenChoiceItem)(nil)), reflect.TypeOf((*legacy.KitchenChoiceLevel)(nil)),
+	}
+}
+
+type appender interface {
+	AppendJSON([]byte) ([]byte, error)
+}
+
+func compare(t *testing.T, name string, mk func() (any, any)) {
+	var exact, total int
+	for seed := int64(0); seed < 3000; seed++ {
+		fr := &filler{rng: rand.New(rand.NewSource(seed)), variants: freshVariants()}
+		lg := &filler{rng: rand.New(rand.NewSource(seed)), variants: legacyVariants()}
+		a, b := mk()
+		fr.fill(reflect.ValueOf(a).Elem(), 0)
+		lg.fill(reflect.ValueOf(b).Elem(), 0)
+		got, gerr := json.Marshal(a)
+		want, werr := json.Marshal(b)
+		if (gerr == nil) != (werr == nil) {
+			t.Fatalf("%s seed %d: error mismatch fresh=%v legacy=%v", name, seed, gerr, werr)
+		}
+		if gerr != nil {
+			continue
+		}
+		total++
+		if bytes.Equal(got, want) {
+			exact++
+		} else if !equalJSON(t, got, want) {
+			t.Fatalf("%s seed %d:\nfresh:  %s\nlegacy: %s", name, seed, got, want)
+		}
+		if ap, ok := a.(appender); ok {
+			direct, err := ap.AppendJSON(nil)
+			if err != nil || !equalJSON(t, direct, want) {
+				t.Fatalf("%s seed %d: AppendJSON differs: %v\n%s\n%s", name, seed, err, direct, want)
+			}
+			viaV2, err := jsonv2.Marshal(a)
+			if err != nil || !equalJSON(t, viaV2, want) {
+				t.Fatalf("%s seed %d: jsonv2 differs: %v\n%s\n%s", name, seed, err, viaV2, want)
+			}
+		}
+		fb, lb := mk()
+		if err := json.Unmarshal(got, fb); err != nil {
+			t.Fatalf("%s seed %d: decode: %v\n%s", name, seed, err, got)
+		}
+		if err := json.Unmarshal(got, lb); err != nil {
+			t.Fatalf("%s seed %d: legacy decode: %v\n%s", name, seed, err, got)
+		}
+		again, err1 := json.Marshal(fb)
+		wantAgain, err2 := json.Marshal(lb)
+		if err1 != nil || err2 != nil || !equalJSON(t, again, wantAgain) {
+			t.Fatalf("%s seed %d: round trip differs\n%s\n%s", name, seed, again, wantAgain)
+		}
+	}
+	if total < 2000 {
+		t.Fatalf("%s: only %d of 3000 samples marshaled", name, total)
+	}
+	t.Logf("%s: %d samples equal, %d byte-identical", name, total, exact)
+}
+
+func TestMatchesLegacy(t *testing.T) {
+	compare(t, "Kitchen", func() (any, any) { return new(fresh.Kitchen), new(legacy.Kitchen) })
+	compare(t, "Holder", func() (any, any) { return new(fresh.Holder), new(legacy.Holder) })
+	compare(t, "Tree", func() (any, any) { return new(fresh.Tree), new(legacy.Tree) })
+	compare(t, "Plain", func() (any, any) { return new(fresh.Plain), new(legacy.Plain) })
+}
+
+func TestEncodeErrorsMatchLegacy(t *testing.T) {
+	cases := []struct {
+		name  string
+		fresh any
+		old   any
+	}{
+		{"invalid enum", &fresh.Kitchen{Lvl: 99}, &legacy.Kitchen{Lvl: 99}},
+		{"invalid enum in a list", &fresh.Kitchen{Levels: []fresh.Level{1, 7}}, &legacy.Kitchen{Levels: []legacy.Level{1, 7}}},
+		{"NaN", &fresh.Kitchen{F64: math.NaN()}, &legacy.Kitchen{F64: math.NaN()}},
+		{"infinite float32", &fresh.Kitchen{F32: float32(math.Inf(1))}, &legacy.Kitchen{F32: float32(math.Inf(1))}},
+		{"invalid json field", &fresh.Kitchen{Cfg: json.RawMessage("{not json")}, &legacy.Kitchen{Cfg: json.RawMessage("{not json")}},
+		{"invalid enum in a nested message", &fresh.Holder{Kitchen: &fresh.Kitchen{Lvl: 9}}, &legacy.Holder{Kitchen: &legacy.Kitchen{Lvl: 9}}},
+		{"invalid enum in a map", &fresh.Holder{ByKey: map[string]*fresh.Kitchen{"a": {Lvl: 9}}}, &legacy.Holder{ByKey: map[string]*legacy.Kitchen{"a": {Lvl: 9}}}},
+		{"year out of range", &fresh.Kitchen{At: bigYear()}, &legacy.Kitchen{At: bigYear()}},
+	}
+	for _, c := range cases {
+		if _, err := json.Marshal(c.old); err == nil {
+			t.Fatalf("%s: legacy encoder accepted it", c.name)
+		}
+		if _, err := json.Marshal(c.fresh); err == nil {
+			t.Fatalf("%s: new encoder accepted it", c.name)
+		}
+		if ap, ok := c.fresh.(appender); ok {
+			if _, err := ap.AppendJSON(nil); err == nil {
+				t.Fatalf("%s: AppendJSON accepted it", c.name)
+			}
+		}
+	}
+}
+
+func TestNilAndEmptyStatesMatchLegacy(t *testing.T) {
+	id := int64(5)
+	s := "x"
+	states := []struct {
+		name string
+		fresh *fresh.Kitchen
+		old   *legacy.Kitchen
+	}{
+		{"zero", &fresh.Kitchen{}, &legacy.Kitchen{}},
+		{"null", &fresh.Kitchen{NSNull: true, NInNull: true, NLeafNull: true, NLvlNull: true}, &legacy.Kitchen{NSNull: true, NInNull: true, NLeafNull: true, NLvlNull: true}},
+		{"set", &fresh.Kitchen{NS: &s, NIn: &id, NLeaf: &fresh.Leaf{Name: "n"}}, &legacy.Kitchen{NS: &s, NIn: &id, NLeaf: &legacy.Leaf{Name: "n"}}},
+		{"value wins over null", &fresh.Kitchen{NS: &s, NSNull: true}, &legacy.Kitchen{NS: &s, NSNull: true}},
+	}
+	for _, c := range states {
+		got, err := json.Marshal(c.fresh)
+		if err != nil {
+			t.Fatal(c.name, err)
+		}
+		want, err := json.Marshal(c.old)
+		if err != nil {
+			t.Fatal(c.name, err)
+		}
+		if !equalJSON(t, got, want) {
+			t.Fatalf("%s:\n%s\n%s", c.name, got, want)
+		}
+	}
+}
+
+func TestNilReceiverEncodesNull(t *testing.T) {
+	var k *fresh.Kitchen
+	out, err := k.AppendJSON(nil)
+	if err != nil || string(out) != "null" {
+		t.Fatalf("got %q, %v", out, err)
+	}
+}

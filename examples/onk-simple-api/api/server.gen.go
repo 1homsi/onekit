@@ -15,10 +15,33 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
+var writeJSONBuffers = sync.Pool{New: func() any {
+	b := make([]byte, 0, 4096)
+	return &b
+}}
+
 func writeJSON(w http.ResponseWriter, status int, value any) {
+	if appender, ok := value.(interface{ AppendJSON([]byte) ([]byte, error) }); ok {
+		buf := writeJSONBuffers.Get().(*[]byte)
+		data, err := appender.AppendJSON((*buf)[:0])
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "internal server error")
+		} else {
+			data = append(data, '\n')
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_, _ = w.Write(data)
+		}
+		if cap(data) <= 1<<20 {
+			*buf = data[:0]
+			writeJSONBuffers.Put(buf)
+		}
+		return
+	}
 	data, err := json.Marshal(value)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "internal server error")

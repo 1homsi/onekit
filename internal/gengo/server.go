@@ -102,9 +102,7 @@ func GenerateServerWithOptions(file *onkir.File, resolver PackageResolver, opts 
 	if hasWS {
 		p.P(`"net"`)
 	}
-	if hasWS || hasStream {
-		p.P(`"sync"`)
-	}
+	p.P(`"sync"`)
 	if hasWS {
 		p.P(`"github.com/coder/websocket"`)
 	}
@@ -234,16 +232,7 @@ func writeServerOptions(p *Printer, hasWS bool, shared *SharedRuntime) {
 }
 
 func writeRuntimeHelpers(p *Printer, contentType string) {
-	p.P(`func writeJSON(w http.ResponseWriter, status int, value any) {`)
-	p.P(`data, err := json.Marshal(value)`)
-	p.P(`if err != nil {`)
-	p.P(`writeJSONError(w, http.StatusInternalServerError, "internal server error")`)
-	p.P(`return`)
-	p.P(`}`)
-	p.P(`w.Header().Set("Content-Type", `, jsonContentTypeLiteral(contentType), `)`)
-	p.P(`w.WriteHeader(status)`)
-	p.P(`_, _ = w.Write(append(data, '\n'))`)
-	p.P(`}`)
+	writeJSONFunc(p, contentType)
 	p.P()
 	p.P(`func writeJSONError(w http.ResponseWriter, status int, message string) {`)
 	p.P(`w.Header().Set("Content-Type", `, jsonContentTypeLiteral(contentType), `)`)
@@ -681,4 +670,39 @@ func writeErrorHandling(p *Printer, m *onkir.Method) {
 		p.P("}")
 	}
 	p.P(`o.WriteHandlerError(w, r, err)`)
+}
+
+func writeJSONFunc(p *Printer, contentType string) {
+	p.P(`var writeJSONBuffers = sync.Pool{New: func() any {`)
+	p.P(`b := make([]byte, 0, 4096)`)
+	p.P(`return &b`)
+	p.P(`}}`)
+	p.P()
+	p.P(`func writeJSON(w http.ResponseWriter, status int, value any) {`)
+	p.P(`if appender, ok := value.(interface{ AppendJSON([]byte) ([]byte, error) }); ok {`)
+	p.P(`buf := writeJSONBuffers.Get().(*[]byte)`)
+	p.P(`data, err := appender.AppendJSON((*buf)[:0])`)
+	p.P(`if err != nil {`)
+	p.P(`writeJSONError(w, http.StatusInternalServerError, "internal server error")`)
+	p.P(`} else {`)
+	p.P(`data = append(data, '\n')`)
+	p.P(`w.Header().Set("Content-Type", `, jsonContentTypeLiteral(contentType), `)`)
+	p.P(`w.WriteHeader(status)`)
+	p.P(`_, _ = w.Write(data)`)
+	p.P(`}`)
+	p.P(`if cap(data) <= 1<<20 {`)
+	p.P(`*buf = data[:0]`)
+	p.P(`writeJSONBuffers.Put(buf)`)
+	p.P(`}`)
+	p.P(`return`)
+	p.P(`}`)
+	p.P(`data, err := json.Marshal(value)`)
+	p.P(`if err != nil {`)
+	p.P(`writeJSONError(w, http.StatusInternalServerError, "internal server error")`)
+	p.P(`return`)
+	p.P(`}`)
+	p.P(`w.Header().Set("Content-Type", `, jsonContentTypeLiteral(contentType), `)`)
+	p.P(`w.WriteHeader(status)`)
+	p.P(`_, _ = w.Write(append(data, '\n'))`)
+	p.P(`}`)
 }

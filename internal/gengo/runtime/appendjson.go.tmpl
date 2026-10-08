@@ -1,0 +1,158 @@
+type onkAppender interface {
+	AppendJSON(b []byte) ([]byte, error)
+}
+
+var onkBufPool = sync.Pool{New: func() any {
+	b := make([]byte, 0, 4096)
+	return &b
+}}
+
+func onkPutBuf(bp *[]byte, b []byte) {
+	if cap(b) <= 1<<20 {
+		*bp = b[:0]
+		onkBufPool.Put(bp)
+	}
+}
+
+func onkMarshalJSON(a onkAppender) ([]byte, error) {
+	bp := onkBufPool.Get().(*[]byte)
+	b, err := a.AppendJSON((*bp)[:0])
+	if err != nil {
+		onkPutBuf(bp, b)
+		return nil, err
+	}
+	out := append([]byte(nil), b...)
+	onkPutBuf(bp, b)
+	return out, nil
+}
+
+func onkMarshalJSONTo(enc *jsontext.Encoder, a onkAppender) error {
+	bp := onkBufPool.Get().(*[]byte)
+	b, err := a.AppendJSON((*bp)[:0])
+	if err == nil {
+		err = enc.WriteValue(jsontext.Value(b))
+	}
+	onkPutBuf(bp, b)
+	return err
+}
+
+func onkAppendValue(b []byte, v any) ([]byte, error) {
+	if a, ok := v.(onkAppender); ok {
+		return a.AppendJSON(b)
+	}
+	return onkAppendStd(b, v)
+}
+
+func onkAppendStd(b []byte, v any) ([]byte, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return b, err
+	}
+	return append(b, raw...), nil
+}
+
+func onkAppendRaw(b []byte, raw []byte) ([]byte, error) {
+	if len(raw) == 0 {
+		return append(b, "null"...), nil
+	}
+	if !json.Valid(raw) {
+		return b, errors.New("json: invalid value in a json field")
+	}
+	return append(b, raw...), nil
+}
+
+func onkEnumInvalid(name string, v int32) error {
+	return fmt.Errorf("%s: invalid value %d", name, v)
+}
+
+func onkSortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+func onkAppendBytes(b []byte, v []byte) []byte {
+	if v == nil {
+		return append(b, "null"...)
+	}
+	b = append(b, '"')
+	b = base64.StdEncoding.AppendEncode(b, v)
+	return append(b, '"')
+}
+
+func onkAppendFloat(b []byte, f float64, bits int) ([]byte, error) {
+	if math.IsInf(f, 0) || math.IsNaN(f) {
+		return b, errors.New("json: unsupported value: " + strconv.FormatFloat(f, 'g', -1, 64))
+	}
+	format := byte('f')
+	if abs := math.Abs(f); abs != 0 {
+		if bits == 64 && (abs < 1e-6 || abs >= 1e21) || bits == 32 && (float32(abs) < 1e-6 || float32(abs) >= 1e21) {
+			format = 'e'
+		}
+	}
+	b = strconv.AppendFloat(b, f, format, -1, bits)
+	if format == 'e' {
+		n := len(b)
+		if n >= 4 && b[n-4] == 'e' && b[n-3] == '-' && b[n-2] == '0' {
+			b[n-2] = b[n-1]
+			b = b[:n-1]
+		}
+	}
+	return b, nil
+}
+
+func onkAppendString(b []byte, s string) []byte {
+	const digits = "0123456789abcdef"
+	b = append(b, '"')
+	start := 0
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c < utf8.RuneSelf {
+			if c >= 0x20 && c != '"' && c != '\\' && c != '<' && c != '>' && c != '&' {
+				i++
+				continue
+			}
+			b = append(b, s[start:i]...)
+			switch c {
+			case '\\', '"':
+				b = append(b, '\\', c)
+			case '\b':
+				b = append(b, '\\', 'b')
+			case '\f':
+				b = append(b, '\\', 'f')
+			case '\n':
+				b = append(b, '\\', 'n')
+			case '\r':
+				b = append(b, '\\', 'r')
+			case '\t':
+				b = append(b, '\\', 't')
+			default:
+				b = append(b, '\\', 'u', '0', '0', digits[c>>4], digits[c&0xF])
+			}
+			i++
+			start = i
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			b = append(b, s[start:i]...)
+			b = append(b, `�`...)
+			i += size
+			start = i
+			continue
+		}
+		if r == ' ' || r == ' ' {
+			b = append(b, s[start:i]...)
+			b = append(b, '\\', 'u', '2', '0', '2', digits[r&0xF])
+			i += size
+			start = i
+			continue
+		}
+		i += size
+	}
+	b = append(b, s[start:]...)
+	return append(b, '"')
+}

@@ -986,9 +986,26 @@ emit_zero_values = true
 
 Every non-optional scalar, enum, `bytes`, repeated and map field is then always written, in every target: `""`, `0`, `false`, the enum's first name (or `0` for a number-encoded enum), `[]` and `{}`. A nil list or map in Go is written as `[]` or `{}`, never `null`. Optional (`?`) fields keep their meaning, absent when unset, and a singular message field is still omitted when it is not set. Timestamps and `json` values are left as they were, because a zero timestamp has no single form that every language agrees on.
 
-Messages that need this (and other wire adjustments such as 64-bit strings) implement both `MarshalJSON` and the streaming `MarshalJSONTo` method, so `encoding/json` writes them straight into its output buffer with no second pass over the bytes. The generated types import `encoding/json/v2` for that, which needs Go 1.27 or newer.
+Messages that need this (and other wire adjustments such as 64-bit strings) are encoded by a generated `AppendJSON` method, described below. The generated types import `encoding/json/jsontext` for it, which needs Go 1.27 or newer.
 
 This applies to requests as well as responses, since both use the same types, so a message used as a partial update should declare its patchable fields optional (`name: string?`) to say "not provided". `onek compat` reports the change.
+
+### How generated Go messages are encoded
+
+A message with a wire adjustment (64-bit strings, nullable fields, number enums, `@encode` on timestamps or bytes, a oneof, or `emit_zero_values`), and every message that holds one, gets `AppendJSON(b []byte) ([]byte, error)`. It writes the fields straight into one buffer: no reflection, no helper struct, and no second scan of what a nested message wrote. Nested messages, lists and maps are written by the same call, so a response is encoded once however deep it is. A plain message that sits inside such a message gets `AppendJSON` too, so the call never falls back to `encoding/json` in the middle of a list.
+
+`MarshalJSON` and `MarshalJSONTo` call it, so `json.Marshal` and `jsonv2.Marshal` use it with no change to your code. The generated server writes every response that has an `AppendJSON` through it directly, into a pooled buffer, which skips the validation pass `json.Marshal` runs over a `Marshaler`'s output. Call it yourself to encode into a buffer you own: `buf, err := resp.AppendJSON(buf[:0])`.
+
+Ten resources with nested messages, maps, a nullable field and a `json` field, on Go 1.27.1 (`go test ./internal/gengo -run TestAppendEncoderBenchmark -v`):
+
+| | time | allocations |
+| --- | --- | --- |
+| hand-written struct, `json.Marshal` | 21.3 µs | 61 |
+| generated before, `json.Marshal` | 23.8 µs | 103 |
+| generated now, `json.Marshal` | 17.1 µs | 11 |
+| generated now, `AppendJSON` into a reused buffer | 7.2 µs | 10 |
+
+The output is the same JSON, with two differences. Keys come out in declaration order; before, fields with a wire adjustment came after the others. A `json` field is validated and written as stored, not compacted, and a field holding invalid JSON fails the encode. A message that uses `@flatten` keeps the earlier encoder. Decoding is unchanged.
 
 ### Declaring what a method requires
 

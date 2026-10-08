@@ -2,11 +2,176 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"encoding/json/jsontext"
-	jsonv2 "encoding/json/v2"
+	"errors"
+	"fmt"
+	"math"
+	"slices"
 	"strconv"
+	"sync"
+	"unicode/utf8"
 )
+
+type onkAppender interface {
+	AppendJSON(b []byte) ([]byte, error)
+}
+
+var onkBufPool = sync.Pool{New: func() any {
+	b := make([]byte, 0, 4096)
+	return &b
+}}
+
+func onkPutBuf(bp *[]byte, b []byte) {
+	if cap(b) <= 1<<20 {
+		*bp = b[:0]
+		onkBufPool.Put(bp)
+	}
+}
+
+func onkMarshalJSON(a onkAppender) ([]byte, error) {
+	bp := onkBufPool.Get().(*[]byte)
+	b, err := a.AppendJSON((*bp)[:0])
+	if err != nil {
+		onkPutBuf(bp, b)
+		return nil, err
+	}
+	out := append([]byte(nil), b...)
+	onkPutBuf(bp, b)
+	return out, nil
+}
+
+func onkMarshalJSONTo(enc *jsontext.Encoder, a onkAppender) error {
+	bp := onkBufPool.Get().(*[]byte)
+	b, err := a.AppendJSON((*bp)[:0])
+	if err == nil {
+		err = enc.WriteValue(jsontext.Value(b))
+	}
+	onkPutBuf(bp, b)
+	return err
+}
+
+func onkAppendValue(b []byte, v any) ([]byte, error) {
+	if a, ok := v.(onkAppender); ok {
+		return a.AppendJSON(b)
+	}
+	return onkAppendStd(b, v)
+}
+
+func onkAppendStd(b []byte, v any) ([]byte, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return b, err
+	}
+	return append(b, raw...), nil
+}
+
+func onkAppendRaw(b []byte, raw []byte) ([]byte, error) {
+	if len(raw) == 0 {
+		return append(b, "null"...), nil
+	}
+	if !json.Valid(raw) {
+		return b, errors.New("json: invalid value in a json field")
+	}
+	return append(b, raw...), nil
+}
+
+func onkEnumInvalid(name string, v int32) error {
+	return fmt.Errorf("%s: invalid value %d", name, v)
+}
+
+func onkSortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+func onkAppendBytes(b []byte, v []byte) []byte {
+	if v == nil {
+		return append(b, "null"...)
+	}
+	b = append(b, '"')
+	b = base64.StdEncoding.AppendEncode(b, v)
+	return append(b, '"')
+}
+
+func onkAppendFloat(b []byte, f float64, bits int) ([]byte, error) {
+	if math.IsInf(f, 0) || math.IsNaN(f) {
+		return b, errors.New("json: unsupported value: " + strconv.FormatFloat(f, 'g', -1, 64))
+	}
+	format := byte('f')
+	if abs := math.Abs(f); abs != 0 {
+		if bits == 64 && (abs < 1e-6 || abs >= 1e21) || bits == 32 && (float32(abs) < 1e-6 || float32(abs) >= 1e21) {
+			format = 'e'
+		}
+	}
+	b = strconv.AppendFloat(b, f, format, -1, bits)
+	if format == 'e' {
+		n := len(b)
+		if n >= 4 && b[n-4] == 'e' && b[n-3] == '-' && b[n-2] == '0' {
+			b[n-2] = b[n-1]
+			b = b[:n-1]
+		}
+	}
+	return b, nil
+}
+
+func onkAppendString(b []byte, s string) []byte {
+	const digits = "0123456789abcdef"
+	b = append(b, '"')
+	start := 0
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c < utf8.RuneSelf {
+			if c >= 0x20 && c != '"' && c != '\\' && c != '<' && c != '>' && c != '&' {
+				i++
+				continue
+			}
+			b = append(b, s[start:i]...)
+			switch c {
+			case '\\', '"':
+				b = append(b, '\\', c)
+			case '\b':
+				b = append(b, '\\', 'b')
+			case '\f':
+				b = append(b, '\\', 'f')
+			case '\n':
+				b = append(b, '\\', 'n')
+			case '\r':
+				b = append(b, '\\', 'r')
+			case '\t':
+				b = append(b, '\\', 't')
+			default:
+				b = append(b, '\\', 'u', '0', '0', digits[c>>4], digits[c&0xF])
+			}
+			i++
+			start = i
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			b = append(b, s[start:i]...)
+			b = append(b, `�`...)
+			i += size
+			start = i
+			continue
+		}
+		if r == ' ' || r == ' ' {
+			b = append(b, s[start:i]...)
+			b = append(b, '\\', 'u', '2', '0', '2', digits[r&0xF])
+			i += size
+			start = i
+			continue
+		}
+		i += size
+	}
+	b = append(b, s[start:]...)
+	return append(b, '"')
+}
 
 // A system user.
 type User struct {
@@ -16,30 +181,45 @@ type User struct {
 	CreatedAt int64  `json:"created_at,omitempty"`
 }
 
-func (m *User) marshalAux() (any, error) {
-	type alias User
-	aux := struct {
-		*alias
-		CreatedAt string `json:"created_at,omitempty"`
-	}{alias: (*alias)(m)}
-	aux.CreatedAt = strconv.FormatInt(m.CreatedAt, 10)
-	return aux, nil
+func (m *User) AppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "null"...), nil
+	}
+	var err error
+	sep := byte('{')
+	if m.Id != "" {
+		b = append(b, sep)
+		b = append(b, "\"id\":"...)
+		sep = ','
+		b = onkAppendString(b, m.Id)
+	}
+	if m.Name != "" {
+		b = append(b, sep)
+		b = append(b, "\"name\":"...)
+		sep = ','
+		b = onkAppendString(b, m.Name)
+	}
+	if m.Email != "" {
+		b = append(b, sep)
+		b = append(b, "\"email\":"...)
+		sep = ','
+		b = onkAppendString(b, m.Email)
+	}
+	b = append(b, sep)
+	b = append(b, "\"created_at\":"...)
+	b = append(b, '"')
+	b = strconv.AppendInt(b, int64(m.CreatedAt), 10)
+	b = append(b, '"')
+	_ = err
+	return append(b, '}'), nil
 }
 
 func (m *User) MarshalJSON() ([]byte, error) {
-	aux, err := m.marshalAux()
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(aux)
+	return onkMarshalJSON(m)
 }
 
 func (m *User) MarshalJSONTo(enc *jsontext.Encoder) error {
-	aux, err := m.marshalAux()
-	if err != nil {
-		return err
-	}
-	return jsonv2.MarshalEncode(enc, aux)
+	return onkMarshalJSONTo(enc, m)
 }
 
 func (m *User) UnmarshalJSON(data []byte) error {
@@ -133,6 +313,43 @@ type EmailAuth struct {
 	TwoFactorCode string `json:"two_factor_code,omitempty"`
 }
 
+func (m *EmailAuth) AppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "null"...), nil
+	}
+	var err error
+	sep := byte('{')
+	if m.Email != "" {
+		b = append(b, sep)
+		b = append(b, "\"email\":"...)
+		sep = ','
+		b = onkAppendString(b, m.Email)
+	}
+	if m.Password != "" {
+		b = append(b, sep)
+		b = append(b, "\"password\":"...)
+		sep = ','
+		b = onkAppendString(b, m.Password)
+	}
+	if m.UseTwoFactor {
+		b = append(b, sep)
+		b = append(b, "\"use_two_factor\":"...)
+		sep = ','
+		b = strconv.AppendBool(b, m.UseTwoFactor)
+	}
+	if m.TwoFactorCode != "" {
+		b = append(b, sep)
+		b = append(b, "\"two_factor_code\":"...)
+		sep = ','
+		b = onkAppendString(b, m.TwoFactorCode)
+	}
+	_ = err
+	if sep == '{' {
+		b = append(b, '{')
+	}
+	return append(b, '}'), nil
+}
+
 func (x *EmailAuth) GetEmail() string {
 	if x == nil {
 		var zero string
@@ -171,30 +388,39 @@ type TokenAuth struct {
 	IssuedAt  int64  `json:"issued_at,omitempty"`
 }
 
-func (m *TokenAuth) marshalAux() (any, error) {
-	type alias TokenAuth
-	aux := struct {
-		*alias
-		IssuedAt string `json:"issued_at,omitempty"`
-	}{alias: (*alias)(m)}
-	aux.IssuedAt = strconv.FormatInt(m.IssuedAt, 10)
-	return aux, nil
+func (m *TokenAuth) AppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "null"...), nil
+	}
+	var err error
+	sep := byte('{')
+	if m.Token != "" {
+		b = append(b, sep)
+		b = append(b, "\"token\":"...)
+		sep = ','
+		b = onkAppendString(b, m.Token)
+	}
+	if m.TokenType != "" {
+		b = append(b, sep)
+		b = append(b, "\"token_type\":"...)
+		sep = ','
+		b = onkAppendString(b, m.TokenType)
+	}
+	b = append(b, sep)
+	b = append(b, "\"issued_at\":"...)
+	b = append(b, '"')
+	b = strconv.AppendInt(b, int64(m.IssuedAt), 10)
+	b = append(b, '"')
+	_ = err
+	return append(b, '}'), nil
 }
 
 func (m *TokenAuth) MarshalJSON() ([]byte, error) {
-	aux, err := m.marshalAux()
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(aux)
+	return onkMarshalJSON(m)
 }
 
 func (m *TokenAuth) MarshalJSONTo(enc *jsontext.Encoder) error {
-	aux, err := m.marshalAux()
-	if err != nil {
-		return err
-	}
-	return jsonv2.MarshalEncode(enc, aux)
+	return onkMarshalJSONTo(enc, m)
 }
 
 func (m *TokenAuth) UnmarshalJSON(data []byte) error {
@@ -246,6 +472,56 @@ type SocialAuth struct {
 	RedirectUri string   `json:"redirect_uri,omitempty"`
 	State       string   `json:"state,omitempty"`
 	Permissions []string `json:"permissions,omitempty"`
+}
+
+func (m *SocialAuth) AppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "null"...), nil
+	}
+	var err error
+	sep := byte('{')
+	if m.Provider != "" {
+		b = append(b, sep)
+		b = append(b, "\"provider\":"...)
+		sep = ','
+		b = onkAppendString(b, m.Provider)
+	}
+	if m.AccessToken != "" {
+		b = append(b, sep)
+		b = append(b, "\"access_token\":"...)
+		sep = ','
+		b = onkAppendString(b, m.AccessToken)
+	}
+	if m.RedirectUri != "" {
+		b = append(b, sep)
+		b = append(b, "\"redirect_uri\":"...)
+		sep = ','
+		b = onkAppendString(b, m.RedirectUri)
+	}
+	if m.State != "" {
+		b = append(b, sep)
+		b = append(b, "\"state\":"...)
+		sep = ','
+		b = onkAppendString(b, m.State)
+	}
+	if len(m.Permissions) > 0 {
+		b = append(b, sep)
+		b = append(b, "\"permissions\":"...)
+		sep = ','
+		b = append(b, '[')
+		for i := range m.Permissions {
+			if i > 0 {
+				b = append(b, ',')
+			}
+			b = onkAppendString(b, m.Permissions[i])
+		}
+		b = append(b, ']')
+	}
+	_ = err
+	if sep == '{' {
+		b = append(b, '{')
+	}
+	return append(b, '}'), nil
 }
 
 func (x *SocialAuth) GetProvider() string {
@@ -300,39 +576,110 @@ type LoginRequest struct {
 	Scopes     []string               `json:"scopes,omitempty"`
 }
 
-func (m *LoginRequest) marshalAux() (any, error) {
-	type alias LoginRequest
-	aux := struct {
-		*alias
-		AuthMethod *wireLoginRequestAuthMethod `json:"auth_method,omitempty"`
-		Timestamp  string                      `json:"timestamp,omitempty"`
-	}{alias: (*alias)(m)}
-	switch v := m.AuthMethod.(type) {
-	case *LoginRequestAuthMethodEmail:
-		aux.AuthMethod = &wireLoginRequestAuthMethod{Tag: "email", VEmail: v.Email}
-	case *LoginRequestAuthMethodToken:
-		aux.AuthMethod = &wireLoginRequestAuthMethod{Tag: "token", VToken: v.Token}
-	case *LoginRequestAuthMethodSocial:
-		aux.AuthMethod = &wireLoginRequestAuthMethod{Tag: "social", VSocial: v.Social}
+func (m *LoginRequest) AppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "null"...), nil
 	}
-	aux.Timestamp = strconv.FormatInt(m.Timestamp, 10)
-	return aux, nil
+	var err error
+	sep := byte('{')
+	if m.DeviceId != "" {
+		b = append(b, sep)
+		b = append(b, "\"device_id\":"...)
+		sep = ','
+		b = onkAppendString(b, m.DeviceId)
+	}
+	if m.IpAddress != "" {
+		b = append(b, sep)
+		b = append(b, "\"ip_address\":"...)
+		sep = ','
+		b = onkAppendString(b, m.IpAddress)
+	}
+	if m.RetryCount != 0 {
+		b = append(b, sep)
+		b = append(b, "\"retry_count\":"...)
+		sep = ','
+		b = strconv.AppendInt(b, int64(m.RetryCount), 10)
+	}
+	if m.UserAgent != "" {
+		b = append(b, sep)
+		b = append(b, "\"user_agent\":"...)
+		sep = ','
+		b = onkAppendString(b, m.UserAgent)
+	}
+	if m.AuthMethod != nil {
+		b = append(b, sep)
+		b = append(b, "\"auth_method\":"...)
+		sep = ','
+		switch v := m.AuthMethod.(type) {
+		case *LoginRequestAuthMethodEmail:
+			b = append(b, "{\"auth_type\":\"email\""...)
+			if v.Email != nil {
+				b = append(b, ",\"email\":"...)
+				if b, err = v.Email.AppendJSON(b); err != nil {
+					return b, err
+				}
+			}
+			b = append(b, '}')
+		case *LoginRequestAuthMethodToken:
+			b = append(b, "{\"auth_type\":\"token\""...)
+			if v.Token != nil {
+				b = append(b, ",\"token\":"...)
+				if b, err = v.Token.AppendJSON(b); err != nil {
+					return b, err
+				}
+			}
+			b = append(b, '}')
+		case *LoginRequestAuthMethodSocial:
+			b = append(b, "{\"auth_type\":\"social\""...)
+			if v.Social != nil {
+				b = append(b, ",\"social\":"...)
+				if b, err = v.Social.AppendJSON(b); err != nil {
+					return b, err
+				}
+			}
+			b = append(b, '}')
+		default:
+			b = append(b, "null"...)
+		}
+	}
+	if m.RememberMe {
+		b = append(b, sep)
+		b = append(b, "\"remember_me\":"...)
+		sep = ','
+		b = strconv.AppendBool(b, m.RememberMe)
+	}
+	if m.SessionId != "" {
+		b = append(b, sep)
+		b = append(b, "\"session_id\":"...)
+		sep = ','
+		b = onkAppendString(b, m.SessionId)
+	}
+	b = append(b, sep)
+	b = append(b, "\"timestamp\":"...)
+	b = append(b, '"')
+	b = strconv.AppendInt(b, int64(m.Timestamp), 10)
+	b = append(b, '"')
+	if len(m.Scopes) > 0 {
+		b = append(b, ",\"scopes\":"...)
+		b = append(b, '[')
+		for i := range m.Scopes {
+			if i > 0 {
+				b = append(b, ',')
+			}
+			b = onkAppendString(b, m.Scopes[i])
+		}
+		b = append(b, ']')
+	}
+	_ = err
+	return append(b, '}'), nil
 }
 
 func (m *LoginRequest) MarshalJSON() ([]byte, error) {
-	aux, err := m.marshalAux()
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(aux)
+	return onkMarshalJSON(m)
 }
 
 func (m *LoginRequest) MarshalJSONTo(enc *jsontext.Encoder) error {
-	aux, err := m.marshalAux()
-	if err != nil {
-		return err
-	}
-	return jsonv2.MarshalEncode(enc, aux)
+	return onkMarshalJSONTo(enc, m)
 }
 
 func (m *LoginRequest) UnmarshalJSON(data []byte) error {
@@ -496,30 +843,45 @@ type LoginResponse struct {
 	User         *User  `json:"user,omitempty"`
 }
 
-func (m *LoginResponse) marshalAux() (any, error) {
-	type alias LoginResponse
-	aux := struct {
-		*alias
-		ExpiresIn string `json:"expires_in,omitempty"`
-	}{alias: (*alias)(m)}
-	aux.ExpiresIn = strconv.FormatInt(m.ExpiresIn, 10)
-	return aux, nil
+func (m *LoginResponse) AppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "null"...), nil
+	}
+	var err error
+	sep := byte('{')
+	if m.AccessToken != "" {
+		b = append(b, sep)
+		b = append(b, "\"access_token\":"...)
+		sep = ','
+		b = onkAppendString(b, m.AccessToken)
+	}
+	if m.RefreshToken != "" {
+		b = append(b, sep)
+		b = append(b, "\"refresh_token\":"...)
+		sep = ','
+		b = onkAppendString(b, m.RefreshToken)
+	}
+	b = append(b, sep)
+	b = append(b, "\"expires_in\":"...)
+	b = append(b, '"')
+	b = strconv.AppendInt(b, int64(m.ExpiresIn), 10)
+	b = append(b, '"')
+	if m.User != nil {
+		b = append(b, ",\"user\":"...)
+		if b, err = m.User.AppendJSON(b); err != nil {
+			return b, err
+		}
+	}
+	_ = err
+	return append(b, '}'), nil
 }
 
 func (m *LoginResponse) MarshalJSON() ([]byte, error) {
-	aux, err := m.marshalAux()
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(aux)
+	return onkMarshalJSON(m)
 }
 
 func (m *LoginResponse) MarshalJSONTo(enc *jsontext.Encoder) error {
-	aux, err := m.marshalAux()
-	if err != nil {
-		return err
-	}
-	return jsonv2.MarshalEncode(enc, aux)
+	return onkMarshalJSONTo(enc, m)
 }
 
 func (m *LoginResponse) UnmarshalJSON(data []byte) error {

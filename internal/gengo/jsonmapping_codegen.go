@@ -94,7 +94,11 @@ func categorizeFields(m *onkir.Message) fieldCategories {
 
 func writeCustomJSONMethods(p *Printer, m *onkir.Message) {
 	c := categorizeFields(m)
-	writeCustomMarshalJSON(p, m, c)
+	if p.appendable(m) {
+		writeAppendJSONMethods(p, m, true)
+	} else {
+		writeCustomMarshalJSON(p, m, c)
+	}
 	if c.needsUnmarshal() {
 		writeCustomUnmarshalJSON(p, m, c)
 	}
