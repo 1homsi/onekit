@@ -61,7 +61,7 @@ func NewMockServer(dir string, opts MockOptions) (*MockServer, error) {
 	if cfg != nil {
 		root = cfg.SchemaDir()
 	}
-	pkg, err := CompileWithOptions(root, options)
+	pkg, err := compileTree(root, cfg.schemaExtensions(), options)
 	if err != nil {
 		return nil, err
 	}

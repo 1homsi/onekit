@@ -140,7 +140,7 @@ func sameExecutable(entry *buildCacheEntry) bool {
 }
 
 func buildFingerprint(cfg *Config) (string, error) {
-	paths, err := discoverOnkFiles(cfg.SchemaDir())
+	paths, err := discoverSchemaFiles(cfg.SchemaDir(), cfg.schemaExtensions())
 	if err != nil {
 		return "", err
 	}
