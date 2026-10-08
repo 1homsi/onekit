@@ -68,7 +68,7 @@ func GenerateServerRuntime(packageName string, hasWS bool, contentType string) (
 	p.P("package ", packageName)
 	p.P()
 	p.P("import (")
-	for _, imp := range []string{"bytes", "context", "crypto/rand", "encoding/hex", "encoding/json", "errors", "net/http", "strings", "time"} {
+	for _, imp := range []string{"bytes", "context", "crypto/rand", "encoding/hex", "encoding/json", "errors", "net/http", "strings", "sync", "time"} {
 		p.P(strconv.Quote(imp))
 	}
 	if hasWS {
@@ -76,16 +76,7 @@ func GenerateServerRuntime(packageName string, hasWS bool, contentType string) (
 	}
 	p.P(")")
 	p.P()
-	p.P(`func writeJSON(w http.ResponseWriter, status int, value any) {`)
-	p.P(`data, err := json.Marshal(value)`)
-	p.P(`if err != nil {`)
-	p.P(`writeJSONError(w, http.StatusInternalServerError, "internal server error")`)
-	p.P(`return`)
-	p.P(`}`)
-	p.P(`w.Header().Set("Content-Type", `, jsonContentTypeLiteral(contentType), `)`)
-	p.P(`w.WriteHeader(status)`)
-	p.P(`_, _ = w.Write(append(data, '\n'))`)
-	p.P(`}`)
+	writeJSONFunc(p, contentType)
 	p.P()
 	p.P(`func writeJSONError(w http.ResponseWriter, status int, message string) {`)
 	p.P(`w.Header().Set("Content-Type", `, jsonContentTypeLiteral(contentType), `)`)

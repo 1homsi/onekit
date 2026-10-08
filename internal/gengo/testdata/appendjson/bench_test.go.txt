@@ -1,0 +1,172 @@
+package bench
+
+import (
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
+	"fmt"
+	"testing"
+	"time"
+
+	fresh "example.com/bench/fresh"
+	legacy "example.com/bench/legacy"
+)
+
+type pEnv struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type pResource struct {
+	Id         string            `json:"id"`
+	Name       string            `json:"name"`
+	Kind       string            `json:"kind"`
+	Size       int64             `json:"size"`
+	Ratio      float64           `json:"ratio"`
+	Active     bool              `json:"active"`
+	FolderId   *int64            `json:"folder_id"`
+	Note       *string           `json:"note"`
+	Tags       []string          `json:"tags"`
+	Headers    map[string]string `json:"headers"`
+	SecretKeys []string          `json:"secret_keys"`
+	Config     json.RawMessage   `json:"config,omitempty"`
+	CreatedAt  time.Time         `json:"created_at"`
+	Env        []*pEnv           `json:"env"`
+	Owner      *pEnv             `json:"owner,omitempty"`
+}
+
+type pList struct {
+	Resources []*pResource `json:"resources"`
+}
+
+const cfg = `{"region":"eu-west-1","replicas":3,"features":["a","b","c"],"limits":{"cpu":"500m","memory":"256Mi"},"labels":{"team":"core","tier":"backend"}}`
+
+func plainList(n int) *pList {
+	l := &pList{}
+	for i := 0; i < n; i++ {
+		id := int64(100 + i)
+		l.Resources = append(l.Resources, &pResource{
+			Id: fmt.Sprintf("res-%04d", i), Name: "Billing service " + fmt.Sprint(i), Kind: "service", Size: int64(4096 * (i + 1)), Ratio: 0.75, Active: true,
+			FolderId: &id, Tags: []string{"prod", "billing", "eu"},
+			Headers:    map[string]string{"X-Team": "core", "X-Env": "prod", "Accept": "application/json", "X-Trace": "on"},
+			SecretKeys: []string{"DB_PASSWORD", "API_TOKEN"},
+			Config:     json.RawMessage(cfg), CreatedAt: time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC),
+			Env:   []*pEnv{{"A", "1"}, {"B", "2"}, {"C", "3"}},
+			Owner: &pEnv{"owner", "ops"},
+		})
+	}
+	return l
+}
+
+func freshList(n int) *fresh.ResourceList {
+	l := &fresh.ResourceList{}
+	for i := 0; i < n; i++ {
+		id := int64(100 + i)
+		l.Resources = append(l.Resources, &fresh.Resource{
+			Id: fmt.Sprintf("res-%04d", i), Name: "Billing service " + fmt.Sprint(i), Kind: "service", Size: int64(4096 * (i + 1)), Ratio: 0.75, Active: true,
+			FolderId: &id, NoteNull: true, Tags: []string{"prod", "billing", "eu"},
+			Headers:    map[string]string{"X-Team": "core", "X-Env": "prod", "Accept": "application/json", "X-Trace": "on"},
+			SecretKeys: []string{"DB_PASSWORD", "API_TOKEN"},
+			Config:     json.RawMessage(cfg), CreatedAt: time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC),
+			Env:   []*fresh.Env{{Key: "A", Value: "1"}, {Key: "B", Value: "2"}, {Key: "C", Value: "3"}},
+			Owner: &fresh.Env{Key: "owner", Value: "ops"},
+		})
+	}
+	return l
+}
+
+func legacyList(n int) *legacy.ResourceList {
+	l := &legacy.ResourceList{}
+	for i := 0; i < n; i++ {
+		id := int64(100 + i)
+		l.Resources = append(l.Resources, &legacy.Resource{
+			Id: fmt.Sprintf("res-%04d", i), Name: "Billing service " + fmt.Sprint(i), Kind: "service", Size: int64(4096 * (i + 1)), Ratio: 0.75, Active: true,
+			FolderId: &id, NoteNull: true, Tags: []string{"prod", "billing", "eu"},
+			Headers:    map[string]string{"X-Team": "core", "X-Env": "prod", "Accept": "application/json", "X-Trace": "on"},
+			SecretKeys: []string{"DB_PASSWORD", "API_TOKEN"},
+			Config:     json.RawMessage(cfg), CreatedAt: time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC),
+			Env:   []*legacy.Env{{Key: "A", Value: "1"}, {Key: "B", Value: "2"}, {Key: "C", Value: "3"}},
+			Owner: &legacy.Env{Key: "owner", Value: "ops"},
+		})
+	}
+	return l
+}
+
+func BenchmarkEncode(b *testing.B) {
+	for _, n := range []int{1, 10, 30} {
+		p, f, l := plainList(n), freshList(n), legacyList(n)
+		b.Run(fmt.Sprintf("n=%d/plain-struct-json.Marshal", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				if _, err := json.Marshal(p); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("n=%d/before-json.Marshal", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				if _, err := json.Marshal(l); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("n=%d/after-json.Marshal", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				if _, err := json.Marshal(f); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("n=%d/before-jsonv2.Marshal", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				if _, err := jsonv2.Marshal(l); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("n=%d/after-jsonv2.Marshal", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				if _, err := jsonv2.Marshal(f); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("n=%d/after-AppendJSON(reused-buffer)", n), func(b *testing.B) {
+			b.ReportAllocs()
+			buf := make([]byte, 0, 1<<16)
+			for i := 0; i < b.N; i++ {
+				var err error
+				if buf, err = f.AppendJSON(buf[:0]); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkDecode(b *testing.B) {
+	for _, n := range []int{10, 30} {
+		data, _ := json.Marshal(plainList(n))
+		b.Run(fmt.Sprintf("n=%d/plain-struct", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				var v pList
+				if err := json.Unmarshal(data, &v); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("n=%d/generated", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				var v fresh.ResourceList
+				if err := json.Unmarshal(data, &v); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}

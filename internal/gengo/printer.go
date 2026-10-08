@@ -15,6 +15,8 @@ type Printer struct {
 	b             strings.Builder
 	resolver      PackageResolver
 	principalType string
+	appendMemo    map[*onkir.Message]bool
+	appendPulled  map[*onkir.Message]bool
 }
 
 func newPrinter(resolver PackageResolver) *Printer {

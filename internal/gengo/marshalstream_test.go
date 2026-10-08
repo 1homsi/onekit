@@ -69,7 +69,7 @@ func build(n int) (*app.List, *plainList) {
 func main() {
 	empty, err := json.Marshal(&app.List{})
 	if err != nil { panic(err) }
-	if string(empty) != ` + "`{\"note\":\"\",\"rows\":[],\"labels\":{}}`" + ` {
+	if string(empty) != ` + "`{\"rows\":[],\"labels\":{},\"note\":\"\"}`" + ` {
 		fmt.Println("bad empty:", string(empty)); os.Exit(1)
 	}
 	l, p := build(200)

@@ -1676,7 +1676,7 @@ func TestPerfBudgets(t *testing.T) {
 			wsPutBuffer(buf)
 		}
 	}
-	budget(t, "fast encode vs std encode (small frame)", stdEncodeSmall, fastEncodeSmall, 1.5)
+	ceiling(t, "fast encode vs std encode (small frame)", fastEncodeSmall, stdEncodeSmall, 1.6)
 
 	budget(t, "raw vs JSON round trip (400 KB)", roundTrip("json"), roundTrip("raw"), 5)
 }

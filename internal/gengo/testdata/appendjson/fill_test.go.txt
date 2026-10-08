@@ -1,0 +1,150 @@
+package diff
+
+import (
+	"encoding/json"
+	"math"
+	"math/rand"
+	"reflect"
+	"testing"
+	"time"
+)
+
+type filler struct {
+	rng      *rand.Rand
+	variants []reflect.Type
+}
+
+var strs = []string{"", "a", "hello", "<b>&amp;</b>", "tab\there", "nl\n", "quote\"", "back\\", "uni\u00e9\u2028\u2029", "bad\xff", "ctl\x01\x1f", "emoji😀"}
+
+func (f *filler) fill(v reflect.Value, depth int) {
+	switch v.Kind() {
+	case reflect.String:
+		v.SetString(strs[f.rng.Intn(len(strs))])
+	case reflect.Bool:
+		v.SetBool(f.rng.Intn(2) == 0)
+	case reflect.Int32, reflect.Int64, reflect.Int:
+		if f.rng.Intn(3) == 0 {
+			v.SetInt(0)
+		} else if v.Type().Kind() == reflect.Int32 && v.Type().Name() != "int32" {
+			v.SetInt(int64(f.rng.Intn(3)))
+		} else {
+			v.SetInt(f.rng.Int63n(1<<40) - 1<<39)
+		}
+	case reflect.Uint32, reflect.Uint64:
+		if f.rng.Intn(3) == 0 {
+			v.SetUint(0)
+		} else {
+			v.SetUint(uint64(f.rng.Int63n(1 << 40)))
+		}
+	case reflect.Float32, reflect.Float64:
+		choices := []float64{0, 1, -1.5, 3.14159, 1e-7, 1e21, 123456789.125, math.MaxFloat32 / 4, 2.5e-9}
+		v.SetFloat(choices[f.rng.Intn(len(choices))])
+	case reflect.Slice:
+		if v.Type().Elem().Kind() == reflect.Uint8 {
+			if v.Type() == reflect.TypeOf(json.RawMessage(nil)) {
+				raws := []string{"", `{"a":1,"b":[1,2,{"c":"<x>"}]}`, `[1, 2 ,3]`, `"s"`, `null`, `12.5`}
+				v.SetBytes([]byte(raws[f.rng.Intn(len(raws))]))
+				return
+			}
+			switch f.rng.Intn(3) {
+			case 0:
+			case 1:
+				v.SetBytes([]byte{})
+			default:
+				b := make([]byte, f.rng.Intn(6)+1)
+				f.rng.Read(b)
+				v.SetBytes(b)
+			}
+			return
+		}
+		switch f.rng.Intn(4) {
+		case 0:
+			return
+		case 1:
+			v.Set(reflect.MakeSlice(v.Type(), 0, 0))
+			return
+		}
+		n := f.rng.Intn(4) + 1
+		if depth > 3 {
+			n = 0
+		}
+		s := reflect.MakeSlice(v.Type(), n, n)
+		for i := 0; i < n; i++ {
+			f.fill(s.Index(i), depth+1)
+		}
+		v.Set(s)
+	case reflect.Map:
+		switch f.rng.Intn(4) {
+		case 0:
+			return
+		case 1:
+			v.Set(reflect.MakeMap(v.Type()))
+			return
+		}
+		m := reflect.MakeMap(v.Type())
+		n := f.rng.Intn(4) + 1
+		for i := 0; i < n && depth <= 3; i++ {
+			k := reflect.New(v.Type().Key()).Elem()
+			f.fill(k, depth+1)
+			e := reflect.New(v.Type().Elem()).Elem()
+			f.fill(e, depth+1)
+			m.SetMapIndex(k, e)
+		}
+		v.Set(m)
+	case reflect.Pointer:
+		if f.rng.Intn(3) == 0 || depth > 3 {
+			return
+		}
+		p := reflect.New(v.Type().Elem())
+		f.fill(p.Elem(), depth+1)
+		v.Set(p)
+	case reflect.Interface:
+		if f.rng.Intn(4) == 0 || depth > 3 {
+			return
+		}
+		var ok []reflect.Type
+		for _, vt := range f.variants {
+			if vt.Implements(v.Type()) {
+				ok = append(ok, vt)
+			}
+		}
+		if len(ok) == 0 {
+			return
+		}
+		vt := ok[f.rng.Intn(len(ok))]
+		p := reflect.New(vt.Elem())
+		f.fill(p.Elem(), depth+1)
+		v.Set(p)
+	case reflect.Struct:
+		if v.Type() == reflect.TypeOf(time.Time{}) {
+			v.Set(reflect.ValueOf(time.Unix(f.rng.Int63n(4e9), int64(f.rng.Intn(1000000000))).UTC()))
+			return
+		}
+		for i := 0; i < v.NumField(); i++ {
+			if v.Type().Field(i).IsExported() {
+				f.fill(v.Field(i), depth+1)
+			}
+		}
+	}
+}
+
+func (f *filler) fillKitchen(k reflect.Value) {
+	f.fill(k, 0)
+}
+
+func equalJSON(t *testing.T, a, b []byte) bool {
+	var x, y any
+	if err := json.Unmarshal(a, &x); err != nil {
+		t.Fatalf("fresh not json: %v: %s", err, a)
+	}
+	if err := json.Unmarshal(b, &y); err != nil {
+		t.Fatalf("legacy not json: %v: %s", err, b)
+	}
+	return reflect.DeepEqual(x, y)
+}
+
+
+
+func bigYear() time.Time {
+	return time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC)
+}
