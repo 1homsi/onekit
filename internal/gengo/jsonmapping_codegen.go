@@ -30,7 +30,7 @@ func (c fieldCategories) needsUnmarshal() bool {
 }
 
 func zeroMessageField(f *onkir.Field) bool {
-	return f.AlwaysSent && f.Type != nil && f.Type.Kind == onkir.KindMessage
+	return f.AlwaysSent && !f.Nullable && f.Type != nil && f.Type.Kind == onkir.KindMessage
 }
 
 func zeroCollectionField(f *onkir.Field) bool {
@@ -213,6 +213,11 @@ func writeAuxFieldDecls(p *Printer, m *onkir.Message, c fieldCategories, include
 	for _, f := range c.flattens {
 		p.P(GoFieldName(f), " json.RawMessage `json:\"", f.Name, ",omitempty\"`")
 	}
+	if len(c.flattens) == 0 {
+		for _, f := range c.nulls {
+			p.P(GoFieldName(f), " ", nullableAuxType(p, f), " `json:\"", f.Name, ",omitzero\"`")
+		}
+	}
 	if includeEmpty {
 		for _, f := range c.emptys {
 			p.P(GoFieldName(f), " json.RawMessage `json:\"", f.Name, ",omitempty\"`")
@@ -228,6 +233,29 @@ func zeroCollectionType(p *Printer, f *onkir.Field) string {
 		return "[]" + p.repeatedItemType(f)
 	}
 	return p.GoFieldType(f.Type)
+}
+
+func nullableAuxType(p *Printer, f *onkir.Field) string {
+	return "onkNullable[" + strings.TrimPrefix(p.GoFieldType(f.Type), "*") + "]"
+}
+
+func writeNullableMarshalAssignments(p *Printer, c fieldCategories) {
+	for _, f := range c.nulls {
+		goName := GoFieldName(f)
+		null := "m." + goName + "Null"
+		if f.AlwaysSent {
+			null = "true"
+		}
+		p.P("aux.", goName, " = ", nullableAuxType(p, f), "{V: m.", goName, ", Null: ", null, "}")
+	}
+}
+
+func writeNullableUnmarshalAssignments(p *Printer, c fieldCategories) {
+	for _, f := range c.nulls {
+		goName := GoFieldName(f)
+		p.P("m.", goName, " = aux.", goName, ".V")
+		p.P("m.", goName, "Null = aux.", goName, ".Null")
+	}
 }
 
 func writeZeroCollectionAssignments(p *Printer, c fieldCategories) {
@@ -353,7 +381,7 @@ func writeFlattenMarshalMerge(p *Printer, c fieldCategories) {
 }
 
 func (c fieldCategories) streamsMarshal() bool {
-	return len(c.flattens) == 0 && len(c.nulls) == 0
+	return len(c.flattens) == 0
 }
 
 func messageStreamsJSON(m *onkir.Message) bool {
@@ -421,6 +449,9 @@ func writeMarshalAuxBuild(p *Printer, m *onkir.Message, c fieldCategories) {
 	writeTimestampMarshalAssignments(p, c)
 	writeEmptyMarshalAssignments(p, c)
 	writeZeroCollectionAssignments(p, c)
+	if len(c.flattens) == 0 {
+		writeNullableMarshalAssignments(p, c)
+	}
 }
 
 func writeCustomMarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
@@ -694,13 +725,13 @@ func writeCustomUnmarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
 	writeBytesUnmarshalAssignments(p, c)
 	writeTimestampUnmarshalAssignments(p, c)
 
-	if len(c.flattens) > 0 || len(c.nulls) > 0 {
-		writeRawObjectDecl(p)
-	}
 	if len(c.flattens) > 0 {
+		writeRawObjectDecl(p)
 		writeFlattenUnmarshalAssignments(p, c)
+		writeNullUnmarshalAssignments(p, c)
+	} else {
+		writeNullableUnmarshalAssignments(p, c)
 	}
-	writeNullUnmarshalAssignments(p, c)
 
 	p.P("return nil")
 	p.P("}")

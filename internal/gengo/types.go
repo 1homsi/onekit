@@ -315,6 +315,9 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) ([]by
 		imp.context, imp.time = true, true
 	}
 	writeTypesImports(p, imp, collectExternalRefs(file, resolver))
+	if fileHasShadowNullable(file) {
+		writeNullableHelper(p)
+	}
 
 	for _, e := range file.Enums {
 		writeEnum(p, e)
