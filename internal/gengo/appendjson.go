@@ -103,7 +103,7 @@ func (p *Printer) isExternalEnum(e *onkir.Enum) bool {
 
 func (p *Printer) appendFieldSupported(f *onkir.Field) bool {
 	if f.Oneof != nil {
-		if f.Oneof.Flatten() {
+		if f.Oneof.Flatten() || len(f.Oneof.Variants) > 62 {
 			return false
 		}
 		for _, v := range f.Oneof.Variants {
@@ -259,6 +259,21 @@ func (p *Printer) pullAppendChildren(file *onkir.File) {
 	for _, m := range roots {
 		if p.appendable(m) {
 			queue = append(queue, m)
+		}
+	}
+	for _, s := range file.Services {
+		for _, method := range s.Methods {
+			if method.IsWebSocket() || method.IsRawHTTP() {
+				continue
+			}
+			wire := append([]*onkir.Message{method.Request, method.Response}, method.ErrorTypes...)
+			for _, m := range wire {
+				if m == nil || !inFile[m] || p.isExternal(m) || p.appendable(m) || p.appendPulled[m] || !p.appendEligible(m) {
+					continue
+				}
+				p.appendPulled[m] = true
+				queue = append(queue, m)
+			}
 		}
 	}
 	for len(queue) > 0 {

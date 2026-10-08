@@ -96,11 +96,12 @@ func writeCustomJSONMethods(p *Printer, m *onkir.Message) {
 	c := categorizeFields(m)
 	if p.appendable(m) {
 		writeAppendJSONMethods(p, m, true)
-	} else {
-		writeCustomMarshalJSON(p, m, c)
+		writeDecodeJSONMethods(p, m, c, true)
+		return
 	}
+	writeCustomMarshalJSON(p, m, c)
 	if c.needsUnmarshal() {
-		writeCustomUnmarshalJSON(p, m, c)
+		writeCustomUnmarshalJSON(p, m, c, "UnmarshalJSON")
 	}
 }
 
@@ -710,8 +711,8 @@ func writeFlattenUnmarshalAssignments(p *Printer, c fieldCategories) {
 	}
 }
 
-func writeCustomUnmarshalJSON(p *Printer, m *onkir.Message, c fieldCategories) {
-	p.P("func (m *", m.Name, ") UnmarshalJSON(data []byte) error {")
+func writeCustomUnmarshalJSON(p *Printer, m *onkir.Message, c fieldCategories, name string) {
+	p.P("func (m *", m.Name, ") ", name, "(data []byte) error {")
 	p.P("type alias ", m.Name)
 	p.P("aux := struct {")
 	p.P("*alias")

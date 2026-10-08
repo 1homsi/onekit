@@ -49,6 +49,29 @@ func readResponseBody(body io.Reader, limit int64) ([]byte, error) {
 	return data, nil
 }
 
+func unmarshalJSONValue(data []byte, v any) error {
+	if d, ok := v.(interface{ DecodeJSON([]byte) error }); ok {
+		return d.DecodeJSON(data)
+	}
+	return json.Unmarshal(data, v)
+}
+
+func marshalRequestJSON(v any) ([]byte, error) {
+	if a, ok := v.(interface{ AppendJSON([]byte) ([]byte, error) }); ok {
+		return a.AppendJSON(make([]byte, 0, 512))
+	}
+	return json.Marshal(v)
+}
+
+func jsonBlank(data []byte) bool {
+	for _, c := range data {
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			return false
+		}
+	}
+	return true
+}
+
 type CallOption func(*http.Request)
 
 func WithHeader(name, value string) CallOption {
@@ -90,7 +113,7 @@ func (c *UserServiceClient) CreateUser(ctx context.Context, req *CreateUserReque
 		}
 	}
 	path := "/api/v1/users"
-	body, err := json.Marshal(req)
+	body, err := marshalRequestJSON(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
@@ -117,7 +140,11 @@ func (c *UserServiceClient) CreateUser(ctx context.Context, req *CreateUserReque
 		return nil, &UnexpectedStatusError{StatusCode: resp.StatusCode, Header: resp.Header, Body: respBody}
 	}
 	result := new(User)
-	if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil && err != io.EOF {
+	data, err := readResponseBody(resp.Body, c.MaxResponseBodyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	if err := unmarshalJSONValue(data, result); err != nil && !jsonBlank(data) {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return result, nil
@@ -131,7 +158,7 @@ func (c *UserServiceClient) GetUser(ctx context.Context, req *GetUserRequest, op
 		}
 	}
 	path := "/api/v1/users/get"
-	body, err := json.Marshal(req)
+	body, err := marshalRequestJSON(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
@@ -158,7 +185,11 @@ func (c *UserServiceClient) GetUser(ctx context.Context, req *GetUserRequest, op
 		return nil, &UnexpectedStatusError{StatusCode: resp.StatusCode, Header: resp.Header, Body: respBody}
 	}
 	result := new(User)
-	if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil && err != io.EOF {
+	data, err := readResponseBody(resp.Body, c.MaxResponseBodyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	if err := unmarshalJSONValue(data, result); err != nil && !jsonBlank(data) {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return result, nil
@@ -172,7 +203,7 @@ func (c *UserServiceClient) Login(ctx context.Context, req *LoginRequest, opts .
 		}
 	}
 	path := "/api/v1/auth/login"
-	body, err := json.Marshal(req)
+	body, err := marshalRequestJSON(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
@@ -199,7 +230,11 @@ func (c *UserServiceClient) Login(ctx context.Context, req *LoginRequest, opts .
 		return nil, &UnexpectedStatusError{StatusCode: resp.StatusCode, Header: resp.Header, Body: respBody}
 	}
 	result := new(LoginResponse)
-	if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil && err != io.EOF {
+	data, err := readResponseBody(resp.Body, c.MaxResponseBodyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	if err := unmarshalJSONValue(data, result); err != nil && !jsonBlank(data) {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return result, nil

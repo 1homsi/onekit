@@ -141,7 +141,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		}
 		p.P(fmt.Sprintf("if resp.StatusCode == %d {", status))
 		p.P("e := new(", p.MessageTypeName(errType), ")")
-		p.P("if jsonErr := json.Unmarshal(respBody, e); jsonErr == nil {")
+		p.P("if jsonErr := unmarshalJSONValue(respBody, e); jsonErr == nil {")
 		p.P("return nil, e")
 		p.P("}")
 		p.P("}")

@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/rand"
 	"reflect"
+	"strings"
 	"testing"
 
 	fresh "example.com/diff/FRESHDIR"
@@ -152,5 +153,161 @@ func TestNilReceiverEncodesNull(t *testing.T) {
 	out, err := k.AppendJSON(nil)
 	if err != nil || string(out) != "null" {
 		t.Fatalf("got %q, %v", out, err)
+	}
+}
+
+type decoder interface {
+	DecodeJSON([]byte) error
+}
+
+func decodeBoth(t *testing.T, name string, seed int, input []byte, mk func() (any, any)) {
+	t.Helper()
+	fb, lb := mk()
+	var ferr, derr, lerr error
+	ferr = json.Unmarshal(input, fb)
+	db, _ := mk()
+	if d, ok := db.(decoder); ok {
+		derr = d.DecodeJSON(input)
+	} else {
+		derr = ferr
+		db = fb
+	}
+	lerr = json.Unmarshal(input, lb)
+	if (ferr == nil) != (lerr == nil) || (derr == nil) != (lerr == nil) {
+		t.Fatalf("%s #%d: accept mismatch unmarshal=%v decode=%v legacy=%v\n%s", name, seed, ferr, derr, lerr, input)
+	}
+	if lerr != nil {
+		return
+	}
+	want, err := json.Marshal(lb)
+	if err != nil {
+		return
+	}
+	for label, v := range map[string]any{"unmarshal": fb, "decode": db} {
+		got, err := json.Marshal(v)
+		if err != nil || !equalJSON(t, got, want) {
+			t.Fatalf("%s #%d: %s result differs: %v\n%s\ninput: %s\nwant:  %s", name, seed, label, err, got, input, want)
+		}
+	}
+	if !reflect.DeepEqual(toAny(t, fb), toAny(t, lb)) {
+		t.Fatalf("%s #%d: structure differs\ninput: %s", name, seed, input)
+	}
+}
+
+func toAny(t *testing.T, v any) any {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err.Error()
+	}
+	var out any
+	_ = json.Unmarshal(b, &out)
+	return out
+}
+
+func mutate(r *rand.Rand, data []byte) []byte {
+	out := append([]byte(nil), data...)
+	if len(out) == 0 {
+		return out
+	}
+	switch r.Intn(6) {
+	case 0:
+		out = out[:r.Intn(len(out))]
+	case 1:
+		out[r.Intn(len(out))] = "{}[]\",:0-.e \\tfn"[r.Intn(16)]
+	case 2:
+		i := r.Intn(len(out))
+		out = append(out[:i], out[i+1:]...)
+	case 3:
+		i := r.Intn(len(out))
+		out = append(out[:i], append([]byte{"{}[]\",:"[r.Intn(7)]}, out[i:]...)...)
+	case 4:
+		out = append(out, " x"[r.Intn(2)])
+	default:
+		i := r.Intn(len(out))
+		out[i] = byte(r.Intn(256))
+	}
+	return out
+}
+
+func nullOut(r *rand.Rand, data []byte) []byte {
+	var m map[string]any
+	if json.Unmarshal(data, &m) != nil || len(m) == 0 {
+		return data
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sortStrings(keys)
+	for i := 0; i < 1+r.Intn(3); i++ {
+		m[keys[r.Intn(len(keys))]] = nil
+	}
+	out, _ := json.Marshal(m)
+	return out
+}
+
+func sortStrings(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j] < s[j-1]; j-- {
+			s[j], s[j-1] = s[j-1], s[j]
+		}
+	}
+}
+
+func upperKeys(data []byte) []byte {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(data, &m) != nil {
+		return data
+	}
+	out := map[string]json.RawMessage{}
+	for k, v := range m {
+		out[strings.ToUpper(k)] = v
+	}
+	b, _ := json.Marshal(out)
+	return b
+}
+
+func TestDecodeMatchesLegacy(t *testing.T) {
+	makers := map[string]func() (any, any){
+		"Kitchen": func() (any, any) { return new(fresh.Kitchen), new(legacy.Kitchen) },
+		"Holder":  func() (any, any) { return new(fresh.Holder), new(legacy.Holder) },
+		"Tree":    func() (any, any) { return new(fresh.Tree), new(legacy.Tree) },
+		"Plain":   func() (any, any) { return new(fresh.Plain), new(legacy.Plain) },
+	}
+	for name, mk := range makers {
+		for seed := int64(0); seed < 1500; seed++ {
+			r := rand.New(rand.NewSource(seed + 7919))
+			fr := &filler{rng: rand.New(rand.NewSource(seed)), variants: legacyVariants()}
+			_, lb := mk()
+			fr.fill(reflect.ValueOf(lb).Elem(), 0)
+			valid, err := json.Marshal(lb)
+			if err != nil {
+				continue
+			}
+			var pretty bytes.Buffer
+			_ = json.Indent(&pretty, valid, "  ", "\t")
+			inputs := [][]byte{
+				valid,
+				pretty.Bytes(),
+				nullOut(r, valid),
+				upperKeys(valid),
+				[]byte(`{}`),
+				[]byte(`null`),
+				append(append([]byte(`{"zzz":[1,{"a":"b"}],"name":"first",`), valid[1:]...)),
+				bytes.Replace(valid, []byte(`"`), []byte(`"`), 1),
+			}
+			if len(valid) > 2 {
+				dup := append([]byte(nil), valid[:len(valid)-1]...)
+				dup = append(dup, []byte(`,"name":"again"}`)...)
+				inputs = append(inputs, dup)
+			}
+			for i := 0; i < 6; i++ {
+				inputs = append(inputs, mutate(r, valid))
+			}
+			for i, in := range inputs {
+				decodeBoth(t, name, int(seed)*100+i, in, mk)
+			}
+		}
 	}
 }

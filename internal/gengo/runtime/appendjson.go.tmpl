@@ -104,6 +104,16 @@ func onkAppendFloat(b []byte, f float64, bits int) ([]byte, error) {
 	return b, nil
 }
 
+var onkSafeASCII = func() (t [utf8.RuneSelf]bool) {
+	for c := 0x20; c < utf8.RuneSelf; c++ {
+		t[c] = true
+	}
+	for _, c := range `"\<>&` {
+		t[c] = false
+	}
+	return
+}()
+
 func onkAppendString(b []byte, s string) []byte {
 	const digits = "0123456789abcdef"
 	b = append(b, '"')
@@ -111,7 +121,7 @@ func onkAppendString(b []byte, s string) []byte {
 	for i := 0; i < len(s); {
 		c := s[i]
 		if c < utf8.RuneSelf {
-			if c >= 0x20 && c != '"' && c != '\\' && c != '<' && c != '>' && c != '&' {
+			if onkSafeASCII[c] {
 				i++
 				continue
 			}

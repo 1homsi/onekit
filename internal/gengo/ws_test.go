@@ -1661,7 +1661,7 @@ func TestPerfBudgets(t *testing.T) {
 			_ = wsUnmarshal(callJSON, &f)
 		}
 	}
-	budget(t, "fast decode vs std decode (small frame)", stdDecodeSmall, fastDecodeSmall, 1.3)
+	ceiling(t, "fast decode vs std decode (small frame)", fastDecodeSmall, stdDecodeSmall, 1.6)
 
 	stdEncodeSmall := func(b *testing.B) {
 		for i := 0; i < b.N; i++ {

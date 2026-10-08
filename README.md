@@ -990,22 +990,30 @@ Messages that need this (and other wire adjustments such as 64-bit strings) are 
 
 This applies to requests as well as responses, since both use the same types, so a message used as a partial update should declare its patchable fields optional (`name: string?`) to say "not provided". `onek compat` reports the change.
 
-### How generated Go messages are encoded
+### How generated Go messages are encoded and decoded
 
-A message with a wire adjustment (64-bit strings, nullable fields, number enums, `@encode` on timestamps or bytes, a oneof, or `emit_zero_values`), and every message that holds one, gets `AppendJSON(b []byte) ([]byte, error)`. It writes the fields straight into one buffer: no reflection, no helper struct, and no second scan of what a nested message wrote. Nested messages, lists and maps are written by the same call, so a response is encoded once however deep it is. A plain message that sits inside such a message gets `AppendJSON` too, so the call never falls back to `encoding/json` in the middle of a list.
+A message with a wire adjustment (64-bit strings, nullable fields, number enums, `@encode` on timestamps or bytes, a oneof, or `emit_zero_values`), and every message that holds one, gets `AppendJSON(b []byte) ([]byte, error)` and `DecodeJSON(data []byte) error`. So does every request, response and error message of an HTTP or SSE method, and every message those reach. `AppendJSON` writes the fields straight into one buffer: no reflection, no helper struct, and no second scan of what a nested message wrote. `DecodeJSON` reads the document in one pass, straight into the fields, with no `map[string]json.RawMessage` and no helper struct.
 
-`MarshalJSON` and `MarshalJSONTo` call it, so `json.Marshal` and `jsonv2.Marshal` use it with no change to your code. The generated server writes every response that has an `AppendJSON` through it directly, into a pooled buffer, which skips the validation pass `json.Marshal` runs over a `Marshaler`'s output. Call it yourself to encode into a buffer you own: `buf, err := resp.AppendJSON(buf[:0])`.
+`MarshalJSON`, `MarshalJSONTo` and `UnmarshalJSON` call them for the messages that already had custom JSON, so `json.Marshal`, `json.Unmarshal` and the `jsonv2` package use them with no change to your code. A plain message that only sits inside such a message, or is only a request or response, keeps `encoding/json`'s own handling when you use it alone, and gets the fast methods when the generated server, client, SSE and WebSocket code move it. Call them yourself to skip `encoding/json`'s validation pass over a `Marshaler`'s output and a second scan of what an `Unmarshaler` is given: `buf, err := resp.AppendJSON(buf[:0])`, `err := req.DecodeJSON(body)`.
 
-Ten resources with nested messages, maps, a nullable field and a `json` field, on Go 1.27.1 (`go test ./internal/gengo -run TestAppendEncoderBenchmark -v`):
+The generated server writes each response through `AppendJSON` into a pooled buffer and reads each request body into a pooled buffer for `DecodeJSON`. The generated client does the same with request and response bodies, and SSE events take the same route.
+
+`DecodeJSON` handles ordinary documents on its fast path. Anything unusual (a key that differs only in case, a repeated key, a string that is not valid UTF-8, a number that does not fit, a value of the wrong type, malformed JSON) is handed to `encoding/json` from the start, so the result and the error are the ones `encoding/json` gives. The generated tests check this against the earlier decoder on random values, `null` in every field, mutated bytes and pretty-printed input.
+
+Ten resources with nested messages, maps, a nullable field and a `json` field, on Go 1.27.1 (`go test ./internal/gengo -run TestAppendEncoderBenchmark -v`; best of several runs):
 
 | | time | allocations |
 | --- | --- | --- |
-| hand-written struct, `json.Marshal` | 21.3 µs | 61 |
-| generated before, `json.Marshal` | 23.8 µs | 103 |
-| generated now, `json.Marshal` | 17.1 µs | 11 |
-| generated now, `AppendJSON` into a reused buffer | 7.2 µs | 10 |
+| encode: hand-written struct, `json.Marshal` | 21.3 µs | 61 |
+| encode: generated before, `json.Marshal` | 23.8 µs | 103 |
+| encode: generated now, `json.Marshal` | 17.1 µs | 11 |
+| encode: generated now, `AppendJSON` into a reused buffer | 7.2 µs | 10 |
+| decode: hand-written struct, `json.Unmarshal` | 53 µs | 226 |
+| decode: generated before, `json.Unmarshal` | 82 µs | 236 |
+| decode: generated now, `json.Unmarshal` | 42 µs | 217 |
+| decode: generated now, `DecodeJSON` | 24 µs | 217 |
 
-The output is the same JSON, with two differences. Keys come out in declaration order; before, fields with a wire adjustment came after the others. A `json` field is validated and written as stored, not compacted, and a field holding invalid JSON fails the encode. A message that uses `@flatten` keeps the earlier encoder. Decoding is unchanged.
+The output is the same JSON, with two differences. Keys come out in declaration order; before, fields with a wire adjustment came after the others. A `json` field is validated and written as stored, not compacted, and a field holding invalid JSON fails the encode. Reading a request body now rejects data after the first JSON value, where it used to be ignored. A message that uses `@flatten` keeps the earlier encoder and decoder.
 
 ### Declaring what a method requires
 

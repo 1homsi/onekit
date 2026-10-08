@@ -1,0 +1,167 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"math/rand"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strings"
+	"testing"
+)
+
+type echoImpl struct{}
+
+func (echoImpl) Echo(ctx context.Context, req *Req) (*Res, error) {
+	return &Res{Id: req.Id, Echoed: req.N, Tags: req.Tags, Big: int64(req.N) << 30, Note: req.Note}, nil
+}
+
+func serve(t *testing.T, opts ...any) string {
+	t.Helper()
+	mux := http.NewServeMux()
+	if err := RegisterSServer(mux, append([]any{echoImpl{}}, opts...)...); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func post(t *testing.T, url, body string) (int, string) {
+	t.Helper()
+	resp, err := http.Post(url+"/echo", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(data)
+}
+
+func TestClientServerRoundTrip(t *testing.T) {
+	client := NewSClient(serve(t))
+	note := "n"
+	for _, req := range []*Req{
+		{},
+		{Id: "a", N: -3, Tags: []string{"x", "<y>"}, Note: &note},
+		{Id: "emoji😀\u2028", Tags: []string{}},
+	} {
+		res, err := client.Echo(context.Background(), req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Id != req.Id || res.Echoed != req.N || res.Big != int64(req.N)<<30 || !reflect.DeepEqual(res.Note, req.Note) || len(res.Tags) != len(req.Tags) {
+			t.Fatalf("got %+v for %+v", res, req)
+		}
+	}
+}
+
+func TestRequestBodies(t *testing.T) {
+	url := serve(t)
+	cases := []struct {
+		name   string
+		body   string
+		status int
+		id     string
+	}{
+		{"full", `{"id":"a","n":3,"tags":["x","y"],"note":"hi"}`, 200, "a"},
+		{"empty body", ``, 200, ""},
+		{"blank body", " \n\t", 200, ""},
+		{"null", `null`, 200, ""},
+		{"empty object", `{}`, 200, ""},
+		{"case-insensitive key", `{"ID":"case","N":4}`, 200, "case"},
+		{"duplicate key", `{"id":"a","id":"b"}`, 200, "b"},
+		{"unknown fields", `{"zzz":{"a":[1,2,{"b":null}]},"id":"u"}`, 200, "u"},
+		{"escapes", `{"id":"\u00e9\ud83d\ude00\n"}`, 200, "é😀\n"},
+		{"pretty", "{\n  \"id\": \"p\",\n  \"tags\": [ \"a\" , \"b\" ]\n}\n", 200, "p"},
+		{"truncated", `{"id":`, 400, ""},
+		{"wrong type", `{"id":1}`, 400, ""},
+		{"wrong number type", `{"n":"x"}`, 400, ""},
+		{"fractional int", `{"n":1.5}`, 400, ""},
+		{"overflow", `{"n":4294967296}`, 400, ""},
+		{"trailing garbage", `{"id":"a"}x`, 400, ""},
+		{"not an object", `[1]`, 400, ""},
+	}
+	for _, c := range cases {
+		status, body := post(t, url, c.body)
+		if status != c.status {
+			t.Errorf("%s: status %d, want %d (%s)", c.name, status, c.status, body)
+			continue
+		}
+		if status == 200 {
+			var res struct {
+				Id string `json:"id"`
+			}
+			if err := json.Unmarshal([]byte(body), &res); err != nil || res.Id != c.id {
+				t.Errorf("%s: id %q (%v), want %q in %s", c.name, res.Id, err, c.id, body)
+			}
+		}
+	}
+}
+
+func TestRequestBodyLimit(t *testing.T) {
+	url := serve(t, WithMaxRequestBodyBytes(32))
+	if status, _ := post(t, url, `{"id":"`+strings.Repeat("a", 200)+`"}`); status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status %d, want 413", status)
+	}
+	if status, _ := post(t, url, `{"id":"ok"}`); status != http.StatusOK {
+		t.Fatalf("status %d, want 200", status)
+	}
+}
+
+type stdReq Req
+
+func mutate(r *rand.Rand, data []byte) []byte {
+	out := append([]byte(nil), data...)
+	if len(out) == 0 {
+		return out
+	}
+	switch r.Intn(5) {
+	case 0:
+		out = out[:r.Intn(len(out))]
+	case 1:
+		out[r.Intn(len(out))] = "{}[]\",:0-.e \\tfn"[r.Intn(16)]
+	case 2:
+		i := r.Intn(len(out))
+		out = append(out[:i], out[i+1:]...)
+	case 3:
+		i := r.Intn(len(out))
+		out = append(out[:i], append([]byte{"{}[]\",:"[r.Intn(7)]}, out[i:]...)...)
+	default:
+		out[r.Intn(len(out))] = byte(r.Intn(256))
+	}
+	return out
+}
+
+func TestDecodeJSONMatchesTheReflectionDecoder(t *testing.T) {
+	seeds := []string{
+		`{"id":"a","n":3,"tags":["x","y"],"note":"hi"}`,
+		`{"id":"\u00e9\ud83d\ude00","n":-2147483648,"tags":[]}`,
+		`{"ID":"x","Tags":null,"note":null,"extra":[1,2,{"a":"b"}]}`,
+		`{"id":"a","id":"b","n":1,"n":2}`,
+		`{"tags":["a",null,"c"],"note":"n"}`,
+		`{"id": "sp aces" , "n" : 7 }`,
+	}
+	r := rand.New(rand.NewSource(1))
+	var inputs [][]byte
+	for _, s := range seeds {
+		inputs = append(inputs, []byte(s))
+		for i := 0; i < 400; i++ {
+			inputs = append(inputs, mutate(r, []byte(s)))
+		}
+	}
+	for _, in := range inputs {
+		var fast Req
+		var slow stdReq
+		ferr := fast.DecodeJSON(in)
+		serr := json.Unmarshal(in, &slow)
+		if (ferr == nil) != (serr == nil) {
+			t.Fatalf("accept mismatch for %q: DecodeJSON=%v reflection=%v", in, ferr, serr)
+		}
+		if ferr == nil && !reflect.DeepEqual(Req(slow), fast) {
+			t.Fatalf("result mismatch for %q:\nDecodeJSON: %+v\nreflection: %+v", in, fast, Req(slow))
+		}
+	}
+}
