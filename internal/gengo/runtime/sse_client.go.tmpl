@@ -51,7 +51,7 @@ func (s *EventStream[T]) Next(event *T) bool {
 				s.err = fmt.Errorf("stream error: %s", payload)
 				return false
 			}
-			if err := json.Unmarshal([]byte(payload), event); err != nil {
+			if err := unmarshalJSONValue([]byte(payload), event); err != nil {
 				s.err = err
 				return false
 			}

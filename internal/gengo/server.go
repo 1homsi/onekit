@@ -90,9 +90,7 @@ func GenerateServerWithOptions(file *onkir.File, resolver PackageResolver, opts 
 	p.P(`"encoding/json"`)
 	p.P(`"errors"`)
 	p.P(`"fmt"`)
-	if hasRequestBody || hasWS {
-		p.P(`"io"`)
-	}
+	p.P(`"io"`)
 	p.P(`"math"`)
 	p.P(`"net/http"`)
 	p.P(`"regexp"`)
@@ -115,7 +113,7 @@ func GenerateServerWithOptions(file *onkir.File, resolver PackageResolver, opts 
 	p.P(")")
 	p.P()
 
-	writeRuntimeHelpers(p, opts.JSONContentType)
+	writeRuntimeHelpers(p, opts.JSONContentType, hasRequestBody)
 	writeHeaderFormatPatterns(p)
 	writeServerOptions(p, hasWS, opts.SharedRuntime)
 	if hasWS {
@@ -231,7 +229,7 @@ func writeServerOptions(p *Printer, hasWS bool, shared *SharedRuntime) {
 	}
 }
 
-func writeRuntimeHelpers(p *Printer, contentType string) {
+func writeRuntimeHelpers(p *Printer, contentType string, hasRequestBody bool) {
 	writeJSONFunc(p, contentType)
 	p.P()
 	p.P(`func writeJSONError(w http.ResponseWriter, status int, message string) {`)
@@ -240,6 +238,9 @@ func writeRuntimeHelpers(p *Printer, contentType string) {
 	p.P(`_ = json.NewEncoder(w).Encode(map[string]string{"message": message})`)
 	p.P(`}`)
 	p.P()
+	if hasRequestBody {
+		writeBodyDecodeHelper(p)
+	}
 	p.P(`func requestBodyLimit(limit int64) int64 {`)
 	p.P(`if limit <= 0 { return 8 << 20 }`)
 	p.P(`return limit`)
@@ -391,7 +392,7 @@ func writeBodyBinding(p *Printer, method *onkir.Method) {
 		p.P("}")
 		p.P("if err := json.Unmarshal(bodyData, req); err != nil {")
 	} else {
-		p.P("if err := json.NewDecoder(r.Body).Decode(", target, "); err != nil && !errors.Is(err, io.EOF) {")
+		p.P("if err := decodeJSONBody(r.Body, ", target, "); err != nil && !errors.Is(err, io.EOF) {")
 		p.P(`o.WriteBodyError(w, r, err)`)
 		p.P("return")
 		p.P("}")
@@ -705,4 +706,52 @@ func writeJSONFunc(p *Printer, contentType string) {
 	p.P(`w.WriteHeader(status)`)
 	p.P(`_, _ = w.Write(append(data, '\n'))`)
 	p.P(`}`)
+}
+
+func writeBodyDecodeHelper(p *Printer) {
+	p.P(`var jsonBodyBuffers = sync.Pool{New: func() any { b := make([]byte, 0, 4096); return &b }}`)
+	p.P()
+	p.P(`func decodeJSONBody(body io.Reader, v any) error {`)
+	p.P(`dec, ok := v.(interface{ DecodeJSON([]byte) error })`)
+	p.P(`if !ok {`)
+	p.P(`return json.NewDecoder(body).Decode(v)`)
+	p.P(`}`)
+	p.P(`bp := jsonBodyBuffers.Get().(*[]byte)`)
+	p.P(`buf := (*bp)[:0]`)
+	p.P(`var err error`)
+	p.P(`for {`)
+	p.P(`if len(buf) == cap(buf) {`)
+	p.P(`buf = append(buf, 0)[:len(buf)]`)
+	p.P(`}`)
+	p.P(`var n int`)
+	p.P(`n, err = body.Read(buf[len(buf):cap(buf)])`)
+	p.P(`buf = buf[:len(buf)+n]`)
+	p.P(`if err != nil {`)
+	p.P(`break`)
+	p.P(`}`)
+	p.P(`}`)
+	p.P(`if err == io.EOF {`)
+	p.P(`err = nil`)
+	p.P(`}`)
+	p.P(`if err == nil {`)
+	p.P(`blank := true`)
+	p.P(`for _, c := range buf {`)
+	p.P(`if c != ' ' && c != '\t' && c != '\n' && c != '\r' {`)
+	p.P(`blank = false`)
+	p.P(`break`)
+	p.P(`}`)
+	p.P(`}`)
+	p.P(`if blank {`)
+	p.P(`err = io.EOF`)
+	p.P(`} else {`)
+	p.P(`err = dec.DecodeJSON(buf)`)
+	p.P(`}`)
+	p.P(`}`)
+	p.P(`if cap(buf) <= 1<<20 {`)
+	p.P(`*bp = buf[:0]`)
+	p.P(`jsonBodyBuffers.Put(bp)`)
+	p.P(`}`)
+	p.P(`return err`)
+	p.P(`}`)
+	p.P()
 }

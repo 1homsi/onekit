@@ -159,11 +159,29 @@ func BenchmarkDecode(b *testing.B) {
 				}
 			}
 		})
-		b.Run(fmt.Sprintf("n=%d/generated", n), func(b *testing.B) {
+		b.Run(fmt.Sprintf("n=%d/before-json.Unmarshal", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				var v legacy.ResourceList
+				if err := json.Unmarshal(data, &v); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("n=%d/generated-json.Unmarshal", n), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
 				var v fresh.ResourceList
 				if err := json.Unmarshal(data, &v); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("n=%d/generated-DecodeJSON", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				var v fresh.ResourceList
+				if err := v.DecodeJSON(data); err != nil {
 					b.Fatal(err)
 				}
 			}

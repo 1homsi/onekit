@@ -1,0 +1,54 @@
+package app
+
+import (
+	"bytes"
+	"encoding/json"
+	"math/rand"
+	"reflect"
+	"testing"
+)
+
+type fastDecoder interface {
+	onkDecode(*onkDec)
+}
+
+func fastVariants() []reflect.Type {
+	return []reflect.Type{
+		reflect.TypeOf((*KitchenChoiceText)(nil)), reflect.TypeOf((*KitchenChoiceCount)(nil)),
+		reflect.TypeOf((*KitchenChoiceItem)(nil)), reflect.TypeOf((*KitchenChoiceLevel)(nil)),
+	}
+}
+
+func TestFastPathAcceptsEveryValidDocument(t *testing.T) {
+	makers := map[string]func() fastDecoder{
+		"Kitchen": func() fastDecoder { return new(Kitchen) },
+		"Holder":  func() fastDecoder { return new(Holder) },
+		"Tree":    func() fastDecoder { return new(Tree) },
+		"Leaf":    func() fastDecoder { return new(Leaf) },
+	}
+	for name, mk := range makers {
+		accepted := 0
+		for seed := int64(0); seed < 1500; seed++ {
+			f := &filler{rng: rand.New(rand.NewSource(seed)), variants: fastVariants()}
+			v := mk()
+			f.fill(reflect.ValueOf(v).Elem(), 0)
+			doc, err := json.Marshal(v)
+			if err != nil {
+				continue
+			}
+			var pretty bytes.Buffer
+			_ = json.Indent(&pretty, doc, "\t", "  ")
+			for _, in := range [][]byte{doc, pretty.Bytes()} {
+				d := onkDec{data: in}
+				mk().onkDecode(&d)
+				if !d.end() {
+					t.Fatalf("%s seed %d: the fast path gave up on a valid document (%v):\n%s", name, seed, d.err, in)
+				}
+				accepted++
+			}
+		}
+		if accepted < 2000 {
+			t.Fatalf("%s: only %d documents reached the fast path", name, accepted)
+		}
+	}
+}

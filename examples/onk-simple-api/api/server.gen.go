@@ -58,6 +58,51 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"message": message})
 }
 
+var jsonBodyBuffers = sync.Pool{New: func() any { b := make([]byte, 0, 4096); return &b }}
+
+func decodeJSONBody(body io.Reader, v any) error {
+	dec, ok := v.(interface{ DecodeJSON([]byte) error })
+	if !ok {
+		return json.NewDecoder(body).Decode(v)
+	}
+	bp := jsonBodyBuffers.Get().(*[]byte)
+	buf := (*bp)[:0]
+	var err error
+	for {
+		if len(buf) == cap(buf) {
+			buf = append(buf, 0)[:len(buf)]
+		}
+		var n int
+		n, err = body.Read(buf[len(buf):cap(buf)])
+		buf = buf[:len(buf)+n]
+		if err != nil {
+			break
+		}
+	}
+	if err == io.EOF {
+		err = nil
+	}
+	if err == nil {
+		blank := true
+		for _, c := range buf {
+			if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+				blank = false
+				break
+			}
+		}
+		if blank {
+			err = io.EOF
+		} else {
+			err = dec.DecodeJSON(buf)
+		}
+	}
+	if cap(buf) <= 1<<20 {
+		*bp = buf[:0]
+		jsonBodyBuffers.Put(bp)
+	}
+	return err
+}
+
 func requestBodyLimit(limit int64) int64 {
 	if limit <= 0 {
 		return 8 << 20
@@ -803,7 +848,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 		req := new(CreateUserRequest)
 		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, requestBodyLimit(o.MaxRequestBodyBytes))
-			if err := json.NewDecoder(r.Body).Decode(req); err != nil && !errors.Is(err, io.EOF) {
+			if err := decodeJSONBody(r.Body, req); err != nil && !errors.Is(err, io.EOF) {
 				o.WriteBodyError(w, r, err)
 				return
 			}
@@ -842,7 +887,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 		req := new(GetUserRequest)
 		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, requestBodyLimit(o.MaxRequestBodyBytes))
-			if err := json.NewDecoder(r.Body).Decode(req); err != nil && !errors.Is(err, io.EOF) {
+			if err := decodeJSONBody(r.Body, req); err != nil && !errors.Is(err, io.EOF) {
 				o.WriteBodyError(w, r, err)
 				return
 			}
@@ -881,7 +926,7 @@ func RegisterUserServiceServer(first any, rest ...any) error {
 		req := new(LoginRequest)
 		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, requestBodyLimit(o.MaxRequestBodyBytes))
-			if err := json.NewDecoder(r.Body).Decode(req); err != nil && !errors.Is(err, io.EOF) {
+			if err := decodeJSONBody(r.Body, req); err != nil && !errors.Is(err, io.EOF) {
 				o.WriteBodyError(w, r, err)
 				return
 			}

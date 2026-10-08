@@ -3,6 +3,7 @@ package api
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/json/jsontext"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"unicode/utf8"
 )
@@ -120,6 +122,16 @@ func onkAppendFloat(b []byte, f float64, bits int) ([]byte, error) {
 	return b, nil
 }
 
+var onkSafeASCII = func() (t [utf8.RuneSelf]bool) {
+	for c := 0x20; c < utf8.RuneSelf; c++ {
+		t[c] = true
+	}
+	for _, c := range `"\<>&` {
+		t[c] = false
+	}
+	return
+}()
+
 func onkAppendString(b []byte, s string) []byte {
 	const digits = "0123456789abcdef"
 	b = append(b, '"')
@@ -127,7 +139,7 @@ func onkAppendString(b []byte, s string) []byte {
 	for i := 0; i < len(s); {
 		c := s[i]
 		if c < utf8.RuneSelf {
-			if c >= 0x20 && c != '"' && c != '\\' && c != '<' && c != '>' && c != '&' {
+			if onkSafeASCII[c] {
 				i++
 				continue
 			}
@@ -171,6 +183,581 @@ func onkAppendString(b []byte, s string) []byte {
 	}
 	b = append(b, s[start:]...)
 	return append(b, '"')
+}
+
+var errOnkFallback = errors.New("onkjson: fall back")
+
+type onkDec struct {
+	data  []byte
+	pos   int
+	err   error
+	cache [64]string
+}
+
+func (d *onkDec) intern(s []byte) string {
+	n := len(s)
+	if n == 0 {
+		return ""
+	}
+	if n > 24 {
+		return string(s)
+	}
+	h := (n*131 + int(s[0])*31 + int(s[n-1])*7 + int(s[n>>1])) & 63
+	if c := d.cache[h]; c == string(s) {
+		return c
+	}
+	v := string(s)
+	d.cache[h] = v
+	return v
+}
+
+func (d *onkDec) fail() {
+	if d.err == nil {
+		d.err = errOnkFallback
+	}
+}
+
+func (d *onkDec) ws() {
+	for d.pos < len(d.data) {
+		switch d.data[d.pos] {
+		case ' ', '\t', '\n', '\r':
+			d.pos++
+		default:
+			return
+		}
+	}
+}
+
+func (d *onkDec) end() bool {
+	d.ws()
+	return d.err == nil && d.pos == len(d.data)
+}
+
+func (d *onkDec) null() bool {
+	d.ws()
+	if d.pos+4 <= len(d.data) && string(d.data[d.pos:d.pos+4]) == "null" {
+		d.pos += 4
+		return true
+	}
+	return false
+}
+
+func (d *onkDec) open(c byte) bool {
+	d.ws()
+	if d.err != nil || d.pos >= len(d.data) || d.data[d.pos] != c {
+		d.fail()
+		return false
+	}
+	d.pos++
+	return true
+}
+
+func (d *onkDec) next(i int, c byte) bool {
+	if d.err != nil {
+		return false
+	}
+	d.ws()
+	if d.pos >= len(d.data) {
+		d.fail()
+		return false
+	}
+	if d.data[d.pos] == c {
+		d.pos++
+		return false
+	}
+	if i > 0 {
+		if d.data[d.pos] != ',' {
+			d.fail()
+			return false
+		}
+		d.pos++
+		d.ws()
+	}
+	return true
+}
+
+func (d *onkDec) colon() {
+	d.ws()
+	if d.err != nil || d.pos >= len(d.data) || d.data[d.pos] != ':' {
+		d.fail()
+		return
+	}
+	d.pos++
+}
+
+func (d *onkDec) key() []byte {
+	s := d.name()
+	d.colon()
+	return s
+}
+
+func (d *onkDec) mapKey() string {
+	s := d.str()
+	d.colon()
+	return s
+}
+
+func (d *onkDec) name() []byte {
+	d.ws()
+	s, escaped := d.stringBytes()
+	if d.err != nil {
+		return nil
+	}
+	if escaped {
+		d.fail()
+		return nil
+	}
+	return s
+}
+
+func (d *onkDec) stringBytes() ([]byte, bool) {
+	if d.err != nil || d.pos >= len(d.data) || d.data[d.pos] != '"' {
+		d.fail()
+		return nil, false
+	}
+	start := d.pos + 1
+	escaped := false
+	for i := start; i < len(d.data); i++ {
+		c := d.data[i]
+		switch {
+		case c == '"':
+			d.pos = i + 1
+			return d.data[start:i], escaped
+		case c == '\\':
+			escaped = true
+			if i+1 >= len(d.data) {
+				d.fail()
+				return nil, false
+			}
+			switch d.data[i+1] {
+			case '"', '\\', '/', 'b', 'f', 'n', 'r', 't':
+				i++
+			case 'u':
+				if i+5 >= len(d.data) {
+					d.fail()
+					return nil, false
+				}
+				for _, h := range d.data[i+2 : i+6] {
+					if !(h >= '0' && h <= '9' || h >= 'a' && h <= 'f' || h >= 'A' && h <= 'F') {
+						d.fail()
+						return nil, false
+					}
+				}
+				i += 5
+			default:
+				d.fail()
+				return nil, false
+			}
+		case c < 0x20:
+			d.fail()
+			return nil, false
+		case c >= 0x80:
+			escaped = true
+		}
+	}
+	d.fail()
+	return nil, false
+}
+
+func onkHex4(s []byte) rune {
+	var r rune
+	for _, c := range s {
+		switch {
+		case c >= '0' && c <= '9':
+			c -= '0'
+		case c >= 'a' && c <= 'f':
+			c = c - 'a' + 10
+		default:
+			c = c - 'A' + 10
+		}
+		r = r<<4 | rune(c)
+	}
+	return r
+}
+
+func onkUnquote(s []byte) (string, bool) {
+	out := make([]byte, 0, len(s))
+	for i := 0; i < len(s); {
+		c := s[i]
+		switch {
+		case c == '\\':
+			i++
+			switch s[i] {
+			case '"', '\\', '/':
+				out = append(out, s[i])
+			case 'b':
+				out = append(out, '\b')
+			case 'f':
+				out = append(out, '\f')
+			case 'n':
+				out = append(out, '\n')
+			case 'r':
+				out = append(out, '\r')
+			case 't':
+				out = append(out, '\t')
+			case 'u':
+				r := onkHex4(s[i+1 : i+5])
+				i += 4
+				if r >= 0xD800 && r < 0xE000 {
+					if r >= 0xDC00 || i+6 >= len(s) || s[i+1] != '\\' || s[i+2] != 'u' {
+						return "", false
+					}
+					lo := onkHex4(s[i+3 : i+7])
+					if lo < 0xDC00 || lo >= 0xE000 {
+						return "", false
+					}
+					r = 0x10000 + (r-0xD800)<<10 + (lo - 0xDC00)
+					i += 6
+				}
+				out = utf8.AppendRune(out, r)
+			}
+			i++
+		case c < utf8.RuneSelf:
+			out = append(out, c)
+			i++
+		default:
+			r, size := utf8.DecodeRune(s[i:])
+			if r == utf8.RuneError && size == 1 {
+				return "", false
+			}
+			out = append(out, s[i:i+size]...)
+			i += size
+		}
+	}
+	return string(out), true
+}
+
+func (d *onkDec) str() string {
+	d.ws()
+	s, escaped := d.stringBytes()
+	if d.err != nil {
+		return ""
+	}
+	if !escaped {
+		return d.intern(s)
+	}
+	v, ok := onkUnquote(s)
+	if !ok {
+		d.fail()
+	}
+	return v
+}
+
+func (d *onkDec) number() []byte {
+	d.ws()
+	start := d.pos
+	i := d.pos
+	if i < len(d.data) && d.data[i] == '-' {
+		i++
+	}
+	switch {
+	case i < len(d.data) && d.data[i] == '0':
+		i++
+	case i < len(d.data) && d.data[i] >= '1' && d.data[i] <= '9':
+		for i < len(d.data) && d.data[i] >= '0' && d.data[i] <= '9' {
+			i++
+		}
+	default:
+		d.fail()
+		return nil
+	}
+	if i < len(d.data) && d.data[i] == '.' {
+		i++
+		digits := i
+		for i < len(d.data) && d.data[i] >= '0' && d.data[i] <= '9' {
+			i++
+		}
+		if i == digits {
+			d.fail()
+			return nil
+		}
+	}
+	if i < len(d.data) && (d.data[i] == 'e' || d.data[i] == 'E') {
+		i++
+		if i < len(d.data) && (d.data[i] == '+' || d.data[i] == '-') {
+			i++
+		}
+		digits := i
+		for i < len(d.data) && d.data[i] >= '0' && d.data[i] <= '9' {
+			i++
+		}
+		if i == digits {
+			d.fail()
+			return nil
+		}
+	}
+	d.pos = i
+	return d.data[start:i]
+}
+
+func (d *onkDec) boolean() bool {
+	d.ws()
+	switch {
+	case d.pos+4 <= len(d.data) && string(d.data[d.pos:d.pos+4]) == "true":
+		d.pos += 4
+		return true
+	case d.pos+5 <= len(d.data) && string(d.data[d.pos:d.pos+5]) == "false":
+		d.pos += 5
+		return false
+	}
+	d.fail()
+	return false
+}
+
+func (d *onkDec) int(bits int) int64 {
+	n := d.number()
+	if d.err != nil {
+		return 0
+	}
+	digits := n
+	if digits[0] == '-' {
+		digits = digits[1:]
+	}
+	if len(digits) <= 18 {
+		var v int64
+		for _, c := range digits {
+			if c < '0' || c > '9' {
+				d.fail()
+				return 0
+			}
+			v = v*10 + int64(c-'0')
+		}
+		if n[0] == '-' {
+			v = -v
+		}
+		if bits < 64 {
+			lim := int64(1) << (bits - 1)
+			if v >= lim || v < -lim {
+				d.fail()
+				return 0
+			}
+		}
+		return v
+	}
+	v, err := strconv.ParseInt(string(n), 10, bits)
+	if err != nil {
+		d.fail()
+	}
+	return v
+}
+
+func (d *onkDec) uint(bits int) uint64 {
+	n := d.number()
+	if d.err != nil {
+		return 0
+	}
+	if len(n) <= 19 {
+		var v uint64
+		for _, c := range n {
+			if c < '0' || c > '9' {
+				d.fail()
+				return 0
+			}
+			v = v*10 + uint64(c-'0')
+		}
+		if bits < 64 && v >= uint64(1)<<bits {
+			d.fail()
+			return 0
+		}
+		return v
+	}
+	v, err := strconv.ParseUint(string(n), 10, bits)
+	if err != nil {
+		d.fail()
+	}
+	return v
+}
+
+func (d *onkDec) float(bits int) float64 {
+	n := d.number()
+	if d.err != nil {
+		return 0
+	}
+	v, err := strconv.ParseFloat(string(n), bits)
+	if err != nil {
+		d.fail()
+	}
+	return v
+}
+
+func onkValidInt(s []byte) bool {
+	if len(s) > 0 && s[0] == '-' {
+		s = s[1:]
+	}
+	if len(s) == 0 || len(s) > 1 && s[0] == '0' {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func (d *onkDec) numberString(strict bool) ([]byte, bool) {
+	d.ws()
+	s, escaped := d.stringBytes()
+	if d.err != nil {
+		return nil, false
+	}
+	if escaped {
+		d.fail()
+		return nil, false
+	}
+	if len(s) == 0 {
+		d.fail()
+		return nil, false
+	}
+	if strict && !onkValidInt(s) {
+		d.fail()
+		return nil, false
+	}
+	return s, true
+}
+
+func (d *onkDec) intString(strict, allowEmpty bool) (int64, bool) {
+	d.ws()
+	if allowEmpty && d.pos+1 < len(d.data) && d.data[d.pos] == '"' && d.data[d.pos+1] == '"' {
+		d.pos += 2
+		return 0, false
+	}
+	s, ok := d.numberString(strict)
+	if !ok {
+		return 0, false
+	}
+	v, err := strconv.ParseInt(string(s), 10, 64)
+	if err != nil {
+		d.fail()
+		return 0, false
+	}
+	return v, true
+}
+
+func (d *onkDec) uintString(strict, allowEmpty bool) (uint64, bool) {
+	d.ws()
+	if allowEmpty && d.pos+1 < len(d.data) && d.data[d.pos] == '"' && d.data[d.pos+1] == '"' {
+		d.pos += 2
+		return 0, false
+	}
+	s, ok := d.numberString(strict)
+	if !ok {
+		return 0, false
+	}
+	v, err := strconv.ParseUint(string(s), 10, 64)
+	if err != nil {
+		d.fail()
+		return 0, false
+	}
+	return v, true
+}
+
+func (d *onkDec) bytes(kind int, allowEmpty bool) ([]byte, bool) {
+	d.ws()
+	s, escaped := d.stringBytes()
+	if d.err != nil {
+		return nil, false
+	}
+	if escaped {
+		d.fail()
+		return nil, false
+	}
+	if len(s) == 0 && allowEmpty {
+		return nil, false
+	}
+	var out []byte
+	var n int
+	var err error
+	switch kind {
+	case 1:
+		out = make([]byte, base64.RawStdEncoding.DecodedLen(len(s)))
+		n, err = base64.RawStdEncoding.Decode(out, s)
+	case 2:
+		out = make([]byte, base64.URLEncoding.DecodedLen(len(s)))
+		n, err = base64.URLEncoding.Decode(out, s)
+	case 3:
+		out = make([]byte, base64.RawURLEncoding.DecodedLen(len(s)))
+		n, err = base64.RawURLEncoding.Decode(out, s)
+	case 4:
+		out = make([]byte, hex.DecodedLen(len(s)))
+		n, err = hex.Decode(out, s)
+	default:
+		out = make([]byte, base64.StdEncoding.DecodedLen(len(s)))
+		n, err = base64.StdEncoding.Decode(out, s)
+	}
+	if err != nil {
+		d.fail()
+		return nil, false
+	}
+	return out[:n], true
+}
+
+func (d *onkDec) raw() []byte {
+	d.ws()
+	start := d.pos
+	d.skip(0)
+	if d.err != nil {
+		return nil
+	}
+	return d.data[start:d.pos]
+}
+
+func (d *onkDec) skip(depth int) {
+	d.ws()
+	if d.err != nil || d.pos >= len(d.data) || depth > 1000 {
+		d.fail()
+		return
+	}
+	switch c := d.data[d.pos]; {
+	case c == '{':
+		d.pos++
+		for i := 0; d.next(i, '}'); i++ {
+			d.ws()
+			d.stringBytes()
+			d.colon()
+			d.skip(depth + 1)
+		}
+	case c == '[':
+		d.pos++
+		for i := 0; d.next(i, ']'); i++ {
+			d.skip(depth + 1)
+		}
+	case c == '"':
+		d.stringBytes()
+	case c == 't' || c == 'f':
+		d.boolean()
+	case c == 'n':
+		if !d.null() {
+			d.fail()
+		}
+	default:
+		d.number()
+	}
+}
+
+func (d *onkDec) delegate(v any) {
+	raw := d.raw()
+	if d.err != nil {
+		return
+	}
+	if x, ok := v.(interface{ DecodeJSON([]byte) error }); ok {
+		if x.DecodeJSON(raw) != nil {
+			d.fail()
+		}
+		return
+	}
+	if json.Unmarshal(raw, v) != nil {
+		d.fail()
+	}
+}
+
+func onkFoldKey(key []byte, keys ...string) bool {
+	for _, k := range keys {
+		if strings.EqualFold(string(key), k) {
+			return true
+		}
+	}
+	return false
 }
 
 // A system user.
@@ -222,7 +809,81 @@ func (m *User) MarshalJSONTo(enc *jsontext.Encoder) error {
 	return onkMarshalJSONTo(enc, m)
 }
 
-func (m *User) UnmarshalJSON(data []byte) error {
+func (m *User) onkDecode(d *onkDec) {
+	var seen [1]uint64
+	if !d.null() {
+		if !d.open('{') {
+			return
+		}
+		for i := 0; d.next(i, '}'); i++ {
+			key := d.key()
+			if d.err != nil {
+				return
+			}
+			switch string(key) {
+			case "id":
+				if seen[0]&(1<<0) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 0
+				if d.null() {
+					continue
+				}
+				m.Id = d.str()
+			case "name":
+				if seen[0]&(1<<1) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 1
+				if d.null() {
+					continue
+				}
+				m.Name = d.str()
+			case "email":
+				if seen[0]&(1<<2) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 2
+				if d.null() {
+					continue
+				}
+				m.Email = d.str()
+			case "created_at":
+				if seen[0]&(1<<3) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 3
+				if d.null() {
+					continue
+				}
+				if v, ok := d.intString(false, true); ok {
+					m.CreatedAt = v
+				}
+			default:
+				if onkFoldKey(key, "id", "name", "email", "created_at") {
+					d.fail()
+					return
+				}
+				d.skip(0)
+			}
+		}
+	}
+}
+
+func (m *User) DecodeJSON(data []byte) error {
+	d := onkDec{data: data}
+	m.onkDecode(&d)
+	if d.end() {
+		return nil
+	}
+	return m.onkDecodeSlow(data)
+}
+
+func (m *User) onkDecodeSlow(data []byte) error {
 	type alias User
 	aux := struct {
 		*alias
@@ -239,6 +900,10 @@ func (m *User) UnmarshalJSON(data []byte) error {
 		m.CreatedAt = v
 	}
 	return nil
+}
+
+func (m *User) UnmarshalJSON(data []byte) error {
+	return m.DecodeJSON(data)
 }
 
 func (x *User) GetId() string {
@@ -278,6 +943,88 @@ type CreateUserRequest struct {
 	Email string `json:"email,omitempty"`
 }
 
+func (m *CreateUserRequest) AppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "null"...), nil
+	}
+	var err error
+	sep := byte('{')
+	if m.Name != "" {
+		b = append(b, sep)
+		b = append(b, "\"name\":"...)
+		sep = ','
+		b = onkAppendString(b, m.Name)
+	}
+	if m.Email != "" {
+		b = append(b, sep)
+		b = append(b, "\"email\":"...)
+		sep = ','
+		b = onkAppendString(b, m.Email)
+	}
+	_ = err
+	if sep == '{' {
+		b = append(b, '{')
+	}
+	return append(b, '}'), nil
+}
+
+func (m *CreateUserRequest) onkDecode(d *onkDec) {
+	var seen [1]uint64
+	if !d.null() {
+		if !d.open('{') {
+			return
+		}
+		for i := 0; d.next(i, '}'); i++ {
+			key := d.key()
+			if d.err != nil {
+				return
+			}
+			switch string(key) {
+			case "name":
+				if seen[0]&(1<<0) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 0
+				if d.null() {
+					continue
+				}
+				m.Name = d.str()
+			case "email":
+				if seen[0]&(1<<1) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 1
+				if d.null() {
+					continue
+				}
+				m.Email = d.str()
+			default:
+				if onkFoldKey(key, "name", "email") {
+					d.fail()
+					return
+				}
+				d.skip(0)
+			}
+		}
+	}
+}
+
+func (m *CreateUserRequest) DecodeJSON(data []byte) error {
+	d := onkDec{data: data}
+	m.onkDecode(&d)
+	if d.end() {
+		return nil
+	}
+	return m.onkDecodeSlow(data)
+}
+
+func (m *CreateUserRequest) onkDecodeSlow(data []byte) error {
+	type alias CreateUserRequest
+	return json.Unmarshal(data, (*alias)(m))
+}
+
 func (x *CreateUserRequest) GetName() string {
 	if x == nil {
 		var zero string
@@ -296,6 +1043,72 @@ func (x *CreateUserRequest) GetEmail() string {
 
 type GetUserRequest struct {
 	Id string `json:"id,omitempty"`
+}
+
+func (m *GetUserRequest) AppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "null"...), nil
+	}
+	var err error
+	sep := byte('{')
+	if m.Id != "" {
+		b = append(b, sep)
+		b = append(b, "\"id\":"...)
+		sep = ','
+		b = onkAppendString(b, m.Id)
+	}
+	_ = err
+	if sep == '{' {
+		b = append(b, '{')
+	}
+	return append(b, '}'), nil
+}
+
+func (m *GetUserRequest) onkDecode(d *onkDec) {
+	var seen [1]uint64
+	if !d.null() {
+		if !d.open('{') {
+			return
+		}
+		for i := 0; d.next(i, '}'); i++ {
+			key := d.key()
+			if d.err != nil {
+				return
+			}
+			switch string(key) {
+			case "id":
+				if seen[0]&(1<<0) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 0
+				if d.null() {
+					continue
+				}
+				m.Id = d.str()
+			default:
+				if onkFoldKey(key, "id") {
+					d.fail()
+					return
+				}
+				d.skip(0)
+			}
+		}
+	}
+}
+
+func (m *GetUserRequest) DecodeJSON(data []byte) error {
+	d := onkDec{data: data}
+	m.onkDecode(&d)
+	if d.end() {
+		return nil
+	}
+	return m.onkDecodeSlow(data)
+}
+
+func (m *GetUserRequest) onkDecodeSlow(data []byte) error {
+	type alias GetUserRequest
+	return json.Unmarshal(data, (*alias)(m))
 }
 
 func (x *GetUserRequest) GetId() string {
@@ -348,6 +1161,83 @@ func (m *EmailAuth) AppendJSON(b []byte) ([]byte, error) {
 		b = append(b, '{')
 	}
 	return append(b, '}'), nil
+}
+
+func (m *EmailAuth) onkDecode(d *onkDec) {
+	var seen [1]uint64
+	if !d.null() {
+		if !d.open('{') {
+			return
+		}
+		for i := 0; d.next(i, '}'); i++ {
+			key := d.key()
+			if d.err != nil {
+				return
+			}
+			switch string(key) {
+			case "email":
+				if seen[0]&(1<<0) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 0
+				if d.null() {
+					continue
+				}
+				m.Email = d.str()
+			case "password":
+				if seen[0]&(1<<1) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 1
+				if d.null() {
+					continue
+				}
+				m.Password = d.str()
+			case "use_two_factor":
+				if seen[0]&(1<<2) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 2
+				if d.null() {
+					continue
+				}
+				m.UseTwoFactor = d.boolean()
+			case "two_factor_code":
+				if seen[0]&(1<<3) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 3
+				if d.null() {
+					continue
+				}
+				m.TwoFactorCode = d.str()
+			default:
+				if onkFoldKey(key, "email", "password", "use_two_factor", "two_factor_code") {
+					d.fail()
+					return
+				}
+				d.skip(0)
+			}
+		}
+	}
+}
+
+func (m *EmailAuth) DecodeJSON(data []byte) error {
+	d := onkDec{data: data}
+	m.onkDecode(&d)
+	if d.end() {
+		return nil
+	}
+	return m.onkDecodeSlow(data)
+}
+
+func (m *EmailAuth) onkDecodeSlow(data []byte) error {
+	type alias EmailAuth
+	return json.Unmarshal(data, (*alias)(m))
 }
 
 func (x *EmailAuth) GetEmail() string {
@@ -423,7 +1313,71 @@ func (m *TokenAuth) MarshalJSONTo(enc *jsontext.Encoder) error {
 	return onkMarshalJSONTo(enc, m)
 }
 
-func (m *TokenAuth) UnmarshalJSON(data []byte) error {
+func (m *TokenAuth) onkDecode(d *onkDec) {
+	var seen [1]uint64
+	if !d.null() {
+		if !d.open('{') {
+			return
+		}
+		for i := 0; d.next(i, '}'); i++ {
+			key := d.key()
+			if d.err != nil {
+				return
+			}
+			switch string(key) {
+			case "token":
+				if seen[0]&(1<<0) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 0
+				if d.null() {
+					continue
+				}
+				m.Token = d.str()
+			case "token_type":
+				if seen[0]&(1<<1) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 1
+				if d.null() {
+					continue
+				}
+				m.TokenType = d.str()
+			case "issued_at":
+				if seen[0]&(1<<2) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 2
+				if d.null() {
+					continue
+				}
+				if v, ok := d.intString(false, true); ok {
+					m.IssuedAt = v
+				}
+			default:
+				if onkFoldKey(key, "token", "token_type", "issued_at") {
+					d.fail()
+					return
+				}
+				d.skip(0)
+			}
+		}
+	}
+}
+
+func (m *TokenAuth) DecodeJSON(data []byte) error {
+	d := onkDec{data: data}
+	m.onkDecode(&d)
+	if d.end() {
+		return nil
+	}
+	return m.onkDecodeSlow(data)
+}
+
+func (m *TokenAuth) onkDecodeSlow(data []byte) error {
 	type alias TokenAuth
 	aux := struct {
 		*alias
@@ -440,6 +1394,10 @@ func (m *TokenAuth) UnmarshalJSON(data []byte) error {
 		m.IssuedAt = v
 	}
 	return nil
+}
+
+func (m *TokenAuth) UnmarshalJSON(data []byte) error {
+	return m.DecodeJSON(data)
 }
 
 func (x *TokenAuth) GetToken() string {
@@ -522,6 +1480,110 @@ func (m *SocialAuth) AppendJSON(b []byte) ([]byte, error) {
 		b = append(b, '{')
 	}
 	return append(b, '}'), nil
+}
+
+func (m *SocialAuth) onkDecode(d *onkDec) {
+	var seen [1]uint64
+	if !d.null() {
+		if !d.open('{') {
+			return
+		}
+		for i := 0; d.next(i, '}'); i++ {
+			key := d.key()
+			if d.err != nil {
+				return
+			}
+			switch string(key) {
+			case "provider":
+				if seen[0]&(1<<0) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 0
+				if d.null() {
+					continue
+				}
+				m.Provider = d.str()
+			case "access_token":
+				if seen[0]&(1<<1) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 1
+				if d.null() {
+					continue
+				}
+				m.AccessToken = d.str()
+			case "redirect_uri":
+				if seen[0]&(1<<2) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 2
+				if d.null() {
+					continue
+				}
+				m.RedirectUri = d.str()
+			case "state":
+				if seen[0]&(1<<3) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 3
+				if d.null() {
+					continue
+				}
+				m.State = d.str()
+			case "permissions":
+				if seen[0]&(1<<4) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 4
+				if d.null() {
+					m.Permissions = nil
+					continue
+				}
+				if !d.open('[') {
+					return
+				}
+				m.Permissions = []string{}
+				for j := 0; d.next(j, ']'); j++ {
+					if cap(m.Permissions) == 0 {
+						m.Permissions = make([]string, 0, 4)
+					}
+					if d.null() {
+						var zero string
+						m.Permissions = append(m.Permissions, zero)
+						continue
+					}
+					var item string
+					item = d.str()
+					m.Permissions = append(m.Permissions, item)
+				}
+			default:
+				if onkFoldKey(key, "provider", "access_token", "redirect_uri", "state", "permissions") {
+					d.fail()
+					return
+				}
+				d.skip(0)
+			}
+		}
+	}
+}
+
+func (m *SocialAuth) DecodeJSON(data []byte) error {
+	d := onkDec{data: data}
+	m.onkDecode(&d)
+	if d.end() {
+		return nil
+	}
+	return m.onkDecodeSlow(data)
+}
+
+func (m *SocialAuth) onkDecodeSlow(data []byte) error {
+	type alias SocialAuth
+	return json.Unmarshal(data, (*alias)(m))
 }
 
 func (x *SocialAuth) GetProvider() string {
@@ -682,7 +1744,231 @@ func (m *LoginRequest) MarshalJSONTo(enc *jsontext.Encoder) error {
 	return onkMarshalJSONTo(enc, m)
 }
 
-func (m *LoginRequest) UnmarshalJSON(data []byte) error {
+func (m *LoginRequest) onkDecode(d *onkDec) {
+	var seen [1]uint64
+	if !d.null() {
+		if !d.open('{') {
+			return
+		}
+		for i := 0; d.next(i, '}'); i++ {
+			key := d.key()
+			if d.err != nil {
+				return
+			}
+			switch string(key) {
+			case "device_id":
+				if seen[0]&(1<<0) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 0
+				if d.null() {
+					continue
+				}
+				m.DeviceId = d.str()
+			case "ip_address":
+				if seen[0]&(1<<1) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 1
+				if d.null() {
+					continue
+				}
+				m.IpAddress = d.str()
+			case "retry_count":
+				if seen[0]&(1<<2) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 2
+				if d.null() {
+					continue
+				}
+				m.RetryCount = int32(d.int(32))
+			case "user_agent":
+				if seen[0]&(1<<3) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 3
+				if d.null() {
+					continue
+				}
+				m.UserAgent = d.str()
+			case "auth_method":
+				if seen[0]&(1<<4) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 4
+				if d.null() {
+					continue
+				}
+				if !d.open('{') {
+					return
+				}
+				var tag string
+				var v0 *EmailAuth
+				var v1 *TokenAuth
+				var v2 *SocialAuth
+				var oneofSeen uint64
+				for j := 0; d.next(j, '}'); j++ {
+					oneofKey := d.key()
+					if d.err != nil {
+						return
+					}
+					switch string(oneofKey) {
+					case "auth_type":
+						if oneofSeen&1 != 0 {
+							d.fail()
+							return
+						}
+						oneofSeen |= 1
+						if !d.null() {
+							tag = d.str()
+						}
+					case "email":
+						if oneofSeen&(1<<1) != 0 {
+							d.fail()
+							return
+						}
+						oneofSeen |= 1 << 1
+						if d.null() {
+							v0 = nil
+							continue
+						}
+						if v0 == nil {
+							v0 = new(EmailAuth)
+						}
+						v0.onkDecode(d)
+					case "token":
+						if oneofSeen&(1<<2) != 0 {
+							d.fail()
+							return
+						}
+						oneofSeen |= 1 << 2
+						if d.null() {
+							v1 = nil
+							continue
+						}
+						if v1 == nil {
+							v1 = new(TokenAuth)
+						}
+						v1.onkDecode(d)
+					case "social":
+						if oneofSeen&(1<<3) != 0 {
+							d.fail()
+							return
+						}
+						oneofSeen |= 1 << 3
+						if d.null() {
+							v2 = nil
+							continue
+						}
+						if v2 == nil {
+							v2 = new(SocialAuth)
+						}
+						v2.onkDecode(d)
+					default:
+						if onkFoldKey(oneofKey, "auth_type", "email", "token", "social") {
+							d.fail()
+							return
+						}
+						d.skip(0)
+					}
+				}
+				if d.err != nil {
+					return
+				}
+				switch tag {
+				case "email":
+					m.AuthMethod = &LoginRequestAuthMethodEmail{Email: v0}
+				case "token":
+					m.AuthMethod = &LoginRequestAuthMethodToken{Token: v1}
+				case "social":
+					m.AuthMethod = &LoginRequestAuthMethodSocial{Social: v2}
+				}
+			case "remember_me":
+				if seen[0]&(1<<5) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 5
+				if d.null() {
+					continue
+				}
+				m.RememberMe = d.boolean()
+			case "session_id":
+				if seen[0]&(1<<6) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 6
+				if d.null() {
+					continue
+				}
+				m.SessionId = d.str()
+			case "timestamp":
+				if seen[0]&(1<<7) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 7
+				if d.null() {
+					continue
+				}
+				if v, ok := d.intString(false, true); ok {
+					m.Timestamp = v
+				}
+			case "scopes":
+				if seen[0]&(1<<8) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 8
+				if d.null() {
+					m.Scopes = nil
+					continue
+				}
+				if !d.open('[') {
+					return
+				}
+				m.Scopes = []string{}
+				for j := 0; d.next(j, ']'); j++ {
+					if cap(m.Scopes) == 0 {
+						m.Scopes = make([]string, 0, 4)
+					}
+					if d.null() {
+						var zero string
+						m.Scopes = append(m.Scopes, zero)
+						continue
+					}
+					var item string
+					item = d.str()
+					m.Scopes = append(m.Scopes, item)
+				}
+			default:
+				if onkFoldKey(key, "device_id", "ip_address", "retry_count", "user_agent", "auth_method", "remember_me", "session_id", "timestamp", "scopes") {
+					d.fail()
+					return
+				}
+				d.skip(0)
+			}
+		}
+	}
+}
+
+func (m *LoginRequest) DecodeJSON(data []byte) error {
+	d := onkDec{data: data}
+	m.onkDecode(&d)
+	if d.end() {
+		return nil
+	}
+	return m.onkDecodeSlow(data)
+}
+
+func (m *LoginRequest) onkDecodeSlow(data []byte) error {
 	type alias LoginRequest
 	aux := struct {
 		*alias
@@ -710,6 +1996,10 @@ func (m *LoginRequest) UnmarshalJSON(data []byte) error {
 		m.Timestamp = v
 	}
 	return nil
+}
+
+func (m *LoginRequest) UnmarshalJSON(data []byte) error {
+	return m.DecodeJSON(data)
 }
 
 func (x *LoginRequest) GetDeviceId() string {
@@ -884,7 +2174,85 @@ func (m *LoginResponse) MarshalJSONTo(enc *jsontext.Encoder) error {
 	return onkMarshalJSONTo(enc, m)
 }
 
-func (m *LoginResponse) UnmarshalJSON(data []byte) error {
+func (m *LoginResponse) onkDecode(d *onkDec) {
+	var seen [1]uint64
+	if !d.null() {
+		if !d.open('{') {
+			return
+		}
+		for i := 0; d.next(i, '}'); i++ {
+			key := d.key()
+			if d.err != nil {
+				return
+			}
+			switch string(key) {
+			case "access_token":
+				if seen[0]&(1<<0) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 0
+				if d.null() {
+					continue
+				}
+				m.AccessToken = d.str()
+			case "refresh_token":
+				if seen[0]&(1<<1) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 1
+				if d.null() {
+					continue
+				}
+				m.RefreshToken = d.str()
+			case "expires_in":
+				if seen[0]&(1<<2) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 2
+				if d.null() {
+					continue
+				}
+				if v, ok := d.intString(false, true); ok {
+					m.ExpiresIn = v
+				}
+			case "user":
+				if seen[0]&(1<<3) != 0 {
+					d.fail()
+					return
+				}
+				seen[0] |= 1 << 3
+				if d.null() {
+					m.User = nil
+					continue
+				}
+				if m.User == nil {
+					m.User = new(User)
+				}
+				m.User.onkDecode(d)
+			default:
+				if onkFoldKey(key, "access_token", "refresh_token", "expires_in", "user") {
+					d.fail()
+					return
+				}
+				d.skip(0)
+			}
+		}
+	}
+}
+
+func (m *LoginResponse) DecodeJSON(data []byte) error {
+	d := onkDec{data: data}
+	m.onkDecode(&d)
+	if d.end() {
+		return nil
+	}
+	return m.onkDecodeSlow(data)
+}
+
+func (m *LoginResponse) onkDecodeSlow(data []byte) error {
 	type alias LoginResponse
 	aux := struct {
 		*alias
@@ -901,6 +2269,10 @@ func (m *LoginResponse) UnmarshalJSON(data []byte) error {
 		m.ExpiresIn = v
 	}
 	return nil
+}
+
+func (m *LoginResponse) UnmarshalJSON(data []byte) error {
+	return m.DecodeJSON(data)
 }
 
 func (x *LoginResponse) GetAccessToken() string {

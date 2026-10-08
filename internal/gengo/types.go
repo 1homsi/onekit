@@ -325,6 +325,7 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) ([]by
 	if fileHasAppendable(p, file) {
 		imp.json, imp.stream, imp.strconv, imp.math, imp.utf8 = true, true, true, true, true
 		imp.base64, imp.sync, imp.slices, imp.errors, imp.fmt = true, true, true, true, true
+		imp.hex, imp.strings = true, true
 	}
 	imp.jsonv2 = fileHasShadowNullable(file) || fileHasStreamingAux(p, file)
 	writeTypesImports(p, imp, collectExternalRefs(file, resolver))
@@ -333,6 +334,7 @@ func GenerateTypesWithResolver(file *onkir.File, resolver PackageResolver) ([]by
 	}
 	if fileHasAppendable(p, file) {
 		writeAppendJSONRuntime(p)
+		writeDecodeJSONRuntime(p)
 	}
 
 	for _, e := range file.Enums {
@@ -496,6 +498,7 @@ func writeMessage(p *Printer, m *onkir.Message) {
 		writeCustomJSONMethods(p, m)
 	} else if p.hasAppend(m) {
 		writeAppendJSONMethods(p, m, false)
+		writeDecodeJSONMethods(p, m, categorizeFields(m), false)
 	}
 
 	writeFieldGetters(p, m)

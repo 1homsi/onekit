@@ -85,7 +85,13 @@ func (s *sseSender) start() {
 }
 
 func (s *sseSender) SendWithEvent(eventType string, event any) error {
-	data, err := json.Marshal(event)
+	var data []byte
+	var err error
+	if a, ok := event.(interface{ AppendJSON([]byte) ([]byte, error) }); ok {
+		data, err = a.AppendJSON(nil)
+	} else {
+		data, err = json.Marshal(event)
+	}
 	if err != nil {
 		return err
 	}

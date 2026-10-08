@@ -140,6 +140,9 @@ func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]b
 		writeEventStreamRuntime(p)
 	}
 	writeResponseBodyRuntime(p)
+	if fileHasNonWSMethods(file) {
+		writeClientJSONHelpers(p)
+	}
 	writeCallOptionsRuntime(p)
 	if hasWS {
 		p.P("// wsReadError reports a read that hit this side's own frame limit as the")
@@ -258,7 +261,11 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeClientErrorHandling(p, m)
 
 	p.P("result := new(", p.MessageTypeName(m.Response), ")")
-	p.P("if err := json.NewDecoder(io.LimitReader(resp.Body, responseBodyLimit(c.MaxResponseBodyBytes))).Decode(result); err != nil && err != io.EOF {")
+	p.P("data, err := readResponseBody(resp.Body, c.MaxResponseBodyBytes)")
+	p.P("if err != nil {")
+	p.P(`return nil, fmt.Errorf("decode response: %w", err)`)
+	p.P("}")
+	p.P("if err := unmarshalJSONValue(data, result); err != nil && !jsonBlank(data) {")
 	p.P(`return nil, fmt.Errorf("decode response: %w", err)`)
 	p.P("}")
 	p.P("return result, nil")
@@ -420,7 +427,7 @@ func writeClientErrorHandling(p *Printer, m *onkir.Method) {
 		}
 		p.P(fmt.Sprintf("if resp.StatusCode == %d {", status))
 		p.P("e := new(", p.MessageTypeName(errType), ")")
-		p.P("if jsonErr := json.Unmarshal(respBody, e); jsonErr == nil {")
+		p.P("if jsonErr := unmarshalJSONValue(respBody, e); jsonErr == nil {")
 		p.P("return nil, e")
 		p.P("}")
 		p.P("}")
@@ -464,16 +471,16 @@ func writeClientBodyOrQuery(p *Printer, m *onkir.Method, bodyBearing bool) {
 			if field := onkir.FindField(m.Request, bodyField); field != nil {
 				if bodyFieldNeedsCustomJSON(field) {
 					writeBodyValue(p, field)
-					p.P("body, err := json.Marshal(bodyValue)")
+					p.P("body, err := marshalRequestJSON(bodyValue)")
 				} else {
 					bodyExpr = "req." + GoFieldName(field)
-					p.P("body, err := json.Marshal(", bodyExpr, ")")
+					p.P("body, err := marshalRequestJSON(", bodyExpr, ")")
 				}
 			} else {
-				p.P("body, err := json.Marshal(", bodyExpr, ")")
+				p.P("body, err := marshalRequestJSON(", bodyExpr, ")")
 			}
 		} else {
-			p.P("body, err := json.Marshal(", bodyExpr, ")")
+			p.P("body, err := marshalRequestJSON(", bodyExpr, ")")
 		}
 		p.P("if err != nil {")
 		p.P(`return nil, fmt.Errorf("marshal request: %w", err)`)
@@ -530,4 +537,30 @@ func writeClientPathBuild(p *Printer, m *onkir.Method, path, fullPath string) {
 		p.P("path = strings.ReplaceAll(path, ", fmt.Sprintf("%q", onkir.PathPlaceholder(path, paramName)), ", ",
 			goPathEscapeExpr(path, paramName, "req."+PascalCase(paramName)), ")")
 	}
+}
+
+func writeClientJSONHelpers(p *Printer) {
+	p.P("func unmarshalJSONValue(data []byte, v any) error {")
+	p.P("if d, ok := v.(interface{ DecodeJSON([]byte) error }); ok {")
+	p.P("return d.DecodeJSON(data)")
+	p.P("}")
+	p.P("return json.Unmarshal(data, v)")
+	p.P("}")
+	p.P()
+	p.P("func marshalRequestJSON(v any) ([]byte, error) {")
+	p.P("if a, ok := v.(interface{ AppendJSON([]byte) ([]byte, error) }); ok {")
+	p.P("return a.AppendJSON(make([]byte, 0, 512))")
+	p.P("}")
+	p.P("return json.Marshal(v)")
+	p.P("}")
+	p.P()
+	p.P("func jsonBlank(data []byte) bool {")
+	p.P("for _, c := range data {")
+	p.P("if c != ' ' && c != '\\t' && c != '\\n' && c != '\\r' {")
+	p.P("return false")
+	p.P("}")
+	p.P("}")
+	p.P("return true")
+	p.P("}")
+	p.P()
 }
