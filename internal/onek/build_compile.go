@@ -212,11 +212,15 @@ func Compile(dir string) (*onkir.Package, error) {
 // requested compatibility behavior. It also applies the same default
 // service base paths used by Build.
 func CompileWithOptions(dir string, options onkcompile.CompileOptions) (*onkir.Package, error) {
+	return compileTree(dir, nil, options)
+}
+
+func compileTree(dir string, exts []string, options onkcompile.CompileOptions) (*onkir.Package, error) {
 	root, err := canonicalProjectDir(dir)
 	if err != nil {
 		return nil, err
 	}
-	files, err := discoverOnkFiles(root)
+	files, err := discoverSchemaFiles(root, exts)
 	if err != nil {
 		return nil, err
 	}
@@ -258,14 +262,19 @@ func loadOptionalConfig(dir string) (*Config, error) {
 // a project directory: the configured schema_root when onekit.toml declares
 // one, otherwise the directory itself.
 func resolveSchemaTree(dir string) (string, error) {
+	root, _, err := resolveSchemaTreeExts(dir)
+	return root, err
+}
+
+func resolveSchemaTreeExts(dir string) (string, []string, error) {
 	cfg, err := loadOptionalConfig(dir)
 	if err != nil && !errors.Is(err, errNoConfigFile) {
-		return "", err
+		return "", nil, err
 	}
 	if cfg != nil {
-		return cfg.SchemaDir(), nil
+		return cfg.SchemaDir(), cfg.schemaExtensions(), nil
 	}
-	return dir, nil
+	return dir, nil, nil
 }
 
 // Check validates the project configuration and every schema under the
@@ -283,7 +292,7 @@ func Check(dir string) error {
 }
 
 func checkAt(root string, cfg *Config) error {
-	_, err := CompileWithOptions(root, cfg.CompileOptions())
+	_, err := compileTree(root, cfg.schemaExtensions(), cfg.CompileOptions())
 	return err
 }
 
@@ -312,21 +321,24 @@ func compileCompatibilityProject(dir string, fallback *Config) (*onkir.Package, 
 	root := dir
 	options := onkcompile.CompileOptions{}
 	routePrefix := ""
+	var exts []string
 	switch {
 	case cfg != nil:
 		root = cfg.SchemaDir()
 		options = cfg.CompileOptions()
 		routePrefix = cfg.RoutePrefix
+		exts = cfg.schemaExtensions()
 	case fallback != nil:
 		options = fallback.CompileOptions()
 		routePrefix = fallback.RoutePrefix
+		exts = fallback.schemaExtensions()
 		if fallback.SchemaRoot != "" {
 			if info, statErr := os.Stat(filepath.Join(dir, fallback.SchemaRoot)); statErr == nil && info.IsDir() {
 				root = filepath.Join(dir, fallback.SchemaRoot)
 			}
 		}
 	}
-	pkg, err := CompileWithOptions(root, options)
+	pkg, err := compileTree(root, exts, options)
 	if err != nil {
 		return nil, err
 	}

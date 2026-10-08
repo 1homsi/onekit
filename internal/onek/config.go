@@ -113,9 +113,10 @@ type Config struct {
 	// Version pins the onek release this project builds with. When it differs
 	// from the running binary, onek downloads that release (checksum
 	// verified), caches it and hands the command over to it.
-	Version       string `toml:"version"`
-	RepeatedStyle string `toml:"repeated_style"`
-	Module        string `toml:"module"`
+	Version          string   `toml:"version"`
+	RepeatedStyle    string   `toml:"repeated_style"`
+	SchemaExtensions []string `toml:"schema_extensions"`
+	Module           string   `toml:"module"`
 	// SchemaRoot points at the directory holding the .onk schema tree,
 	// relative to the project directory (the one containing onekit.toml).
 	// It lets repositories keep schemas in a subdirectory while generator
@@ -232,6 +233,9 @@ func LoadConfig(dir string) (*Config, error) {
 		return nil, &ConfigError{Path: path, Err: err}
 	}
 	if err := validateInt64Encoding(cfg.Int64Encoding); err != nil {
+		return nil, &ConfigError{Path: path, Err: err}
+	}
+	if err := validateSchemaExtensions(cfg.SchemaExtensions); err != nil {
 		return nil, &ConfigError{Path: path, Err: err}
 	}
 	if err := validateRepeatedStyle(cfg.RepeatedStyle); err != nil {
@@ -534,4 +538,20 @@ func validateRepeatedStyle(value string) error {
 		return nil
 	}
 	return fmt.Errorf("repeated_style must be \"pointers\" or \"values\", not %q", value)
+}
+
+func validateSchemaExtensions(exts []string) error {
+	for _, ext := range exts {
+		if ext != onkExtension && ext != protoExtension {
+			return fmt.Errorf("schema_extensions entries must be %q or %q, not %q", onkExtension, protoExtension, ext)
+		}
+	}
+	return nil
+}
+
+func (c *Config) schemaExtensions() []string {
+	if c == nil || len(c.SchemaExtensions) == 0 {
+		return defaultSchemaExtensions()
+	}
+	return c.SchemaExtensions
 }
