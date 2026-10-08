@@ -2,24 +2,39 @@ package app
 
 message Env {
   key: string
+
   value: string
 }
 
 message Resource {
   id: string
+
   name: string
+
   kind: string
+
   size: int64 @encode("number")
+
   ratio: float64
+
   active: bool
+
   folder_id: int64? @nullable @encode("number")
+
   note: string? @nullable
+
   tags: string[]
+
   headers: map[string, string]
+
   secret_keys: string[]
+
   config: json @object
+
   created_at: timestamp
+
   env: Env[]
+
   owner: Env
 }
 
