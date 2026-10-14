@@ -55,6 +55,43 @@ func (f ServiceFilter) apply(file *onkir.File) *onkir.File {
 	return &filtered
 }
 
+// applyPortable is apply for a target that cannot generate raw @http routes:
+// those routes are left out of its output, and a service left with none of
+// its methods is dropped.
+func (f ServiceFilter) applyPortable(file *onkir.File) *onkir.File {
+	return withoutRawHTTP(f.apply(file))
+}
+
+func withoutRawHTTP(file *onkir.File) *onkir.File {
+	if file == nil {
+		return file
+	}
+	found := false
+	for _, service := range file.Services {
+		for _, method := range service.Methods {
+			found = found || method.IsRawHTTP()
+		}
+	}
+	if !found {
+		return file
+	}
+	filtered := *file
+	filtered.Services = nil
+	for _, service := range file.Services {
+		kept := *service
+		kept.Methods = nil
+		for _, method := range service.Methods {
+			if !method.IsRawHTTP() {
+				kept.Methods = append(kept.Methods, method)
+			}
+		}
+		if len(kept.Methods) > 0 || len(service.Methods) == 0 {
+			filtered.Services = append(filtered.Services, &kept)
+		}
+	}
+	return &filtered
+}
+
 func (f ServiceFilter) validate(target string) error {
 	for _, field := range []struct {
 		name     string

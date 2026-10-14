@@ -36,7 +36,7 @@ func validateContract(pkg *onkir.Package, options CompileOptions) error {
 				if err := validateMethodBindings(file.Path, method, options, bodyRequests, pathUses); err != nil {
 					return err
 				}
-				if err := validateRawHTTPContract(file.Path, method, options); err != nil {
+				if err := validateRawHTTPContract(file.Path, method); err != nil {
 					return err
 				}
 			}
@@ -308,7 +308,7 @@ func validateUnboundFields(filePath string, method *onkir.Method, verb string, p
 }
 
 func isBodyBearingVerb(verb string) bool {
-	return verb == postVerb || verb == putVerb || verb == patchVerb || verb == queryVerb
+	return verb == postVerb || verb == putVerb || verb == patchVerb || verb == queryVerb || verb == anyVerb
 }
 
 func methodField(message *onkir.Message, name string) *onkir.Field {

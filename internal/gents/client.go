@@ -305,7 +305,7 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 	p.P("this.options = options;")
 	p.P("}")
 	p.P()
-	if serviceHasHTTPRoutes(s) {
+	if serviceNeedsRequestHelper(s) {
 		p.P("private async request(input: string, init: RequestInit): Promise<Response> {")
 		p.P("const doFetch = this.options.fetch ?? fetch;")
 		p.P("const defaults = typeof this.options.defaultHeaders === \"function\" ? await this.options.defaultHeaders() : this.options.defaultHeaders;")
@@ -333,6 +333,7 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 
 	p.P("}")
 	p.P()
+	writeRawURLFuncs(p, s)
 }
 
 func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {

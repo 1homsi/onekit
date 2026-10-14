@@ -2,6 +2,7 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -11,7 +12,9 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -281,6 +284,21 @@ func (w *routeResponseWriter) Flush() {
 		w.wrote = true
 		flusher.Flush()
 	}
+}
+
+func (w *routeResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, rw, err := hijackResponse(w.ResponseWriter)
+	if err == nil {
+		w.wrote = true
+	}
+	return conn, rw, err
+}
+
+func hijackResponse(w http.ResponseWriter) (net.Conn, *bufio.ReadWriter, error) {
+	if hijacker, ok := w.(http.Hijacker); ok {
+		return hijacker.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
 }
 
 // ResponseControl lets a handler adjust the success status and headers.
@@ -631,6 +649,10 @@ func (w *routerErrorWriter) Flush() {
 	}
 }
 
+func (w *routerErrorWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return hijackResponse(w.ResponseWriter)
+}
+
 func WithRequestObserver(observer RequestObserver) ServerOption {
 	return func(o *ServerOptions) { o.Observer = observer }
 }
@@ -649,6 +671,57 @@ func defaultRequestIDGenerator() string {
 		return ""
 	}
 	return hex.EncodeToString(value[:])
+}
+
+type preservedURLKey struct{}
+
+const preservedSegmentMark = "\x00"
+
+// PreserveSegments wraps mux so a request path with empty or dot segments,
+// such as /proxy/res/a//b/../c, reaches a route that declares a wildcard tail
+// ({path...}) as sent. Without it ServeMux answers such a path with a redirect
+// to its cleaned form. Every other route keeps the mux's own path cleaning, and
+// a wildcard route restores the original path before its handler runs. The tail
+// then holds whatever the client sent, including "..", so a handler that maps it
+// onto a filesystem or an upstream URL must check it.
+func PreserveSegments(mux *http.ServeMux) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		segments := strings.Split(r.URL.Path, "/")
+		changed := false
+		for i := 1; i < len(segments); i++ {
+			segment := segments[i]
+			if segment == "." || segment == ".." || segment == "" && i != len(segments)-1 {
+				segments[i] = preservedSegmentMark + segment
+				changed = true
+			}
+		}
+		if !changed {
+			mux.ServeHTTP(w, r)
+			return
+		}
+		original := *r.URL
+		preserved := r.Clone(context.WithValue(r.Context(), preservedURLKey{}, &original))
+		preserved.URL.Path = strings.Join(segments, "/")
+		preserved.URL.RawPath = ""
+		if _, pattern := mux.Handler(preserved); strings.Contains(pattern, "...}") {
+			mux.ServeHTTP(w, preserved)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
+}
+
+// RestorePreservedSegments undoes PreserveSegments for the request a route
+// is handling; generated routes with a wildcard tail call it first.
+func RestorePreservedSegments(r *http.Request, names ...string) {
+	original, _ := r.Context().Value(preservedURLKey{}).(*url.URL)
+	if original == nil {
+		return
+	}
+	*r.URL = *original
+	for _, name := range names {
+		r.SetPathValue(name, strings.ReplaceAll(r.PathValue(name), preservedSegmentMark, ""))
+	}
 }
 
 // Mount registers a hand-written handler on mux with the options and route
@@ -776,6 +849,10 @@ func (w *statusResponseWriter) Flush() {
 	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
+}
+
+func (w *statusResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return hijackResponse(w.ResponseWriter)
 }
 
 type bufferedResponse struct {

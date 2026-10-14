@@ -195,7 +195,7 @@ func validateRPC(path string, rpc *onklang.RPCDecl, allowEmptyRoute bool) (strin
 	if err := validateHTTPPath(route, allowEmptyRoute); err != nil {
 		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "invalid RPC route: " + err.Error()}
 	}
-	if err := validateRawHTTPRPC(path, rpc); err != nil {
+	if err := validateRawHTTPRPC(path, rpc, verb); err != nil {
 		return "", "", err
 	}
 	if hasDecorator(rpc.Decorators, "max_body") && !isBodyBearingVerb(verb) {
@@ -262,7 +262,7 @@ func validateHTTPPath(value string, allowEmpty bool) error {
 
 func isHTTPVerb(name string) bool {
 	switch name {
-	case "get", postVerb, putVerb, "delete", patchVerb, queryVerb:
+	case "get", postVerb, putVerb, "delete", patchVerb, queryVerb, anyVerb:
 		return true
 	default:
 		return false

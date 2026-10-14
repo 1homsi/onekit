@@ -29,7 +29,7 @@ var sharedRuntimeTypes = []string{
 }
 
 var sharedRuntimeFuncs = []string{
-	"RequestMetadataFromContext", "SetResponseStatus", "ResponseHeader", "HTTPRequestFromContext",
+	"RequestMetadataFromContext", "PreserveSegments", "RestorePreservedSegments", "SetResponseStatus", "ResponseHeader", "HTTPRequestFromContext",
 	"RequestIDFromContext", "HTTPRequestContext", "RouteContext", "Mount", "NotModified", "Redirect", "SetCookie", "WithMux", "WithMiddleware",
 	"WithRequestID", "WithRequestIDGenerator", "WithAuthorizer", "WithScopes", "WithErrorWriter",
 	"ErrorHandler", "WithRequestObserver", "WithMaxRequestBodyBytes", "WithSSEHeartbeat",
@@ -68,7 +68,7 @@ func GenerateServerRuntime(packageName string, hasWS bool, contentType string) (
 	p.P("package ", packageName)
 	p.P()
 	p.P("import (")
-	for _, imp := range []string{"bytes", "context", "crypto/rand", "encoding/hex", "encoding/json", "errors", "net/http", "strings", "sync", "time"} {
+	for _, imp := range []string{"bufio", "bytes", "context", "crypto/rand", "encoding/hex", "encoding/json", "errors", "net", "net/http", "net/url", "strings", "sync", "time"} {
 		p.P(strconv.Quote(imp))
 	}
 	if hasWS {

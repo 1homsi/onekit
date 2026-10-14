@@ -80,3 +80,105 @@ console.log("OK");
 		}
 	}
 }
+
+const rawRoutesSchema = `package app
+
+message Empty {}
+message Slug { slug: string }
+message DraftBody { source: string  minify: bool }
+message DraftRequest { slug: string  draft: DraftBody }
+message Policy { allowed: bool  reason: string }
+message UploadResult { name: string  size: int32 }
+message ProxyRequest { slug: string  resource: string  path: string  trace: string @query }
+
+service Apps {
+  base_path: "/apps"
+  bundle(Slug) -> Empty @get("/{slug}/bundle.js") @http("application/javascript")
+  draft(DraftRequest) -> Empty @post("/{slug}/bundle-draft.js") @http("application/javascript", request: "json") @body("draft")
+  policy(Slug) -> Policy @get("/{slug}/local-execution") @http(response: "json")
+  run(Slug) -> Empty @get("/{slug}/local-execution/run") @http(response: "websocket")
+  oauth(Slug) -> Empty @get("/{slug}/oauth") @http(response: "redirect")
+  upload(Slug) -> UploadResult @post("/{slug}/uploads") @http(request: "multipart", response: "json")
+  proxy(ProxyRequest) -> Empty @any("/{slug}/proxy/{resource}/{path...}") @http
+}
+`
+
+func TestTSRawRoutesByKind(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not available")
+	}
+	ast, err := onklang.Parse(rawRoutesSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "api.onk", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"ts-client"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := pkg.Files[0]
+	dir := t.TempDir()
+	forNode := func(src []byte) string {
+		return strings.ReplaceAll(string(src), `from "./types.js"`, `from "./types.ts"`)
+	}
+	writeFile(t, filepath.Join(dir, "types.ts"), string(GenerateTypes(file)))
+	writeFile(t, filepath.Join(dir, "client.ts"), forNode(GenerateClient(file)))
+	writeFile(t, filepath.Join(dir, "main.ts"), `
+import { AppsClient, appsBundleUrl, appsProxyUrl } from "./client.ts";
+
+const seen: { url: string; init: RequestInit }[] = [];
+const respond = (body: BodyInit | null, init: ResponseInit = { status: 200 }) =>
+  (async (input: RequestInfo | URL, request?: RequestInit) => {
+    seen.push({ url: String(input), init: request ?? {} });
+    return new Response(body, init);
+  }) as typeof fetch;
+const make = (body: BodyInit | null, init?: ResponseInit) => new AppsClient("http://api", { fetch: respond(body, init) });
+const check = (ok: boolean, message: string) => { if (!ok) throw new Error(message); };
+
+check(appsBundleUrl("http://api", { slug: "blog" }) === "http://api/apps/blog/bundle.js", "the plain url builder");
+check(make(null).bundleUrl({ slug: "a b" }) === "http://api/apps/a%20b/bundle.js", "the client url builder");
+check(appsProxyUrl("http://api", { slug: "blog", resource: "pg", path: "a/b c", trace: "t 1" }) === "http://api/apps/blog/proxy/pg/a/b%20c?trace=t+1", "wildcard tail and query in the url");
+let threw = false;
+try { appsProxyUrl("http://api", { slug: "blog", resource: "pg", path: "a/../b", trace: "" }); } catch { threw = true; }
+check(threw, "dot segments in a wildcard tail must be rejected");
+
+const client = make('{"allowed":true,"reason":"ok"}');
+const policy = await client.policy({ slug: "blog" });
+check(policy.allowed === true && policy.reason === "ok", "a json response is decoded into the message");
+
+const draftClient = make("js");
+const draftRes: Response = await draftClient.draft({ slug: "blog", draft: { source: "let a", minify: true } });
+check(await draftRes.text() === "js", "a stream response is the Response");
+check(seen[1].init.body === '{"source":"let a","minify":true}', "a json request sends the body field: " + seen[1].init.body);
+check((seen[1].init.headers as Record<string, string>)["Content-Type"] === "application/json", "json content type");
+
+check(!("run" in client) && !("oauth" in client), "redirect and websocket routes get no fetch method");
+check(typeof client.runUrl === "function" && client.oauthUrl({ slug: "x" }) === "http://api/apps/x/oauth", "redirect and websocket routes get a url builder");
+
+const form = new FormData();
+form.set("file", new Blob(["data"]), "a.txt");
+const uploadClient = make('{"name":"a.txt","size":4}');
+const uploaded = await uploadClient.upload({ slug: "blog" }, { body: form });
+check(uploaded.name === "a.txt" && uploaded.size === 4, "multipart json response");
+check(seen[2].init.body === form && !(seen[2].init.headers as Record<string, string>)["Content-Type"], "multipart must leave the content type to fetch");
+
+const proxy = make("x");
+await proxy.proxy({ slug: "blog", resource: "pg", path: "a/b", trace: "" });
+await proxy.proxy({ slug: "blog", resource: "pg", path: "a/b", trace: "" }, { method: "PATCH", body: "x", contentType: "text/plain" });
+check(seen[3].init.method === "GET" && seen[4].init.method === "PATCH", "any takes the method as an option");
+console.log("OK");
+`)
+	cmd := exec.Command("node", "main.ts")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != "OK" {
+		t.Fatalf("node run failed: %v\n%s", err, out)
+	}
+	if _, err := exec.LookPath("tsc"); err == nil {
+		writeFile(t, filepath.Join(dir, "tsconfig.json"), `{"compilerOptions":{"target":"ES2022","module":"ESNext","moduleResolution":"bundler","strict":true,"noEmit":true,"noUnusedLocals":true,"allowImportingTsExtensions":true,"lib":["ES2022","DOM"]},"files":["types.ts","client.ts"]}`)
+		tsc := exec.Command("tsc", "-p", "tsconfig.json")
+		tsc.Dir = dir
+		if out, err := tsc.CombinedOutput(); err != nil {
+			t.Fatalf("the raw client must type check: %v\n%s", err, out)
+		}
+	}
+}
