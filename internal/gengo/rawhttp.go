@@ -120,7 +120,21 @@ func writeRawServiceMethod(p *Printer, m *onkir.Method) {
 	p.P(PascalCase(m.Name), "(w http.ResponseWriter, r *http.Request, req *", p.MessageTypeName(m.Request), ") error")
 }
 
+func writeRawURLMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
+	path, _ := m.Path()
+	fullPath := s.BasePath + path
+	writeDoc(p, deprecatedDoc(m.Doc, m.Deprecated))
+	p.P("func (c *", s.Name, "Client) ", PascalCase(m.Name), "URL(req *", p.MessageTypeName(m.Request), ") (string, error) {")
+	p.P(`if validator, ok := any(req).(interface{ Validate() error }); ok { if err := validator.Validate(); err != nil { return "", fmt.Errorf("validate request: %w", err) } }`)
+	writeClientPathBuildReturning(p, m, path, fullPath, `""`)
+	writeClientQueryParams(p, m.Request)
+	p.P("return c.BaseURL + path, nil")
+	p.P("}")
+	p.P()
+}
+
 func writeRawClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
+	writeRawURLMethod(p, s, m)
 	if !m.RawIsFetchable() {
 		return
 	}

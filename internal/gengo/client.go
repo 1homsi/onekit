@@ -526,6 +526,10 @@ func noteBodyQueryImports(imp *clientImports, m *onkir.Method) {
 }
 
 func writeClientPathBuild(p *Printer, m *onkir.Method, path, fullPath string) {
+	writeClientPathBuildReturning(p, m, path, fullPath, "nil")
+}
+
+func writeClientPathBuildReturning(p *Printer, m *onkir.Method, path, fullPath, zero string) {
 	p.P("path := ", fmt.Sprintf("%q", fullPath))
 	for _, paramName := range onkir.PathParamNames(path) {
 		field := onkir.FindField(m.Request, paramName)
@@ -534,7 +538,7 @@ func writeClientPathBuild(p *Printer, m *onkir.Method, path, fullPath string) {
 		}
 		if onkir.IsWildcardParam(path, paramName) {
 			p.P("for _, segment := range strings.Split(fmt.Sprint(req.", PascalCase(paramName), "), \"/\") {")
-			p.P(`if segment == "." || segment == ".." { return nil, fmt.Errorf("invalid path parameter ` + paramName + `: dot segments are not allowed") }`)
+			p.P(`if segment == "." || segment == ".." { return ` + zero + `, fmt.Errorf("invalid path parameter ` + paramName + `: dot segments are not allowed") }`)
 			p.P("}")
 		}
 		p.P("path = strings.ReplaceAll(path, ", fmt.Sprintf("%q", onkir.PathPlaceholder(path, paramName)), ", ",
