@@ -30,6 +30,7 @@ service Apps {
   oauth(Slug) -> Empty @get("/{slug}/oauth") @http(response: "redirect")
   upload(Slug) -> UploadResult @post("/{slug}/uploads") @http(request: "multipart", response: "json") @max_body("64MiB")
   proxy(ProxyRequest) -> Empty @any("/{slug}/proxy/{resource}/{path...}") @http @guard("app/use/:slug")
+  info(Slug) -> Policy @get("/{slug}/info")
 }
 `
 
@@ -110,10 +111,23 @@ func (impl) Upload(w http.ResponseWriter, r *http.Request, req *app.Slug) error 
 	return nil
 }
 
+func (impl) Info(ctx context.Context, req *app.Slug) (*app.Policy, error) {
+	order = append(order, "info")
+	return &app.Policy{Allowed: true}, nil
+}
+
+var order []string
+
 func (impl) Proxy(w http.ResponseWriter, r *http.Request, req *app.ProxyRequest) error {
+	order = append(order, "handler")
 	fmt.Fprintf(w, "%s %s|%s|%s|%s|%s|%s", r.Method, r.URL.Path, req.Slug, req.Resource, req.Path, req.Trace, r.PathValue("path"))
 	return nil
 }
+
+type denied struct{}
+
+func (*denied) Error() string       { return "denied" }
+func (*denied) HTTPStatusCode() int { return http.StatusForbidden }
 
 func fail(format string, args ...any) { fmt.Printf(format+"\n", args...); os.Exit(1) }
 
@@ -122,6 +136,10 @@ func main() {
 	mux := http.NewServeMux()
 	err := app.RegisterAppsServer(mux, impl{},
 		app.WithAuthorizer(func(ctx context.Context, m app.RequestMetadata, r *http.Request) error {
+			order = append(order, "authorizer")
+			if strings.Contains(r.URL.Path, "forbidden") {
+				return &denied{}
+			}
 			methods = append(methods, m.HTTPMethod)
 			routes = append(routes, m.Route)
 			return nil
@@ -166,6 +184,31 @@ func main() {
 	want := "GET /apps/blog/proxy/pg/a//b/./c/../d|blog|pg|a//b/./c/../d||a//b/./c/../d"
 	if code != 200 || body != want {
 		fail("segments are not preserved: %d %q want %q", code, body, want)
+	}
+
+	order = nil
+	code, body, _ = get("GET", "/apps/blog/proxy/pg/../../secret/x", nil, nil)
+	want = "GET /apps/blog/proxy/pg/../../secret/x|blog|pg|../../secret/x||../../secret/x"
+	if code != 200 || body != want {
+		fail("a .. tail must reach the handler untouched: %d %q want %q", code, body, want)
+	}
+	if strings.Join(order, ",") != "authorizer,handler" {
+		fail("the authorizer must run before the handler: %v", order)
+	}
+
+	order = nil
+	code, _, _ = get("GET", "/apps/blog/proxy/forbidden/../x", nil, nil)
+	if code != http.StatusForbidden || strings.Join(order, ",") != "authorizer" {
+		fail("a denied request with a .. tail must not reach the handler: %d %v", code, order)
+	}
+
+	plainTyped, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Get(srv.URL + "/apps/blog//info")
+	if err != nil {
+		panic(err)
+	}
+	plainTyped.Body.Close()
+	if plainTyped.StatusCode < 300 || plainTyped.StatusCode > 399 || !strings.HasSuffix(plainTyped.Header.Get("Location"), "/apps/blog/info") {
+		fail("a typed route keeps the mux's path cleaning: %d %q", plainTyped.StatusCode, plainTyped.Header.Get("Location"))
 	}
 
 	plain := httptest.NewServer(mux)

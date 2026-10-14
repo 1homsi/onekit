@@ -478,12 +478,14 @@ type preservedURLKey struct{}
 
 const preservedSegmentMark = "\x00"
 
-// PreserveSegments wraps a handler, usually the mux, so a request path with
-// empty or dot segments, such as /proxy/res/a//b/../c, reaches a route with a
-// wildcard tail as sent. Without it ServeMux answers such a path with a
-// redirect to its cleaned form. Routes declared with a wildcard tail restore
-// the original path before their handler runs.
-func PreserveSegments(next http.Handler) http.Handler {
+// PreserveSegments wraps mux so a request path with empty or dot segments,
+// such as /proxy/res/a//b/../c, reaches a route that declares a wildcard tail
+// ({path...}) as sent. Without it ServeMux answers such a path with a redirect
+// to its cleaned form. Every other route keeps the mux's own path cleaning, and
+// a wildcard route restores the original path before its handler runs. The tail
+// then holds whatever the client sent, including "..", so a handler that maps it
+// onto a filesystem or an upstream URL must check it.
+func PreserveSegments(mux *http.ServeMux) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		segments := strings.Split(r.URL.Path, "/")
 		changed := false
@@ -495,14 +497,18 @@ func PreserveSegments(next http.Handler) http.Handler {
 			}
 		}
 		if !changed {
-			next.ServeHTTP(w, r)
+			mux.ServeHTTP(w, r)
 			return
 		}
 		original := *r.URL
 		preserved := r.Clone(context.WithValue(r.Context(), preservedURLKey{}, &original))
 		preserved.URL.Path = strings.Join(segments, "/")
 		preserved.URL.RawPath = ""
-		next.ServeHTTP(w, preserved)
+		if _, pattern := mux.Handler(preserved); strings.Contains(pattern, "...}") {
+			mux.ServeHTTP(w, preserved)
+			return
+		}
+		mux.ServeHTTP(w, r)
 	})
 }
 
