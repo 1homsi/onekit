@@ -7,7 +7,7 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pb33f/go-yaml v0.1.1
-	github.com/pb33f/libopenapi v0.41.2
+	github.com/pb33f/libopenapi v0.41.5
 	gopkg.in/yaml.v3 v3.0.1
 	sigs.k8s.io/yaml v1.6.0
 )
