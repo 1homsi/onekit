@@ -529,11 +529,18 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 			requestSchema = base.CreateSchemaProxy(body)
 			required = len(body.Required) > 0
 		}
-		if m.IsRawHTTP() {
+		switch {
+		case m.IsRawHTTP() && m.RawRequestKind() == onkir.RawBodyJSON:
+			content.Set("application/json", &v3.MediaType{Schema: requestSchema})
+		case m.IsRawHTTP():
 			content = orderedmap.New[string, *v3.MediaType]()
-			content.Set("*/*", &v3.MediaType{Schema: base.CreateSchemaProxy(&base.Schema{Type: []string{"string"}, Format: "binary"})})
+			mediaType := "*/*"
+			if m.RawRequestKind() == onkir.RawBodyMultipart {
+				mediaType = "multipart/form-data"
+			}
+			content.Set(mediaType, &v3.MediaType{Schema: base.CreateSchemaProxy(&base.Schema{Type: []string{"string"}, Format: "binary"})})
 			required = false
-		} else {
+		default:
 			content.Set("application/json", &v3.MediaType{
 				Schema: requestSchema,
 			})
@@ -543,6 +550,16 @@ func buildOperation(s *onkir.Service, m *onkir.Method) *v3.Operation {
 
 	responses := &v3.Responses{Codes: orderedmap.New[string, *v3.Response]()}
 	switch {
+	case m.IsRawHTTP() && m.RawResponseKind() == onkir.RawBodyJSON:
+		typed := orderedmap.New[string, *v3.MediaType]()
+		typed.Set("application/json", &v3.MediaType{
+			Schema: base.CreateSchemaProxyRef("#/components/schemas/" + componentName(m.Response.FullName())),
+		})
+		responses.Codes.Set("200", &v3.Response{Description: "OK", Content: typed})
+	case m.IsRawHTTP() && m.RawResponseKind() == onkir.RawResponseRedirect:
+		responses.Codes.Set("302", &v3.Response{Description: "Redirect to the location in the Location header"})
+	case m.IsRawHTTP() && m.RawResponseKind() == onkir.RawResponseWebSocket:
+		responses.Codes.Set("101", &v3.Response{Description: "Switching Protocols: the connection is upgraded to a WebSocket"})
 	case m.IsRawHTTP():
 		raw := orderedmap.New[string, *v3.MediaType]()
 		contentType := m.RawContentType()
@@ -736,6 +753,14 @@ func Generate(file *onkir.File, opts Options) ([]byte, error) {
 			if !ok {
 				item = &v3.PathItem{}
 				paths.Set(fullPath, item)
+			}
+			if verb == onkir.VerbAny {
+				for _, method := range []string{"get", "put", "post", "delete", "patch"} {
+					op := buildOperation(s, m)
+					op.OperationId += "_" + method
+					assignOperation(item, method, op)
+				}
+				continue
 			}
 			assignOperation(item, verb, buildOperation(s, m))
 		}

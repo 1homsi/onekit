@@ -83,6 +83,7 @@ func GenerateServerWithOptions(file *onkir.File, resolver PackageResolver, opts 
 	p.P("package ", GoPackageName(file))
 	p.P()
 	p.P("import (")
+	p.P(`"bufio"`)
 	p.P(`"bytes"`)
 	p.P(`"crypto/rand"`)
 	p.P(`"context"`)
@@ -93,13 +94,12 @@ func GenerateServerWithOptions(file *onkir.File, resolver PackageResolver, opts 
 	p.P(`"io"`)
 	p.P(`"math"`)
 	p.P(`"net/http"`)
+	p.P(`"net/url"`)
 	p.P(`"regexp"`)
 	p.P(`"strconv"`)
 	p.P(`"strings"`)
 	p.P(`"time"`)
-	if hasWS {
-		p.P(`"net"`)
-	}
+	p.P(`"net"`)
 	p.P(`"sync"`)
 	if hasWS {
 		p.P(`"github.com/coder/websocket"`)
@@ -116,6 +116,9 @@ func GenerateServerWithOptions(file *onkir.File, resolver PackageResolver, opts 
 	writeRuntimeHelpers(p, opts.JSONContentType, hasRequestBody)
 	writeHeaderFormatPatterns(p)
 	writeServerOptions(p, hasWS, opts.SharedRuntime)
+	if opts.SharedRuntime != nil && fileHasRawHTTP(file) {
+		writeRouteResponseWriter(p)
+	}
 	if hasWS {
 		writeWSOutType(p)
 	}

@@ -94,7 +94,14 @@ func NewMockServer(dir string, opts MockOptions) (*MockServer, error) {
 				verb, _ := method.Verb()
 				path, _ := method.Path()
 				pattern := strings.ToUpper(verb) + " " + service.BasePath + path
-				server.mux.HandleFunc(pattern, server.handle(method))
+				handler := server.handle(method)
+				if method.IsRawHTTP() {
+					if verb == onkir.VerbAny {
+						pattern = service.BasePath + path
+					}
+					handler = notMockedRaw
+				}
+				server.mux.HandleFunc(pattern, handler)
 				server.routes++
 			}
 		}
@@ -103,6 +110,12 @@ func NewMockServer(dir string, opts MockOptions) (*MockServer, error) {
 		return nil, fmt.Errorf("no routes found under %s", root)
 	}
 	return server, nil
+}
+
+func notMockedRaw(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusNotImplemented)
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": "the mock server does not serve raw @http routes: " + r.Method + " " + r.URL.Path})
 }
 
 // Routes reports how many RPCs were registered.

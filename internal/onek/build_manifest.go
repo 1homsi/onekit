@@ -240,7 +240,7 @@ func (e expectedOutputs) addDartOutputs(cfg *Config, idx *sourceIndex, group *so
 		e.add(root, "onekit_ws_web.dart")
 	}
 	e.add(root, filepath.Join(rel, "models.dart"))
-	if len(cfg.Generate.DartClient.apply(group.file).Services) > 0 {
+	if len(cfg.Generate.DartClient.applyPortable(group.file).Services) > 0 {
 		e.add(root, filepath.Join(rel, "client.dart"))
 	}
 }
@@ -253,7 +253,7 @@ func (e expectedOutputs) addSwiftOutputs(cfg *Config, group *sourceGroup, rel st
 	e.add(root, "Onekit.swift")
 	models, client := swiftFileNames(filepath.ToSlash(rel))
 	e.add(root, filepath.Join(rel, models))
-	if swiftHasClient(cfg.Generate.SwiftClient.apply(group.file)) {
+	if swiftHasClient(cfg.Generate.SwiftClient.applyPortable(group.file)) {
 		e.add(root, filepath.Join(rel, client))
 	}
 }
@@ -294,10 +294,10 @@ func (e expectedOutputs) addRustOutputs(cfg *Config, idx *sourceIndex, target *T
 			rel = ""
 		}
 		e.add(root, filepath.Join(rel, "types.rs"))
-		if keepsPackage(client, group.relDir) && len(client.apply(group.file).Services) > 0 {
+		if keepsPackage(client, group.relDir) && len(client.applyPortable(group.file).Services) > 0 {
 			e.add(root, filepath.Join(rel, "client.rs"))
 		}
-		if keepsPackage(server, group.relDir) && len(server.apply(group.file).Services) > 0 {
+		if keepsPackage(server, group.relDir) && len(server.applyPortable(group.file).Services) > 0 {
 			e.add(root, filepath.Join(rel, "server.rs"))
 		}
 		for parent := filepath.Dir(rel); parent != "." && parent != ""; parent = filepath.Dir(parent) {

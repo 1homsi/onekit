@@ -403,21 +403,23 @@ func routeKey(pkg, service, verb, fullPath string) string {
 }
 
 var routePartLabels = map[string]string{
-	"service":   "service name",
-	"method":    "method name",
-	"request":   "request message",
-	"response":  "response message",
-	"stream":    "streaming mode",
-	"body":      "body field",
-	"query":     "query parameters",
-	"header":    "headers",
-	"error":     "error responses",
-	"requires":  "required scopes",
-	"authorize": "authorization rules",
-	"meta":      "route metadata",
-	"guard":     "route guards",
-	"success":   "success status",
-	"http":      "raw HTTP handler",
+	"service":       "service name",
+	"method":        "method name",
+	"request":       "request message",
+	"response":      "response message",
+	"stream":        "streaming mode",
+	"body":          "body field",
+	"query":         "query parameters",
+	"header":        "headers",
+	"error":         "error responses",
+	"requires":      "required scopes",
+	"authorize":     "authorization rules",
+	"meta":          "route metadata",
+	"guard":         "route guards",
+	"success":       "success status",
+	"http":          "raw HTTP handler",
+	"http-request":  "raw HTTP request kind",
+	"http-response": "raw HTTP response kind",
 }
 
 func compareRoute(key string, old, current []string) []Finding {
@@ -488,6 +490,7 @@ func methodSignature(service *onkir.Service, method *onkir.Method) []string {
 	}
 	if method.IsRawHTTP() {
 		parts = append(parts, "http="+method.RawContentType())
+		parts = append(parts, "http-request="+method.RawRequestKind(), "http-response="+method.RawResponseKind())
 	}
 	if status := method.SuccessStatus(); status != 200 {
 		parts = append(parts, "success="+strconv.Itoa(status))

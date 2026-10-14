@@ -22,6 +22,7 @@ const (
 	putVerb                     = "put"
 	patchVerb                   = "patch"
 	queryVerb                   = "query"
+	anyVerb                     = onkir.VerbAny
 	// wsDecorator binds an RPC as a bidirectional WebSocket stream; its
 	// argument is the upgrade route.
 	wsDecorator = "ws"

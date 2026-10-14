@@ -187,9 +187,9 @@ func TestRawHTTPContractRules(t *testing.T) {
 		{"unbound field", `message R { a: string  b: string }
 message E {}
 service S { x(R) -> E @put("/x/{a}") @http }`, onkcompile.CompileOptions{Targets: []string{"go-server"}}, `field "b"`},
-		{"python target", `message R { a: string }
+		{"python target leaves the route out", `message R { a: string }
 message E {}
-service S { x(R) -> E @get("/x/{a}") @http }`, onkcompile.CompileOptions{Targets: []string{"go-server", "python-client"}}, "go-server, go-client, ts-client and openapi targets only"},
+service S { x(R) -> E @get("/x/{a}") @http }`, onkcompile.CompileOptions{Targets: []string{"go-server", "python-client", "ts-server"}}, ""},
 		{"with stream", `message R { a: string }
 message E {}
 service S { x(R) -> E @get("/x/{a}") @http @stream }`, onkcompile.CompileOptions{Targets: []string{"go-server"}}, "cannot be combined"},

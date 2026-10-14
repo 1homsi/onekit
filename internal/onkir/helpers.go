@@ -6,9 +6,12 @@ import (
 	"strings"
 )
 
+// VerbAny is the verb of a raw @http route that answers every HTTP method.
+const VerbAny = "any"
+
 // HTTPVerbs is the set of decorator names that bind an RPC to an HTTP verb.
 var HTTPVerbs = map[string]bool{
-	"get": true, "post": true, "put": true, "delete": true, "patch": true, "query": true,
+	"get": true, "post": true, "put": true, "delete": true, "patch": true, "query": true, VerbAny: true,
 }
 
 // FindDecorator returns the first decorator with the given name.
@@ -243,8 +246,57 @@ func (m *Method) RawContentType() string {
 	if !ok {
 		return ""
 	}
-	value, _ := d.Value()
-	return value
+	for _, arg := range d.Args {
+		if arg.Name == "" {
+			return arg.Value
+		}
+	}
+	return ""
+}
+
+// Request and response kinds a raw @http route can declare.
+const (
+	RawBodyNone          = "none"
+	RawBodyJSON          = "json"
+	RawBodyMultipart     = "multipart"
+	RawBodyStream        = "stream"
+	RawResponseRedirect  = "redirect"
+	RawResponseWebSocket = "websocket"
+)
+
+// RawRequestKind is what an @http route's request body is: "none", "json"
+// (typed by the @body field), "multipart" or "stream". Without
+// @http(request: ...) it is "stream" for a verb with a body and "none" for the
+// rest.
+func (m *Method) RawRequestKind() string {
+	if d, ok := m.Decorator("http"); ok {
+		if kind, ok := d.NamedArg("request"); ok {
+			return kind
+		}
+	}
+	if verb, ok := m.Verb(); ok && IsBodyBearingVerb(verb) {
+		return RawBodyStream
+	}
+	return RawBodyNone
+}
+
+// RawResponseKind is what an @http route answers with: "stream" (the default,
+// opaque bytes), "json" (the declared response message), "redirect" or
+// "websocket".
+func (m *Method) RawResponseKind() string {
+	if d, ok := m.Decorator("http"); ok {
+		if kind, ok := d.NamedArg("response"); ok {
+			return kind
+		}
+	}
+	return RawBodyStream
+}
+
+// RawIsFetchable reports whether clients call an @http route; redirect and
+// WebSocket routes only get a URL builder.
+func (m *Method) RawIsFetchable() bool {
+	kind := m.RawResponseKind()
+	return kind != RawResponseRedirect && kind != RawResponseWebSocket
 }
 
 // SuccessStatus returns the status declared with @success(code), or 200.
@@ -435,7 +487,7 @@ func (m *Method) StreamEventOneof() *Field {
 
 // IsBodyBearingVerb reports whether the HTTP verb carries a request body.
 func IsBodyBearingVerb(verb string) bool {
-	return verb == "post" || verb == "put" || verb == "patch" || verb == "query"
+	return verb == "post" || verb == "put" || verb == "patch" || verb == "query" || verb == VerbAny
 }
 
 // FileHasStreamMethods reports whether any service in the file declares an

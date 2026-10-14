@@ -43,6 +43,9 @@ func clientImportsNeeded(file *onkir.File) clientImports {
 			case m.IsRawHTTP():
 				imp.url = true
 				imp.strconv = imp.strconv || methodNeedsStrconv(m)
+				if m.RawRequestKind() == onkir.RawBodyJSON {
+					noteBodyImports(&imp, m)
+				}
 			case m.IsStream():
 				imp.bufio = true
 				imp.strings = true

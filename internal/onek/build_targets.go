@@ -65,7 +65,7 @@ func buildTSServer(cfg *Config, idx *sourceIndex) error {
 		if err != nil {
 			return err
 		}
-		err = writeFile(filepath.Join(outDir, "server.ts"), gents.GenerateServerWithOptions(cfg.Generate.TSServer.apply(g.file), resolver, opts))
+		err = writeFile(filepath.Join(outDir, "server.ts"), gents.GenerateServerWithOptions(cfg.Generate.TSServer.applyPortable(g.file), resolver, opts))
 		if err != nil {
 			return err
 		}
@@ -84,7 +84,7 @@ func buildPythonClient(cfg *Config, idx *sourceIndex) error {
 			return err
 		}
 		typesModule := pyModulePath(g.relDir)
-		clientSrc := genpy.GenerateClientWithResolver(cfg.Generate.PythonClient.apply(g.file), typesModule, resolver)
+		clientSrc := genpy.GenerateClientWithResolver(cfg.Generate.PythonClient.applyPortable(g.file), typesModule, resolver)
 		err = writeFile(filepath.Join(outDir, "client.py"), clientSrc)
 		if err != nil {
 			return err
@@ -122,7 +122,7 @@ func buildDartClient(cfg *Config, idx *sourceIndex) error {
 		if err := writeFile(filepath.Join(outDir, "models.dart"), gendart.GenerateTypesWithResolver(g.file, resolver, runtimeDir+"onekit.dart")); err != nil {
 			return err
 		}
-		if client := gendart.GenerateClientWithResolver(cfg.Generate.DartClient.apply(g.file), resolver, runtimeDir); client != nil {
+		if client := gendart.GenerateClientWithResolver(cfg.Generate.DartClient.applyPortable(g.file), resolver, runtimeDir); client != nil {
 			if err := writeFile(filepath.Join(outDir, "client.dart"), client); err != nil {
 				return err
 			}
@@ -193,7 +193,7 @@ func buildSwiftClient(cfg *Config, idx *sourceIndex) error {
 		if err := writeFile(filepath.Join(outDir, models), genswift.GenerateTypesInNamespace(g.file, namespace, resolver)); err != nil {
 			return err
 		}
-		if client := genswift.GenerateClientInNamespace(cfg.Generate.SwiftClient.apply(g.file), namespace, resolver); client != nil {
+		if client := genswift.GenerateClientInNamespace(cfg.Generate.SwiftClient.applyPortable(g.file), namespace, resolver); client != nil {
 			return writeFile(filepath.Join(outDir, clientName), client)
 		}
 		return nil
@@ -247,12 +247,12 @@ func buildRust(cfg *Config, idx *sourceIndex) error {
 				return err
 			}
 			if target.client && target.clientFilter.keepsPackage(group.relDir) {
-				if err := writeFile(filepath.Join(outDir, "client.rs"), genrust.GenerateClientWithResolver(target.clientFilter.apply(group.file), resolver)); err != nil {
+				if err := writeFile(filepath.Join(outDir, "client.rs"), genrust.GenerateClientWithResolver(target.clientFilter.applyPortable(group.file), resolver)); err != nil {
 					return err
 				}
 			}
 			if target.server && target.serverFilter.keepsPackage(group.relDir) {
-				if err := writeFile(filepath.Join(outDir, "server.rs"), genrust.GenerateServerWithResolver(target.serverFilter.apply(group.file), resolver)); err != nil {
+				if err := writeFile(filepath.Join(outDir, "server.rs"), genrust.GenerateServerWithResolver(target.serverFilter.applyPortable(group.file), resolver)); err != nil {
 					return err
 				}
 			}
@@ -281,7 +281,7 @@ type rustSide struct {
 }
 
 func (s rustSide) hasServicesIn(group *sourceGroup) bool {
-	return s.enabled && s.filter.keepsPackage(group.relDir) && len(s.filter.apply(group.file).Services) > 0
+	return s.enabled && s.filter.keepsPackage(group.relDir) && len(s.filter.applyPortable(group.file).Services) > 0
 }
 
 func writeRustModuleFiles(outRoot string, groups []*sourceGroup, client, server rustSide) error {
