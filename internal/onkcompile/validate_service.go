@@ -134,9 +134,21 @@ func validHTTPHeaderName(value string) bool {
 	return value != ""
 }
 
+var singleUseRPCDecorators = map[string]bool{
+	"stream": true, wsDecorator: true, "body": true, httpDecorator: true, successDecorator: true,
+	"max_body": true, "deprecated": true,
+}
+
 func validateRPC(path string, rpc *onklang.RPCDecl, allowEmptyRoute bool) (string, string, error) {
 	var verb, route string
+	seenSingleUse := map[string]bool{}
 	for _, decorator := range rpc.Decorators {
+		if singleUseRPCDecorators[decorator.Name] {
+			if seenSingleUse[decorator.Name] {
+				return "", "", &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("@%s is declared more than once on RPC %s", decorator.Name, rpc.Name)}
+			}
+			seenSingleUse[decorator.Name] = true
+		}
 		if isHTTPVerb(decorator.Name) {
 			if verb != "" {
 				return "", "", &Error{Path: path, Line: rpc.Line, Msg: "RPC must declare exactly one HTTP verb"}
