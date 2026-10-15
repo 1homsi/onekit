@@ -268,7 +268,9 @@ type routeResponseWriter struct {
 }
 
 func (w *routeResponseWriter) WriteHeader(status int) {
-	w.wrote = true
+	if status < 100 || status >= 200 || status == http.StatusSwitchingProtocols {
+		w.wrote = true
+	}
 	w.ResponseWriter.WriteHeader(status)
 }
 
@@ -802,6 +804,10 @@ type statusResponseWriter struct {
 }
 
 func (w *statusResponseWriter) WriteHeader(statusCode int) {
+	if statusCode >= 100 && statusCode < 200 && statusCode != http.StatusSwitchingProtocols {
+		w.ResponseWriter.WriteHeader(statusCode)
+		return
+	}
 	if w.wroteHeader {
 		return
 	}
