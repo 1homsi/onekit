@@ -3,6 +3,7 @@ package onek
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"mime"
 	"os"
 	"path"
@@ -184,6 +185,9 @@ type ConfigError struct {
 }
 
 func (e *ConfigError) Error() string {
+	if errors.Is(e.Err, fs.ErrNotExist) {
+		return fmt.Sprintf("%s not found: run `onek init` to create a project here, or pass --dir to point at one", e.Path)
+	}
 	if e.Line > 0 && !tomlErrorLine.MatchString(e.Err.Error()) {
 		return fmt.Sprintf("parse %s:%d:%d: %v", e.Path, e.Line, e.Column, e.Err)
 	}
