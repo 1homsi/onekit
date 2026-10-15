@@ -59,6 +59,7 @@ const rejects = async (make: () => Response, limit: number, what: string) => {
 await rejects(() => new Response(big, { headers: { "content-length": String(big.length) } }), 100, "declared length over the limit");
 await rejects(() => new Response(new ReadableStream({ start(c) { c.enqueue(enc.encode(big)); c.close(); } })), 100, "streamed body over the limit");
 await rejects(() => new Response(big, { headers: { "content-length": "20", "content-encoding": "gzip" } }), 100, "a small declared length must not hide a large decoded body");
+await rejects(() => new Response(new ReadableStream({ start(c) { c.enqueue(enc.encode(big)); c.close(); } }), { headers: { "content-length": "20" } }), 100, "a small declared length must not hide a larger body");
 
 const sse = (text: string, chunk: number) => () => new Response(new ReadableStream({
   start(c) { const bytes = enc.encode(text); for (let i = 0; i < bytes.length; i += chunk) c.enqueue(bytes.slice(i, i + chunk)); c.close(); },
