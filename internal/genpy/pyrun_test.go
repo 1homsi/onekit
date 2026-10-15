@@ -166,3 +166,37 @@ server.shutdown()
 print("OK")
 `)
 }
+
+func TestPythonClientAcceptsAnEmptySuccessBody(t *testing.T) {
+	runPythonSchema(t, `
+package app
+message Req { id: string }
+message Res { id: string }
+
+service Items {
+  remove(Req) -> Res @post("/remove")
+}
+`, `
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from models import Req, Res
+from client import ItemsClient
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers["Content-Length"]))
+        self.send_response(204)
+        self.end_headers()
+
+server = HTTPServer(("127.0.0.1", 0), Handler)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+client = ItemsClient("http://127.0.0.1:%d" % server.server_address[1])
+result = client.remove(Req(id="x"))
+assert isinstance(result, Res) and result.id == "", result
+server.shutdown()
+print("OK")
+`)
+}
