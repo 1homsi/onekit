@@ -407,7 +407,14 @@ func writeRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 	p.P("if (violations.length > 0) throw requestError(400, \"validation_failed\", violations.join(\"; \"), { violations });")
 	writeRouteAuthorizeCall(p, m)
 	p.P("const result = await handler.", CamelCase(m.Name), "(decoded, ", routeContextLiteral(m), ");")
-	p.P("return jsonResponse(", p.MessageCodecName(m.Response, "encode"), "(result));")
+	switch status := m.SuccessStatus(); status {
+	case 200:
+		p.P("return jsonResponse(", p.MessageCodecName(m.Response, "encode"), "(result));")
+	case 204:
+		p.P("return new Response(null, { status: 204 });")
+	default:
+		p.P("return jsonResponse(", p.MessageCodecName(m.Response, "encode"), "(result), ", status, ");")
+	}
 	p.P("} catch (err) {")
 	p.P("return errorResponse(err);")
 	p.P("}")
