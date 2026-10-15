@@ -1,6 +1,10 @@
 package httpkit
 
-import "net/http"
+import (
+	"bufio"
+	"net"
+	"net/http"
+)
 
 // Recorder wraps a ResponseWriter and records the status and the number of
 // body bytes. Middleware installs one; it also works standalone.
@@ -25,6 +29,10 @@ func (r *Recorder) Status() int { return r.status }
 func (r *Recorder) Bytes() int64 { return r.bytes }
 
 func (r *Recorder) WriteHeader(status int) {
+	if status >= 100 && status < 200 && status != http.StatusSwitchingProtocols {
+		r.ResponseWriter.WriteHeader(status)
+		return
+	}
 	if r.wroteHeader {
 		return
 	}
@@ -60,4 +68,24 @@ func (r *Recorder) Flush() {
 	if flusher, ok := r.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
+}
+
+// Hijack implements http.Hijacker when the underlying writer does, so a
+// handler behind Middleware can still upgrade the connection.
+func (r *Recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, http.ErrNotSupported
+	}
+	conn, rw, err := hijacker.Hijack()
+	if err == nil && !r.wroteHeader {
+		r.wroteHeader = true
+		r.status = http.StatusSwitchingProtocols
+		if r.state != nil {
+			r.state.mu.Lock()
+			r.state.status = http.StatusSwitchingProtocols
+			r.state.mu.Unlock()
+		}
+	}
+	return conn, rw, err
 }
