@@ -12,7 +12,7 @@ import (
 )
 
 func TestMiddlewareKeepsHijackForUpgrades(t *testing.T) {
-	handler := Middleware(Config{})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := Middleware(Config{})(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hijacker, ok := w.(http.Hijacker)
 		if !ok {
 			http.Error(w, "no hijacker", http.StatusTeapot)
@@ -44,7 +44,7 @@ func TestMiddlewareKeepsHijackForUpgrades(t *testing.T) {
 
 func TestRecorderTreatsInformationalStatusesAsInterim(t *testing.T) {
 	var recorded int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		rec := NewRecorder(w)
 		rec.Header().Set("Link", "</style.css>; rel=preload")
 		rec.WriteHeader(http.StatusEarlyHints)
