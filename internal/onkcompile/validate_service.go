@@ -139,16 +139,26 @@ var singleUseRPCDecorators = map[string]bool{
 	"max_body": true, "deprecated": true,
 }
 
+func rejectRepeatedDecorators(path string, rpc *onklang.RPCDecl) error {
+	seen := map[string]bool{}
+	for _, decorator := range rpc.Decorators {
+		if !singleUseRPCDecorators[decorator.Name] {
+			continue
+		}
+		if seen[decorator.Name] {
+			return &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("@%s is declared more than once on RPC %s", decorator.Name, rpc.Name)}
+		}
+		seen[decorator.Name] = true
+	}
+	return nil
+}
+
 func validateRPC(path string, rpc *onklang.RPCDecl, allowEmptyRoute bool) (string, string, error) {
 	var verb, route string
-	seenSingleUse := map[string]bool{}
+	if err := rejectRepeatedDecorators(path, rpc); err != nil {
+		return "", "", err
+	}
 	for _, decorator := range rpc.Decorators {
-		if singleUseRPCDecorators[decorator.Name] {
-			if seenSingleUse[decorator.Name] {
-				return "", "", &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("@%s is declared more than once on RPC %s", decorator.Name, rpc.Name)}
-			}
-			seenSingleUse[decorator.Name] = true
-		}
 		if isHTTPVerb(decorator.Name) {
 			if verb != "" {
 				return "", "", &Error{Path: path, Line: rpc.Line, Msg: "RPC must declare exactly one HTTP verb"}
