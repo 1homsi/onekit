@@ -37,8 +37,6 @@ func (p *Printer) Dedent() {
 	}
 }
 
-func (p *Printer) Blank() { p.b.WriteByte('\n') }
-
 func (p *Printer) Bytes() []byte { return []byte(p.b.String()) }
 
 func (p *Printer) MessageTypeName(m *onkir.Message) string {

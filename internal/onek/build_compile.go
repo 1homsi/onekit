@@ -202,19 +202,6 @@ func groupByDirectory(pkg *onkir.Package, schemaRoot string) (*sourceIndex, erro
 	return idx, nil
 }
 
-// Compile parses and compiles every .onk file under dir without generating
-// output. It also applies the same default service base paths used by Build.
-func Compile(dir string) (*onkir.Package, error) {
-	return CompileWithOptions(dir, onkcompile.CompileOptions{})
-}
-
-// CompileWithOptions parses and compiles every .onk file under dir with the
-// requested compatibility behavior. It also applies the same default
-// service base paths used by Build.
-func CompileWithOptions(dir string, options onkcompile.CompileOptions) (*onkir.Package, error) {
-	return compileTree(dir, nil, options)
-}
-
 func compileTree(dir string, exts []string, options onkcompile.CompileOptions) (*onkir.Package, error) {
 	root, err := canonicalProjectDir(dir)
 	if err != nil {
