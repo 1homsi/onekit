@@ -31,6 +31,7 @@ service Apps {
   upload(Slug) -> UploadResult @post("/{slug}/uploads") @http(request: "multipart", response: "json") @max_body("64MiB")
   proxy(ProxyRequest) -> Empty @any("/{slug}/proxy/{resource}/{path...}") @http @guard("app/use/:slug")
   info(Slug) -> Policy @get("/{slug}/info")
+  hints(Slug) -> Empty @get("/{slug}/hints") @http
 }
 `
 
@@ -118,6 +119,13 @@ func (impl) Info(ctx context.Context, req *app.Slug) (*app.Policy, error) {
 
 var order []string
 
+func (impl) Hints(w http.ResponseWriter, r *http.Request, req *app.Slug) error {
+	w.Header().Set("Link", "</style.css>; rel=preload")
+	w.WriteHeader(http.StatusEarlyHints)
+	http.Error(w, "gone", http.StatusNotFound)
+	return nil
+}
+
 func (impl) Proxy(w http.ResponseWriter, r *http.Request, req *app.ProxyRequest) error {
 	order = append(order, "handler")
 	fmt.Fprintf(w, "%s %s|%s|%s|%s|%s|%s", r.Method, r.URL.Path, req.Slug, req.Resource, req.Path, req.Trace, r.PathValue("path"))
@@ -129,12 +137,26 @@ type denied struct{}
 func (*denied) Error() string       { return "denied" }
 func (*denied) HTTPStatusCode() int { return http.StatusForbidden }
 
+type statusObserver struct{ seen *[]int }
+
+func (statusObserver) RequestStarted(ctx context.Context, m app.RequestMetadata) context.Context {
+	return ctx
+}
+
+func (o statusObserver) RequestFinished(ctx context.Context, m app.RequestMetadata, result app.RequestResult) {
+	if m.Method == "hints" {
+		*o.seen = append(*o.seen, result.StatusCode)
+	}
+}
+
 func fail(format string, args ...any) { fmt.Printf(format+"\n", args...); os.Exit(1) }
 
 func main() {
 	var methods, routes []string
+	var observed []int
 	mux := http.NewServeMux()
 	err := app.RegisterAppsServer(mux, impl{},
+		app.WithRequestObserver(statusObserver{&observed}),
 		app.WithAuthorizer(func(ctx context.Context, m app.RequestMetadata, r *http.Request) error {
 			order = append(order, "authorizer")
 			if strings.Contains(r.URL.Path, "forbidden") {
@@ -200,6 +222,11 @@ func main() {
 	code, _, _ = get("GET", "/apps/blog/proxy/forbidden/../x", nil, nil)
 	if code != http.StatusForbidden || strings.Join(order, ",") != "authorizer" {
 		fail("a denied request with a .. tail must not reach the handler: %d %v", code, order)
+	}
+
+	code, body, _ = get("GET", "/apps/blog/hints", nil, nil)
+	if code != http.StatusNotFound || !strings.Contains(body, "gone") || len(observed) != 1 || observed[0] != http.StatusNotFound {
+		fail("a 103 must not hide the final status: client %d %q, observer %v", code, body, observed)
 	}
 
 	plainTyped, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Get(srv.URL + "/apps/blog//info")
