@@ -74,7 +74,7 @@ func validateSyntax(sources []Source, options CompileOptions) error {
 			}
 		}
 	}
-	return nil
+	return validateGeneratedNames(sources, options)
 }
 
 type decoratorRule struct {
