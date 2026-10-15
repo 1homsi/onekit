@@ -90,3 +90,46 @@ console.log("OK");
 		t.Fatalf("node run failed: %v\n%s", err, out)
 	}
 }
+
+func TestTSClientPerCallHeaderOverridesTheDefaultWhateverTheCase(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not available")
+	}
+	ast, err := onklang.Parse(clientBodySchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "api.onk", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"ts-client"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := pkg.Files[0]
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "types.ts"), string(GenerateTypes(file)))
+	writeFile(t, filepath.Join(dir, "client.ts"), strings.ReplaceAll(string(GenerateClient(file)), `from "./types.js"`, `from "./types.ts"`))
+	writeFile(t, filepath.Join(dir, "main.ts"), `
+import { EchoClient } from "./client.ts";
+
+let seen: Record<string, string> = {};
+const client = new EchoClient("http://api", {
+  defaultHeaders: { "X-API-Key": "default", "Accept-Language": "en" },
+  fetch: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen = init?.headers as Record<string, string>;
+    return new Response("{}");
+  }) as typeof fetch,
+});
+await client.ping({ n: 1 }, { headers: { "x-api-key": "per-call" } });
+const keys = Object.keys(seen).filter((k) => k.toLowerCase() === "x-api-key");
+if (keys.length !== 1 || seen[keys[0]] !== "per-call") throw new Error("per-call header must replace the default: " + JSON.stringify(seen));
+if (seen["Accept-Language"] !== "en" || seen["Content-Type"] !== "application/json") throw new Error("other headers must survive: " + JSON.stringify(seen));
+await client.ping({ n: 1 }, { headers: { "X-API-Key": "same-case" } });
+if (seen["X-API-Key"] !== "same-case") throw new Error("same-case override: " + JSON.stringify(seen));
+console.log("OK");
+`)
+	cmd := exec.Command("node", "main.ts")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != "OK" {
+		t.Fatalf("node run failed: %v\n%s", err, out)
+	}
+}
