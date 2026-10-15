@@ -275,23 +275,6 @@ func (l *lowerer) binary(n *Binary) *Op {
 	return &Op{Kind: doubleKinds[n.Op], Args: args}
 }
 
-func MaxSlot(op *Op) int {
-	best := -1
-	var walk func(o *Op)
-	walk = func(o *Op) {
-		if o.Kind == OpAll || o.Kind == OpExists {
-			if o.Slot > best {
-				best = o.Slot
-			}
-		}
-		for _, a := range o.Args {
-			walk(a)
-		}
-	}
-	walk(op)
-	return best + 1
-}
-
 func LowerBound(n Node, regexes *RegexTable, bound map[string]bool) *Op {
 	l := &lowerer{regexes: regexes, bound: bound}
 	return l.lower(n)

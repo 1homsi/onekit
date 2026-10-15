@@ -64,10 +64,6 @@ func (p *Printer) Format() ([]byte, error) {
 	return out, nil
 }
 
-func (p *Printer) Raw() string {
-	return p.b.String()
-}
-
 // MessageTypeName returns the Go type name to use when referencing m from
 // the file currently being printed: the bare name if m belongs to this same
 // generated package, or an import-qualified name (e.g. "otherpkg.Name") if it
