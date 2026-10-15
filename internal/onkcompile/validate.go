@@ -418,6 +418,9 @@ func validateDecoratorValue(filePath string, line int, decorator onklang.Decorat
 			return err
 		}
 	case "pattern":
+		if len(decorator.Args) > 0 && !decorator.Args[0].Quoted {
+			return &Error{Path: filePath, Line: line, Msg: fmt.Sprintf("@pattern argument %s must be a quoted string", decorator.Args[0].Value)}
+		}
 		pattern := value(0)
 		if len(pattern) > maxCrossRuntimePatternBytes {
 			return &Error{Path: filePath, Line: line, Msg: fmt.Sprintf("@pattern must not exceed %d bytes", maxCrossRuntimePatternBytes)}
