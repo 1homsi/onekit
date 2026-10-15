@@ -123,7 +123,7 @@ func TestOneofDiscriminator(t *testing.T) {
 message A { v: string }
 message M {
   default_disc: oneof { a: A @tag("a") }
-  custom_disc: oneof(discriminator: "kind") { a: A @tag("a") }
+  custom_disc: oneof(discriminator: "kind") { b: A @tag("b") }
 }
 `)
 	m := file.Messages[1]
