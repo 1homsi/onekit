@@ -455,7 +455,7 @@ message Cancel { id: string @ws_id }
 
 message Frame {
   payload: oneof(discriminator: "type") {
-    # ...
+    // ...the other variants
     cancel: Cancel @tag("cancel") @ws_cancel
   }
 }
@@ -610,7 +610,9 @@ in your own `useQuery`, or validate with your own schema library, in a few lines
 
 `onek mock` compiles your schema tree and serves every route with
 schema-derived JSON - realistic values from validators, correct wire
-encodings, declared error statuses, and SSE streams that emit three frames:
+encodings, declared error statuses, and SSE streams that emit three frames. A
+route implemented as a plain handler (`@http`) answers `501`, because the mock
+cannot know what the handler writes:
 
 ```bash
 onek mock --dir api --addr :8080 \
@@ -914,7 +916,7 @@ A `RequestObserver` sees what an audit log needs: `RequestResult` carries the st
 
 ### Shaping error responses
 
-By default every error the generated servers produce themselves, a malformed body, a bad path or query parameter, a missing header, a failed validation or `@authorize` rule, or a handler error with no declared body, is `{"message": "..."}` (with `"violations": [...]` when there are several). Errors a method declares with `@status` keep their declared body. To send a different shape, install one error writer per server:
+By default every error the generated servers produce themselves, a malformed body, a bad path or query parameter, a missing header, a failed validation or `@authorize` rule, or a handler error with no declared body, is `{"message": "..."}` (with `"violations": [...]` when there are several). Errors a method declares with `@status` keep their declared body. An error message in a method's union that has no `@status` is sent with status `500`, so give every error you expect a `@status`. To send a different shape, install one error writer per server:
 
 | Target | How |
 | --- | --- |
