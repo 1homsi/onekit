@@ -958,6 +958,9 @@ func (im *importer) constraintDecorators(schema map[string]any, expr string) str
 	var out strings.Builder
 	switch {
 	case expr == scalarString:
+		if pattern := text(schema, "pattern"); pattern != "" {
+			im.warnf("string pattern %q is not imported; add @pattern by hand if the field needs it", pattern)
+		}
 		minLength, hasMin := number("minLength")
 		maxLength, hasMax := number("maxLength")
 		if !hasMin {
