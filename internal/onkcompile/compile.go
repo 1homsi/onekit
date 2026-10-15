@@ -854,9 +854,23 @@ func (c *compiler) buildHeaders(headers []onklang.HeaderDecl, path string) ([]*o
 func convertDecorators(decorators []onklang.Decorator) []onkir.Decorator {
 	var out []onkir.Decorator
 	for _, d := range decorators {
-		out = append(out, onkir.Decorator{Name: d.Name, Args: convertArgs(d.Args)})
+		args := convertArgs(d.Args)
+		if numericDecorators[d.Name] {
+			for i := range args {
+				if !args[i].Quoted {
+					args[i].Value = strings.TrimPrefix(args[i].Value, "+")
+				}
+			}
+		}
+		out = append(out, onkir.Decorator{Name: d.Name, Args: args})
 	}
 	return out
+}
+
+// numericDecorators take number arguments; a leading + is dropped from them
+// because not every target language accepts a unary plus in a literal.
+var numericDecorators = map[string]bool{
+	"len": true, "min_items": true, "max_items": true, "gt": true, "gte": true, "lt": true, "lte": true, "range": true, "in": true,
 }
 
 func convertArgs(args []onklang.Arg) []onkir.Arg {
