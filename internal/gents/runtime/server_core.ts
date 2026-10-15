@@ -15,6 +15,7 @@ const wildcard = last.startsWith("{") && last.endsWith("...}");
 if (wildcard ? pathParts.length < patternParts.length - 1 : patternParts.length !== pathParts.length) return null;
 if (wildcard && pathParts.length === patternParts.length - 1 && !pathname.endsWith("/")) return null;
 const params: Record<string, string> = {};
+try {
 for (let i = 0; i < patternParts.length; i++) {
 const part = patternParts[i] ?? "";
 if (wildcard && i === patternParts.length - 1) {
@@ -27,6 +28,10 @@ params[part.slice(1, -1)] = decodeURIComponent(actual);
 } else if (part !== actual) {
 return null;
 }
+}
+} catch (err) {
+if (err instanceof URIError) return null;
+throw err;
 }
 return params;
 }
