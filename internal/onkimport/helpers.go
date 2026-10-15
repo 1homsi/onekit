@@ -310,13 +310,8 @@ func truthy(v any) bool {
 func composeFieldLine(name string, ft fieldType, optional bool, owner, rawName string) string {
 	typeExpr := ft.expr
 	marker := ""
-	if optional || ft.nullable {
-		if strings.HasSuffix(typeExpr, "[]") {
-			fmt.Fprintf(&strings.Builder{}, "") // no-op; warning handled by caller when needed
-			marker = ""
-		} else {
-			marker = "?"
-		}
+	if (optional || ft.nullable) && !strings.HasSuffix(typeExpr, "[]") && !strings.HasPrefix(typeExpr, "map[") {
+		marker = "?"
 	}
 	line := name + ": " + typeExpr + marker + ft.suffix
 	_ = owner
