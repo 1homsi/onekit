@@ -26,6 +26,7 @@ func GenerateClientWithResolver(file *onkir.File, typesModule string, resolver P
 	p.P("import builtins as _builtins")
 	p.P("import http.client")
 	p.P("import io")
+	p.P("import select")
 	p.P("import json")
 	p.P("import threading")
 	p.P("import warnings")
@@ -426,7 +427,16 @@ func writePyRequestBuild(p *Printer, m *onkir.Method, verb string, bodyBearing b
 // thread, reused across calls. It does not follow redirects or read the proxy
 // environment variables, which is why it is opt-in.
 func writePooledTransport(p *Printer) {
-	p.P(`class _PooledResponse:
+	p.P(`_IDEMPOTENT_METHODS = ("GET", "HEAD", "PUT", "DELETE", "OPTIONS", "TRACE")
+
+def _peer_closed(sock) -> bool:
+    try:
+        readable, _, failed = select.select([sock], [], [sock], 0)
+    except (OSError, ValueError):
+        return True
+    return bool(readable or failed)
+
+class _PooledResponse:
     def __init__(self, transport, conn, resp) -> None:
         self._transport = transport
         self._conn = conn
@@ -468,6 +478,9 @@ class _PooledTransport:
         if conn is not None and self._local.key != key:
             self._discard(conn)
             conn = None
+        if conn is not None and conn.sock is not None and _peer_closed(conn.sock):
+            self._discard(conn)
+            conn = None
         reused = conn is not None and conn.sock is not None
         if conn is None:
             cls = http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
@@ -494,7 +507,7 @@ class _PooledTransport:
                 resp = conn.getresponse()
             except (http.client.RemoteDisconnected, ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
                 self._discard(conn)
-                if reused and attempt == 0:
+                if reused and attempt == 0 and request.get_method() in _IDEMPOTENT_METHODS:
                     continue
                 raise
             except BaseException:
