@@ -50,6 +50,9 @@ func validateServiceRPC(filePath string, rpc *onklang.RPCDecl, service *onklang.
 		)}
 	}
 	seenMethods[generated] = rpc.Name
+	if err := rejectRepeatedDecorators(filePath, rpc); err != nil {
+		return err
+	}
 	verb, route, err := validateRPC(filePath, rpc, service.BasePath != "")
 	if err != nil {
 		return err
@@ -155,9 +158,6 @@ func rejectRepeatedDecorators(path string, rpc *onklang.RPCDecl) error {
 
 func validateRPC(path string, rpc *onklang.RPCDecl, allowEmptyRoute bool) (string, string, error) {
 	var verb, route string
-	if err := rejectRepeatedDecorators(path, rpc); err != nil {
-		return "", "", err
-	}
 	for _, decorator := range rpc.Decorators {
 		if isHTTPVerb(decorator.Name) {
 			if verb != "" {
