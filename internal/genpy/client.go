@@ -404,12 +404,12 @@ func writePyRequestBuild(p *Printer, m *onkir.Method, verb string, bodyBearing b
 	if bodyBearing {
 		if bodyField, ok := m.BodyField(); ok {
 			if field := onkir.FindField(m.Request, bodyField); field != nil {
-				p.P("body = json.dumps(", p.bodyValueExpr(field, "req."+field.Name), ").encode(\"utf-8\")")
+				p.P("body = json.dumps(", p.bodyValueExpr(field, "req."+field.Name), ", allow_nan=False).encode(\"utf-8\")")
 			} else {
-				p.P("body = json.dumps(req.to_dict()[", fmt.Sprintf("%q", bodyField), "]).encode(\"utf-8\")")
+				p.P("body = json.dumps(req.to_dict()[", fmt.Sprintf("%q", bodyField), "], allow_nan=False).encode(\"utf-8\")")
 			}
 		} else {
-			p.P("body = json.dumps(req.to_dict()).encode(\"utf-8\")")
+			p.P("body = json.dumps(req.to_dict(), allow_nan=False).encode(\"utf-8\")")
 		}
 		p.P(fmt.Sprintf(
 			"request = urllib.request.Request(self.base_url + path, data=body, method=%q)",

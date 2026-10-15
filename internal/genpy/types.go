@@ -591,35 +591,35 @@ func (p *Printer) writeFromDictField(f *onkir.Field) string {
 	case f.Repeated:
 		if f.Type.Kind == onkir.KindMessage {
 			childName := p.MessageTypeName(f.Type.Message)
-			return fmt.Sprintf("[%s.from_dict(v) for v in d.get(%s, [])]", childName, key)
+			return fmt.Sprintf("[%s.from_dict(v) for v in (d.get(%s) or [])]", childName, key)
 		}
 		if f.Type.Kind == onkir.KindEnum {
 			enumRef := p.enumFromJSONMapRef(f.Type.Enum)
-			return fmt.Sprintf("[%s[v] for v in d.get(%s, [])]", enumRef, key)
+			return fmt.Sprintf("[%s[v] for v in (d.get(%s) or [])]", enumRef, key)
 		}
 		if f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarBytes {
-			return fmt.Sprintf("[%s for v in d.get(%s, [])]", bytesDecodeValueExpr(), key)
+			return fmt.Sprintf("[%s for v in (d.get(%s) or [])]", bytesDecodeValueExpr(), key)
 		}
 		if needsInt64StringEncoding(f) {
-			return fmt.Sprintf("[int(v) for v in d.get(%s, [])]", key)
+			return fmt.Sprintf("[int(v) for v in (d.get(%s) or [])]", key)
 		}
-		return fmt.Sprintf("list(d.get(%s, []))", key)
+		return fmt.Sprintf("list(d.get(%s) or [])", key)
 	case f.Type.Kind == onkir.KindMap:
 		if f.Type.MapValue.Kind == onkir.KindMessage {
 			valueName := p.MessageTypeName(f.Type.MapValue.Message)
 			return fmt.Sprintf(
-				"{k: %s.from_dict(v) for k, v in d.get(%s, {}).items()}",
+				"{k: %s.from_dict(v) for k, v in (d.get(%s) or {}).items()}",
 				valueName, key,
 			)
 		}
 		if f.Type.MapValue.Kind == onkir.KindEnum {
 			enumRef := p.enumFromJSONMapRef(f.Type.MapValue.Enum)
-			return fmt.Sprintf("{k: %s[v] for k, v in d.get(%s, {}).items()}", enumRef, key)
+			return fmt.Sprintf("{k: %s[v] for k, v in (d.get(%s) or {}).items()}", enumRef, key)
 		}
 		if f.Type.MapValue.Kind == onkir.KindScalar && f.Type.MapValue.Scalar == onkir.ScalarBytes {
-			return fmt.Sprintf("{k: %s for k, v in d.get(%s, {}).items()}", bytesDecodeValueExpr(), key)
+			return fmt.Sprintf("{k: %s for k, v in (d.get(%s) or {}).items()}", bytesDecodeValueExpr(), key)
 		}
-		return fmt.Sprintf("dict(d.get(%s, {}))", key)
+		return fmt.Sprintf("dict(d.get(%s) or {})", key)
 	case f.Type.Kind == onkir.KindMessage:
 		return p.messageFieldFromDictExpr(f, key)
 	case f.Type.Kind == onkir.KindEnum:
@@ -642,11 +642,11 @@ func (p *Printer) writeFromDictField(f *onkir.Field) string {
 		if f.Optional {
 			return fmt.Sprintf("(int(d[%s]) if d.get(%s) is not None else None)", key, key)
 		}
-		return fmt.Sprintf("int(d.get(%s, 0))", key)
+		return fmt.Sprintf("int(d.get(%s) or 0)", key)
 	case f.Optional:
 		return fmt.Sprintf("d.get(%s)", key)
 	default:
-		return fmt.Sprintf("d.get(%s, %s)", key, fieldPyDefault(f))
+		return fmt.Sprintf("(d.get(%s) or %s)", key, fieldPyDefault(f))
 	}
 }
 
@@ -915,7 +915,7 @@ func writePyScalarValidation(p *Printer, f *onkir.Field, accessor string) {
 		}
 		if d, ok := f.Decorator("pattern"); ok {
 			value, _ := d.Value()
-			p.P("if ", formatPresent, " and re.search(", fmt.Sprintf("%q", value), ", ", accessor, ") is None: violations.append(", fmt.Sprintf("%q", f.Name+" has invalid format"), ")")
+			p.P("if ", formatPresent, " and re.search(", fmt.Sprintf("%q", pyEndAnchors(value)), ", ", accessor, ") is None: violations.append(", fmt.Sprintf("%q", f.Name+" has invalid format"), ")")
 		}
 		if d, ok := f.Decorator("len"); ok && len(d.Args) == 2 {
 			p.P("if ", present, " and not (", d.Args[0].Value, " <= len(", accessor, ") <= ", d.Args[1].Value, "): violations.append(", fmt.Sprintf("%q", f.Name+" has invalid length"), ")")
@@ -1033,4 +1033,32 @@ func (p *Printer) errorInitArgs(m *onkir.Message) string {
 		sb.WriteString(fieldPyDefault(f))
 	}
 	return sb.String()
+}
+
+// pyEndAnchors rewrites a pattern's unescaped $ outside a character class as
+// \Z. Go and JavaScript match $ only at the very end of the text, while Python
+// also matches it before a trailing newline.
+func pyEndAnchors(pattern string) string {
+	var out strings.Builder
+	inClass := false
+	for i := 0; i < len(pattern); i++ {
+		c := pattern[i]
+		switch {
+		case c == '\\' && i+1 < len(pattern):
+			out.WriteByte(c)
+			i++
+			out.WriteByte(pattern[i])
+		case c == '[':
+			inClass = true
+			out.WriteByte(c)
+		case c == ']':
+			inClass = false
+			out.WriteByte(c)
+		case c == '$' && !inClass:
+			out.WriteString(`\Z`)
+		default:
+			out.WriteByte(c)
+		}
+	}
+	return out.String()
 }
