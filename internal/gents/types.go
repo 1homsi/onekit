@@ -229,7 +229,7 @@ func writeRootCodecFuncs(p *Printer, m *onkir.Message) {
 //nolint:gocognit // Each schema rule is an independent generated-code branch.
 func writeValidateFunc(p *Printer, m *onkir.Message) {
 	p.P("export function validate", m.Name, "(v: ", m.Name, "): string[] {")
-	p.P("if (v === null || v === undefined) return [];")
+	p.P("if (v === null || v === undefined) return [\"value must be an object\"];")
 	p.P("const violations: string[] = [];")
 	for _, f := range collectCodecFields(p.naming, m, "") {
 		field := f.field
