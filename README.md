@@ -1058,6 +1058,12 @@ Ten resources with nested messages, maps, a nullable field and a `json` field, o
 
 The output is the same JSON, with two differences. Keys come out in declaration order; before, fields with a wire adjustment came after the others. A `json` field is validated and written as stored, not compacted, and a field holding invalid JSON fails the encode. Reading a request body now rejects data after the first JSON value, where it used to be ignored. A message that uses `@flatten` keeps the earlier encoder and decoder.
 
+### Client speed notes
+
+**Python keep-alive.** The generated Python client opens a connection for every call, because `urllib` does. `BookingsClient(url, keep_alive=True)` reuses one `http.client` connection per thread instead, which made a small JSON call 3.7x faster against a local server and saves the TCP and TLS handshake on a real network. Use it as a context manager or call `close()`. A request that finds its kept connection already closed by the server is sent again on a new one. The kept-alive path does not follow redirects (a 3xx raises `UnexpectedStatusError`) and does not read the `HTTP_PROXY` environment variables, which is why it is off by default. Streaming (SSE) calls always use `urllib`.
+
+**Server-sent events.** The Go server builds each event in one reused buffer and writes it once (about half the allocations and a fifth of the bytes per event), and the Go client reads events without copying lines or joining strings. The TypeScript client no longer allocates a `TextEncoder` result for every line it checks against `maxSSELineBytes` (1.7x faster on a 5000-event stream). A `json` field that contains line breaks used to split an event in two when it was sent; the server now writes it as several `data:` lines, which every client joins back together.
+
 ### Declaring what a method requires
 
 `@requires("users:read", "users:write")` on an RPC declares the scopes (or

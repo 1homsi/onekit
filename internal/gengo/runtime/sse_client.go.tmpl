@@ -3,6 +3,8 @@ type EventStream[T any] struct {
 	reader       *bufio.Reader
 	maxLineBytes int
 	err          error
+	payload      []byte
+	long         []byte
 }
 
 func newEventStream[T any](body io.ReadCloser, maxLineBytes int) *EventStream[T] {
@@ -12,61 +14,89 @@ func newEventStream[T any](body io.ReadCloser, maxLineBytes int) *EventStream[T]
 	return &EventStream[T]{body: body, reader: bufio.NewReader(body), maxLineBytes: maxLineBytes}
 }
 
-func readEventStreamLine(reader *bufio.Reader, maxBytes int) (string, error) {
-	var line []byte
+func (s *EventStream[T]) readLine() ([]byte, error) {
+	part, err := s.reader.ReadSlice('\n')
+	if err == nil {
+		if len(part) > s.maxLineBytes {
+			return nil, fmt.Errorf("SSE line exceeds configured limit")
+		}
+		return trimEventLine(part), nil
+	}
+	if err != bufio.ErrBufferFull {
+		return nil, err
+	}
+	s.long = append(s.long[:0], part...)
 	for {
-		part, err := reader.ReadSlice('\n')
-		line = append(line, part...)
-		if len(line) > maxBytes {
-			return "", fmt.Errorf("SSE line exceeds configured limit")
+		if len(s.long) > s.maxLineBytes {
+			return nil, fmt.Errorf("SSE line exceeds configured limit")
+		}
+		part, err = s.reader.ReadSlice('\n')
+		s.long = append(s.long, part...)
+		if len(s.long) > s.maxLineBytes {
+			return nil, fmt.Errorf("SSE line exceeds configured limit")
 		}
 		if err == nil {
-			return string(line), nil
+			return trimEventLine(s.long), nil
 		}
 		if err != bufio.ErrBufferFull {
-			return string(line), err
+			return nil, err
 		}
 	}
 }
 
+func trimEventLine(line []byte) []byte {
+	for len(line) > 0 && (line[len(line)-1] == '\n' || line[len(line)-1] == '\r') {
+		line = line[:len(line)-1]
+	}
+	return line
+}
+
 func (s *EventStream[T]) Next(event *T) bool {
-	var data []string
-	eventType := ""
+	s.payload = s.payload[:0]
+	hasData := false
+	isError := false
 	for {
-		line, err := readEventStreamLine(s.reader, s.maxLineBytes)
+		line, err := s.readLine()
 		if err != nil {
 			if err != io.EOF {
 				s.err = err
 			}
 			return false
 		}
-		line = strings.TrimRight(line, "\r\n")
-		if line == "" {
-			if len(data) == 0 {
-				eventType = ""
+		if len(line) == 0 {
+			if !hasData {
+				isError = false
 				continue
 			}
-			payload := strings.Join(data, "\n")
-			if eventType == "error" {
-				s.err = fmt.Errorf("stream error: %s", payload)
+			if isError {
+				s.err = fmt.Errorf("stream error: %s", s.payload)
 				return false
 			}
-			if err := unmarshalJSONValue([]byte(payload), event); err != nil {
+			if err := unmarshalJSONValue(s.payload, event); err != nil {
 				s.err = err
 				return false
 			}
 			return true
 		}
-		if strings.HasPrefix(line, ":") {
+		if line[0] == ':' {
 			continue
 		}
-		field, value, _ := strings.Cut(line, ":")
-		value = strings.TrimPrefix(value, " ")
-		switch field {
+		field, value := line, []byte(nil)
+		if i := bytes.IndexByte(line, ':'); i >= 0 {
+			field, value = line[:i], line[i+1:]
+			if len(value) > 0 && value[0] == ' ' {
+				value = value[1:]
+			}
+		}
+		switch string(field) {
 		case "event":
-			eventType = value
+			isError = string(value) == "error"
 		case "data":
-			data = append(data, value)
+			if hasData {
+				s.payload = append(s.payload, '\n')
+			}
+			s.payload = append(s.payload, value...)
+			hasData = true
 		}
 	}
 }

@@ -48,7 +48,7 @@ func clientImportsNeeded(file *onkir.File) clientImports {
 				}
 			case m.IsStream():
 				imp.bufio = true
-				imp.strings = true
+				imp.bytes = true
 				if onkir.IsBodyBearingVerb(verb) {
 					noteBodyImports(&imp, m)
 					noteBodyQueryImports(&imp, m)
