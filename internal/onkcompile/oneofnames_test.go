@@ -20,6 +20,8 @@ message O {
   a: oneof(discriminator: "ta") { x: B @tag("a") }
   b: oneof(discriminator: "tb") { x: B @tag("b") }
 }`, `oneof variant "x" collides with "x"`},
+		{"not generating Go", `message B { s: string }
+message O { u: oneof(discriminator: "t") { u: B @tag("a") } }`, ""},
 		{"distinct names", `message B { s: string }
 message O {
   s: string
@@ -29,7 +31,11 @@ message O {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := CompileWithOptions([]Source{{Path: "a.onk", AST: parseOrFatal(t, "package app\n"+tc.schema+"\n")}}, CompileOptions{})
+			options := CompileOptions{}
+			if tc.name == "not generating Go" {
+				options.Targets = []string{"ts-client", "python-client"}
+			}
+			_, err := CompileWithOptions([]Source{{Path: "a.onk", AST: parseOrFatal(t, "package app\n"+tc.schema+"\n")}}, options)
 			if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
 				t.Fatalf("got %v, want %q", err, tc.want)
 			}

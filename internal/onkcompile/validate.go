@@ -139,7 +139,7 @@ func validateMessageDecl(path string, message *onklang.MessageDecl, options Comp
 		if err := validateFieldDecl(path, field, options); err != nil {
 			return err
 		}
-		if field.Oneof != nil {
+		if field.Oneof != nil && options.generates("go-server", "go-client") {
 			for _, variant := range field.Oneof.Variants {
 				variantID := generatedIdentifier(variant.Name)
 				if previous, exists := seenFields[variantID]; exists {

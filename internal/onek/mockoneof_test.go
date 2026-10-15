@@ -15,7 +15,7 @@ message Req { id: string }
 message EmailAuth { email: string @email }
 message Res {
   nested: oneof(discriminator: "kind") { email: EmailAuth  code: string }
-  flat: oneof(flatten: true) { email: EmailAuth }
+  flat: oneof(flatten: true) { mail: EmailAuth }
 }
 service Svc { get(Req) -> Res @get("/r/{id}") }
 `)
@@ -38,7 +38,7 @@ service Svc { get(Req) -> Res @get("/r/{id}") }
 	if body["nested"]["kind"] != "email" || nested["email"] != mockEmail {
 		t.Fatalf("nested oneof shape: %v", body["nested"])
 	}
-	if body["flat"]["type"] != "email" || body["flat"]["email"] != mockEmail {
+	if body["flat"]["type"] != "mail" || body["flat"]["email"] != mockEmail {
 		t.Fatalf("flattened oneof shape: %v", body["flat"])
 	}
 }
