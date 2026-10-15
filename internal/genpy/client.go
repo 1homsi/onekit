@@ -487,7 +487,7 @@ class _PooledTransport:
             try:
                 conn.request(request.get_method(), target, body=request.data, headers=headers)
                 resp = conn.getresponse()
-            except (http.client.RemoteDisconnected, ConnectionResetError, BrokenPipeError):
+            except (http.client.RemoteDisconnected, ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
                 self._discard(conn)
                 if reused and attempt == 0:
                     continue
