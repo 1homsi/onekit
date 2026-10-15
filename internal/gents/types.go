@@ -229,6 +229,7 @@ func writeRootCodecFuncs(p *Printer, m *onkir.Message) {
 //nolint:gocognit // Each schema rule is an independent generated-code branch.
 func writeValidateFunc(p *Printer, m *onkir.Message) {
 	p.P("export function validate", m.Name, "(v: ", m.Name, "): string[] {")
+	p.P("if (v === null || v === undefined) return [];")
 	p.P("const violations: string[] = [];")
 	for _, f := range collectCodecFields(p.naming, m, "") {
 		field := f.field
@@ -532,6 +533,7 @@ func writeDecodeFunc(p *Printer, m *onkir.Message) {
 
 func writeEncodeFunc(p *Printer, m *onkir.Message) {
 	p.P("export function encode", m.Name, "(v: ", m.Name, "): Record<string, unknown> {")
+	p.P("if (v === null || v === undefined) return v as unknown as Record<string, unknown>;")
 	p.P("const out: Record<string, unknown> = {};")
 	for _, cf := range collectCodecFields(p.naming, m, "") {
 		valueExpr := "v." + cf.ts
@@ -602,14 +604,14 @@ func decodeExpr(p *Printer, f *onkir.Field, expr string) string {
 	case onkir.KindMessage:
 		fn := p.MessageCodecName(f.Type.Message, "decode")
 		if f.Repeated {
-			return fmt.Sprintf("(%s !== undefined ? (%s as any[]).map(%s) : %s)", expr, expr, fn, expr)
+			return fmt.Sprintf("(%s != null ? (%s as any[]).map(%s) : %s)", expr, expr, fn, expr)
 		}
 		return fmt.Sprintf("(%s !== undefined ? %s(%s) : %s)", expr, fn, expr, expr)
 	case onkir.KindMap:
 		if f.Type.MapValue.Kind == onkir.KindMessage {
 			fn := p.MessageCodecName(f.Type.MapValue.Message, "decode")
 			return fmt.Sprintf(
-				"(%s !== undefined ? Object.fromEntries(Object.entries(%s as Record<string, any>).map(([k, val]) => [k, %s(val)])) : %s)",
+				"(%s != null ? Object.fromEntries(Object.entries(%s as Record<string, any>).map(([k, val]) => [k, %s(val)])) : %s)",
 				expr,
 				expr,
 				fn,
@@ -638,16 +640,18 @@ func encodeExpr(p *Printer, f *onkir.Field, expr string) string {
 	case onkir.KindMessage:
 		fn := p.MessageCodecName(f.Type.Message, "encode")
 		if f.Repeated {
-			return fmt.Sprintf("(%s as any[]).map(%s)", expr, fn)
+			return fmt.Sprintf("(%s != null ? (%s as any[]).map(%s) : %s)", expr, expr, fn, expr)
 		}
 		return fmt.Sprintf("%s(%s)", fn, expr)
 	case onkir.KindMap:
 		if f.Type.MapValue.Kind == onkir.KindMessage {
 			fn := p.MessageCodecName(f.Type.MapValue.Message, "encode")
 			return fmt.Sprintf(
-				"Object.fromEntries(Object.entries(%s as Record<string, any>).map(([k, val]) => [k, %s(val)]))",
+				"(%s != null ? Object.fromEntries(Object.entries(%s as Record<string, any>).map(([k, val]) => [k, %s(val)])) : %s)",
+				expr,
 				expr,
 				fn,
+				expr,
 			)
 		}
 		return expr
