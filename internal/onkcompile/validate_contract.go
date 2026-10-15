@@ -166,13 +166,13 @@ func validateCompiledMessage(filePath string, message *onkir.Message, fullNames 
 
 func validateCompiledField(filePath string, field *onkir.Field, options CompileOptions) error {
 	if !options.AllowLegacyContracts && field.HasDecorator("required") && !field.Optional && !field.Repeated && field.Type != nil && field.Type.Kind == onkir.KindEnum {
-		return &Error{Path: filePath, Msg: fmt.Sprintf(
+		return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf(
 			"@required on enum field %s.%s needs the ? marker; a non-optional enum always holds its first value", field.Message.FullName(), field.Name,
 		)}
 	}
 	if field.Type != nil && field.Type.Kind == onkir.KindMap && field.Type.MapValue != nil &&
 		field.Type.MapValue.Kind == onkir.KindMessage && isRootUnwrappedMessage(field.Type.MapValue.Message) {
-		return &Error{Path: filePath, Msg: fmt.Sprintf(
+		return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf(
 			"@unwrap is not supported on map value message %s; use @unwrap only on a top-level request/response message",
 			field.Type.MapValue.Message.FullName(),
 		)}
@@ -199,7 +199,7 @@ func validateCompiledField(filePath string, field *onkir.Field, options CompileO
 			}
 		}
 		if !valid {
-			return &Error{Path: filePath, Msg: fmt.Sprintf("@encode(%s) is not supported on field %s.%s", value, field.Message.FullName(), field.Name)}
+			return &Error{Path: filePath, Line: field.Line, Msg: fmt.Sprintf("@encode(%s) is not supported on field %s.%s", value, field.Message.FullName(), field.Name)}
 		}
 	}
 	return nil
@@ -217,21 +217,21 @@ func validateMethodBindings(filePath string, method *onkir.Method, options Compi
 	seenPath := map[string]bool{}
 	for _, name := range pathParameterNames(route) {
 		if seenPath[name] {
-			return &Error{Path: filePath, Msg: fmt.Sprintf("duplicate path parameter %q on RPC %s", name, method.Name)}
+			return &Error{Path: filePath, Line: method.Line, Msg: fmt.Sprintf("duplicate path parameter %q on RPC %s", name, method.Name)}
 		}
 		seenPath[name] = true
 		field := methodField(method.Request, name)
 		if field == nil || field.Type == nil || field.Type.Kind != onkir.KindScalar || field.Repeated {
-			return &Error{Path: filePath, Msg: fmt.Sprintf("path parameter %q on RPC %s requires one non-repeated scalar request field", name, method.Name)}
+			return &Error{Path: filePath, Line: method.Line, Msg: fmt.Sprintf("path parameter %q on RPC %s requires one non-repeated scalar request field", name, method.Name)}
 		}
 		if field.Optional {
-			return &Error{Path: filePath, Msg: fmt.Sprintf("path parameter %q on RPC %s cannot be optional", name, method.Name)}
+			return &Error{Path: filePath, Line: method.Line, Msg: fmt.Sprintf("path parameter %q on RPC %s cannot be optional", name, method.Name)}
 		}
 		if onkir.IsWildcardParam(route, name) && field.Type.Scalar != onkir.ScalarString {
-			return &Error{Path: filePath, Msg: fmt.Sprintf("wildcard path parameter %q on RPC %s requires a string request field", name, method.Name)}
+			return &Error{Path: filePath, Line: method.Line, Msg: fmt.Sprintf("wildcard path parameter %q on RPC %s requires a string request field", name, method.Name)}
 		}
 		if !isHTTPParameterScalar(field.Type.Scalar) {
-			return &Error{Path: filePath, Msg: fmt.Sprintf("path parameter %q on RPC %s supports string, bool, integer, and float scalar fields", name, method.Name)}
+			return &Error{Path: filePath, Line: method.Line, Msg: fmt.Sprintf("path parameter %q on RPC %s supports string, bool, integer, and float scalar fields", name, method.Name)}
 		}
 	}
 	verb, _ := method.Verb()
@@ -246,26 +246,26 @@ func validateMethodBindings(filePath string, method *onkir.Method, options Compi
 			name = field.Name
 		}
 		if isBodyBearingVerb(verb) && options.generates(queryOnBodyUnsupportedTargets...) {
-			return &Error{Path: filePath, Msg: fmt.Sprintf("@query field %q on body-bearing RPC %s is supported by the go, ts and openapi targets only; remove the python, dart, swift and rust targets or move the field into the body", field.Name, method.Name)}
+			return &Error{Path: filePath, Line: method.Line, Msg: fmt.Sprintf("@query field %q on body-bearing RPC %s is supported by the go, ts and openapi targets only; remove the python, dart, swift and rust targets or move the field into the body", field.Name, method.Name)}
 		}
 		if seenPath[field.Name] {
-			return &Error{Path: filePath, Msg: fmt.Sprintf("request field %q cannot be both a path and query binding", field.Name)}
+			return &Error{Path: filePath, Line: method.Line, Msg: fmt.Sprintf("request field %q cannot be both a path and query binding", field.Name)}
 		}
 		if previous, exists := seenQuery[name]; exists {
-			return &Error{Path: filePath, Msg: fmt.Sprintf("query parameter %q is bound by both %s and %s", name, previous, field.Name)}
+			return &Error{Path: filePath, Line: method.Line, Msg: fmt.Sprintf("query parameter %q is bound by both %s and %s", name, previous, field.Name)}
 		}
 		seenQuery[name] = field.Name
 	}
 	if bodyName, ok := method.BodyField(); ok {
 		field := methodField(method.Request, bodyName)
 		if field == nil {
-			return &Error{Path: filePath, Msg: fmt.Sprintf("@body references unknown request field %q on RPC %s", bodyName, method.Name)}
+			return &Error{Path: filePath, Line: method.Line, Msg: fmt.Sprintf("@body references unknown request field %q on RPC %s", bodyName, method.Name)}
 		}
 		if seenPath[field.Name] {
-			return &Error{Path: filePath, Msg: fmt.Sprintf("request field %q cannot be both a path and body binding", field.Name)}
+			return &Error{Path: filePath, Line: method.Line, Msg: fmt.Sprintf("request field %q cannot be both a path and body binding", field.Name)}
 		}
 		if _, query := field.Decorator("query"); query {
-			return &Error{Path: filePath, Msg: fmt.Sprintf("request field %q cannot be both a query and body binding", field.Name)}
+			return &Error{Path: filePath, Line: method.Line, Msg: fmt.Sprintf("request field %q cannot be both a query and body binding", field.Name)}
 		}
 	}
 	if err := validateUnboundFields(filePath, method, verb, seenPath, options, bodyRequests, pathUses); err != nil {
@@ -299,7 +299,7 @@ func validateUnboundFields(filePath string, method *onkir.Method, verb string, p
 		if field.HasDecorator("required") {
 			kind = "@required field"
 		}
-		return &Error{Path: filePath, Msg: fmt.Sprintf(
+		return &Error{Path: filePath, Line: method.Line, Msg: fmt.Sprintf(
 			"%s %q on RPC %s is never sent: %s requests carry only path, @query and @body fields; add @query (a scalar field), put it in the route as {%s}, or use a verb with a body",
 			kind, field.Name, method.Name, strings.ToUpper(verb), field.Name,
 		)}
