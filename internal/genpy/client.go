@@ -24,7 +24,10 @@ func GenerateClientWithResolver(file *onkir.File, typesModule string, resolver P
 	p.P("from __future__ import annotations")
 	p.P()
 	p.P("import builtins as _builtins")
+	p.P("import http.client")
+	p.P("import io")
 	p.P("import json")
+	p.P("import threading")
 	p.P("import warnings")
 	p.P("import urllib.error")
 	p.P("import urllib.parse")
@@ -49,6 +52,7 @@ func GenerateClientWithResolver(file *onkir.File, typesModule string, resolver P
 	p.P()
 
 	writeResponseBodyRuntime(p)
+	writePooledTransport(p)
 	if onkir.FileHasWSMethods(file) {
 		writePyWSRuntime(p)
 		writePyWSCodecs(p, file)
@@ -105,6 +109,7 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 	if hasWS {
 		wsParams = ", max_ws_frame_bytes: int = DEFAULT_MAX_WS_FRAME_BYTES, max_ws_message_bytes: int = DEFAULT_MAX_WS_MESSAGE_BYTES, ws_ping_interval: float = 30.0"
 	}
+	wsParams += ", keep_alive: bool = False"
 	p.P("def __init__(self, base_url: str, headers: dict | None = None, max_response_body_bytes: int = DEFAULT_MAX_RESPONSE_BODY_BYTES, max_sse_line_bytes: int = DEFAULT_MAX_SSE_LINE_BYTES, timeout: float | None = 30.0", wsParams, ") -> None:")
 	p.Indent()
 	if hasWS {
@@ -117,6 +122,34 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 	p.P("self.timeout = timeout")
 	p.P("self.max_response_body_bytes = max_response_body_bytes if max_response_body_bytes > 0 else DEFAULT_MAX_RESPONSE_BODY_BYTES")
 	p.P("self.max_sse_line_bytes = max_sse_line_bytes if max_sse_line_bytes > 0 else DEFAULT_MAX_SSE_LINE_BYTES")
+	p.P("self._transport = _PooledTransport() if keep_alive else None")
+	p.Dedent()
+	p.Blank()
+	p.P("def close(self) -> None:")
+	p.Indent()
+	p.P("if self._transport is not None:")
+	p.Indent()
+	p.P("self._transport.close()")
+	p.Dedent()
+	p.Dedent()
+	p.Blank()
+	p.P("def __enter__(self):")
+	p.Indent()
+	p.P("return self")
+	p.Dedent()
+	p.Blank()
+	p.P("def __exit__(self, *exc) -> None:")
+	p.Indent()
+	p.P("self.close()")
+	p.Dedent()
+	p.Blank()
+	p.P("def _open(self, request, timeout):")
+	p.Indent()
+	p.P("if self._transport is None:")
+	p.Indent()
+	p.P("return urllib.request.urlopen(request, timeout=timeout)")
+	p.Dedent()
+	p.P("return self._transport.open(request, timeout, self.max_response_body_bytes)")
 	p.Dedent()
 	p.Blank()
 
@@ -217,7 +250,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 	p.P("try:")
 	p.Indent()
-	p.P("with urllib.request.urlopen(request, timeout=self.timeout if timeout is _UNSET else timeout) as resp:")
+	p.P("with self._open(request, self.timeout if timeout is _UNSET else timeout) as resp:")
 	p.Indent()
 	p.P("return ", p.MessageTypeName(m.Response), ".from_dict(json.loads(_read_bounded(resp, self.max_response_body_bytes)))")
 	p.Dedent()
@@ -381,4 +414,101 @@ func writePyRequestBuild(p *Printer, m *onkir.Method, verb string, bodyBearing b
 	} else {
 		p.P(fmt.Sprintf("request = urllib.request.Request(self.base_url + path, method=%q)", strings.ToUpper(verb)))
 	}
+}
+
+// writePooledTransport emits the optional keep-alive transport the clients use
+// when constructed with keep_alive=True: one http.client connection per
+// thread, reused across calls. It does not follow redirects or read the proxy
+// environment variables, which is why it is opt-in.
+func writePooledTransport(p *Printer) {
+	p.P(`class _PooledResponse:
+    def __init__(self, transport, conn, resp) -> None:
+        self._transport = transport
+        self._conn = conn
+        self._resp = resp
+        self.status = resp.status
+        self.headers = resp.headers
+
+    def read(self, n: int = -1) -> bytes:
+        return self._resp.read(n)
+
+    def readline(self, n: int = -1) -> bytes:
+        return self._resp.readline(n)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        if not self._resp.isclosed():
+            self._transport._discard(self._conn)
+        return False
+
+class _PooledTransport:
+    def __init__(self) -> None:
+        self._local = threading.local()
+        self._lock = threading.Lock()
+        self._all: list = []
+
+    def _discard(self, conn) -> None:
+        conn.close()
+        with self._lock:
+            if conn in self._all:
+                self._all.remove(conn)
+        if getattr(self._local, "conn", None) is conn:
+            self._local.conn = None
+
+    def _connection(self, parts, timeout):
+        conn = getattr(self._local, "conn", None)
+        key = (parts.scheme, parts.netloc)
+        if conn is not None and self._local.key != key:
+            self._discard(conn)
+            conn = None
+        reused = conn is not None and conn.sock is not None
+        if conn is None:
+            cls = http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
+            conn = cls(parts.netloc, timeout=timeout)
+            self._local.conn = conn
+            self._local.key = key
+            with self._lock:
+                self._all.append(conn)
+        conn.timeout = timeout
+        if conn.sock is not None:
+            conn.sock.settimeout(timeout)
+        return conn, reused
+
+    def open(self, request, timeout, limit: int):
+        parts = urllib.parse.urlsplit(request.full_url)
+        target = parts.path or "/"
+        if parts.query:
+            target += "?" + parts.query
+        headers = dict(request.header_items())
+        for attempt in (0, 1):
+            conn, reused = self._connection(parts, timeout)
+            try:
+                conn.request(request.get_method(), target, body=request.data, headers=headers)
+                resp = conn.getresponse()
+            except (http.client.RemoteDisconnected, ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+                self._discard(conn)
+                if reused and attempt == 0:
+                    continue
+                raise
+            except BaseException:
+                self._discard(conn)
+                raise
+            break
+        if resp.status < 200 or resp.status >= 300:
+            data = resp.read(limit + 1)
+            if not resp.isclosed():
+                self._discard(conn)
+            raise urllib.error.HTTPError(request.full_url, resp.status, resp.reason, resp.headers, io.BytesIO(data))
+        return _PooledResponse(self, conn, resp)
+
+    def close(self) -> None:
+        with self._lock:
+            conns, self._all = self._all, []
+        for conn in conns:
+            conn.close()
+        self._local = threading.local()
+`)
+	p.P()
 }

@@ -10,6 +10,7 @@ type sseSender struct {
 	rc        *http.ResponseController
 	started   bool
 	eventName func(any) string
+	frame     []byte
 }
 
 const defaultSSEHeartbeat = 15 * time.Second
@@ -85,33 +86,75 @@ func (s *sseSender) start() {
 }
 
 func (s *sseSender) SendWithEvent(eventType string, event any) error {
-	var data []byte
-	var err error
-	if a, ok := event.(interface{ AppendJSON([]byte) ([]byte, error) }); ok {
-		data, err = a.AppendJSON(nil)
-	} else {
-		data, err = json.Marshal(event)
-	}
-	if err != nil {
-		return err
-	}
 	if !validSSEEventName(eventType) {
 		return fmt.Errorf("invalid SSE event name %q", eventType)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	frame := s.frame[:0]
+	if eventType != "" {
+		frame = append(frame, "event: "...)
+		frame = append(frame, eventType...)
+		frame = append(frame, '\n')
+	}
+	frame = append(frame, "data: "...)
+	mark := len(frame)
+	var err error
+	if a, ok := event.(interface{ AppendJSON([]byte) ([]byte, error) }); ok {
+		frame, err = a.AppendJSON(frame)
+	} else {
+		var raw []byte
+		raw, err = json.Marshal(event)
+		frame = append(frame, raw...)
+	}
+	if err != nil {
+		s.frame = frame[:0]
+		return err
+	}
+	frame = sseDataLines(frame, mark)
+	frame = append(frame, '\n', '\n')
 	if !s.started {
 		s.start()
 	}
-	if eventType != "" {
-		if _, err := fmt.Fprintf(s.w, "event: %s\n", eventType); err != nil {
-			return err
-		}
+	_, err = s.w.Write(frame)
+	if cap(frame) <= 64<<10 {
+		s.frame = frame[:0]
+	} else {
+		s.frame = nil
 	}
-	if _, err := fmt.Fprintf(s.w, "data: %s\n\n", data); err != nil {
+	if err != nil {
 		return err
 	}
 	return s.flush()
+}
+
+func sseDataLines(frame []byte, mark int) []byte {
+	broken := false
+	for _, c := range frame[mark:] {
+		if c == '\n' || c == '\r' {
+			broken = true
+			break
+		}
+	}
+	if !broken {
+		return frame
+	}
+	out := make([]byte, 0, len(frame)+16)
+	out = append(out, frame[:mark]...)
+	for i := mark; i < len(frame); i++ {
+		switch frame[i] {
+		case '\r':
+			if i+1 < len(frame) && frame[i+1] == '\n' {
+				i++
+			}
+			out = append(out, "\ndata: "...)
+		case '\n':
+			out = append(out, "\ndata: "...)
+		default:
+			out = append(out, frame[i])
+		}
+	}
+	return out
 }
 
 func (s *sseSender) flush() error {
