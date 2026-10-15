@@ -267,6 +267,25 @@ func main() {
 	if string(data) != "PATCH /apps/blog/proxy/pg/a/b|blog|pg|a/b|t|a/b" {
 		fail("client with any method: %q", data)
 	}
+	for _, tc := range []struct {
+		name string
+		url  func() (string, error)
+		want string
+	}{
+		{"plain", func() (string, error) { return client.BundleURL(&app.Slug{Slug: "a b"}) }, srv.URL + "/apps/a%20b/bundle.js"},
+		{"wildcard and query", func() (string, error) {
+			return client.ProxyURL(&app.ProxyRequest{Slug: "blog", Resource: "pg", Path: "a/b c", Trace: "t 1"})
+		}, srv.URL + "/apps/blog/proxy/pg/a/b%20c?trace=t+1"},
+		{"websocket", func() (string, error) { return client.RunURL(&app.Slug{Slug: "blog"}) }, srv.URL + "/apps/blog/local-execution/run"},
+		{"redirect", func() (string, error) { return client.OauthURL(&app.Slug{Slug: "blog"}) }, srv.URL + "/apps/blog/oauth"},
+	} {
+		if got, err := tc.url(); err != nil || got != tc.want {
+			fail("url builder %s: %q %v want %q", tc.name, got, err, tc.want)
+		}
+	}
+	if got, err := client.ProxyURL(&app.ProxyRequest{Slug: "blog", Resource: "pg", Path: "a/../b"}); err == nil || got != "" {
+		fail("a .. segment in a wildcard tail must be rejected: %q %v", got, err)
+	}
 	fmt.Println("OK")
 }
 `

@@ -880,11 +880,11 @@ service Apps {
 | --- | --- | --- |
 | `stream` (the default) | returns the `Response` | returns `*http.Response` |
 | `json` | decodes the declared response message and throws the declared error types | decodes the declared response message |
-| `redirect`, `websocket` | a URL builder only | no method |
+| `redirect`, `websocket` | a URL builder only | a URL builder only |
 
 Every other kind needs an empty response message; `response: "json"` takes the message the handler writes. `@any` makes a route answer every HTTP method: the Go server registers the pattern without a method (`RequestMetadata.HTTPMethod` is `"ANY"`), and the clients take the method as an argument (`method string` in Go, `opts.method` in TypeScript, default `GET`).
 
-Every raw route also gets a URL builder in the TypeScript client, for the callers that need a string, such as a `<script src>`, a manifest link or an OAuth start. `appsBundleUrl("https://api.example.com", { slug })` builds it with the path parameters and `@query` fields encoded (and rejects `.` and `..` segments in a wildcard tail), and `client.bundleUrl({ slug })` does the same with the client's base URL.
+Every raw route also gets a URL builder in the TypeScript client, for the callers that need a string, such as a `<script src>`, a manifest link or an OAuth start. `appsBundleUrl("https://api.example.com", { slug })` builds it with the path parameters and `@query` fields encoded (and rejects `.` and `..` segments in a wildcard tail), and `client.bundleUrl({ slug })` does the same with the client's base URL. The Go client has the same for every raw route, including `redirect` and `websocket` routes that have no fetch method: `url, err := client.BundleURL(&api.BundleRequest{Slug: slug})`.
 
 #### Wildcard tails, WebSockets and raw handlers
 
