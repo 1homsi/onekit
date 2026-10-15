@@ -530,7 +530,7 @@ func writeTSNodeHTTPRuntime(p *Printer) {
 	p.P("let url: URL;")
 	p.P(`try { url = new URL(req.url ?? "/", "http://" + (typeof host === "string" ? host : "localhost")); } catch { res.statusCode = 400; res.end(); return true; }`)
 	p.P(`const method = req.method ?? "GET";`)
-	p.P("const route = wildcardLast(routes).find((r) => r.method === method && matchPath(r.path, url.pathname) !== null);")
+	p.P(`const route = wildcardLast(routes).find((r) => (r.method === method || (method === "HEAD" && r.method === "GET")) && matchPath(r.path, url.pathname) !== null);`)
 	p.P("if (!route) return false;")
 	p.P("const controller = new AbortController();")
 	p.P(`res.on?.("close", () => { if (!res.writableEnded) controller.abort(); });`)

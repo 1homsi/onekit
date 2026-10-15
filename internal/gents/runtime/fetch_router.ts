@@ -7,10 +7,14 @@ export function fetchRouter(
 			(route) => matchPath(route.path, url.pathname) !== null,
 		);
 		if (matching.length === 0) return registeredError(404, "not_found", "not found");
+		const head = req.method === "HEAD";
 		const route = matching.find(
-			(candidate) => candidate.method === req.method,
+			(candidate) => candidate.method === req.method || (head && candidate.method === "GET"),
 		);
-		if (route) return route.handler(req);
+		if (route) {
+			const response = await route.handler(req);
+			return head ? new Response(null, { status: response.status, statusText: response.statusText, headers: response.headers }) : response;
+		}
 		const allow = [
 			...new Set(matching.map((candidate) => candidate.method)),
 		].join(", ");
