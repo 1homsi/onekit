@@ -9,7 +9,7 @@ import (
 	"github.com/1homsi/onekit/internal/onklang"
 )
 
-var decimalLiteral = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
+var decimalLiteral = regexp.MustCompile(`^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
 
 var integerBounds = map[string][2]*big.Int{
 	"int32":  {big.NewInt(math.MinInt32), big.NewInt(math.MaxInt32)},
