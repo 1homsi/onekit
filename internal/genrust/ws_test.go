@@ -457,13 +457,13 @@ async fn main() {
         Ok(()) => tokio::time::timeout(Duration::from_secs(10), async {
             let fast_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
             let fast = fast_listener.local_addr().expect("local addr");
-            let options = WsServerOptions { ping_interval: Some(Duration::from_millis(50)), ..Default::default() };
+            let options = WsServerOptions { ping_interval: Some(Duration::from_millis(250)), ..Default::default() };
             tokio::spawn(async move {
                 axum::serve(fast_listener, runtime_router_with_ws_options(Arc::new(Impl), options)).await.expect("serve");
             });
 
             let pinged = RuntimeClient::new(format!("http://{fast}")).execute(&run("x")).await.expect("connect");
-            tokio::time::sleep(Duration::from_millis(300)).await;
+            tokio::time::sleep(Duration::from_millis(1000)).await;
             pinged.send(&run("x")).await.expect("send run after pings");
             let (seen, _) = until_run_result(&pinged).await;
             if seen != ["host_call:call-1"] { fail(format!("round trip after server pings: {seen:?}")); }
