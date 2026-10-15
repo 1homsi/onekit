@@ -50,6 +50,9 @@ func validateServiceRPC(filePath string, rpc *onklang.RPCDecl, service *onklang.
 		)}
 	}
 	seenMethods[generated] = rpc.Name
+	if err := rejectRepeatedDecorators(filePath, rpc); err != nil {
+		return err
+	}
 	verb, route, err := validateRPC(filePath, rpc, service.BasePath != "")
 	if err != nil {
 		return err
@@ -132,6 +135,25 @@ func validHTTPHeaderName(value string) bool {
 		}
 	}
 	return value != ""
+}
+
+var singleUseRPCDecorators = map[string]bool{
+	"stream": true, wsDecorator: true, "body": true, httpDecorator: true, successDecorator: true,
+	"max_body": true, "deprecated": true,
+}
+
+func rejectRepeatedDecorators(path string, rpc *onklang.RPCDecl) error {
+	seen := map[string]bool{}
+	for _, decorator := range rpc.Decorators {
+		if !singleUseRPCDecorators[decorator.Name] {
+			continue
+		}
+		if seen[decorator.Name] {
+			return &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("@%s is declared more than once on RPC %s", decorator.Name, rpc.Name)}
+		}
+		seen[decorator.Name] = true
+	}
+	return nil
 }
 
 func validateRPC(path string, rpc *onklang.RPCDecl, allowEmptyRoute bool) (string, string, error) {
