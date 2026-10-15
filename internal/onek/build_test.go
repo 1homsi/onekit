@@ -252,6 +252,40 @@ service API { get(Request) -> Response @get("/items") }
 	}
 }
 
+func TestBuildKeepsAHandWrittenFileAtAFormerlyGeneratedPath(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `
+module = "example.com/api"
+[generate.go-server]
+out = "./api"
+`)
+	writeTestFile(t, filepath.Join(dir, "old", "service.onk"), `
+message Request {}
+message Response {}
+service API { get(Request) -> Response @get("/items") }
+`)
+	if err := Build(dir); err != nil {
+		t.Fatalf("first Build error: %v", err)
+	}
+	generated := filepath.Join(dir, "api", "old", "server.gen.go")
+	handWritten := filepath.Join(dir, "api", "old", "types.gen.go")
+	writeTestFile(t, handWritten, "// my own file, kept at the old generated path\npackage old\n")
+	if err := os.Remove(filepath.Join(dir, "old", "service.onk")); err != nil {
+		t.Fatalf("remove schema: %v", err)
+	}
+	writeTestFile(t, filepath.Join(dir, "current.onk"), "message Current { id: string }\n")
+	if err := Build(dir); err != nil {
+		t.Fatalf("second Build error: %v", err)
+	}
+	if _, err := os.Stat(generated); !os.IsNotExist(err) {
+		t.Fatalf("a stale generated file must still be removed: %v", err)
+	}
+	data, err := os.ReadFile(handWritten)
+	if err != nil || !strings.Contains(string(data), "my own file") {
+		t.Fatalf("a file without the generated banner must be left alone: %v %q", err, data)
+	}
+}
+
 func TestBuildPreservesGeneratedFilesUnderNestedTargetRoots(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `
