@@ -181,7 +181,7 @@ message M {
   free: json
   maybe: string?
   inner: Inner
-  pick: oneof { a: string b: int32 }
+  pick: oneof { x: string y: int32 }
 }
 `
 	compile := func(on bool) map[string]bool {

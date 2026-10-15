@@ -31,7 +31,7 @@ message Response {
  user: User
  users: map[string, common.User]
  state: State
- payload: oneof(discriminator: "kind") { user: User }
+ payload: oneof(discriminator: "kind") { person: User }
 }
 service API {
  get(Request) -> Response | Failure @get("/users/{id}")
@@ -82,7 +82,7 @@ func TestLanguageCompilerBindings(t *testing.T) {
 			t.Fatalf("%s: %+v", needle, symbol)
 		}
 	}
-	if len(s.Search("User", "")) != 7 {
+	if len(s.Search("User", "")) != 6 {
 		t.Fatalf("search: %+v", s.Search("User", ""))
 	}
 	if len(s.Files) != 3 || len(s.Files[0].Imports) != 1 {

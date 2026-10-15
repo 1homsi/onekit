@@ -139,6 +139,17 @@ func validateMessageDecl(path string, message *onklang.MessageDecl, options Comp
 		if err := validateFieldDecl(path, field, options); err != nil {
 			return err
 		}
+		if field.Oneof != nil && options.generates("go-server", "go-client") {
+			for _, variant := range field.Oneof.Variants {
+				variantID := generatedIdentifier(variant.Name)
+				if previous, exists := seenFields[variantID]; exists {
+					return &Error{Path: path, Line: variant.Line, Msg: fmt.Sprintf(
+						"oneof variant %q collides with %q after target-language name conversion", variant.Name, previous,
+					)}
+				}
+				seenFields[variantID] = variant.Name
+			}
+		}
 		if hasDecorator(field.Decorators, "unwrap") {
 			unwrapCount++
 		}
