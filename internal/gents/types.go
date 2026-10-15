@@ -2,6 +2,7 @@ package gents
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -300,6 +301,9 @@ func writeValidateFunc(p *Printer, m *onkir.Message) {
 				}
 				p.P("if (", present, " && ![", strings.Join(values, ", "), "].includes(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be one of the allowed values"), ");")
 			}
+		}
+		if isTSNumeric(field.Type.Scalar) && writeTS64Rules(p, field, present, accessor) {
+			continue
 		}
 		if isTSNumeric(field.Type.Scalar) {
 			numericAccessor := "Number(" + accessor + ")"
@@ -787,4 +791,67 @@ func tsZeroLiteral(f *onkir.Field) string {
 
 func isJSONObject(f *onkir.Field) bool {
 	return f.HasDecorator("object") && f.Type != nil && f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarJSON && !f.Repeated
+}
+
+var tsIntegerLiteral = regexp.MustCompile(`^[+-]?[0-9]+$`)
+
+func tsBigIntLiteral(value string) (string, bool) {
+	if !tsIntegerLiteral.MatchString(value) {
+		return "", false
+	}
+	return strings.TrimPrefix(value, "+") + "n", true
+}
+
+// writeTS64Rules checks the numeric rules of an int64 or uint64 field with
+// BigInt, because Number rounds above 2^53 and lets a boundary value through.
+// It reports false, leaving the Number comparison to the caller, for any other
+// field or when a rule argument is not an integer.
+func writeTS64Rules(p *Printer, field *onkir.Field, present, accessor string) bool {
+	if field.Type.Scalar != onkir.ScalarInt64 && field.Type.Scalar != onkir.ScalarUint64 {
+		return false
+	}
+	literal := func(name string) ([]string, bool) {
+		d, ok := field.Decorator(name)
+		if !ok {
+			return nil, true
+		}
+		values := make([]string, 0, len(d.Args))
+		for _, arg := range d.Args {
+			value, ok := tsBigIntLiteral(arg.Value)
+			if !ok {
+				return nil, false
+			}
+			values = append(values, value)
+		}
+		return values, true
+	}
+	rules := map[string][]string{}
+	for _, name := range []string{"in", "range", "gt", "gte", "lt", "lte"} {
+		values, ok := literal(name)
+		if !ok {
+			return false
+		}
+		if values != nil {
+			rules[name] = values
+		}
+	}
+	if len(rules) == 0 {
+		return true
+	}
+	p.P("{")
+	p.P("let big: bigint | undefined;")
+	p.P("try { big = BigInt(", accessor, "); } catch { big = undefined; }")
+	if values := rules["in"]; values != nil {
+		p.P("if (", present, " && big !== undefined && ![", strings.Join(values, ", "), "].includes(big)) violations.push(", fmt.Sprintf("%q", field.Name+" must be one of the allowed values"), ");")
+	}
+	if values := rules["range"]; len(values) == 2 {
+		p.P("if (", present, " && big !== undefined && (big < ", values[0], " || big > ", values[1], ")) violations.push(", fmt.Sprintf("%q", field.Name+" violates @range"), ");")
+	}
+	for _, rule := range []struct{ name, op string }{{"gt", ">"}, {"gte", ">="}, {"lt", "<"}, {"lte", "<="}} {
+		if values := rules[rule.name]; len(values) == 1 {
+			p.P("if (", present, " && big !== undefined && !(big ", rule.op, " ", values[0], ")) violations.push(", fmt.Sprintf("%q", field.Name+" violates @"+rule.name), ");")
+		}
+	}
+	p.P("}")
+	return true
 }
