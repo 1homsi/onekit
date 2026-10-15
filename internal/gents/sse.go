@@ -216,7 +216,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		if field == nil {
 			continue
 		}
-		if onkir.IsWildcardParam(path, paramName) {
+		if onkir.IsWildcardParam(path, paramName) || isStringField(field) {
 			p.P(fmt.Sprintf(`if (String(req.%s).split("/").some((segment) => segment === "." || segment === "..")) throw new RequestValidationError("invalid request", [%q]);`,
 				p.naming.ident(field.Name), paramName+": dot segments are not allowed"))
 		}

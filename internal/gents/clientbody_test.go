@@ -133,3 +133,56 @@ console.log("OK");
 		t.Fatalf("node run failed: %v\n%s", err, out)
 	}
 }
+
+func TestTSClientRejectsDotSegmentPathParameters(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not available")
+	}
+	ast, err := onklang.Parse(`package app
+
+message Item { id: string }
+message Count { n: int32 }
+
+service Items {
+  get(Item) -> Item @get("/items/{id}")
+  watch(Item) -> Item @get("/watch/{id}") @stream
+  total(Count) -> Item @get("/total/{n}")
+}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "api.onk", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"ts-client"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := pkg.Files[0]
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "types.ts"), string(GenerateTypes(file)))
+	writeFile(t, filepath.Join(dir, "client.ts"), strings.ReplaceAll(string(GenerateClient(file)), `from "./types.js"`, `from "./types.ts"`))
+	writeFile(t, filepath.Join(dir, "main.ts"), `
+import { ItemsClient } from "./client.ts";
+
+const urls: string[] = [];
+const client = new ItemsClient("http://api", { fetch: (async (input: RequestInfo | URL) => { urls.push(String(input)); return new Response("{}"); }) as typeof fetch });
+for (const id of [".", ".."]) {
+  let threw = false;
+  try { await client.get({ id }); } catch (e) { threw = String(e).includes("dot segments"); }
+  if (!threw) throw new Error("get(" + id + ") must be rejected");
+  threw = false;
+  try { for await (const _ of client.watch({ id })) void _; } catch (e) { threw = String(e).includes("dot segments"); }
+  if (!threw) throw new Error("watch(" + id + ") must be rejected");
+}
+if (urls.length !== 0) throw new Error("a rejected id must not be fetched: " + urls);
+for (const id of ["a", "a.b", "...", "a/b", ".a"]) await client.get({ id });
+await client.total({ n: 0 });
+if (urls.join(" ") !== "http://api/items/a http://api/items/a.b http://api/items/... http://api/items/a%2Fb http://api/items/.a http://api/total/0") throw new Error(urls.join(" "));
+console.log("OK");
+`)
+	cmd := exec.Command("node", "main.ts")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != "OK" {
+		t.Fatalf("node run failed: %v\n%s", err, out)
+	}
+}
