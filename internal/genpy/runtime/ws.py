@@ -62,7 +62,7 @@ class _WsCodec:
 
 
 def _ws_json(d):
-    return json.dumps(d, separators=(",", ":"), ensure_ascii=False)
+    return json.dumps(d, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
 def _ws_encode(d, split):
