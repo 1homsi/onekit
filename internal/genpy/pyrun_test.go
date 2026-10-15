@@ -200,3 +200,56 @@ server.shutdown()
 print("OK")
 `)
 }
+
+func TestPythonClientRejectsDotSegmentPathParameters(t *testing.T) {
+	runPythonSchema(t, `
+package app
+message Item { id: string }
+message Count { n: int32 }
+
+service Items {
+  get(Item) -> Item @get("/items/{id}")
+  watch(Item) -> Item @get("/watch/{id}") @stream
+  total(Count) -> Item @get("/total/{n}")
+}
+`, `
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from models import Item
+from client import ItemsClient
+
+paths = []
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def do_GET(self):
+        paths.append(self.path)
+        self.send_response(200)
+        self.send_header("Content-Length", "2")
+        self.end_headers()
+        self.wfile.write(b"{}")
+
+server = HTTPServer(("127.0.0.1", 0), Handler)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+client = ItemsClient("http://127.0.0.1:%d" % server.server_address[1])
+for bad in (".", ".."):
+    try:
+        client.get(Item(id=bad))
+        raise SystemExit("get(%r) must be rejected" % bad)
+    except ValueError as error:
+        assert "dot segments" in str(error), error
+    try:
+        list(client.watch(Item(id=bad)))
+        raise SystemExit("watch(%r) must be rejected" % bad)
+    except ValueError as error:
+        assert "dot segments" in str(error), error
+assert paths == [], paths
+for good in ("a", "a.b", "...", "a/b", ".a"):
+    client.get(Item(id=good))
+assert paths == ["/items/a", "/items/a.b", "/items/...", "/items/a%2Fb", "/items/.a"], paths
+server.shutdown()
+print("OK")
+`)
+}

@@ -364,7 +364,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		if field == nil {
 			continue
 		}
-		if onkir.IsWildcardParam(path, paramName) {
+		if onkir.IsWildcardParam(path, paramName) || isStringField(field) {
 			p.P(fmt.Sprintf(`if (String(req.%s).split("/").some((segment) => segment === "." || segment === "..")) throw new RequestValidationError("invalid request", [%q]);`,
 				p.naming.ident(field.Name), paramName+": dot segments are not allowed"))
 		}
@@ -454,6 +454,10 @@ func writeClientErrorHandling(p *Printer, m *onkir.Method) {
 		p.P("}")
 	}
 	p.P(`throw new ApiError(res.status, body, { headers: res.headers, ...(this.options.errorParser ? { parse: this.options.errorParser } : {}) });`)
+}
+
+func isStringField(field *onkir.Field) bool {
+	return field != nil && field.Type != nil && field.Type.Kind == onkir.KindScalar && field.Type.Scalar == onkir.ScalarString
 }
 
 func tsPathEncodeExpr(path, name, value string) string {

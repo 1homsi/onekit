@@ -460,6 +460,10 @@ func fileHasNonWSMethods(file *onkir.File) bool {
 	return false
 }
 
+func isStringPathParam(field *onkir.Field) bool {
+	return field != nil && field.Type != nil && field.Type.Kind == onkir.KindScalar && field.Type.Scalar == onkir.ScalarString
+}
+
 func goPathEscapeExpr(path, name, value string) string {
 	escaped := fmt.Sprintf("url.PathEscape(fmt.Sprintf(%q, %s))", "%v", value)
 	if onkir.IsWildcardParam(path, name) {
@@ -537,7 +541,7 @@ func writeClientPathBuildReturning(p *Printer, m *onkir.Method, path, fullPath, 
 		if field == nil {
 			continue
 		}
-		if onkir.IsWildcardParam(path, paramName) {
+		if onkir.IsWildcardParam(path, paramName) || isStringPathParam(field) {
 			p.P("for _, segment := range strings.Split(fmt.Sprint(req.", PascalCase(paramName), "), \"/\") {")
 			p.P(`if segment == "." || segment == ".." { return ` + zero + `, fmt.Errorf("invalid path parameter ` + paramName + `: dot segments are not allowed") }`)
 			p.P("}")

@@ -100,7 +100,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		if field == nil {
 			continue
 		}
-		if onkir.IsWildcardParam(path, paramName) {
+		if onkir.IsWildcardParam(path, paramName) || isStringPathParam(field) {
 			p.P("for _, segment := range strings.Split(fmt.Sprint(req.", PascalCase(paramName), "), \"/\") {")
 			p.P(`if segment == "." || segment == ".." { return nil, fmt.Errorf("invalid path parameter ` + paramName + `: dot segments are not allowed") }`)
 			p.P("}")

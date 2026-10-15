@@ -369,7 +369,7 @@ func writePyPathParams(p *Printer, route string, req *onkir.Message) {
 		if field == nil {
 			continue
 		}
-		if onkir.IsWildcardParam(route, paramName) {
+		if onkir.IsWildcardParam(route, paramName) || field.Type != nil && field.Type.Kind == onkir.KindScalar && field.Type.Scalar == onkir.ScalarString {
 			p.P(fmt.Sprintf("if any(segment in (\".\", \"..\") for segment in str(req.%s).split(\"/\")):", field.Name))
 			p.Indent()
 			p.P(fmt.Sprintf("raise ValueError(%q)", paramName+": dot segments are not allowed"))

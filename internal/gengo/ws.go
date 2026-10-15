@@ -574,6 +574,11 @@ func writeWSClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 		if field == nil {
 			continue
 		}
+		if isStringPathParam(field) {
+			p.P("for _, segment := range strings.Split(fmt.Sprint(req.", PascalCase(paramName), "), \"/\") {")
+			p.P(`if segment == "." || segment == ".." { return nil, fmt.Errorf("invalid path parameter ` + paramName + `: dot segments are not allowed") }`)
+			p.P("}")
+		}
 		p.P("path = strings.ReplaceAll(path, ", fmt.Sprintf("%q", "{"+paramName+"}"), ", ",
 			fmt.Sprintf("url.PathEscape(fmt.Sprintf(%q, req.%s))", "%v", PascalCase(paramName)), ")")
 	}
