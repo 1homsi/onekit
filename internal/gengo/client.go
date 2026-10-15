@@ -77,6 +77,7 @@ func GenerateClient(file *onkir.File) ([]byte, error) {
 }
 
 func GenerateClientWithResolver(file *onkir.File, resolver PackageResolver) ([]byte, error) {
+	file = withMethodServices(file)
 	if len(file.Services) == 0 {
 		return nil, nil
 	}

@@ -65,6 +65,7 @@ func jsonContentTypeLiteral(contentType string) string {
 }
 
 func GenerateServerWithOptions(file *onkir.File, resolver PackageResolver, opts Options) ([]byte, error) {
+	file = withMethodServices(file)
 	if len(file.Services) == 0 {
 		return nil, nil
 	}

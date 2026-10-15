@@ -219,3 +219,23 @@ func rawBodyField(m *onkir.Method) *onkir.Field {
 	name, _ := m.BodyField()
 	return onkir.FindField(m.Request, name)
 }
+
+// withMethodServices returns file without the services that declare no RPCs:
+// a server or client generated for one would not compile.
+func withMethodServices(file *onkir.File) *onkir.File {
+	empty := false
+	for _, s := range file.Services {
+		empty = empty || len(s.Methods) == 0
+	}
+	if !empty {
+		return file
+	}
+	filtered := *file
+	filtered.Services = nil
+	for _, s := range file.Services {
+		if len(s.Methods) > 0 {
+			filtered.Services = append(filtered.Services, s)
+		}
+	}
+	return &filtered
+}
