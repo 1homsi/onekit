@@ -444,6 +444,7 @@ func (c *compiler) fillMessage(md *onklang.MessageDecl, path string) error {
 func (c *compiler) buildField(fd *onklang.FieldDecl, owner *onkir.Message, path string) (*onkir.Field, error) {
 	field := &onkir.Field{
 		Name:       fd.Name,
+		Line:       fd.Line,
 		Doc:        fd.Doc,
 		Repeated:   fd.Repeated,
 		Optional:   fd.Optional,
@@ -789,6 +790,7 @@ func (c *compiler) buildMethod(rd *onklang.RPCDecl, s *onkir.Service, path strin
 
 	method := &onkir.Method{
 		Name:       rd.Name,
+		Line:       rd.Line,
 		Doc:        rd.Doc,
 		Request:    req,
 		Response:   resp,

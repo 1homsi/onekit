@@ -116,6 +116,7 @@ type Decorator struct {
 // Field is one member of a message.
 type Field struct {
 	Name       string
+	Line       int
 	Doc        string
 	Type       *Type
 	Repeated   bool
@@ -209,6 +210,7 @@ type Header struct {
 // Method is one RPC within a Service.
 type Method struct {
 	Name       string
+	Line       int
 	Doc        string
 	Request    *Message
 	Response   *Message
