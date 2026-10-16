@@ -110,7 +110,7 @@ func cleanupStaleGeneratedOutputs(cfg *Config, idx *sourceIndex) error {
 				protected = append(protected, other)
 			}
 		}
-		if err := cleanupGeneratedRoot(root, expectedByRoot[root], ownedByRoot[root], protected); err != nil {
+		if err := cleanupGeneratedRoot(cfg.dir, root, expectedByRoot[root], ownedByRoot[root], protected); err != nil {
 			return err
 		}
 	}
@@ -328,7 +328,10 @@ func (e expectedOutputs) addOpenAPIOutputs(cfg *Config, idx *sourceIndex) {
 	}
 }
 
-func cleanupGeneratedRoot(root string, expected, owned map[string]bool, protectedRoots []string) error {
+func cleanupGeneratedRoot(projectDir, root string, expected, owned map[string]bool, protectedRoots []string) error {
+	if link, err := os.Lstat(root); err == nil && link.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
 	info, err := os.Stat(root)
 	if os.IsNotExist(err) {
 		return nil
@@ -348,7 +351,7 @@ func cleanupGeneratedRoot(root string, expected, owned map[string]bool, protecte
 	sort.Strings(stale)
 	for _, rel := range stale {
 		filePath := filepath.Join(root, rel)
-		if !pathWithin(root, filePath) || insideAny(protectedRoots, filePath) || hasSymlinkBelow(root, filepath.Dir(filePath)) {
+		if !pathWithin(root, filePath) || insideAny(protectedRoots, filePath) || hasSymlinkBelow(projectDir, filepath.Dir(filePath)) {
 			continue
 		}
 		info, err := os.Lstat(filePath)
@@ -373,8 +376,8 @@ func insideAny(roots []string, path string) bool {
 }
 
 // hasSymlinkBelow reports whether a directory between root (exclusive) and
-// dir (inclusive) is a symlink; cleanup never follows one, as a directory
-// walk would not.
+// dir (inclusive) is a symlink, the output root itself included when root is
+// the project directory. Cleanup never deletes through one.
 func hasSymlinkBelow(root, dir string) bool {
 	for current := filepath.Clean(dir); current != filepath.Clean(root) && pathWithin(root, current); current = filepath.Dir(current) {
 		info, err := os.Lstat(current)
