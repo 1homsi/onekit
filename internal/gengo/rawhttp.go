@@ -46,7 +46,11 @@ func writeRawRoute(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 	p.P("rw := &routeResponseWriter{ResponseWriter: w}")
 	p.P("routeCtx, _ := RouteContext(rw, r)")
-	p.P("if err := srv.", PascalCase(m.Name), "(rw, r.WithContext(routeCtx), req); err != nil {")
+	p.P("routed := r")
+	p.P("if routeCtx != r.Context() {")
+	p.P("routed = r.WithContext(routeCtx)")
+	p.P("}")
+	p.P("if err := srv.", PascalCase(m.Name), "(rw, routed, req); err != nil {")
 	p.P("if rw.wrote {")
 	p.P("return")
 	p.P("}")
