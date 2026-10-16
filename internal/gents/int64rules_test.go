@@ -1,6 +1,10 @@
 package gents
 
-import "testing"
+import (
+	"os/exec"
+	"path/filepath"
+	"testing"
+)
 
 func TestTS64BitRulesCompareExactly(t *testing.T) {
 	runTSSchema(t, `
@@ -11,6 +15,9 @@ message A {
   k: int64 @in(9007199254740993, 5)
   l: int64 @lt(9007199254740993) @gt(-9007199254740993)
   plain: int32 @range(0, 10)
+  oa: int64? @range(0, 100)
+  ob: uint64? @gte(5)
+  oc: int64? @in(1, 2) @encode("number")
 }
 service S { op(A) -> A @post("/a") }
 `, `
@@ -33,6 +40,48 @@ check(!has({ n: "not a number" }, "n violates"), "a malformed value reports its 
 check(validateA({ n: "not a number" }).some((m) => m.includes("n has invalid type")), "a malformed value is reported");
 check(has({ plain: 11 }, "plain violates @range") && !has({ plain: 10 }, "plain violates"), "a 32-bit field is unchanged");
 check(validateA({}).length === 0, "absent fields pass");
+check(has({ oa: "101" }, "oa violates @range") && !has({ oa: "100" }, "oa violates"), "an optional int64 is checked when set");
+check(has({ ob: "4" }, "ob violates @gte") && has({ oc: 3 }, "oc must be one of") && !has({ oc: 2 }, "oc must be one of"), "optional uint64 and number-encoded int64");
 console.log("OK");
 `)
+}
+
+const ts64StrictSchema = `
+package app
+message A {
+  n: int64 @range(0, 100)
+  oa: int64? @range(0, 100)
+  ob: uint64? @gte(5) @lt(9007199254740993)
+  oc: int64? @in(1, 2) @encode("number")
+  od: int64 @gt(-1) @encode("number")
+}
+service S { op(A) -> A @post("/a") }
+`
+
+func TestTS64BitRulesTypeCheckStrictly(t *testing.T) {
+	if _, err := exec.LookPath("tsc"); err != nil {
+		t.Skip("tsc not available")
+	}
+	file := compileTSSchema(t, ts64StrictSchema)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "types.ts"), string(GenerateTypes(file)))
+	writeFile(t, filepath.Join(dir, "server.ts"), string(GenerateServer(file)))
+	writeFile(t, filepath.Join(dir, "client.ts"), string(GenerateClient(file)))
+	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "lib": ["ES2022", "DOM"],
+    "types": []
+  }
+}
+`)
+	cmd := exec.Command("tsc", "-p", "tsconfig.json")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("64-bit rule checks do not type-check: %v\n%s", err, out)
+	}
 }

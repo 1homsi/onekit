@@ -844,7 +844,7 @@ func writeTS64Rules(p *Printer, field *onkir.Field, present, accessor string) bo
 	}
 	p.P("{")
 	p.P("let big: bigint | undefined;")
-	p.P("try { big = BigInt(", accessor, "); } catch { big = undefined; }")
+	p.P("if (", present, ") { try { big = BigInt(", accessor, "); } catch { big = undefined; } }")
 	if values := rules["in"]; values != nil {
 		p.P("if (", present, " && big !== undefined && ![", strings.Join(values, ", "), "].includes(big)) violations.push(", fmt.Sprintf("%q", field.Name+" must be one of the allowed values"), ");")
 	}

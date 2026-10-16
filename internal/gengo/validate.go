@@ -193,8 +193,8 @@ func fieldValidationRules(m *onkir.Message, f *onkir.Field) []string {
 
 	if f.Type.Scalar == onkir.ScalarJSON && f.HasDecorator("object") {
 		valueRules = append(valueRules, fmt.Sprintf(
-			"if len(m.%s) > 0 && !jsonIsObject(m.%s) { violations = append(violations, %q) }",
-			GoFieldName(f), GoFieldName(f), f.Name+" must be a JSON object",
+			"if len(%s) > 0 && !jsonIsObject(%s) { violations = append(violations, %q) }",
+			fieldAccessor(f), fieldAccessor(f), f.Name+" must be a JSON object",
 		))
 	}
 	if f.Type.Scalar == onkir.ScalarString {
