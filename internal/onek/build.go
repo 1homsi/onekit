@@ -35,22 +35,28 @@ func Build(dir string) error {
 
 func build(dir string) (bool, error) {
 	resetSymlinkCheckCache()
+	startDiscoveryMemo()
+	defer stopDiscoveryMemo()
 	cfg, err := LoadConfig(dir)
 	if err != nil {
 		return false, err
 	}
 
 	startFiles := writtenFiles.Load()
-	fingerprint := ""
+	var fingerprint schemaFingerprint
 	if captured == nil {
 		if sum, sumErr := buildFingerprint(cfg); sumErr == nil {
 			fingerprint = sum
 		}
 	}
-	if fingerprint != "" && tryCachedBuild(cfg, fingerprint) {
-		return true, nil
+	var previous *buildCacheEntry
+	if fingerprint.sum != "" {
+		var hit bool
+		if hit, previous = tryCachedBuild(cfg, fingerprint.sum); hit {
+			return true, nil
+		}
 	}
-	recording := fingerprint != ""
+	recording := fingerprint.sum != ""
 	exeHash := make(chan string, 1)
 	if recording {
 		go func() {
@@ -73,6 +79,20 @@ func build(dir string) (bool, error) {
 	idx, err := groupByDirectory(pkg, cfg.SchemaDir())
 	if err != nil {
 		return false, err
+	}
+
+	var groupSet string
+	var groups map[string]string
+	var plan *incrementalPlan
+	lastCleanGroups.Store(0)
+	if recording {
+		if fps, set, ok := groupFingerprints(idx, pkg, cfg.SchemaDir(), fingerprint.files); ok {
+			groups, groupSet = fps, set
+			if plan = planIncremental(cfg, idx, previous, fps, set, fingerprint.configHash); plan != nil {
+				idx.unchanged = plan.clean
+				lastCleanGroups.Store(int64(len(plan.clean)))
+			}
+		}
 	}
 
 	for _, named := range cfg.serviceFilters() {
@@ -121,7 +141,15 @@ func build(dir string) (bool, error) {
 	if recording {
 		digests := stopRecordingOutputs()
 		recording = false
-		saveBuildCache(cfg, fingerprint, <-exeHash, digests, int(writtenFiles.Load()-startFiles))
+		if plan != nil {
+			for path, digest := range plan.reused {
+				if _, written := digests[path]; !written {
+					digests[path] = digest
+					writtenFiles.Add(1)
+				}
+			}
+		}
+		saveBuildCache(cfg, fingerprint, <-exeHash, digests, int(writtenFiles.Load()-startFiles), groupSet, groups)
 	}
 	return false, nil
 }

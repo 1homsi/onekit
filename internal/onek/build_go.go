@@ -126,9 +126,11 @@ func buildGo(cfg *Config, full *sourceIndex) error {
 		return err
 	}
 
-	return eachGroup(idx, func(g *sourceGroup) error {
+	for _, g := range idx.groups {
+		g.file.Package = goPackageIdent(lastPathSegment(groupOutDir(typesOutRoot, g.relDir)))
+	}
+	return eachChangedGroup(idx, func(g *sourceGroup) error {
 		outDir := groupOutDir(typesOutRoot, g.relDir)
-		g.file.Package = goPackageIdent(lastPathSegment(outDir))
 		resolver := &goResolver{currentDir: g.relDir, idx: idx, packages: goRefs}
 
 		if err := writeGoTypesAndValidation(g.file, outDir, resolver); err != nil {

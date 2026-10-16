@@ -140,6 +140,9 @@ type sourceIndex struct {
 	groups       []*sourceGroup
 	dirByMessage map[*onkir.Message]string
 	dirByEnum    map[*onkir.Enum]string
+	// unchanged lists the directories whose per-directory output this build
+	// keeps from the previous one (see incrementalPlan).
+	unchanged map[string]bool
 }
 
 func (idx *sourceIndex) hasWS() bool {

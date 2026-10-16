@@ -31,7 +31,7 @@ func buildTSClient(cfg *Config, idx *sourceIndex) error {
 			return err
 		}
 	}
-	return eachGroup(idx, func(g *sourceGroup) error {
+	return eachChangedGroup(idx, func(g *sourceGroup) error {
 		outDir := groupOutDir(outRoot, g.relDir)
 		resolver := &tsResolver{currentDir: g.relDir, idx: idx}
 		groupOpts := opts
@@ -58,7 +58,7 @@ func buildTSClient(cfg *Config, idx *sourceIndex) error {
 func buildTSServer(cfg *Config, idx *sourceIndex) error {
 	outRoot := cfg.resolve(cfg.Generate.TSServer.Out)
 	opts := gents.Options{WireFieldNames: cfg.Generate.TSServer.FieldNames == fieldNamesWire}
-	return eachGroup(idx, func(g *sourceGroup) error {
+	return eachChangedGroup(idx, func(g *sourceGroup) error {
 		outDir := groupOutDir(outRoot, g.relDir)
 		resolver := &tsResolver{currentDir: g.relDir, idx: idx}
 		err := writeFile(filepath.Join(outDir, "types.ts"), gents.GenerateTypesWithOptions(g.file, resolver, opts))
@@ -75,7 +75,7 @@ func buildTSServer(cfg *Config, idx *sourceIndex) error {
 
 func buildPythonClient(cfg *Config, idx *sourceIndex) error {
 	outRoot := cfg.resolve(cfg.Generate.PythonClient.Out)
-	err := eachGroup(idx, func(g *sourceGroup) error {
+	err := eachChangedGroup(idx, func(g *sourceGroup) error {
 		pyDir := pythonRelDir(g.relDir)
 		outDir := groupOutDir(outRoot, pyDir)
 		resolver := &pyResolver{currentDir: g.relDir, idx: idx}

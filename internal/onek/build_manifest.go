@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -111,7 +110,7 @@ func cleanupStaleGeneratedOutputs(cfg *Config, idx *sourceIndex) error {
 				protected = append(protected, other)
 			}
 		}
-		if err := cleanupGeneratedRoot(root, expectedByRoot[root], ownedByRoot[root], protected); err != nil {
+		if err := cleanupGeneratedRoot(cfg.dir, root, expectedByRoot[root], ownedByRoot[root], protected); err != nil {
 			return err
 		}
 	}
@@ -329,7 +328,10 @@ func (e expectedOutputs) addOpenAPIOutputs(cfg *Config, idx *sourceIndex) {
 	}
 }
 
-func cleanupGeneratedRoot(root string, expected, owned map[string]bool, protectedRoots []string) error {
+func cleanupGeneratedRoot(projectDir, root string, expected, owned map[string]bool, protectedRoots []string) error {
+	if link, err := os.Lstat(root); err == nil && link.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
 	info, err := os.Stat(root)
 	if os.IsNotExist(err) {
 		return nil
@@ -340,35 +342,50 @@ func cleanupGeneratedRoot(root string, expected, owned map[string]bool, protecte
 	if !info.IsDir() {
 		return fmt.Errorf("generated output root %s is not a directory", root)
 	}
-	return filepath.WalkDir(root, func(filePath string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	stale := make([]string, 0, len(owned))
+	for rel := range owned {
+		if !expected[rel] {
+			stale = append(stale, rel)
 		}
-		if entry.Type()&os.ModeSymlink != 0 || entry.Type()&os.ModeNamedPipe != 0 ||
-			entry.Type()&os.ModeDevice != 0 || entry.Type()&os.ModeSocket != 0 {
-			return nil
+	}
+	sort.Strings(stale)
+	for _, rel := range stale {
+		filePath := filepath.Join(root, rel)
+		if !pathWithin(root, filePath) || insideAny(protectedRoots, filePath) || hasSymlinkBelow(projectDir, filepath.Dir(filePath)) {
+			continue
 		}
-		if entry.IsDir() {
-			for _, protectedRoot := range protectedRoots {
-				if filepath.Clean(filePath) == filepath.Clean(protectedRoot) {
-					return fs.SkipDir
-				}
-			}
-			return nil
+		info, err := os.Lstat(filePath)
+		if err != nil || !info.Mode().IsRegular() || !hasGeneratedBanner(filePath) {
+			continue
 		}
-		rel, relErr := filepath.Rel(root, filePath)
-		if relErr != nil || expected[filepath.Clean(rel)] || !owned[filepath.Clean(rel)] {
-			return relErr
-		}
-		if !hasGeneratedBanner(filePath) {
-			return nil
-		}
-		// #nosec G122 -- WalkDir does not follow directory symlinks, and only files with OneKit's generated banner are removed.
+		// #nosec G122 -- symlinked directories between root and the file are skipped, and only files with OneKit's generated banner are removed.
 		if removeErr := os.Remove(filePath); removeErr != nil {
 			return fmt.Errorf("remove stale generated output %s: %w", filePath, removeErr)
 		}
-		return nil
-	})
+	}
+	return nil
+}
+
+func insideAny(roots []string, path string) bool {
+	for _, root := range roots {
+		if filepath.Clean(root) == filepath.Clean(path) || pathWithin(root, path) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasSymlinkBelow reports whether a directory between root (exclusive) and
+// dir (inclusive) is a symlink, the output root itself included when root is
+// the project directory. Cleanup never deletes through one.
+func hasSymlinkBelow(root, dir string) bool {
+	for current := filepath.Clean(dir); current != filepath.Clean(root) && pathWithin(root, current); current = filepath.Dir(current) {
+		info, err := os.Lstat(current)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // hasGeneratedBanner reports whether a source file the manifest lists still

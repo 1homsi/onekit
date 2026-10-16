@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	buildCacheVersion = 1
+	buildCacheVersion = 2
 	buildCacheRacy    = 2 * time.Second
 	cacheDirEnv       = "ONEK_CACHE_DIR"
 	noCacheEnv        = "ONEK_NO_CACHE"
@@ -27,14 +27,17 @@ type cachedOutput struct {
 }
 
 type buildCacheEntry struct {
-	Version     int            `json:"version"`
-	Fingerprint string         `json:"fingerprint"`
-	ExeSize     int64          `json:"exe_size"`
-	ExeMTime    int64          `json:"exe_mtime"`
-	ExeHash     string         `json:"exe_hash"`
-	SavedAt     int64          `json:"saved_at"`
-	Files       int            `json:"files"`
-	Outputs     []cachedOutput `json:"outputs"`
+	Version     int               `json:"version"`
+	Fingerprint string            `json:"fingerprint"`
+	ExeSize     int64             `json:"exe_size"`
+	ExeMTime    int64             `json:"exe_mtime"`
+	ExeHash     string            `json:"exe_hash"`
+	SavedAt     int64             `json:"saved_at"`
+	Files       int               `json:"files"`
+	Outputs     []cachedOutput    `json:"outputs"`
+	ConfigHash  string            `json:"config_hash,omitempty"`
+	GroupSet    string            `json:"group_set,omitempty"`
+	Groups      map[string]string `json:"groups,omitempty"`
 }
 
 var outputRecorder struct {
@@ -139,10 +142,16 @@ func sameExecutable(entry *buildCacheEntry) bool {
 	return ok && hash == entry.ExeHash
 }
 
-func buildFingerprint(cfg *Config) (string, error) {
+type schemaFingerprint struct {
+	sum        string
+	files      map[string][sha256.Size]byte
+	configHash string
+}
+
+func buildFingerprint(cfg *Config) (schemaFingerprint, error) {
 	paths, err := discoverSchemaFiles(cfg.SchemaDir(), cfg.schemaExtensions())
 	if err != nil {
-		return "", err
+		return schemaFingerprint{}, err
 	}
 	sort.Strings(paths)
 	sums := make([][sha256.Size]byte, len(paths))
@@ -157,19 +166,19 @@ func buildFingerprint(cfg *Config) (string, error) {
 	})
 	for _, readErr := range errs {
 		if readErr != nil {
-			return "", readErr
+			return schemaFingerprint{}, readErr
 		}
 	}
 	configData, err := readRegularFile(filepath.Join(cfg.dir, configFileName))
 	if err != nil {
-		return "", err
+		return schemaFingerprint{}, err
 	}
 	hash := sha256.New()
 	_, _ = hash.Write([]byte{buildCacheVersion})
 	for i, path := range paths {
 		rel, relErr := filepath.Rel(cfg.SchemaDir(), path)
 		if relErr != nil {
-			return "", relErr
+			return schemaFingerprint{}, relErr
 		}
 		_, _ = hash.Write([]byte(filepath.ToSlash(rel)))
 		_, _ = hash.Write([]byte{0})
@@ -177,7 +186,12 @@ func buildFingerprint(cfg *Config) (string, error) {
 	}
 	_, _ = hash.Write([]byte{1})
 	_, _ = hash.Write(configData)
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	files := make(map[string][sha256.Size]byte, len(paths))
+	for i, path := range paths {
+		files[filepath.Clean(path)] = sums[i]
+	}
+	configSum := sha256.Sum256(configData)
+	return schemaFingerprint{sum: hex.EncodeToString(hash.Sum(nil)), files: files, configHash: hex.EncodeToString(configSum[:])}, nil
 }
 
 func loadBuildCache(path string) *buildCacheEntry {
@@ -225,23 +239,26 @@ func outputsUnchanged(projectDir string, entry *buildCacheEntry) bool {
 	return !stale.Load()
 }
 
-func tryCachedBuild(cfg *Config, fingerprint string) bool {
+// tryCachedBuild reports whether the previous build is still exact. It also
+// returns the previous entry when it was made by this same onek binary, so a
+// partial rebuild can reuse the directories that did not change.
+func tryCachedBuild(cfg *Config, fingerprint string) (bool, *buildCacheEntry) {
 	cachePath, ok := buildCachePath(cfg.dir)
 	if !ok {
-		return false
+		return false, nil
 	}
 	entry := loadBuildCache(cachePath)
-	if entry == nil || entry.Fingerprint != fingerprint || !sameExecutable(entry) {
-		return false
+	if entry == nil || !sameExecutable(entry) {
+		return false, nil
 	}
-	if !outputsUnchanged(cfg.dir, entry) {
-		return false
+	if entry.Fingerprint != fingerprint || !outputsUnchanged(cfg.dir, entry) {
+		return false, entry
 	}
 	writtenFiles.Add(int64(entry.Files))
-	return true
+	return true, entry
 }
 
-func saveBuildCache(cfg *Config, fingerprint, exeHash string, digests map[string][sha256.Size]byte, files int) {
+func saveBuildCache(cfg *Config, fingerprint schemaFingerprint, exeHash string, digests map[string][sha256.Size]byte, files int, groupSet string, groups map[string]string) {
 	cachePath, ok := buildCachePath(cfg.dir)
 	if !ok {
 		return
@@ -278,7 +295,10 @@ func saveBuildCache(cfg *Config, fingerprint, exeHash string, digests map[string
 	}
 	entry := buildCacheEntry{
 		Version:     buildCacheVersion,
-		Fingerprint: fingerprint,
+		Fingerprint: fingerprint.sum,
+		ConfigHash:  fingerprint.configHash,
+		GroupSet:    groupSet,
+		Groups:      groups,
 		ExeSize:     stamp.size,
 		ExeMTime:    stamp.mtime,
 		ExeHash:     exeHash,
