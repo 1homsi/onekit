@@ -184,6 +184,16 @@ reports `up to date`. Editing, deleting, or re-checking-out any generated file
 triggers a normal rebuild. `onek build --check` never uses the cache. Set
 `ONEK_NO_CACHE=1` to disable it, or `ONEK_CACHE_DIR` to relocate it.
 
+When only some schemas changed, the build regenerates only the packages that
+depend on them. A package is kept when its own schema files, the schema files
+of every package whose types it uses, the list of packages, `onekit.toml` and
+the `onek` binary are all unchanged, and its generated files are still exactly
+as the last build wrote them. In a 200-package project with the Go, TypeScript,
+Python and OpenAPI targets, rebuilding after editing one package went from
+0.70s to 0.13s. The Go, TypeScript, Python and OpenAPI outputs are kept per
+package; the Dart, Swift and Rust targets, which write project-wide files,
+always regenerate.
+
 ### Importing an existing API
 
 `onek import` turns an OpenAPI 3.x document or a `.proto` file into a `.onk`

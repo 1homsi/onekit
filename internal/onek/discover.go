@@ -25,6 +25,29 @@ func discoverOnkFiles(dir string) ([]string, error) {
 	return discoverSchemaFiles(dir, nil)
 }
 
+// discoveryMemo keeps the schema files found under each root for the length
+// of one build, which otherwise walks the tree for the fingerprint, the
+// compile and the manifest.
+var discoveryMemo struct {
+	sync.Mutex
+	active  bool
+	results map[string][]string
+}
+
+func startDiscoveryMemo() {
+	discoveryMemo.Lock()
+	discoveryMemo.active = true
+	discoveryMemo.results = map[string][]string{}
+	discoveryMemo.Unlock()
+}
+
+func stopDiscoveryMemo() {
+	discoveryMemo.Lock()
+	discoveryMemo.active = false
+	discoveryMemo.results = nil
+	discoveryMemo.Unlock()
+}
+
 func discoverSchemaFiles(dir string, exts []string) ([]string, error) {
 	root, err := canonicalProjectDir(dir)
 	if err != nil {
@@ -33,6 +56,26 @@ func discoverSchemaFiles(dir string, exts []string) ([]string, error) {
 	if len(exts) == 0 {
 		exts = defaultSchemaExtensions()
 	}
+	key := root + "\x00" + strings.Join(exts, "\x00")
+	discoveryMemo.Lock()
+	if files, ok := discoveryMemo.results[key]; ok && discoveryMemo.active {
+		discoveryMemo.Unlock()
+		return append([]string(nil), files...), nil
+	}
+	discoveryMemo.Unlock()
+	files, err := walkSchemaFiles(root, dir, exts)
+	if err != nil {
+		return nil, err
+	}
+	discoveryMemo.Lock()
+	if discoveryMemo.active {
+		discoveryMemo.results[key] = append([]string(nil), files...)
+	}
+	discoveryMemo.Unlock()
+	return files, nil
+}
+
+func walkSchemaFiles(root, dir string, exts []string) ([]string, error) {
 	sem := make(chan struct{}, 2*runtime.GOMAXPROCS(0))
 	files, err := walkSchemaDir(root, root, sem, exts)
 	if err != nil {
