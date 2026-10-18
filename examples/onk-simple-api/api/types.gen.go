@@ -191,7 +191,38 @@ type onkDec struct {
 	data  []byte
 	pos   int
 	err   error
+	why   string
+	whyAt int
 	cache [64]string
+}
+
+type onkDecodeError struct {
+	path    string
+	problem string
+	at      int
+	err     error
+}
+
+func (e *onkDecodeError) Error() string {
+	if e.path == "" {
+		return e.problem
+	}
+	return e.path + ": " + e.problem
+}
+
+func (e *onkDecodeError) Unwrap() error { return e.err }
+
+func (e *onkDecodeError) JSONPath() string { return e.path }
+
+func (d *onkDec) explain(err error) error {
+	if err == nil || d.why == "" {
+		return err
+	}
+	var syntax *json.SyntaxError
+	if errors.As(err, &syntax) {
+		return err
+	}
+	return &onkDecodeError{path: onkJSONPath(d.data, d.whyAt), problem: d.why, at: d.whyAt, err: err}
 }
 
 func (d *onkDec) intern(s []byte) string {
@@ -215,6 +246,67 @@ func (d *onkDec) fail() {
 	if d.err == nil {
 		d.err = errOnkFallback
 	}
+}
+
+func (d *onkDec) bad(at int, why string) {
+	if d.err == nil {
+		d.err = errOnkFallback
+		d.why = why
+		d.whyAt = at
+	}
+}
+
+func (d *onkDec) invalid(at int, why string) {
+	if d.err != nil || at > d.pos {
+		return
+	}
+	v := d.data[at:d.pos]
+	if len(v) > 64 {
+		d.bad(at, string(v[:60])+"... "+why)
+		return
+	}
+	d.bad(at, string(v)+" "+why)
+}
+
+func (d *onkDec) expect(kind string) {
+	if d.err != nil {
+		return
+	}
+	if kind == "" {
+		d.fail()
+		return
+	}
+	if got := onkKindAt(d.data, d.pos); got != "" && got != kind {
+		d.bad(d.pos, "expected "+kind+", got "+got)
+		return
+	}
+	d.fail()
+}
+
+func (d *onkDec) mark() int {
+	d.ws()
+	return d.pos
+}
+
+func onkKindAt(data []byte, i int) string {
+	if i >= len(data) {
+		return ""
+	}
+	switch c := data[i]; {
+	case c == '{':
+		return "object"
+	case c == '[':
+		return "array"
+	case c == '"':
+		return "string"
+	case c == 't' || c == 'f':
+		return "boolean"
+	case c == 'n':
+		return "null"
+	case c == '-' || c >= '0' && c <= '9':
+		return "number"
+	}
+	return ""
 }
 
 func (d *onkDec) ws() {
@@ -245,7 +337,11 @@ func (d *onkDec) null() bool {
 func (d *onkDec) open(c byte) bool {
 	d.ws()
 	if d.err != nil || d.pos >= len(d.data) || d.data[d.pos] != c {
-		d.fail()
+		if c == '{' {
+			d.expect("object")
+		} else {
+			d.expect("array")
+		}
 		return false
 	}
 	d.pos++
@@ -312,7 +408,7 @@ func (d *onkDec) name() []byte {
 
 func (d *onkDec) stringBytes() ([]byte, bool) {
 	if d.err != nil || d.pos >= len(d.data) || d.data[d.pos] != '"' {
-		d.fail()
+		d.expect("string")
 		return nil, false
 	}
 	start := d.pos + 1
@@ -443,7 +539,7 @@ func (d *onkDec) str() string {
 	return v
 }
 
-func (d *onkDec) number() []byte {
+func (d *onkDec) number(kind string) []byte {
 	d.ws()
 	start := d.pos
 	i := d.pos
@@ -458,7 +554,7 @@ func (d *onkDec) number() []byte {
 			i++
 		}
 	default:
-		d.fail()
+		d.expect(kind)
 		return nil
 	}
 	if i < len(d.data) && d.data[i] == '.' {
@@ -500,12 +596,13 @@ func (d *onkDec) boolean() bool {
 		d.pos += 5
 		return false
 	}
-	d.fail()
+	d.expect("boolean")
 	return false
 }
 
 func (d *onkDec) int(bits int) int64 {
-	n := d.number()
+	at := d.mark()
+	n := d.number("integer")
 	if d.err != nil {
 		return 0
 	}
@@ -517,7 +614,7 @@ func (d *onkDec) int(bits int) int64 {
 		var v int64
 		for _, c := range digits {
 			if c < '0' || c > '9' {
-				d.fail()
+				d.invalid(at, "is not an integer")
 				return 0
 			}
 			v = v*10 + int64(c-'0')
@@ -528,7 +625,7 @@ func (d *onkDec) int(bits int) int64 {
 		if bits < 64 {
 			lim := int64(1) << (bits - 1)
 			if v >= lim || v < -lim {
-				d.fail()
+				d.invalid(at, onkRangeProblem("int", bits))
 				return 0
 			}
 		}
@@ -536,13 +633,30 @@ func (d *onkDec) int(bits int) int64 {
 	}
 	v, err := strconv.ParseInt(string(n), 10, bits)
 	if err != nil {
-		d.fail()
+		d.numberProblem(at, err, "int", bits)
 	}
 	return v
 }
 
+func (d *onkDec) numberProblem(at int, err error, kind string, bits int) {
+	if errors.Is(err, strconv.ErrRange) {
+		d.invalid(at, onkRangeProblem(kind, bits))
+		return
+	}
+	if kind == "uint" {
+		d.invalid(at, "is not an unsigned integer")
+		return
+	}
+	d.invalid(at, "is not an integer")
+}
+
+func onkRangeProblem(kind string, bits int) string {
+	return "is out of range for " + kind + strconv.Itoa(bits)
+}
+
 func (d *onkDec) uint(bits int) uint64 {
-	n := d.number()
+	at := d.mark()
+	n := d.number("integer")
 	if d.err != nil {
 		return 0
 	}
@@ -550,32 +664,33 @@ func (d *onkDec) uint(bits int) uint64 {
 		var v uint64
 		for _, c := range n {
 			if c < '0' || c > '9' {
-				d.fail()
+				d.invalid(at, "is not an unsigned integer")
 				return 0
 			}
 			v = v*10 + uint64(c-'0')
 		}
 		if bits < 64 && v >= uint64(1)<<bits {
-			d.fail()
+			d.invalid(at, onkRangeProblem("uint", bits))
 			return 0
 		}
 		return v
 	}
 	v, err := strconv.ParseUint(string(n), 10, bits)
 	if err != nil {
-		d.fail()
+		d.numberProblem(at, err, "uint", bits)
 	}
 	return v
 }
 
 func (d *onkDec) float(bits int) float64 {
-	n := d.number()
+	at := d.mark()
+	n := d.number("number")
 	if d.err != nil {
 		return 0
 	}
 	v, err := strconv.ParseFloat(string(n), bits)
 	if err != nil {
-		d.fail()
+		d.invalid(at, onkRangeProblem("float", bits))
 	}
 	return v
 }
@@ -596,7 +711,11 @@ func onkValidInt(s []byte) bool {
 }
 
 func (d *onkDec) numberString(strict bool) ([]byte, bool) {
-	d.ws()
+	at := d.mark()
+	if d.err == nil && d.pos < len(d.data) && d.data[d.pos] != '"' {
+		d.expect("integer string")
+		return nil, false
+	}
 	s, escaped := d.stringBytes()
 	if d.err != nil {
 		return nil, false
@@ -605,12 +724,8 @@ func (d *onkDec) numberString(strict bool) ([]byte, bool) {
 		d.fail()
 		return nil, false
 	}
-	if len(s) == 0 {
-		d.fail()
-		return nil, false
-	}
-	if strict && !onkValidInt(s) {
-		d.fail()
+	if len(s) == 0 || strict && !onkValidInt(s) {
+		d.invalid(at, "is not an integer")
 		return nil, false
 	}
 	return s, true
@@ -622,13 +737,14 @@ func (d *onkDec) intString(strict, allowEmpty bool) (int64, bool) {
 		d.pos += 2
 		return 0, false
 	}
+	at := d.pos
 	s, ok := d.numberString(strict)
 	if !ok {
 		return 0, false
 	}
 	v, err := strconv.ParseInt(string(s), 10, 64)
 	if err != nil {
-		d.fail()
+		d.numberProblem(at, err, "int", 64)
 		return 0, false
 	}
 	return v, true
@@ -640,20 +756,21 @@ func (d *onkDec) uintString(strict, allowEmpty bool) (uint64, bool) {
 		d.pos += 2
 		return 0, false
 	}
+	at := d.pos
 	s, ok := d.numberString(strict)
 	if !ok {
 		return 0, false
 	}
 	v, err := strconv.ParseUint(string(s), 10, 64)
 	if err != nil {
-		d.fail()
+		d.numberProblem(at, err, "uint", 64)
 		return 0, false
 	}
 	return v, true
 }
 
 func (d *onkDec) bytes(kind int, allowEmpty bool) ([]byte, bool) {
-	d.ws()
+	at := d.mark()
 	s, escaped := d.stringBytes()
 	if d.err != nil {
 		return nil, false
@@ -686,7 +803,11 @@ func (d *onkDec) bytes(kind int, allowEmpty bool) ([]byte, bool) {
 		n, err = base64.StdEncoding.Decode(out, s)
 	}
 	if err != nil {
-		d.fail()
+		if kind == 4 {
+			d.bad(at, "expected hex string")
+		} else {
+			d.bad(at, "expected base64 string")
+		}
 		return nil, false
 	}
 	return out[:n], true
@@ -731,17 +852,23 @@ func (d *onkDec) skip(depth int) {
 			d.fail()
 		}
 	default:
-		d.number()
+		d.number("")
 	}
 }
 
 func (d *onkDec) delegate(v any) {
+	at := d.mark()
 	raw := d.raw()
 	if d.err != nil {
 		return
 	}
 	if x, ok := v.(interface{ DecodeJSON([]byte) error }); ok {
-		if x.DecodeJSON(raw) != nil {
+		if err := x.DecodeJSON(raw); err != nil {
+			var inner *onkDecodeError
+			if errors.As(err, &inner) {
+				d.bad(at+inner.at, inner.problem)
+				return
+			}
 			d.fail()
 		}
 		return
@@ -758,6 +885,127 @@ func onkFoldKey(key []byte, keys ...string) bool {
 		}
 	}
 	return false
+}
+
+func onkJSONPath(data []byte, at int) string {
+	s := onkPathScan{data: data, at: at}
+	if _, path, ok := s.value(0, nil, 0); ok {
+		return string(path)
+	}
+	return ""
+}
+
+type onkPathScan struct {
+	data []byte
+	at   int
+}
+
+func (s *onkPathScan) ws(i int) int {
+	for i < len(s.data) {
+		switch s.data[i] {
+		case ' ', '\t', '\n', '\r':
+			i++
+		default:
+			return i
+		}
+	}
+	return i
+}
+
+func (s *onkPathScan) str(i int) int {
+	for i++; i < len(s.data); i++ {
+		switch s.data[i] {
+		case '\\':
+			i++
+		case '"':
+			return i + 1
+		}
+	}
+	return len(s.data)
+}
+
+func (s *onkPathScan) value(i int, path []byte, depth int) (int, []byte, bool) {
+	i = s.ws(i)
+	if i == s.at {
+		return i, path, true
+	}
+	if i >= len(s.data) || i > s.at || depth > 1000 {
+		return len(s.data), nil, false
+	}
+	switch s.data[i] {
+	case '{':
+		i++
+		for {
+			i = s.ws(i)
+			if i >= len(s.data) || s.data[i] == '}' || s.data[i] != '"' {
+				return i + 1, nil, false
+			}
+			end := s.str(i)
+			key, ok := onkUnquote(s.data[i+1 : max(i+1, end-1)])
+			if !ok {
+				key = string(s.data[i+1 : max(i+1, end-1)])
+			}
+			i = s.ws(end)
+			if i >= len(s.data) || s.data[i] != ':' {
+				return len(s.data), nil, false
+			}
+			var found []byte
+			var ok2 bool
+			if i, found, ok2 = s.value(i+1, onkPathKey(path, key), depth+1); ok2 {
+				return i, found, true
+			}
+			i = s.ws(i)
+			if i < len(s.data) && s.data[i] == ',' {
+				i++
+			}
+		}
+	case '[':
+		i++
+		for n := 0; ; n++ {
+			i = s.ws(i)
+			if i >= len(s.data) || s.data[i] == ']' {
+				return i + 1, nil, false
+			}
+			item := append(append(append(path[:len(path):len(path)], '['), strconv.Itoa(n)...), ']')
+			var found []byte
+			var ok bool
+			if i, found, ok = s.value(i, item, depth+1); ok {
+				return i, found, true
+			}
+			i = s.ws(i)
+			if i < len(s.data) && s.data[i] == ',' {
+				i++
+			}
+		}
+	case '"':
+		return s.str(i), nil, false
+	}
+	for i < len(s.data) {
+		switch s.data[i] {
+		case ',', '}', ']', ' ', '\t', '\n', '\r':
+			return i, nil, false
+		}
+		i++
+	}
+	return i, nil, false
+}
+
+func onkPathKey(path []byte, key string) []byte {
+	plain := key != ""
+	for i := 0; i < len(key) && plain; i++ {
+		c := key[i]
+		plain = c == '_' || c == '-' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+	}
+	out := path[:len(path):len(path)]
+	if plain {
+		if len(out) > 0 {
+			out = append(out, '.')
+		}
+		return append(out, key...)
+	}
+	out = append(out, '[')
+	out = strconv.AppendQuote(out, key)
+	return append(out, ']')
 }
 
 // A system user.
@@ -880,7 +1128,7 @@ func (m *User) DecodeJSON(data []byte) error {
 	if d.end() {
 		return nil
 	}
-	return m.onkDecodeSlow(data)
+	return d.explain(m.onkDecodeSlow(data))
 }
 
 func (m *User) onkDecodeSlow(data []byte) error {
@@ -1017,7 +1265,7 @@ func (m *CreateUserRequest) DecodeJSON(data []byte) error {
 	if d.end() {
 		return nil
 	}
-	return m.onkDecodeSlow(data)
+	return d.explain(m.onkDecodeSlow(data))
 }
 
 func (m *CreateUserRequest) onkDecodeSlow(data []byte) error {
@@ -1103,7 +1351,7 @@ func (m *GetUserRequest) DecodeJSON(data []byte) error {
 	if d.end() {
 		return nil
 	}
-	return m.onkDecodeSlow(data)
+	return d.explain(m.onkDecodeSlow(data))
 }
 
 func (m *GetUserRequest) onkDecodeSlow(data []byte) error {
@@ -1232,7 +1480,7 @@ func (m *EmailAuth) DecodeJSON(data []byte) error {
 	if d.end() {
 		return nil
 	}
-	return m.onkDecodeSlow(data)
+	return d.explain(m.onkDecodeSlow(data))
 }
 
 func (m *EmailAuth) onkDecodeSlow(data []byte) error {
@@ -1374,7 +1622,7 @@ func (m *TokenAuth) DecodeJSON(data []byte) error {
 	if d.end() {
 		return nil
 	}
-	return m.onkDecodeSlow(data)
+	return d.explain(m.onkDecodeSlow(data))
 }
 
 func (m *TokenAuth) onkDecodeSlow(data []byte) error {
@@ -1578,7 +1826,7 @@ func (m *SocialAuth) DecodeJSON(data []byte) error {
 	if d.end() {
 		return nil
 	}
-	return m.onkDecodeSlow(data)
+	return d.explain(m.onkDecodeSlow(data))
 }
 
 func (m *SocialAuth) onkDecodeSlow(data []byte) error {
@@ -1965,7 +2213,7 @@ func (m *LoginRequest) DecodeJSON(data []byte) error {
 	if d.end() {
 		return nil
 	}
-	return m.onkDecodeSlow(data)
+	return d.explain(m.onkDecodeSlow(data))
 }
 
 func (m *LoginRequest) onkDecodeSlow(data []byte) error {
@@ -2249,7 +2497,7 @@ func (m *LoginResponse) DecodeJSON(data []byte) error {
 	if d.end() {
 		return nil
 	}
-	return m.onkDecodeSlow(data)
+	return d.explain(m.onkDecodeSlow(data))
 }
 
 func (m *LoginResponse) onkDecodeSlow(data []byte) error {
