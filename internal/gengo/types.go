@@ -3,6 +3,7 @@ package gengo
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/1homsi/onekit/internal/genshared"
@@ -473,7 +474,7 @@ func writeEnum(p *Printer, e *onkir.Enum) {
 		p.P("*v = ", constName)
 	}
 	p.P("default:")
-	p.P("return fmt.Errorf(", fmt.Sprintf("%q", e.Name+": unknown value %q"), ", s)")
+	p.P(`return fmt.Errorf("%q %s", s, `, strconv.Quote(enumProblem(e)), ")")
 	p.P("}")
 	p.P("return nil")
 	p.P("}")

@@ -154,7 +154,7 @@ func main() {
 	}
 	status, body = do(plain, "POST", "/v1/things/save", "{not json", tenant)
 	check("default status", status, 400)
-	check("default body", fmt.Sprint(body), "map[message:invalid request body]")
+	check("default body", fmt.Sprint(body), "map[message:invalid JSON: invalid character 'n' looking for beginning of object key string]")
 	status, body = do(plain, "GET", "/v1/things/abc", "", tenant)
 	check("default path body", body["message"], "invalid path parameter id: must be an integer")
 	status, body = do(plain, "GET", "/v1/things/3", "", tenant)

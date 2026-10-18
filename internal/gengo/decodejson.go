@@ -37,7 +37,7 @@ func writeDecodeJSONMethods(p *Printer, m *onkir.Message, c fieldCategories, exp
 	p.P("if d.end() {")
 	p.P("return nil")
 	p.P("}")
-	p.P("return m.onkDecodeSlow(data)")
+	p.P("return d.explain(m.onkDecodeSlow(data))")
 	p.P("}")
 	p.P()
 	if c.needsUnmarshal() {
@@ -466,13 +466,13 @@ func (g *decodeGen) value(kind appendKind, t *onkir.Type, f *onkir.Field, target
 			p.P("d.delegate(&", target, ")")
 			return
 		}
-		p.P("switch string(d.name()) {")
+		p.P("switch at := d.mark(); string(d.name()) {")
 		for _, v := range t.Enum.Values {
 			p.P("case ", strconv.Quote(v.JSONName()), ":")
 			p.P(target, " = ", t.Enum.Name+PascalCase(strings.ToLower(v.Name)))
 		}
 		p.P("default:")
-		p.P("d.fail()")
+		p.P("d.invalid(at, ", strconv.Quote(enumProblem(t.Enum)), ")")
 		p.P("}")
 	case akBytes:
 		p.P(target, ", _ = d.bytes(0, false)")
@@ -485,9 +485,9 @@ func (g *decodeGen) value(kind appendKind, t *onkir.Type, f *onkir.Field, target
 		p.P(target, " = v")
 		p.P("}")
 	case akTime:
-		p.P("if raw := d.raw(); d.err == nil {")
+		p.P("if at, raw := d.mark(), d.raw(); d.err == nil {")
 		p.P("if err := (&", target, ").UnmarshalJSON(raw); err != nil {")
-		p.P("d.fail()")
+		p.P(`d.invalid(at, "is not an RFC 3339 timestamp")`)
 		p.P("}")
 		p.P("}")
 	case akTimeEncoded:
@@ -510,17 +510,26 @@ func (g *decodeGen) timeEncoded(f *onkir.Field, target string, strict bool) {
 		p.P(target, " = time.UnixMilli(d.int(64)).UTC()")
 	case timestampEncodeDate:
 		if !strict {
-			p.P("if s := d.str(); s != \"\" {")
+			p.P("if at, s := d.mark(), d.str(); s != \"\" {")
 		} else {
 			p.P("{")
+			p.P("at := d.mark()")
 			p.P("s := d.str()")
 		}
 		p.P("t, err := time.Parse(\"2006-01-02\", s)")
 		p.P("if err != nil {")
-		p.P("d.fail()")
+		p.P(`d.invalid(at, "is not a date (YYYY-MM-DD)")`)
 		p.P("} else {")
 		p.P(target, " = t")
 		p.P("}")
 		p.P("}")
 	}
+}
+
+func enumProblem(e *onkir.Enum) string {
+	names := make([]string, len(e.Values))
+	for i, v := range e.Values {
+		names[i] = v.JSONName()
+	}
+	return "is not one of " + strings.Join(names, ", ")
 }

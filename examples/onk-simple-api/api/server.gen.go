@@ -106,6 +106,39 @@ func decodeJSONBody(body io.Reader, v any) error {
 	return err
 }
 
+type bodyFieldError struct {
+	message string
+	path    string
+	err     error
+}
+
+func (e *bodyFieldError) Error() string { return e.message }
+
+func (e *bodyFieldError) JSONPath() string { return e.path }
+
+func (e *bodyFieldError) Unwrap() error { return e.err }
+
+func trimBodyField(err error, name string) error {
+	var located interface {
+		error
+		JSONPath() string
+	}
+	if !errors.As(err, &located) {
+		return err
+	}
+	path := located.JSONPath()
+	rest, ok := strings.CutPrefix(path, name)
+	if !ok || rest != "" && rest[0] != '.' && rest[0] != '[' {
+		return err
+	}
+	rest = strings.TrimPrefix(rest, ".")
+	problem := strings.TrimPrefix(located.Error(), path+": ")
+	if rest == "" {
+		return &bodyFieldError{message: problem, err: err}
+	}
+	return &bodyFieldError{message: rest + ": " + problem, path: rest, err: err}
+}
+
 func requestBodyLimit(limit int64) int64 {
 	if limit <= 0 {
 		return 8 << 20
@@ -492,7 +525,8 @@ type ServerError struct {
 	Code string
 	// Message is the default human-readable message.
 	Message string
-	// Field names the path parameter, query parameter or header at fault.
+	// Field names the path parameter, query parameter, header or JSON body
+	// path at fault.
 	Field string
 	// Violations lists the failed validation or authorization messages.
 	Violations []string
@@ -536,7 +570,51 @@ func (o ServerOptions) WriteBodyError(w http.ResponseWriter, r *http.Request, er
 		o.Fail(w, r, &ServerError{Status: http.StatusRequestEntityTooLarge, Code: "request_body_too_large", Message: "request body too large", Cause: err})
 		return
 	}
-	o.Fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "invalid_request_body", Message: "invalid request body", Cause: err})
+	message, field := bodyErrorDetail(err)
+	o.Fail(w, r, &ServerError{Status: http.StatusBadRequest, Code: "invalid_request_body", Message: message, Field: field, Cause: err})
+}
+
+func bodyErrorDetail(err error) (message, field string) {
+	var located interface {
+		error
+		JSONPath() string
+	}
+	if errors.As(err, &located) {
+		return located.Error(), located.JSONPath()
+	}
+	var syntax *json.SyntaxError
+	if errors.As(err, &syntax) {
+		return "invalid JSON: " + syntax.Error(), ""
+	}
+	var mismatch *json.UnmarshalTypeError
+	if errors.As(err, &mismatch) && mismatch.Type != nil {
+		got := strings.TrimPrefix(mismatch.Value, "bool")
+		if got != mismatch.Value {
+			got = "boolean" + got
+		}
+		problem := "expected " + jsonKindName(mismatch.Type.Kind().String()) + ", got " + got
+		if mismatch.Field == "" {
+			return problem, ""
+		}
+		return mismatch.Field + ": " + problem, mismatch.Field
+	}
+	return "invalid request body", ""
+}
+
+func jsonKindName(kind string) string {
+	switch {
+	case strings.HasPrefix(kind, "int"), strings.HasPrefix(kind, "uint"):
+		return "integer"
+	case strings.HasPrefix(kind, "float"):
+		return "number"
+	case kind == "bool":
+		return "boolean"
+	case kind == "struct", kind == "map":
+		return "object"
+	case kind == "slice", kind == "array":
+		return "array"
+	}
+	return kind
 }
 
 func (o ServerOptions) WriteHandlerError(w http.ResponseWriter, r *http.Request, err error) {
