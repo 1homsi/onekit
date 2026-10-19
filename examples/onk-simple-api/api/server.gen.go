@@ -276,21 +276,39 @@ func (e *ScopeError) PublicMessage() string {
 	return message
 }
 
-type requestMetadataContextKey struct{}
-
-type requestIDContextKey struct{}
-
-func RequestMetadataFromContext(ctx context.Context) (RequestMetadata, bool) {
-	metadata, ok := ctx.Value(requestMetadataContextKey{}).(RequestMetadata)
-	return metadata, ok
+// requestState holds everything a request carries through its context under
+// one key, so a request costs one context value instead of one per field.
+type requestState struct {
+	metadata    RequestMetadata
+	hasMetadata bool
+	requestID   string
+	request     *http.Request
+	control     *ResponseControl
+	ownControl  ResponseControl
 }
 
-type httpRequestContextKey struct{}
+type requestStateKey struct{}
+
+func stateFrom(ctx context.Context) *requestState {
+	state, _ := ctx.Value(requestStateKey{}).(*requestState)
+	return state
+}
+
+func RequestMetadataFromContext(ctx context.Context) (RequestMetadata, bool) {
+	if state := stateFrom(ctx); state != nil && state.hasMetadata {
+		return state.metadata, true
+	}
+	return RequestMetadata{}, false
+}
 
 // HTTPRequestContext returns the request's context carrying the request itself,
 // so handlers can read it with HTTPRequestFromContext.
 func HTTPRequestContext(r *http.Request) context.Context {
-	return context.WithValue(r.Context(), httpRequestContextKey{}, r)
+	if state := stateFrom(r.Context()); state != nil {
+		state.request = r
+		return r.Context()
+	}
+	return context.WithValue(r.Context(), requestStateKey{}, &requestState{request: r})
 }
 
 // routeResponseWriter records whether a hand-written @http handler has started
@@ -345,18 +363,26 @@ type ResponseControl struct {
 // Status is the success status the handler chose (200 by default).
 func (c *ResponseControl) Status() int { return c.status }
 
-type responseControlKey struct{}
-
 // RouteContext builds the context a generated route passes to its handler.
 func RouteContext(w http.ResponseWriter, r *http.Request) (context.Context, *ResponseControl) {
-	control := &ResponseControl{status: http.StatusOK, header: w.Header()}
-	return context.WithValue(HTTPRequestContext(r), responseControlKey{}, control), control
+	ctx := HTTPRequestContext(r)
+	state := stateFrom(ctx)
+	state.ownControl = ResponseControl{status: http.StatusOK, header: w.Header()}
+	state.control = &state.ownControl
+	return ctx, state.control
+}
+
+func controlFrom(ctx context.Context) *ResponseControl {
+	if state := stateFrom(ctx); state != nil {
+		return state.control
+	}
+	return nil
 }
 
 // SetResponseStatus chooses the success status: 2xx, or a 3xx such as 304.
 // 204, 304 and redirects (a 3xx with a Location header) send no body.
 func SetResponseStatus(ctx context.Context, status int) {
-	if control, ok := ctx.Value(responseControlKey{}).(*ResponseControl); ok && status >= 200 && status <= 399 {
+	if control := controlFrom(ctx); control != nil && status >= 200 && status <= 399 {
 		control.status = status
 	}
 }
@@ -368,7 +394,7 @@ func NotModified(ctx context.Context) { SetResponseStatus(ctx, http.StatusNotMod
 // Redirect answers with status (301, 302, 303, 307 or 308) and a Location
 // header, and no body.
 func Redirect(ctx context.Context, location string, status int) {
-	if control, ok := ctx.Value(responseControlKey{}).(*ResponseControl); ok && status >= 300 && status <= 399 {
+	if control := controlFrom(ctx); control != nil && status >= 300 && status <= 399 {
 		control.header.Set("Location", location)
 		control.status = status
 	}
@@ -377,7 +403,7 @@ func Redirect(ctx context.Context, location string, status int) {
 // SetCookie adds a Set-Cookie header to the response. A cookie with an
 // invalid name or value is dropped.
 func SetCookie(ctx context.Context, cookie *http.Cookie) {
-	if control, ok := ctx.Value(responseControlKey{}).(*ResponseControl); ok && cookie != nil {
+	if control := controlFrom(ctx); control != nil && cookie != nil {
 		if value := cookie.String(); value != "" {
 			control.header.Add("Set-Cookie", value)
 		}
@@ -397,20 +423,24 @@ func (c *ResponseControl) Write(w http.ResponseWriter, value any) {
 }
 
 func ResponseHeader(ctx context.Context) http.Header {
-	if control, ok := ctx.Value(responseControlKey{}).(*ResponseControl); ok {
+	if control := controlFrom(ctx); control != nil {
 		return control.header
 	}
 	return http.Header{}
 }
 
 func HTTPRequestFromContext(ctx context.Context) (*http.Request, bool) {
-	r, ok := ctx.Value(httpRequestContextKey{}).(*http.Request)
-	return r, ok
+	if state := stateFrom(ctx); state != nil && state.request != nil {
+		return state.request, true
+	}
+	return nil, false
 }
 
 func RequestIDFromContext(ctx context.Context) (string, bool) {
-	requestID, ok := ctx.Value(requestIDContextKey{}).(string)
-	return requestID, ok && requestID != ""
+	if state := stateFrom(ctx); state != nil && state.requestID != "" {
+		return state.requestID, true
+	}
+	return "", false
 }
 
 type Middleware func(http.Handler) http.Handler
@@ -838,7 +868,8 @@ func (o ServerOptions) WrapHandler(handler http.Handler, metadata RequestMetadat
 		}
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := context.WithValue(r.Context(), requestMetadataContextKey{}, metadata)
+		state := &requestState{metadata: metadata, hasMetadata: true}
+		ctx := context.WithValue(r.Context(), requestStateKey{}, state)
 		if o.RequestIDHeader != "" {
 			requestID := r.Header.Get(o.RequestIDHeader)
 			if requestID == "" && o.RequestIDGenerator != nil {
@@ -846,7 +877,7 @@ func (o ServerOptions) WrapHandler(handler http.Handler, metadata RequestMetadat
 			}
 			if requestID != "" {
 				w.Header().Set(o.RequestIDHeader, requestID)
-				ctx = context.WithValue(ctx, requestIDContextKey{}, requestID)
+				state.requestID = requestID
 			}
 		}
 		if o.Observer == nil {
@@ -854,7 +885,7 @@ func (o ServerOptions) WrapHandler(handler http.Handler, metadata RequestMetadat
 			return
 		}
 		started := time.Now()
-		ctx = context.WithValue(ctx, httpRequestContextKey{}, r)
+		state.request = r
 		ctx = o.Observer.RequestStarted(ctx, metadata)
 		rw := &statusResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 		request := r.WithContext(ctx)
