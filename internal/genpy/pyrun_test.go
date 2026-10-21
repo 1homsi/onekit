@@ -67,12 +67,13 @@ service Echo {
   echo(Req) -> Res | NotFound @post("/echo")
 }
 `, `
-import json, threading
+import json, socket, threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from models import Req, Res, NotFound
 from client import EchoClient, UnexpectedStatusError
 
 connections = []
+dropped = threading.Event()
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -106,7 +107,10 @@ class Handler(BaseHTTPRequestHandler):
         if msg == "big":
             return self.reply(200, {"msg": "x" * 5000})
         if msg == "drop":
+            self.reply(200, {"msg": msg})
+            self.connection.shutdown(socket.SHUT_WR)
             self.close_connection = True
+            return dropped.set()
         self.reply(200, {"msg": msg})
 
 server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -142,6 +146,7 @@ with EchoClient(url, keep_alive=True) as client:
     assert len(connections) == 1, "errors must not cost the connection: %r" % connections
 
     assert client.echo(Req(msg="drop")).msg == "drop"
+    assert dropped.wait(10), "the server must drop the connection"
     assert client.echo(Req(msg="after")).msg == "after"
     assert len(connections) == 2, "a closed connection is replaced: %r" % connections
 
