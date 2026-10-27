@@ -1,0 +1,5 @@
+
+package crm.dashboard.v1
+message Request {}
+message Response {}
+service Dashboard { get(Request) -> Response @get("/dashboard") }

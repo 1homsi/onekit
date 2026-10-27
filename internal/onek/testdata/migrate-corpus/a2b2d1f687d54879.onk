@@ -1,0 +1,11 @@
+
+package app
+
+message Doc { slug: string }
+message Done { ok: bool }
+
+service Docs {
+  base_path: "/v1"
+  edit(Doc) -> Done @post("/apps/{slug}/edit") @meta("guard", "app/edit/:slug") @meta("audit.event", "app.update")
+  health(Doc) -> Done @get("/health/{slug}")
+}

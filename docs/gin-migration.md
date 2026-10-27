@@ -2,29 +2,37 @@
 
 This note records, capability by capability, what onekit provides for the routes a gin service keeps for itself, the schema to write, and which routes are better left as plain `net/http` handlers.
 
-The rule of thumb: if a route has one verb and a path, onekit can describe it. When the request or response is not a JSON message, declare the route with `@http` and write the handler by hand. When the route does not fit a single verb and path at all, register a plain handler with `api.Mount`. In both cases the route goes through the same middleware, authorizer, request id, error writer and request observer as a generated route.
+The rule of thumb: if a route has one verb and a path, onekit can describe it. When the request or response is not a JSON message, declare the route with `@Onkt.http` and write the handler by hand. When the route does not fit a single verb and path at all, register a plain handler with `api.Mount`. In both cases the route goes through the same middleware, authorizer, request id, error writer and request observer as a generated route.
 
 ## What was added, per capability
 
 | # | Capability | Answer |
 | --- | --- | --- |
-| 1 | Raw and binary responses | `@http("content/type")` route; the handler writes headers and body. |
-| 2 | Raw and streamed request bodies | `@http` route with a body verb and `@max_body`; the handler reads `r.Body`. The any-method proxy stays a plain handler, mounted with `api.Mount`. |
+| 1 | Raw and binary responses | `@Onkt.http("content/type")` route; the handler writes headers and body. |
+| 2 | Raw and streamed request bodies | `@Onkt.http` route with a body verb and `@Onkt.maxBody`; the handler reads `r.Body`. The any-method proxy stays a plain handler, mounted with `api.Mount`. |
 | 3 | Conditional responses | `api.NotModified(ctx)` plus `api.ResponseHeader(ctx)`; `httpkit.ETag` and `httpkit.IfNoneMatch`. |
-| 4 | Headers, cookies, redirects, status codes | `api.SetCookie`, `api.Redirect`, `api.SetResponseStatus`, `@success(204)`, `httpkit.SetFlag` for a per-request audit skip. |
-| 5 | Free-form request and response bodies | Already supported: `json` fields, `@body("field")`, `@unwrap`, `@object`. Now covered by a test. |
+| 4 | Headers, cookies, redirects, status codes | `api.SetCookie`, `api.Redirect`, `api.SetResponseStatus`, a `204` status (`{ @statusCode _: 204; @body body: T }`), `httpkit.SetFlag` for a per-request audit skip. |
+| 5 | Free-form request and response bodies | Already supported: `json` fields, `@body("field")`, `@Onkt.unwrap`, `@Onkt.object`. Now covered by a test. |
 | 6 | Non-REST and non-schema routes | `httpkit.Health` and `httpkit.SPA` helpers; host resolution stays a plain middleware. All wrap with `api.Mount` or `httpkit.Middleware`. |
 | 7 | Auth and audit parity for hand-registered handlers | `api.Mount` with a `RequestMetadata` (Meta, Guards, Scopes); the observer gets the request, bytes, path values and panics; `@query` on body routes. |
 
 ### 1. Raw and binary responses
 
-```onk
-message BundleRequest { slug: string  v: int32 @query }
-message Nothing {}
+```typespec
+model BundleRequest {
+  slug: string;
+  @query v: int32;
+}
 
-service Bundles {
-  base_path: "/apps"
-  bundle(BundleRequest) -> Nothing @get("/{slug}/bundle.js") @http("application/javascript") @guard("apps/read/:slug") @meta("audit.event", "bundle.get")
+model Nothing {}
+
+@route("/apps")
+interface Bundles {
+  @get @route("/{slug}/bundle.js")
+  @Onkt.http(#{ contentType: "application/javascript" })
+  @Onkt.guard("apps/read/:slug")
+  @Onkt.meta("audit.event", "bundle.get")
+  bundle(...BundleRequest): Nothing;
 }
 ```
 
@@ -32,19 +40,26 @@ The handler sets `Content-Type`, `ETag`, `Cache-Control` and any `X-Detool-*` he
 
 ### 2. Raw and streamed request bodies
 
-```onk
-message ObjectRequest { slug: string  resource: string  key: string }
-message Nothing {}
+```typespec
+model ObjectRequest {
+  slug: string;
+  resource: string;
+  key: string;
+}
 
-service Objects {
-  base_path: "/apps"
-  put_object(ObjectRequest) -> Nothing @put("/{slug}/s3/{resource}/objects/{key...}") @http @max_body("256MiB") @meta("audit.event", "s3.put")
+model Nothing {}
+
+@route("/apps")
+interface Objects {
+  @put @route("/{slug}/s3/{resource}/objects/{+key}")
+  @Onkt.http @Onkt.maxBody("256MiB") @Onkt.meta("audit.event", "s3.put")
+  put_object(...ObjectRequest): Nothing;
 }
 ```
 
-`r.Body` is already wrapped in `http.MaxBytesReader` with the `@max_body` limit (or the `WithMaxRequestBodyBytes` value), so `io.Copy(s3Writer, r.Body)` streams. Clients take the body: `client.PutObject(ctx, req, body io.Reader, contentType)` in Go and `client.putObject(req, { body, contentType })` in TypeScript.
+`r.Body` is already wrapped in `http.MaxBytesReader` with the `@Onkt.maxBody` limit (or the `WithMaxRequestBodyBytes` value), so `io.Copy(s3Writer, r.Body)` streams. Clients take the body: `client.PutObject(ctx, req, body io.Reader, contentType)` in Go and `client.putObject(req, { body, contentType })` in TypeScript.
 
-**Left as a plain handler: the resource proxy** (any method on `/apps/{slug}/proxy/{resource}/{path...}`). An onekit route has exactly one verb, and the proxy must forward whatever method arrives and return the upstream status, headers and body untouched. Registering a handler without a method gives that:
+**Left as a plain handler: the resource proxy** (any method on `/apps/{slug}/proxy/{resource}/{+path}`). An onekit route has exactly one verb, and the proxy must forward whatever method arrives and return the upstream status, headers and body untouched. Registering a handler without a method gives that:
 
 ```go
 api.Mount(mux, "/apps/{slug}/proxy/{resource}/{path...}", proxyHandler, api.RequestMetadata{
@@ -54,14 +69,14 @@ api.Mount(mux, "/apps/{slug}/proxy/{resource}/{path...}", proxyHandler, api.Requ
 }, opts...)
 ```
 
-Uploads and local-execution routes that take a binary or streamed body are `@http` routes like `put_object`.
+Uploads and local-execution routes that take a binary or streamed body are `@Onkt.http` routes like `put_object`.
 
 ### 3. Conditional responses
 
 A JSON route stays a normal route:
 
-```onk
-files(FilesRequest) -> FilesResponse @get("/apps/{slug}/files")
+```typespec
+@get @route("/apps/{slug}/files") files(...FilesRequest): FilesResponse;
 ```
 
 ```go
@@ -85,10 +100,10 @@ The 200 case uses the generated JSON encoding. The 304 sends only the headers.
 
 ### 4. Headers, cookies, redirects and status codes
 
-```onk
-login(LoginRequest) -> Session @post("/login")
-oauth_start(Nothing) -> Nothing @get("/auth/google/start")
-page_view(PageViewRequest) -> Nothing @post("/apps/{slug}/page-views") @success(204)
+```typespec
+@post @route("/login") login(...LoginRequest): Session;
+@get @route("/auth/google/start") oauth_start(...Nothing): Nothing;
+@post @route("/apps/{slug}/page-views") page_view(...PageViewRequest): { @statusCode _: 204; @body body: Nothing };
 ```
 
 ```go
@@ -97,21 +112,28 @@ api.Redirect(ctx, authURL, http.StatusFound)          // Location header, no bod
 httpkit.SetFlag(ctx, "skip-audit")                     // read in the observer with state.Flag("skip-audit")
 ```
 
-`@success(204)` documents and sends 204 with no body. Logging out clears the cookie with `MaxAge: -1`.
+a `204` status (`{ @statusCode _: 204; @body body: T }`) documents and sends 204 with no body. Logging out clears the cookie with `MaxAge: -1`.
 
 ### 5. Free-form request and response bodies
 
-```onk
-message RunRequest { slug: string  id: string  input: json @object }
-message RunResult  { value: json @unwrap }
+```typespec
+model RunRequest {
+  slug: string;
+  id: string;
+  @Onkt.object @body input: unknown;
+}
 
-service Queries {
-  base_path: "/apps"
-  run(RunRequest) -> RunResult @post("/{slug}/queries/{id}/run") @body("input")
+model RunResult {
+  @Onkt.unwrap value: unknown;
+}
+
+@route("/apps")
+interface Queries {
+  @post @route("/{slug}/queries/{id}/run") run(...RunRequest): RunResult;
 }
 ```
 
-`input` reaches the handler as `json.RawMessage` byte for byte (key order kept, `@object` rejects an array or scalar). `value` is written as the whole response body, so a handler can return `null`, an array, a string or an object, and `RunResult{}` writes `null`. For a field inside a message, an explicit `null` is preserved and an unset field is omitted, which keeps "null versus absent" meaningful.
+`input` reaches the handler as `json.RawMessage` byte for byte (key order kept, `@Onkt.object` rejects an array or scalar). `value` is written as the whole response body, so a handler can return `null`, an array, a string or an object, and `RunResult{}` writes `null`. For a field inside a message, an explicit `null` is preserved and an unset field is omitted, which keeps "null versus absent" meaningful.
 
 ### 6. Non-REST and non-schema routes
 
@@ -126,7 +148,7 @@ Custom-domain host resolution is an `http.Handler` middleware; install it with `
 
 ### 7. Auth and audit parity
 
-Routes in the schema carry `@guard`, `@meta` and `@requires`, which reach the authorizer through `RequestMetadata`. Hand-registered routes carry the same data in the metadata passed to `api.Mount`, so one authorizer and one observer serve both.
+Routes in the schema carry `@Onkt.guard`, `@Onkt.meta` and `@Onkt.requires`, which reach the authorizer through `RequestMetadata`. Hand-registered routes carry the same data in the metadata passed to `api.Mount`, so one authorizer and one observer serve both.
 
 The audit middleware becomes a `RequestObserver`:
 
@@ -154,7 +176,7 @@ func (a *audit) RequestFinished(ctx context.Context, m api.RequestMetadata, res 
 | --- | --- |
 | JS bundles, draft bundle, reusable-component bundle | `@get(...) @http("application/javascript")`; the draft POST is `@post(...) @http("application/javascript") @max_body(...)` |
 | Favicon, S3 download | `@get(...) @http` (set `Content-Type` and `Content-Length` from the object, `io.Copy`) |
-| S3 upload | `@put(".../objects/{key...}") @http @max_body("...")` |
+| S3 upload | `@put(".../objects/{+key}") @http @max_body("...")` |
 | Resource proxy (any method) | Plain handler through `api.Mount` with a method-less pattern |
 | Uploads, local execution | `@post(...) @http @max_body("...")` |
 | Files with ETag and 304 | Normal JSON route, `ResponseHeader` + `NotModified` |
@@ -168,7 +190,7 @@ func (a *audit) RequestFinished(ctx context.Context, m api.RequestMetadata, res 
 
 ## Limits worth knowing
 
-- `@http` is supported by the go-server, go-client, ts-client and openapi targets. A project that also generates python, dart, swift, rust or ts-server targets is told so at build time.
+- `@Onkt.http` is supported by the go-server, go-client, ts-client and openapi targets. A project that also generates python, dart, swift, rust or ts-server targets is told so at build time.
 - `@query` on POST, PUT and PATCH has the same target support.
-- The mock server answers `@http` routes with an empty JSON object.
+- The mock server answers `@Onkt.http` routes with an empty JSON object.
 - `Mount` registers on a `*http.ServeMux`; the pattern syntax is the standard library's.

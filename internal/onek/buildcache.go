@@ -15,8 +15,8 @@ import (
 const (
 	buildCacheVersion = 2
 	buildCacheRacy    = 2 * time.Second
-	cacheDirEnv       = "ONEK_CACHE_DIR"
-	noCacheEnv        = "ONEK_NO_CACHE"
+	cacheDirEnv       = "ONKT_CACHE_DIR"
+	noCacheEnv        = "ONKT_NO_CACHE"
 )
 
 type cachedOutput struct {
@@ -78,10 +78,10 @@ func recordOutput(path string, data []byte) {
 }
 
 func buildCachePath(projectDir string) (string, bool) {
-	if os.Getenv(noCacheEnv) != "" {
+	if Getenv(noCacheEnv) != "" {
 		return "", false
 	}
-	root := os.Getenv(cacheDirEnv)
+	root := Getenv(cacheDirEnv)
 	if root == "" {
 		base, err := os.UserCacheDir()
 		if err != nil {
@@ -169,7 +169,7 @@ func buildFingerprint(cfg *Config) (schemaFingerprint, error) {
 			return schemaFingerprint{}, readErr
 		}
 	}
-	configData, err := readRegularFile(filepath.Join(cfg.dir, configFileName))
+	configData, err := readRegularFile(configFilePath(cfg.dir))
 	if err != nil {
 		return schemaFingerprint{}, err
 	}
@@ -240,7 +240,7 @@ func outputsUnchanged(projectDir string, entry *buildCacheEntry) bool {
 }
 
 // tryCachedBuild reports whether the previous build is still exact. It also
-// returns the previous entry when it was made by this same onek binary, so a
+// returns the previous entry when it was made by this same onkt binary, so a
 // partial rebuild can reuse the directories that did not change.
 func tryCachedBuild(cfg *Config, fingerprint string) (bool, *buildCacheEntry) {
 	cachePath, ok := buildCachePath(cfg.dir)

@@ -1,0 +1,44 @@
+
+package app
+
+message Address {
+  street: string
+  city: string
+}
+
+message User {
+  id: string
+  name: string @len(2, 100)
+  email: string @email
+  bio: string?
+  tags: string[]
+  labels: map[string, string]
+  home_address: Address
+}
+
+enum Status {
+  UNSPECIFIED
+  ACTIVE @json("active")
+}
+
+message CreateUserRequest {
+  name: string @len(2, 100)
+  email: string @email
+}
+
+message GetUserRequest {
+  id: string
+}
+
+message NotFoundError @status(404) {
+  resource_type: string
+  resource_id: string
+}
+
+service UserService {
+  base_path: "/api/v1"
+
+  createUser(CreateUserRequest) -> User @post("/users")
+
+  getUser(GetUserRequest) -> User | NotFoundError @get("/users/{id}")
+}

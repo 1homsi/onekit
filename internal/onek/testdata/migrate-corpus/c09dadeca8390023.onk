@@ -1,0 +1,7 @@
+
+package check
+
+message WatchRequest { room: string }
+message Tick { n: int32 }
+
+service Rooms { watch(WatchRequest) -> Tick @get("/rooms/{room}/events") @stream }

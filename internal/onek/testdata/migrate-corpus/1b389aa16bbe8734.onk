@@ -1,0 +1,8 @@
+package p
+message Req { room: string }
+message Tick { id: string }
+message Boom @status(500) { message: string }
+service S {
+  base_path: "/v1"
+  watch(Req) -> Tick | Boom @get("/events/{room}") @stream
+}

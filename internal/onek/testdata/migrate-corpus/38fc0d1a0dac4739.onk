@@ -1,0 +1,8 @@
+package invoices
+
+message Invoice { id: string }
+
+service Invoices {
+  base_path: "/v1"
+  get(Invoice) -> Invoice @get("/invoices/{id}")
+}

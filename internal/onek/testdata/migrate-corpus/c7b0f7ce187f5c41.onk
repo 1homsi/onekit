@@ -1,0 +1,6 @@
+
+package app
+message M {
+  ids: string[] @required
+  labels: map[string, string] @required
+}

@@ -1,0 +1,19 @@
+package app
+/// A stored note.
+///
+/// Notes are immutable.
+message Note {
+  /// Unique identifier.
+  id: string
+  title: string @deprecated("use heading")
+}
+/// Visibility of a note.
+enum Visibility {
+  /// Only the author.
+  PRIVATE
+}
+/// Manages notes.
+service Notes {
+  /// Fetch one note.
+  get(Note) -> Note @get("/notes/{id}") @deprecated
+}

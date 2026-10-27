@@ -1,0 +1,8 @@
+package app
+
+message Item { id: string }
+
+service Items {
+  base_path: "/v1"
+  get(Item) -> Item @get("/items/{id}")
+}

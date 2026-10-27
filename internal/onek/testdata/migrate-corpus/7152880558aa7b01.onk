@@ -1,0 +1,6 @@
+
+message Req { id: string }
+message Res { id: string }
+message NotFound @status(404) { message: string }
+message Conflict @status(409) { message: string }
+service Svc { get(Req) -> Res | NotFound | Conflict @get("/r/{id}") }

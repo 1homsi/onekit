@@ -9,7 +9,7 @@ import (
 	"github.com/1homsi/onekit/internal/onklang"
 )
 
-// Diagnostic is the stable machine-readable shape used by `onek check
+// Diagnostic is the stable machine-readable shape used by `onkt check
 // --json`. Paths are kept absolute when the caller supplied an absolute path
 // and otherwise remain relative to preserve useful project-local output.
 type Diagnostic struct {
@@ -72,13 +72,11 @@ func Diagnostics(err error) []Diagnostic {
 	if errors.As(err, &configErr) {
 		return []Diagnostic{{Path: configErr.Path, Line: configErr.Line, Column: configErr.Column, Code: "config_error", Message: configErr.Err.Error()}}
 	}
-	var formatErr *FormatError
-	if errors.As(err, &formatErr) {
-		diagnostics := make([]Diagnostic, 0, len(formatErr.Files))
-		for _, path := range formatErr.Files {
-			diagnostics = append(diagnostics, Diagnostic{Path: path, Code: "format_error", Message: "schema file is not formatted"})
+	var typespecErr *TypeSpecError
+	if errors.As(err, &typespecErr) {
+		if diagnostics := typespecErr.Diagnostics(); len(diagnostics) > 0 {
+			return diagnostics
 		}
-		return diagnostics
 	}
 	return []Diagnostic{{Path: filepath.Clean("."), Code: "tool_error", Message: err.Error()}}
 }

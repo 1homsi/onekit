@@ -1,0 +1,4 @@
+package app
+message R { a: string  q: string @query }
+message E {}
+service S { x(R) -> E @get("/x/{a}") @http("text/plain") }

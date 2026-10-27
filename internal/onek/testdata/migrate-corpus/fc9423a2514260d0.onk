@@ -1,0 +1,5 @@
+package common
+/// A user shared across services.
+message User { id: string }
+enum State { Ready }
+message Failure @status(404) { reason: string }

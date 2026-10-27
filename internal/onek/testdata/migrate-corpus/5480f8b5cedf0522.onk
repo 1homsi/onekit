@@ -1,0 +1,9 @@
+
+package check
+
+message Box {
+  value: oneof {
+    big: int64 @tag("big")
+    top: uint64 @tag("top")
+  }
+}

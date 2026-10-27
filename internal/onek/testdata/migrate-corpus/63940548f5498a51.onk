@@ -1,0 +1,3 @@
+package w
+message M { a: string @raw
+b: bytes @raw }

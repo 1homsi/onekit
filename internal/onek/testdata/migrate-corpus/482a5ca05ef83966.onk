@@ -1,0 +1,22 @@
+package app
+
+message App { id: int64 @encode("number") }
+message Folder {
+  id: int64 @encode("number")
+  parent_id: int64? @nullable @encode("number")
+  app: App? @nullable
+  note: string?
+}
+message FolderList { folders: Folder[] }
+message Shared {
+  id: int64 @encode("number")
+  parent_id: int64? @nullable @encode("number")
+}
+message Empty {}
+
+service Folders {
+  base_path: "/v1"
+  list(Empty) -> FolderList @get("/folders")
+  get(Shared) -> Shared @get("/shared/{id}")
+  save(Shared) -> Shared @post("/shared")
+}

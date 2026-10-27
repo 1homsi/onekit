@@ -1,0 +1,6 @@
+package app
+message Envelope {
+  payload: oneof {
+    text: string @tag("text") @json("old_text")
+  }
+}

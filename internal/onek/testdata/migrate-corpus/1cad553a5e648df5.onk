@@ -1,0 +1,7 @@
+
+package check
+
+message BulkRequest { ids: int64[] }
+message BulkResponse { total: int64 }
+
+service Bulk { remove(BulkRequest) -> BulkResponse @post("/bulk") @body("ids") }

@@ -1,0 +1,7 @@
+package app
+message Inner { note: string }
+message M {
+  flat: Inner @flatten(prefix: "f_")
+  plain: Inner
+  omitted: Inner @empty("omit")
+}

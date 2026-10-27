@@ -1,0 +1,4 @@
+package app
+message M @rule("self.old > 0", "old is positive") {
+  old: int32 @deprecated
+}

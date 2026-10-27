@@ -1,0 +1,32 @@
+package app
+
+enum Level { LOW HIGH }
+message Inner { v: string @len(1, 5) }
+message Entry
+  @rule("self.is_default || self.rev_no > 0", "a non-default record needs a revision")
+{
+  folder_id: string @len(1, 10)
+  is_default: bool
+  rev_no: int32
+  created_at: timestamp?
+  note: string? @nullable
+  tags: string[]
+  by_name: map[string, Inner]
+  inner: Inner?
+  choice: oneof(discriminator: "kind") {
+    alpha_one: Inner @tag("a")
+    beta: Level @tag("b")
+  }
+}
+message Lookup { folder_id: string  rev_no: int32 @query("rev_no") }
+
+service Entries {
+  base_path: "/v1"
+  get(Lookup) -> Entry @get("/f/{folder_id}")
+  save(Entry) -> Entry @post("/f")
+}
+
+service Feed {
+  watch(Lookup) -> Entry @get("/watch/{folder_id}") @stream
+  push(Entry) -> Entry @post("/push") @stream
+}

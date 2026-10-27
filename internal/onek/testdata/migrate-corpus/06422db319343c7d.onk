@@ -1,0 +1,7 @@
+
+// line comment
+message M { // trailing
+  /* block
+     comment */
+  x: string
+}

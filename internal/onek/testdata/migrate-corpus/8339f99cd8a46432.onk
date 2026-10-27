@@ -1,0 +1,9 @@
+
+package app
+message Req { msg: string }
+message Res { msg: string }
+
+service Echo {
+  echo(Req) -> Res @post("/echo")
+  look(Req) -> Res @get("/look")
+}

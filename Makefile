@@ -20,7 +20,6 @@ help:
 	@echo "  build            Build all generator binaries into ./bin"
 	@echo "  clean            Remove built binaries"
 	@echo "  fmt              Format Go code"
-	@echo "  fmt-schema       Format .onk schema files"
 	@echo "  install          Install local development tools"
 	@echo "  install-binaries Install generators to GOPATH/bin"
 	@echo "  lint             Run golangci-lint"
@@ -29,20 +28,16 @@ help:
 	@echo "  test             Run full test script"
 	@echo "  test-fast        Run fast test script"
 	@echo "  vet              Run go vet"
-	@echo "  playground       Build the browser playground into ./playground/dist"
-	@echo "  check-generated Verify committed example output is reproducible"
-	@echo "  check-schema     Verify .onk schema formatting and semantics"
+	@echo "  typespec         Install the npm workspace and build the @onkt/typespec emitter"
+	@echo "  check-generated  Verify committed example output is reproducible"
+	@echo "  check-schema     Verify the example schema compiles"
 	@echo ""
 	@echo "Generators: $(BINARIES)"
 
-PLAYGROUND_DIST := ./playground/dist
-
-.PHONY: playground
-playground:
-	mkdir -p $(PLAYGROUND_DIST)
-	GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o $(PLAYGROUND_DIST)/onek.wasm ./playground/wasm
-	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" $(PLAYGROUND_DIST)/wasm_exec.js
-	cp ./playground/index.html $(PLAYGROUND_DIST)/index.html
+.PHONY: typespec
+typespec:
+	@npm ci --no-audit --no-fund
+	@npm run build --workspace typespec
 
 .PHONY: build
 build: $(BINARY_PATHS)
@@ -57,7 +52,7 @@ $(BIN_DIR):
 .PHONY: clean
 clean:
 	@echo "Cleaning built binaries..."
-	@rm -rf $(BIN_DIR) $(PLAYGROUND_DIST)
+	@rm -rf $(BIN_DIR) typespec/dist
 
 .PHONY: test
 test: check-scripts
@@ -104,14 +99,9 @@ fmt:
 	@echo "Formatting Go code..."
 	@go fmt ./...
 
-.PHONY: fmt-schema
-fmt-schema: build
-	@./bin/onek fmt
-
 .PHONY: check-schema
-check-schema: build
-	@./bin/onek fmt --check
-	@./bin/onek check
+check-schema: build typespec
+	@./bin/onkt check --dir examples/simple-api
 
 .PHONY: vet
 vet:
@@ -162,6 +152,6 @@ ci-validate:
 	@actionlint .github/workflows/*.yml
 
 .PHONY: check-generated
-check-generated: build
-	@./bin/onek build examples/onk-simple-api
-	@git diff --exit-code -- examples/onk-simple-api/api examples/onk-simple-api/docs
+check-generated: build typespec
+	@ONEK_NO_CACHE=1 ./bin/onkt build --dir examples/simple-api
+	@git diff --exit-code -- examples/simple-api/api examples/simple-api/docs

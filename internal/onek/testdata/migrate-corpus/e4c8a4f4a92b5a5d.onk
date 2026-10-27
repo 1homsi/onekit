@@ -1,0 +1,4 @@
+message Row { id: string }
+message List { rows: Row[] }
+message Q { limit: int32 @query }
+service S { list(Q) -> List @get("/rows") }

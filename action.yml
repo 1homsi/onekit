@@ -1,5 +1,5 @@
-name: OneKit schema compatibility
-description: Fail or comment on a pull request when a .onk schema change breaks the contract of the base branch.
+name: onkt schema compatibility
+description: Fail or comment on a pull request when a TypeSpec schema change breaks the contract of the base branch.
 author: 1homsi
 branding:
   icon: shield
@@ -7,13 +7,13 @@ branding:
 
 inputs:
   directory:
-    description: Project directory containing onekit.toml.
+    description: Project directory containing onkt.toml.
     default: "."
   against:
     description: Git ref to compare against. Defaults to the pull request base branch.
     default: ""
   version:
-    description: onek release to install ("latest" or a version such as 0.20.1).
+    description: onkt release to install ("latest" or a version such as 0.20.1).
     default: latest
   allow:
     description: Newline-separated schema paths whose breaking changes are accepted.
@@ -25,7 +25,7 @@ inputs:
     description: Fail the job when breaking changes are found.
     default: "true"
   github-token:
-    description: Token used to download onek and to post the comment.
+    description: Token used to download onkt and to post the comment.
     default: ${{ github.token }}
 
 outputs:
@@ -36,12 +36,21 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Install onek
+    - name: Install onkt
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
-        ONEK_VERSION: ${{ inputs.version }}
-      run: ${{ github.action_path }}/scripts/install-onek.sh
+        ONKT_VERSION: ${{ inputs.version }}
+      run: ${{ github.action_path }}/scripts/install-onkt.sh
+
+    - name: Install the TypeSpec toolchain
+      shell: bash
+      working-directory: ${{ inputs.directory }}
+      run: |
+        # onkt compiles TypeSpec with the project's own packages.
+        if [ -f package.json ] && [ ! -d node_modules ]; then
+          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+        fi
 
     - name: Resolve base ref
       id: base
@@ -70,7 +79,7 @@ runs:
         ONEK_DIR: ${{ inputs.directory }}
         ONEK_AGAINST: ${{ steps.base.outputs.ref }}
         ONEK_ALLOW: ${{ inputs.allow }}
-        REPORT_FILE: ${{ runner.temp }}/onek-compat-report.md
+        REPORT_FILE: ${{ runner.temp }}/onkt-compat-report.md
       run: ${{ github.action_path }}/scripts/compat-report.sh
 
     - name: Comment on pull request

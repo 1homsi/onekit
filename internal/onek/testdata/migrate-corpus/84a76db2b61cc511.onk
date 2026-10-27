@@ -1,0 +1,19 @@
+package api
+
+message Principal @principal {
+  user_id: string
+  roles: string[]
+  org: string
+}
+
+message DeleteDoc {
+  id: string
+  owner_org: string
+}
+
+message Ack { ok: bool }
+
+service Docs {
+  delete(DeleteDoc) -> Ack @post("/docs/delete")
+    @authorize("'admin' in auth.roles || auth.org == req.owner_org", "not allowed to delete this document")
+}

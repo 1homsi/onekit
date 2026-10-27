@@ -1,0 +1,12 @@
+
+package app
+enum Scope { SELF  OTHER }
+message Flags {
+  final: bool
+  override: string
+  self: string
+  super: string
+  crate: string
+  gen: int32
+  scope: Scope
+}

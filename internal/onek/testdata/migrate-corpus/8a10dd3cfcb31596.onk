@@ -1,0 +1,4 @@
+package a
+message Item { x: string }
+message Req { id: string }
+service A { get(Req) -> Item @get("/a/{id}") }

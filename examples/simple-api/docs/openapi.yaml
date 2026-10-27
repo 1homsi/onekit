@@ -1,0 +1,337 @@
+openapi: 3.1.0
+info:
+    title: SimpleAPI
+    description: Example user service, written in TypeSpec
+    version: 1.0.0
+paths:
+    /api/v1/users:
+        post:
+            tags:
+                - UserService
+            summary: createUser
+            description: Create a new user.
+            operationId: UserService_createUser
+            parameters:
+                - name: X-API-Key
+                  in: header
+                  required: true
+                  schema:
+                    type: string
+                    format: uuid
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/examples.onksimpleapi.models.CreateUserRequest'
+                required: true
+            responses:
+                default:
+                    description: Unexpected error
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/onekit.ErrorMessage'
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/examples.onksimpleapi.models.User'
+                "400":
+                    description: Invalid request
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/onekit.ErrorMessage'
+    /api/v1/users/get:
+        post:
+            tags:
+                - UserService
+            summary: getUser
+            description: Get a user by ID.
+            operationId: UserService_getUser
+            parameters:
+                - name: X-API-Key
+                  in: header
+                  required: true
+                  schema:
+                    type: string
+                    format: uuid
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/examples.onksimpleapi.models.GetUserRequest'
+                required: true
+            responses:
+                default:
+                    description: Unexpected error
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/onekit.ErrorMessage'
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/examples.onksimpleapi.models.User'
+                "400":
+                    description: Invalid request
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/onekit.ErrorMessage'
+    /api/v1/auth/login:
+        post:
+            tags:
+                - UserService
+            summary: login
+            description: Login with different authentication methods.
+            operationId: UserService_login
+            parameters:
+                - name: X-API-Key
+                  in: header
+                  required: true
+                  schema:
+                    type: string
+                    format: uuid
+                - name: X-Request-Id
+                  in: header
+                  required: true
+                  schema:
+                    type: string
+                    format: uuid
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/examples.onksimpleapi.models.LoginRequest'
+                required: true
+            responses:
+                default:
+                    description: Unexpected error
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/onekit.ErrorMessage'
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/examples.onksimpleapi.models.LoginResponse'
+                "400":
+                    description: Invalid request
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/onekit.ErrorMessage'
+components:
+    schemas:
+        examples.onksimpleapi.models.CreateUserRequest:
+            type: object
+            properties:
+                name:
+                    type: string
+                    maxLength: 100
+                    minLength: 2
+                email:
+                    type: string
+                    format: email
+            required:
+                - name
+                - email
+        examples.onksimpleapi.models.User:
+            type: object
+            properties:
+                id:
+                    type: string
+                    format: uuid
+                name:
+                    type: string
+                    maxLength: 100
+                    minLength: 1
+                email:
+                    type: string
+                    format: email
+                created_at:
+                    type: string
+                    pattern: ^-?[0-9]+$
+                    format: int64
+            required:
+                - id
+                - name
+                - email
+                - created_at
+            description: A system user.
+        examples.onksimpleapi.models.GetUserRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                    format: uuid
+            required:
+                - id
+        examples.onksimpleapi.models.LoginRequest:
+            type: object
+            properties:
+                device_id:
+                    type: string
+                ip_address:
+                    type: string
+                retry_count:
+                    type: integer
+                    format: int32
+                user_agent:
+                    type: string
+                auth_method:
+                    oneOf:
+                        - type: object
+                          properties:
+                            auth_type:
+                                type: string
+                                const: email
+                            email:
+                                $ref: '#/components/schemas/examples.onksimpleapi.models.EmailAuth'
+                          title: email
+                          required:
+                            - auth_type
+                            - email
+                        - type: object
+                          properties:
+                            auth_type:
+                                type: string
+                                const: token
+                            token:
+                                $ref: '#/components/schemas/examples.onksimpleapi.models.TokenAuth'
+                          title: token
+                          required:
+                            - auth_type
+                            - token
+                        - type: object
+                          properties:
+                            auth_type:
+                                type: string
+                                const: social
+                            social:
+                                $ref: '#/components/schemas/examples.onksimpleapi.models.SocialAuth'
+                          title: social
+                          required:
+                            - auth_type
+                            - social
+                remember_me:
+                    type: boolean
+                session_id:
+                    type: string
+                timestamp:
+                    type: string
+                    pattern: ^-?[0-9]+$
+                    format: int64
+                scopes:
+                    type: array
+                    items:
+                        type: string
+            required:
+                - device_id
+                - ip_address
+                - retry_count
+                - user_agent
+                - auth_method
+                - remember_me
+                - session_id
+                - timestamp
+                - scopes
+        examples.onksimpleapi.models.EmailAuth:
+            type: object
+            properties:
+                email:
+                    type: string
+                    format: email
+                password:
+                    type: string
+                    maxLength: 72
+                    minLength: 8
+                use_two_factor:
+                    type: boolean
+                two_factor_code:
+                    type: string
+            required:
+                - email
+                - password
+                - use_two_factor
+                - two_factor_code
+        examples.onksimpleapi.models.TokenAuth:
+            type: object
+            properties:
+                token:
+                    type: string
+                    maxLength: 256
+                    minLength: 10
+                token_type:
+                    type: string
+                issued_at:
+                    type: string
+                    pattern: ^-?[0-9]+$
+                    format: int64
+            required:
+                - token
+                - token_type
+                - issued_at
+        examples.onksimpleapi.models.SocialAuth:
+            type: object
+            properties:
+                provider:
+                    type: string
+                    enum:
+                        - google
+                        - github
+                        - facebook
+                        - apple
+                access_token:
+                    type: string
+                    maxLength: 512
+                    minLength: 20
+                redirect_uri:
+                    type: string
+                state:
+                    type: string
+                permissions:
+                    type: array
+                    items:
+                        type: string
+            required:
+                - provider
+                - access_token
+                - redirect_uri
+                - state
+                - permissions
+        examples.onksimpleapi.models.LoginResponse:
+            type: object
+            properties:
+                access_token:
+                    type: string
+                refresh_token:
+                    type: string
+                expires_in:
+                    type: string
+                    pattern: ^-?[0-9]+$
+                    format: int64
+                user:
+                    allOf:
+                        - $ref: '#/components/schemas/examples.onksimpleapi.models.User'
+            required:
+                - access_token
+                - refresh_token
+                - expires_in
+                - user
+        onekit.ErrorMessage:
+            type: object
+            properties:
+                message:
+                    type: string
+            required:
+                - message
+tags:
+    - name: UserService
+      description: UserService manages users in the system.

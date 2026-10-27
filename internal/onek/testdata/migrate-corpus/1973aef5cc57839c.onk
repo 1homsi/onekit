@@ -1,0 +1,10 @@
+
+package app
+
+message RootValues {
+  values: string[] @unwrap
+}
+
+service RootService {
+  send(RootValues) -> RootValues @post("/values")
+}

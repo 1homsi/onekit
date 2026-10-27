@@ -1,0 +1,8 @@
+package probe
+
+message R { id: string }
+message Res { ok: bool }
+
+service Svc {
+  list(R) -> Res @get("/things")
+}

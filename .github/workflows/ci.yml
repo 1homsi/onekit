@@ -168,11 +168,17 @@ jobs:
       - name: Build binaries
         run: make build
 
+      - name: Build the TypeSpec emitter
+        run: make typespec
+
       - name: Verify committed generated output
         run: make check-generated
 
-      - name: Verify schema formatting and semantics
+      - name: Verify the example schema
         run: make check-schema
+
+      - name: Test the TypeSpec emitter
+        run: npm test --workspace typespec
 
       - name: Run tests
         run: ./scripts/run_tests.sh ${{ matrix.test-args }}
@@ -218,6 +224,9 @@ jobs:
       - name: Build binaries
         run: make build
 
+      - name: Build the TypeSpec emitter
+        run: make typespec
+
       - name: Run tests with the race detector
         run: go list ./... | grep -v '/cmd/' | xargs go test -race -timeout 25m
         shell: bash
@@ -254,6 +263,9 @@ jobs:
 
       - name: Build binaries
         run: make build
+
+      - name: Build the TypeSpec emitter
+        run: make typespec
 
       - name: Run coverage tests
         run: ./scripts/run_tests.sh --no-race
@@ -402,14 +414,22 @@ jobs:
             go.sum
             go.mod
 
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+
       - name: Build all binaries
         run: |
           make build
 
+      - name: Build the TypeSpec emitter
+        run: make typespec
+
       - name: Test binary execution
         run: |
-          test -x "./bin/onek"
-          ./bin/onek check examples/onk-simple-api
+          test -x "./bin/onkt"
+          ./bin/onkt check --dir examples/simple-api
 
       - name: Verify generated example output
         run: make check-generated
@@ -417,7 +437,7 @@ jobs:
       - name: Upload binaries
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: onek-binary
+          name: onkt-binary
           path: bin/
 
   status-check:

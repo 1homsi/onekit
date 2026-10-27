@@ -1,0 +1,19 @@
+
+package probe
+
+message Req { id: string @uuid }
+message Res {
+  ok: bool
+  who: string @email
+  big: int64
+  when_ts: timestamp @encode(unix_seconds)
+}
+message Missing @status(404) { message: string }
+
+service Svc {
+  base_path: "/v1"
+
+  getThing(Req) -> Res | Missing @get("/things/{id}")
+  findThing(Req) -> Res @query("/things")
+  streamThings(Req) -> Res @get("/things/stream") @stream
+}

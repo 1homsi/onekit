@@ -3,7 +3,6 @@ package onkcompile
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 )
@@ -96,27 +95,6 @@ func TestOtherDecoratorsStillRejectDuplicates(t *testing.T) {
 	err := compileRules(t, "package api\nmessage M {\n  a: int32 @gte(1) @gte(2)\n}\n")
 	if err == nil || !strings.Contains(err.Error(), "duplicate decorator") {
 		t.Fatalf("duplicate @gte should still be rejected, got %v", err)
-	}
-}
-
-func TestReadmeRuleExampleCompiles(t *testing.T) {
-	readme, err := os.ReadFile("../../README.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(readme)
-	start := strings.Index(text, "## Validation rules")
-	if start < 0 {
-		t.Fatal("README has no Validation rules section")
-	}
-	block := text[start:]
-	open := strings.Index(block, "```onk\n")
-	end := strings.Index(block[open+7:], "```")
-	if open < 0 || end < 0 {
-		t.Fatal("README rules example not found")
-	}
-	if err := compileRules(t, "package api\n"+block[open+7:open+7+end]); err != nil {
-		t.Fatalf("README example does not compile: %v", err)
 	}
 }
 

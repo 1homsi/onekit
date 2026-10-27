@@ -19,7 +19,7 @@ const (
 	protoExtension = ".proto"
 )
 
-func defaultSchemaExtensions() []string { return []string{onkExtension} }
+func defaultSchemaExtensions() []string { return []string{onkExtension, tspExtension} }
 
 func discoverOnkFiles(dir string) ([]string, error) {
 	return discoverSchemaFiles(dir, nil)
@@ -199,9 +199,4 @@ func looksLikeProtobuf(path string) (bool, error) {
 	}
 	text := string(head[:n])
 	return protobufSyntaxLine.MatchString(text) || protobufFieldNumber.MatchString(text), nil
-}
-
-func isSchemaFileName(path string) bool {
-	ext := filepath.Ext(path)
-	return ext == onkExtension || ext == protoExtension
 }

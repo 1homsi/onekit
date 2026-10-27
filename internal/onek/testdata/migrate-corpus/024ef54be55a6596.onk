@@ -1,0 +1,15 @@
+package docs
+
+message Principal @principal { user_id: string  org: string }
+message DeleteDoc { id: string  owner_org: string }
+message WatchDocs { org: string @query }
+message Doc { id: string }
+message Ack { ok: bool }
+message Frame { id: string @ws_id  text: string }
+
+service Docs {
+  base_path: "/v1"
+  delete(DeleteDoc) -> Ack @post("/docs/delete") @authorize("auth.org == req.owner_org", "no")
+  watch(WatchDocs) -> Doc @get("/docs/watch") @stream @authorize("auth.org == req.org", "not your organization")
+  chat(Frame) -> Frame @ws("/docs/chat")
+}

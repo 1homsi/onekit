@@ -1,0 +1,32 @@
+
+package wsp
+
+message Call {
+  id: string
+  method: string
+  args: string[]
+}
+
+message RunResult {
+  exit_code: int32
+  result_json: string @raw
+}
+
+message PlainResult {
+  exit_code: int32
+  result_json: string
+}
+
+message Frame {
+  payload: oneof(discriminator: "type") {
+    call: Call @tag("call")
+    run_result: RunResult @tag("run_result")
+    plain_result: PlainResult @tag("plain_result")
+  }
+}
+
+service Runtime {
+  base_path: "/v1"
+
+  execute(Frame) -> Frame @ws("/execute")
+}

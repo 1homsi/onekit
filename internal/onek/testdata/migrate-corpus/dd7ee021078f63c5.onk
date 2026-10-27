@@ -1,0 +1,55 @@
+
+package notes
+
+enum Visibility { PRIVATE PUBLIC_VIEW }
+message Meta { owner: string }
+message Note {
+  id: string
+  count: int32
+  big: int64
+  huge: uint64
+  ratio: float64
+  tags: string[]
+  data: bytes
+  hex: bytes @encode("hex")
+  at: timestamp
+  day: timestamp @encode("date")
+  secs: timestamp @encode("unix_seconds")
+  vis: Visibility
+  vis_num: Visibility @encode("number")
+  maybe: string?
+  meta: Meta
+  flat: Meta @flatten(prefix: "m_")
+  labels: map[string, string]
+  raw_json: json
+  body: oneof(discriminator: "kind") {
+    text: string @tag("text")
+    meta_ref: Meta @tag("meta")
+    n: int64 @tag("n")
+  }
+}
+message Wide {
+  nums: int64[]
+  ids: uint64[]
+  by_name: map[string, int64]
+  stamps: timestamp[]
+  blobs: bytes[]
+  levels: Visibility[]
+  metas: Meta[]
+  meta_map: map[string, Meta]
+  opt_num: int64?
+  flag: bool
+  opt_flag: bool?
+  small: int32
+  f32: float32
+  zero_str: string
+}
+message Fetch { id: string limit: int32? @query tags: string[] @query }
+message NotFound @status(404) { code: string }
+
+service Notes {
+  create(Note) -> Note @post("/notes")
+  echoWide(Wide) -> Wide @post("/wide")
+  fetch(Fetch) -> Note | NotFound @get("/notes/{id}")
+  watch(Fetch) -> Note | NotFound @get("/watch/{id}") @stream
+}

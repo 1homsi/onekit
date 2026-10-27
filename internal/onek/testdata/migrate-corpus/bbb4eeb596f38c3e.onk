@@ -1,0 +1,2 @@
+message Q { id: string  note: string @required }
+service API { a(Q) -> Q @get("/x/{id}") }

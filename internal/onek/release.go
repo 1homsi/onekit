@@ -24,7 +24,7 @@ import (
 const (
 	goosWindows        = "windows"
 	DefaultReleaseBase = "https://github.com/1homsi/onekit/releases/download"
-	releaseBaseEnv     = "ONEK_DOWNLOAD_BASE"
+	releaseBaseEnv     = "ONKT_DOWNLOAD_BASE"
 	maxReleaseDownload = 256 << 20
 )
 
@@ -46,10 +46,10 @@ func validatePinnedVersion(version string) error {
 }
 
 // PinnedVersion returns the release a project pins with `version = "x.y.z"` in
-// its onekit.toml, or "" when there is no config or no pin. It reads only that
+// its onkt.toml, or "" when there is no config or no pin. It reads only that
 // key, so it works for projects whose other settings a different release added.
 func PinnedVersion(dir string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(dir, configFileName))
+	data, err := os.ReadFile(configFilePath(dir))
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
 	}
@@ -60,10 +60,10 @@ func PinnedVersion(dir string) (string, error) {
 		Version string `toml:"version"`
 	}
 	if _, err := toml.Decode(string(data), &pin); err != nil {
-		return "", fmt.Errorf("%s: %w", configFileName, err)
+		return "", fmt.Errorf("%s: %w", filepath.Base(configFilePath(dir)), err)
 	}
 	if err := validatePinnedVersion(pin.Version); err != nil {
-		return "", fmt.Errorf("%s: %w", configFileName, err)
+		return "", fmt.Errorf("%s: %w", filepath.Base(configFilePath(dir)), err)
 	}
 	return NormalizeVersion(pin.Version), nil
 }
@@ -82,7 +82,7 @@ func (s ReleaseSource) base() string {
 	if s.BaseURL != "" {
 		return strings.TrimRight(s.BaseURL, "/")
 	}
-	if env := os.Getenv(releaseBaseEnv); env != "" {
+	if env := Getenv(releaseBaseEnv); env != "" {
 		return strings.TrimRight(env, "/")
 	}
 	return DefaultReleaseBase
@@ -92,7 +92,7 @@ func (s ReleaseSource) cacheDir() (string, error) {
 	if s.CacheDir != "" {
 		return s.CacheDir, nil
 	}
-	if env := os.Getenv(cacheDirEnv); env != "" {
+	if env := Getenv(cacheDirEnv); env != "" {
 		return env, nil
 	}
 	base, err := os.UserCacheDir()
@@ -130,7 +130,16 @@ func releaseAssetName(version, goos, goarch string) (string, error) {
 	return fmt.Sprintf("onekit_%s_%s_%s.%s", version, osName, arch, ext), nil
 }
 
+// binaryName is the CLI's name for goos. Releases before the rename to onkt
+// ship only the legacy name.
 func binaryName(goos string) string {
+	if goos == goosWindows {
+		return "onkt.exe"
+	}
+	return "onkt"
+}
+
+func legacyBinaryName(goos string) string {
 	if goos == goosWindows {
 		return "onek.exe"
 	}
@@ -174,7 +183,7 @@ func expectedChecksum(checksums []byte, asset string) (string, error) {
 	return "", fmt.Errorf("checksums.txt has no entry for %s", asset)
 }
 
-// Fetch returns the path of the verified onek binary for version, downloading
+// Fetch returns the path of the verified onkt binary for version, downloading
 // and caching it when needed. The archive's SHA-256 must match the release's
 // checksums.txt.
 func (s ReleaseSource) Fetch(ctx context.Context, version string) (string, error) {
@@ -213,6 +222,9 @@ func (s ReleaseSource) Fetch(ctx context.Context, version string) (string, error
 		return "", fmt.Errorf("checksum mismatch for %s: release lists %s, downloaded %s", asset, want, got)
 	}
 	binary, err := extractBinary(archive, asset, binaryName(goos))
+	if err != nil {
+		binary, err = extractBinary(archive, asset, legacyBinaryName(goos))
+	}
 	if err != nil {
 		return "", fmt.Errorf("unpack %s: %w", asset, err)
 	}

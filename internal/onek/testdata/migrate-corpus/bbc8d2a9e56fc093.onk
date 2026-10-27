@@ -1,0 +1,19 @@
+package app
+
+message Q {
+  in: string
+  from: string
+  default: string
+  type: string
+  class: string
+  enum: string
+  import: string
+  none: string
+  return: string
+}
+message Out { q: Q }
+
+service S {
+  base_path: "/v1"
+  get(Q) -> Out @get("/q")
+}

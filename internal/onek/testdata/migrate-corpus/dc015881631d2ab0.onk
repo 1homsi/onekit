@@ -1,0 +1,3 @@
+package app
+enum Level { LOW  HIGH }
+message M { level: Level @encode(number) }

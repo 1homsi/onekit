@@ -1,7 +1,7 @@
-# Working with OneKit schemas
+# Working with onekit schemas
 
-- Read README.md for .onk syntax and language-tool setup.
-- Use the OneKit MCP tools to inspect declarations, imports, documentation, definitions, and type references. In this repository, select `project: "examples/onk-simple-api"` for the example API; select the relevant project directory in a multi-project checkout.
-- Tool positions are zero-based lines and UTF-16 columns. Compiler diagnostic line/column values are one-based byte positions.
-- MCP reads saved files. After changing a schema, use `onekit_project` or `go run ./cmd/onek check --json --dir <project>` to validate it. Resolve diagnostics before relying on type navigation: reference bindings are withheld when compilation fails.
-- Make schema changes in .onk sources; regenerate their outputs with the existing OneKit build workflow.
+- Schemas are TypeSpec (`.tsp`). Read README.md for how TypeSpec maps onto onekit and for the `@Onkt.*` decorators; `typespec/lib/main.tsp` documents each decorator.
+- A project compiles from `main.tsp` at its schema root with the project's own TypeSpec toolchain. In this repository, run `make typespec` once (it installs the npm workspace and builds the `@onkt/typespec` emitter); `examples/simple-api` is the example project.
+- After changing a schema, validate it with `go run ./cmd/onkt check --json --dir <project>`. Diagnostics carry one-based lines and columns, from TypeSpec and from onekit's own checks alike.
+- Make schema changes in .tsp sources; regenerate their outputs with `go run ./cmd/onkt build --dir <project>` (`make check-generated` for the example).
+- `.onk` is the retired schema language. It survives only as the input of `onkt migrate` and as a compact fixture format in Go tests; do not add new `.onk` schemas outside tests.

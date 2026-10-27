@@ -1,0 +1,4 @@
+package common
+message Item { x: string }
+message Req { id: string }
+service C { get(Req) -> Item @get("/c/{id}") }

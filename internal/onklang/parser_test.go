@@ -492,7 +492,7 @@ message M {
 
 // A plain comment between a doc block and its declaration does not detach
 // the doc (as in Rust): resetting it lost the description from every
-// generated target, and onek fmt then deleted the /// lines outright.
+// generated target, and onkt fmt then deleted the /// lines outright.
 func TestParseDocCommentSurvivesPlainComment(t *testing.T) {
 	src := `
 /// Real doc.

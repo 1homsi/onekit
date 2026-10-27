@@ -1,0 +1,10 @@
+package app
+
+message M {
+  cfg: json? @object
+  plain: json @object
+}
+
+service S {
+  op(M) -> M @post("/m")
+}

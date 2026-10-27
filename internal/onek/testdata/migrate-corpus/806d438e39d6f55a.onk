@@ -1,0 +1,8 @@
+
+message Req { id: string }
+message EmailAuth { email: string @email }
+message Res {
+  nested: oneof(discriminator: "kind") { email: EmailAuth  code: string }
+  flat: oneof(flatten: true) { mail: EmailAuth }
+}
+service Svc { get(Req) -> Res @get("/r/{id}") }

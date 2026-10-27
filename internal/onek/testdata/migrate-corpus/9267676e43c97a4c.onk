@@ -1,0 +1,17 @@
+
+package api
+
+message Item {
+  id: string
+  name: string
+}
+
+message GetItemRequest {
+  id: string
+}
+
+service Items {
+  base_path: "/items/v1"
+
+  getItem(GetItemRequest) -> Item @get("/items/{id}")
+}

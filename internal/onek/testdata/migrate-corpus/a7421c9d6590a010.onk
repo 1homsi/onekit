@@ -1,0 +1,10 @@
+
+package app
+message Blob {
+  content: oneof {
+    raw: bytes @tag("raw")
+    text: string @tag("text")
+    size: int64 @tag("size")
+  }
+}
+service Store { put(Blob) -> Blob @post("/blobs") }

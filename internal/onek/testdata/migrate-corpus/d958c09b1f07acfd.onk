@@ -1,0 +1,7 @@
+
+package app
+message Note { id: string  text: string }
+service Notes {
+  get(Note) -> Note @get("/notes/{id}")
+  create(Note) -> Note @post("/notes")
+}

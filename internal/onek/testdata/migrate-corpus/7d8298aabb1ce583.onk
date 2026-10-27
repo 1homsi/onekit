@@ -1,0 +1,31 @@
+
+package rt
+
+message HostCall { id: string @ws_id
+method: string }
+message HostResult { id: string @ws_id
+value: string? }
+message Cancel { id: string @ws_id }
+
+message Frame {
+  payload: oneof(discriminator: "type") {
+    host_call: HostCall @tag("host_call")
+    host_result: HostResult @tag("host_result")
+    cancel: Cancel @tag("cancel") @ws_cancel
+  }
+}
+
+message Tree {
+  name: string
+  children: Tree[]
+  meta: Meta
+}
+
+message Meta { note: string }
+
+service Runtime {
+  base_path: "/v1"
+
+  execute(Frame) -> Frame @ws("/execute")
+  tree(Meta) -> Tree @get("/tree")
+}

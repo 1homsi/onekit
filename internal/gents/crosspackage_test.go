@@ -42,7 +42,7 @@ service OrderService {
 
 // tsDirResolver is a minimal PackageResolver keyed by which directory a
 // message or enum was declared in, used to prove cross-package TypeScript
-// generation without depending on the onek CLI's own directory-grouping.
+// generation without depending on the onkt CLI's own directory-grouping.
 type tsDirResolver struct {
 	currentDir   string
 	dirByMessage map[*onkir.Message]string

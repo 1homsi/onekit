@@ -1,0 +1,12 @@
+
+package app
+message Num { value: int32 }
+message Expr {
+  node: oneof {
+    num: Num @tag("num")
+    negate: Expr @tag("not")
+    group: Group @tag("group")
+  }
+}
+message Group { inner: oneof { expr: Expr @tag("expr") } }
+service Calc { eval(Expr) -> Num @post("/eval") }

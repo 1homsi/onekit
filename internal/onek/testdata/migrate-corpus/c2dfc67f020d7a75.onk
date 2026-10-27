@@ -1,0 +1,13 @@
+
+package queryfixture
+
+message Request {
+  status: int32 @query
+  tags: string[] @query("tag")
+}
+
+message Response {}
+
+service QueryService {
+  list(Request) -> Response @get("/items")
+}

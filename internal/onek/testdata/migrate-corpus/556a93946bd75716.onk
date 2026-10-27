@@ -1,0 +1,8 @@
+package orders
+
+message Order { id: string }
+
+service Orders {
+  base_path: "/v1"
+  get(Order) -> Order @get("/orders/{id}")
+}

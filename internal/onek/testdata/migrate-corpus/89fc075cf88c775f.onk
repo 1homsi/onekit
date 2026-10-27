@@ -1,0 +1,4 @@
+package api
+message Req { a: string }
+message Res { ok: bool }
+service S { run(Req) -> Res @post("/x") @max_body("64MiB") }

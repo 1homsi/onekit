@@ -39,7 +39,7 @@ func CompatibilityAgainstRef(ref, currentDir string) ([]onkcompat.Finding, error
 	if err != nil {
 		return nil, fmt.Errorf("read %s at %s: %w", rel, ref, err)
 	}
-	baseline, err := os.MkdirTemp("", "onek-compat-")
+	baseline, err := os.MkdirTemp("", "onkt-compat-")
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +47,29 @@ func CompatibilityAgainstRef(ref, currentDir string) ([]onkcompat.Finding, error
 	if err := extractTar(bytes.NewReader([]byte(archive)), baseline); err != nil {
 		return nil, err
 	}
-	return Compatibility(filepath.Join(baseline, rel), currentDir)
+	previous := filepath.Join(baseline, rel)
+	linkNodeModules(absDir, previous)
+	return Compatibility(previous, currentDir)
+}
+
+// linkNodeModules gives a checked-out baseline the current project's npm
+// packages, so the TypeSpec compiler and its libraries resolve from the
+// temporary directory. A baseline without TypeSpec schemas ignores it.
+func linkNodeModules(project, baseline string) {
+	target := filepath.Join(baseline, "node_modules")
+	if _, err := os.Lstat(target); err == nil {
+		return
+	}
+	for dir := project; ; dir = filepath.Dir(dir) {
+		modules := filepath.Join(dir, "node_modules")
+		if info, err := os.Stat(modules); err == nil && info.IsDir() {
+			_ = os.Symlink(modules, target)
+			return
+		}
+		if filepath.Dir(dir) == dir {
+			return
+		}
+	}
 }
 
 func gitOutput(dir string, args ...string) (string, error) {

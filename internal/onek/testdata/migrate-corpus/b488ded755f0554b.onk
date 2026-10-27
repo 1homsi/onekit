@@ -1,0 +1,6 @@
+package app
+message M {
+  n: int32 @range(1, 5) @in(1, 2)
+}
+message E {}
+service S { op(M) -> E @post("/m") }

@@ -1,0 +1,8 @@
+package app
+
+message Make { name: string }
+message Made { id: string }
+
+service Makers {
+  make(Make) -> Made @post("/make")
+}

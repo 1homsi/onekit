@@ -1,0 +1,4 @@
+package app
+message M {
+  s: string @rule("value.matches('[a-z]+')", "lower case")
+}

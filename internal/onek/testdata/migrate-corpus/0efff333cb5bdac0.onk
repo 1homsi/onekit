@@ -1,0 +1,9 @@
+
+package app
+message Violation {
+  field: string
+  list: string
+  dict: string
+  tags: string[]
+  labels: map[string, string]
+}

@@ -1,0 +1,11 @@
+package app
+
+message RunIn { id: string  input: json @object }
+message RunOut { value: json @unwrap }
+message Raw { id: string  payload: json }
+
+service Queries {
+  base_path: "/v1"
+  run(RunIn) -> RunOut @post("/queries/{id}/run") @body("input")
+  any(Raw) -> RunOut @post("/any/{id}") @body("payload")
+}

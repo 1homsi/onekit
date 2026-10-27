@@ -27,7 +27,7 @@ var (
 )
 
 // Build parses and compiles every .onk file under dir, then generates every
-// target configured in onekit.toml.
+// target configured in onkt.toml.
 func Build(dir string) error {
 	_, err := build(dir)
 	return err

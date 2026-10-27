@@ -1,0 +1,3 @@
+message Req {}
+message Res { id: string }
+service S { get(Req) -> Res @get("/a") }

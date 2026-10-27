@@ -1,0 +1,21 @@
+
+package wire
+
+message Box {
+  body: oneof(discriminator: "kind") {
+    n: int64 @tag("n")
+    u: uint64 @tag("u")
+    label: string @tag("label")
+  }
+  totals: map[string, int64]
+  ids: int64[]
+  single: int64
+}
+
+message Ask { id: string }
+message NotFound @status(404) { code: string }
+
+service Boxes {
+  get(Ask) -> Box | NotFound @get("/boxes/{id}")
+  watch(Ask) -> Box | NotFound @get("/watch/{id}") @stream
+}

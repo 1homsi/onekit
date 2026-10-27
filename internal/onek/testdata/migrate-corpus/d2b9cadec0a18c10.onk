@@ -1,0 +1,9 @@
+package app
+
+message App {
+  id: int64 @encode("number")
+  name: string
+  slug: string
+  folder_id: int64? @nullable @encode("number")
+  owner: string
+}

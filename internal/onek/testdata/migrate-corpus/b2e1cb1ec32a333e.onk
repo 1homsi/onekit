@@ -1,0 +1,8 @@
+package app
+
+message Watch { id: string }
+message Tick { n: int32 }
+
+service Feed {
+  events(Watch) -> Tick @get("/events") @stream
+}

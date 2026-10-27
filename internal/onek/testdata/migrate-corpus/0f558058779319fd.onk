@@ -1,0 +1,22 @@
+
+package main
+
+message SearchWidgetsRequest {
+  status: int32? @query("status")
+  owner_id: int64? @query("owner_id")
+  q: string @query("q")
+  tags: string[] @query("tag")
+}
+
+message SearchWidgetsResponse {
+  count: int32
+  status_echo: int32?
+  owner_id_echo: int64?
+  tags_count: int32
+}
+
+service WidgetService {
+  base_path: "/api/v1"
+
+  searchWidgets(SearchWidgetsRequest) -> SearchWidgetsResponse @get("/widgets")
+}

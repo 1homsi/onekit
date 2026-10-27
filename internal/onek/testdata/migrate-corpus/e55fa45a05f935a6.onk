@@ -1,0 +1,13 @@
+
+package check
+
+message Address {
+  city: string
+  zip: string
+}
+
+message Order {
+  id: string
+  billing: Address @flatten(prefix: "billing_")
+  shipping: Address @flatten(prefix: "shipping_")
+}

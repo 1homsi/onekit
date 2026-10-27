@@ -1,0 +1,7 @@
+package app
+
+// plain note between doc and decl
+/// Bravo doc line.
+message Bravo {
+  b: string
+}

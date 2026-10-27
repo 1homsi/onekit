@@ -109,7 +109,7 @@ func (l *Lexer) Next() (Token, error) {
 		return Token{}, err
 	}
 	if l.pos >= len(l.src) {
-		// Comments preceding EOF must survive so onek fmt can round-trip
+		// Comments preceding EOF must survive so onkt fmt can round-trip
 		// them as trailing comments instead of silently dropping content.
 		return Token{Kind: EOF, Line: l.line, Col: l.col, Doc: doc, LeadingComments: comments}, nil
 	}

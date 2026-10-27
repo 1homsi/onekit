@@ -1,0 +1,11 @@
+package app
+
+message Empty {}
+message Bundle { slug: string  v: int32 @query }
+message Upload { slug: string  key: string }
+
+service Apps {
+  base_path: "/apps"
+  bundle(Bundle) -> Empty @get("/{slug}/bundle.js") @http("application/javascript")
+  put_object(Upload) -> Empty @put("/{slug}/objects/{key...}") @http
+}

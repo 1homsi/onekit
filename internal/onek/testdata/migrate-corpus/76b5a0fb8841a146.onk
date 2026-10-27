@@ -1,0 +1,5 @@
+
+package app
+message R { id: string }
+message Gone @status(410) { reason: string }
+service S { watch(R) -> R | Gone @get("/w/{id}") @stream }

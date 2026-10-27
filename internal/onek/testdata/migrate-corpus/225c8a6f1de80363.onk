@@ -1,0 +1,10 @@
+package app
+
+message Item { name: string }
+message Patch {
+  id: int32
+  folder_id: int64? @nullable @encode("number")
+  note: string? @nullable
+  item: Item? @nullable
+  plain: string?
+}

@@ -1,0 +1,8 @@
+package app
+
+message Inner { v: string }
+
+message Outer {
+  name: string
+  inner: Inner @flatten(prefix: "in_")
+}

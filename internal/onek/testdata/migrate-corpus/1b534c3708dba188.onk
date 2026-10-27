@@ -1,0 +1,5 @@
+
+package app
+message R { id: string }
+message NotFound @status(404) { resource: string }
+service S { get(R) -> R | NotFound @get("/r/{id}") }

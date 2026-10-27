@@ -47,7 +47,7 @@ service OrderService {
 
 // dirResolver is a minimal PackageResolver keyed by which directory a message
 // or enum was declared in, used to prove cross-package Go generation without
-// depending on the onek CLI's own directory-grouping logic.
+// depending on the onkt CLI's own directory-grouping logic.
 type dirResolver struct {
 	currentDir   string
 	dirByMessage map[*onkir.Message]string

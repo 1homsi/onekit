@@ -1,0 +1,11 @@
+
+package common
+
+message NotFound @status(404) {
+  code: string
+}
+
+message Money {
+  amount_cents: int64
+  currency: string
+}

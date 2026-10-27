@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-bin="${ONEK_BIN:-onek}"
+bin="${ONKT_BIN:-${ONEK_BIN:-onkt}}"
 dir="${ONEK_DIR:-.}"
 against="${ONEK_AGAINST:?ONEK_AGAINST is required}"
 report="${REPORT_FILE:-onek-compat-report.md}"
@@ -34,8 +34,10 @@ fi
 count="$(jq 'length' <<<"$findings")"
 
 targets=""
-if [ -f "$dir/onekit.toml" ]; then
-  targets="$(grep -oE '^\[generate\.[A-Za-z0-9_-]+\]' "$dir/onekit.toml" | sed -E 's/^\[generate\.(.*)\]$/`\1`/' | paste -sd ',' - | sed 's/,/, /g')"
+config="$dir/onkt.toml"
+[ -f "$config" ] || config="$dir/onekit.toml"
+if [ -f "$config" ]; then
+  targets="$(grep -oE '^\[generate\.[A-Za-z0-9_-]+\]' "$config" | sed -E 's/^\[generate\.(.*)\]$/`\1`/' | paste -sd ',' - | sed 's/,/, /g')"
 fi
 
 {

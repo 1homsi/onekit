@@ -1,0 +1,10 @@
+package app
+
+message Empty {}
+message Ping { ok: bool }
+
+service Things {
+  base_path: "/v1"
+  ping(Empty) -> Ping @get("/ping") @meta("audit.event", "ping")
+  boom(Empty) -> Ping @get("/boom")
+}

@@ -1,0 +1,8 @@
+package users
+
+message User { id: string }
+
+service Users {
+  base_path: "/v1"
+  get(User) -> User @get("/users/{id}")
+}

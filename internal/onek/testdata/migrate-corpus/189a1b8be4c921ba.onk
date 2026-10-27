@@ -1,0 +1,14 @@
+
+message Outer {
+  id: string
+  message Inner {
+    value: string
+  }
+  enum Kind {
+    A
+    B
+  }
+  inner: Inner
+  kind: Kind
+}
+

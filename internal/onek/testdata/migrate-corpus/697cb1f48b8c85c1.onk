@@ -1,0 +1,52 @@
+
+package main
+
+message User {
+  id: string
+  name: string @len(2, 100)
+  email: string @email
+}
+
+message CreateUserRequest {
+  name: string @len(2, 100)
+  email: string @email
+}
+
+message GetUserRequest {
+  id: string
+}
+
+message NotFoundError @status(404) {
+  resource_type: string
+  resource_id: string
+}
+
+message TextPayload {
+  body: string
+}
+
+message ImagePayload {
+  url: string
+}
+
+message SendMessageRequest {
+  channel: string
+  payload: oneof(discriminator: "type") {
+    text: TextPayload
+    image: ImagePayload
+  }
+}
+
+message SendMessageResponse {
+  message_id: string
+}
+
+service UserService {
+  base_path: "/api/v1"
+
+  createUser(CreateUserRequest) -> User @post("/users")
+
+  getUser(GetUserRequest) -> User | NotFoundError @get("/users/{id}")
+
+  sendMessage(SendMessageRequest) -> SendMessageResponse @post("/messages")
+}

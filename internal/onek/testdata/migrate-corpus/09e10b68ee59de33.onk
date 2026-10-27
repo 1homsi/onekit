@@ -1,0 +1,4 @@
+
+package app
+message Job { id: string }
+service Jobs { wait(Job) -> Job @get("/jobs/{id}") }

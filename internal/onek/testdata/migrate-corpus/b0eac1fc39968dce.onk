@@ -1,0 +1,4 @@
+package app
+message M @rule("self.n > 0", "positive") {
+  n: int32
+}

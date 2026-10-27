@@ -1,0 +1,7 @@
+
+package check
+
+message Page {
+  size: int32 @in(10, 25, 50)
+  version: uint64? @in(1, 2)
+}

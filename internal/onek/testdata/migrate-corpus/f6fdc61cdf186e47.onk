@@ -1,0 +1,10 @@
+
+package app
+message Sub { x: string }
+message Probe {
+  subs: Sub[]
+  sub: Sub
+  by: map[string, Sub]
+  s: string
+}
+service S { op(Probe) -> Probe @post("/p") }

@@ -1,0 +1,9 @@
+package app
+
+message R { a: string }
+
+service Empty {}
+
+service Real {
+  op(R) -> R @post("/op")
+}

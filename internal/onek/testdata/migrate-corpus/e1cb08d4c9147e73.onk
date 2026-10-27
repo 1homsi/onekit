@@ -1,0 +1,53 @@
+
+package examples.simpleapi.models
+
+message Address {
+  street: string
+  city: string
+}
+
+message User {
+  id: string
+  name: string @len(2, 100)
+  bio: string?
+  tags: string[]
+  labels: map[string, string]
+  home_address: Address @flatten(prefix: "home_")
+}
+
+enum Status {
+  UNSPECIFIED
+  ACTIVE @json("active")
+}
+
+message Event {
+  id: string
+  payload: oneof(discriminator: "type", flatten: true) {
+    text: TextPayload @tag("text")
+    image: ImagePayload @tag("image")
+  }
+}
+
+message TextPayload {
+  body: string
+}
+
+message ImagePayload {
+  url: string
+}
+
+message NotFoundError @status(404) {
+  resource_type: string
+}
+
+message ValidationError {
+  field: string
+}
+
+message CreateUserRequest {
+  name: string
+}
+
+message GetUserRequest {
+  id: string
+}

@@ -1,0 +1,6 @@
+package app
+message A { v: string }
+message M {
+  default_disc: oneof { a: A @tag("a") }
+  custom_disc: oneof(discriminator: "kind") { b: A @tag("b") }
+}

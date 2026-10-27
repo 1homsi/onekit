@@ -1,0 +1,11 @@
+
+package ebfix
+
+message DeleteThingRequest { id: string }
+message DeleteThingResponse { message: string }
+
+service ThingService {
+  base_path: "/v1"
+
+  deleteThing(DeleteThingRequest) -> DeleteThingResponse @delete("/things/{id}")
+}

@@ -1,0 +1,4 @@
+
+message ChatIn { text: string }
+message ChatOut { text: string  author: string }
+service Chat { chat(ChatIn) -> ChatOut @ws("/chat") }

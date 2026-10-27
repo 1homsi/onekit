@@ -1,0 +1,7 @@
+
+package check
+
+message WatchRequest { id: string }
+message Tick { n: int32  text: string }
+
+service Feed { watch(WatchRequest) -> Tick @get("/feed/{id}") @stream }

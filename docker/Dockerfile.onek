@@ -1,4 +1,6 @@
-# Multi-stage build for the onek CLI
+# Multi-stage build for the onkt CLI. The image carries Node.js and npm,
+# which onkt needs to compile TypeSpec; mount a project whose node_modules
+# holds @typespec/compiler, @typespec/http and @onkt/typespec.
 FROM golang:1.27-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS builder
 
 WORKDIR /build
@@ -9,13 +11,15 @@ RUN go mod download
 COPY . .
 
 ARG VERSION=dev
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.version=${VERSION}" -o /onek ./cmd/onek
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.version=${VERSION}" -o /onkt ./cmd/onkt
 
 FROM alpine:latest@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 
-COPY --from=builder /onek /usr/local/bin/onek
-RUN chmod +x /usr/local/bin/onek
+RUN apk add --no-cache nodejs npm
+
+COPY --from=builder /onkt /usr/local/bin/onkt
+RUN chmod +x /usr/local/bin/onkt && ln -s /usr/local/bin/onkt /usr/local/bin/onek
 
 WORKDIR /workspace
 
-ENTRYPOINT ["/usr/local/bin/onek"]
+ENTRYPOINT ["/usr/local/bin/onkt"]

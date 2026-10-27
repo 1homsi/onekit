@@ -1,0 +1,4 @@
+message R {}
+service API {
+  a(R) -> R @post("/a") @requires("items:read", "items:write", "admin/all", "a.b-c_d")
+}

@@ -1,0 +1,7 @@
+
+package app
+message Page {
+  size: int32 @in(10, 25, 50)
+  version: int64? @in(1, 2)
+}
+service S { list(Page) -> Page @post("/pages") }

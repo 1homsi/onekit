@@ -1,0 +1,3 @@
+
+package app
+message Legacy { old: string @deprecated("use new_name") new_name: string }
