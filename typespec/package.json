@@ -1,6 +1,6 @@
 {
   "name": "@onkt/typespec",
-  "version": "0.1.0",
+  "version": "0.0.0-development",
   "description": "onekit code generators for TypeSpec: Go, TypeScript, Python, Rust, Dart and Swift servers and clients",
   "license": "MIT",
   "type": "module",

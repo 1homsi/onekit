@@ -43,6 +43,8 @@ func usage(w io.Writer) {
 }
 
 func main() {
+	info, ok := debug.ReadBuildInfo()
+	onek.ToolVersion = resolveVersion(version, info, ok)
 	warnLegacyName(os.Args[0], os.Stderr)
 	os.Exit(exitCode(run(os.Args[1:]), os.Stdout, os.Stderr))
 }

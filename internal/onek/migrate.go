@@ -24,17 +24,28 @@ type MigrateResult struct {
 	Removed []string
 }
 
-// typespecPackageJSON is written for a migrated project that has no
-// package.json yet, so `npm install` brings in the TypeSpec toolchain.
-const typespecPackageJSON = `{
+// ToolVersion is the running onkt release ("dev" for a development build).
+// The CLI sets it; projects onkt creates pin the matching @onkt/typespec.
+var ToolVersion = "dev"
+
+// typespecPackageJSON is written for a project onkt creates or migrates, so
+// `npm install` brings in the TypeSpec toolchain. @onkt/typespec is
+// published with every onkt release under the same version.
+func typespecPackageJSON() string {
+	emitter := "latest"
+	if version := NormalizeVersion(ToolVersion); validatePinnedVersion(version) == nil && version != "" {
+		emitter = "^" + version
+	}
+	return `{
   "private": true,
   "devDependencies": {
-    "@onkt/typespec": "^0.1.0",
+    "@onkt/typespec": "` + emitter + `",
     "@typespec/compiler": "^1.17.0",
     "@typespec/http": "^1.17.0"
   }
 }
 `
+}
 
 // Migrate converts every .onk schema under the project's schema root to
 // TypeSpec: one .tsp file next to each .onk file, a main.tsp importing them
@@ -84,7 +95,7 @@ func Migrate(dir string, options MigrateOptions) (MigrateResult, error) {
 	project := dir
 	packageJSON := filepath.Join(project, "package.json")
 	if _, err := os.Stat(packageJSON); errors.Is(err, os.ErrNotExist) {
-		if err := os.WriteFile(packageJSON, []byte(typespecPackageJSON), genFilePerm); err != nil {
+		if err := os.WriteFile(packageJSON, []byte(typespecPackageJSON()), genFilePerm); err != nil {
 			return result, err
 		}
 		result.Written = append(result.Written, packageJSON)

@@ -89,7 +89,7 @@ func InitTemplateProject(dir string, force bool, template string) error {
 	}{
 		{path: filepath.Join(root, configFileName), content: fmt.Sprintf(chosen.config, initModuleName(filepath.Base(root)))},
 		{path: filepath.Join(root, typespecEntry), content: chosen.schema},
-		{path: filepath.Join(root, "package.json"), content: typespecPackageJSON},
+		{path: filepath.Join(root, "package.json"), content: typespecPackageJSON()},
 	}
 	for _, file := range files {
 		path := file.path
