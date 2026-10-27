@@ -93,10 +93,10 @@ func TestBuildPointsOnkProjectsAtMigrate(t *testing.T) {
 }
 
 func TestPackageJSONPinsTheMatchingEmitter(t *testing.T) {
-	previous := ToolVersion
-	t.Cleanup(func() { ToolVersion = previous })
+	previous := toolVersion
+	t.Cleanup(func() { SetToolVersion(previous) })
 	for version, want := range map[string]string{"v0.37.0": `"@onkt/typespec": "^0.37.0"`, "dev": `"@onkt/typespec": "latest"`, "(devel)": `"@onkt/typespec": "latest"`} {
-		ToolVersion = version
+		SetToolVersion(version)
 		if got := typespecPackageJSON(); !strings.Contains(got, want) {
 			t.Errorf("%s: package.json = %s, want %s", version, got, want)
 		}

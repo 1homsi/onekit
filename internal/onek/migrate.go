@@ -24,16 +24,21 @@ type MigrateResult struct {
 	Removed []string
 }
 
-// ToolVersion is the running onkt release ("dev" for a development build).
-// The CLI sets it; projects onkt creates pin the matching @onkt/typespec.
-var ToolVersion = "dev"
+// toolVersion is the running onkt release ("dev" for a development build);
+// projects onkt creates pin the matching @onkt/typespec.
+var toolVersion = "dev"
+
+// SetToolVersion records the running onkt release.
+func SetToolVersion(version string) {
+	toolVersion = version
+}
 
 // typespecPackageJSON is written for a project onkt creates or migrates, so
 // `npm install` brings in the TypeSpec toolchain. @onkt/typespec is
 // published with every onkt release under the same version.
 func typespecPackageJSON() string {
 	emitter := "latest"
-	if version := NormalizeVersion(ToolVersion); validatePinnedVersion(version) == nil && version != "" {
+	if version := NormalizeVersion(toolVersion); validatePinnedVersion(version) == nil && version != "" {
 		emitter = "^" + version
 	}
 	return `{
