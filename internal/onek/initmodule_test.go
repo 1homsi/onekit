@@ -14,6 +14,7 @@ func TestInitModulePathMatchesGeneratedPackage(t *testing.T) {
 	if err := Init(dir, false); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
+	linkTypeSpec(t, dir)
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build: %v", err)
 	}

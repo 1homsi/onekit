@@ -107,7 +107,7 @@ func TestBuildTSCompilesUnderStrictNodeESM(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "onekit.toml"), strictESMOnekitToml)
 	for _, name := range []string{"models.onk", "service.onk"} {
-		src, err := os.ReadFile(filepath.Join("..", "..", "examples", "onk-simple-api", name))
+		src, err := os.ReadFile(filepath.Join("testdata", "simple-api-onk", name))
 		if err != nil {
 			t.Fatalf("read example schema: %v", err)
 		}

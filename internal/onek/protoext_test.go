@@ -58,34 +58,3 @@ func TestSchemaExtensionsRejectsUnknownValues(t *testing.T) {
 		t.Fatalf("expected a schema_extensions error, got %v", err)
 	}
 }
-
-func TestProtoNamedSchemasAreFormattedAndSeenByTheLanguageTools(t *testing.T) {
-	dir := protoProject(t, "schema_extensions = [\".onk\", \".proto\"]\n")
-	messy := strings.Replace(protoNamedOnkSchema, "message Item { id: string }", "message   Item {   id:string   }", 1)
-	writeTestFile(t, filepath.Join(dir, "api", "items.proto"), messy)
-	if err := Format(dir, true); err == nil {
-		t.Fatal("fmt --check must flag the unformatted .proto schema")
-	}
-	if err := Format(dir, false); err != nil {
-		t.Fatal(err)
-	}
-	if got := read(t, filepath.Join(dir, "api", "items.proto")); got == messy || !strings.Contains(got, "id: string") {
-		t.Fatalf("fmt must rewrite the .proto schema:\n%s", got)
-	}
-	if err := Format(dir, true); err != nil {
-		t.Fatalf("a formatted .proto schema must pass fmt --check: %v", err)
-	}
-	snapshot, err := AnalyzeLanguage(dir, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, file := range snapshot.Files {
-		if strings.HasSuffix(file.Path, "items.proto") {
-			found = true
-		}
-	}
-	if !found || len(snapshot.Diagnostics) > 0 {
-		t.Fatalf("the language tools must include items.proto without diagnostics: %+v %+v", snapshot.Files, snapshot.Diagnostics)
-	}
-}

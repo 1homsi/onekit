@@ -1,0 +1,13 @@
+module = "github.com/1homsi/onekit/examples/simple-api/api"
+
+[generate.go-server]
+out = "./api"
+
+[generate.go-client]
+out = "./api"
+
+[generate.openapi]
+out = "./docs"
+title = "SimpleAPI"
+version = "1.0.0"
+description = "Example user service, written in TypeSpec"

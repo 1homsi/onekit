@@ -12,48 +12,58 @@ type InitTemplate struct {
 	schema      string
 }
 
-const todoSchema = `package example.todos
+const todoSchema = `import "@typespec/http";
+import "@onkt/typespec";
+
+using TypeSpec.Http;
+
+namespace example.todos;
 
 enum Status {
-  OPEN
-  DONE
+  OPEN,
+  DONE,
 }
 
-message Todo {
-  id: string
-  title: string @required @len(1, 200)
-  status: Status
-  created_at: timestamp
+model Todo {
+  id: string;
+  @Onkt.required @minLength(1) @maxLength(200) title: string;
+  status: Status;
+  created_at: utcDateTime;
 }
 
-message ListTodosRequest {
-  status: string? @query
-  limit: int32? @query @range(1, 100)
+model ListTodosRequest {
+  @query status?: string;
+  @query @minValue(1) @maxValue(100) limit?: int32;
 }
 
-message ListTodosResponse {
-  todos: Todo[]
+model ListTodosResponse {
+  todos: Todo[];
 }
 
-message CreateTodoRequest {
-  title: string @required @len(1, 200)
+model CreateTodoRequest {
+  @Onkt.required @minLength(1) @maxLength(200) title: string;
 }
 
-message GetTodoRequest {
-  id: string @required
+model GetTodoRequest {
+  @Onkt.required id: string;
 }
 
-message NotFound @status(404) {
-  message: string
+@error
+model NotFound {
+  @statusCode _: 404;
+  message: string;
 }
 
-service TodoService {
-  base_path: "/v1"
+@route("/v1")
+interface TodoService {
+  @get @route("/todos") listTodos(...ListTodosRequest): ListTodosResponse;
 
-  listTodos(ListTodosRequest) -> ListTodosResponse @get("/todos")
-  createTodo(CreateTodoRequest) -> Todo @post("/todos")
-  getTodo(GetTodoRequest) -> Todo | NotFound @get("/todos/{id}")
-  watchTodos(ListTodosRequest) -> Todo @get("/watch/todos") @stream
+  @post @route("/todos") createTodo(...CreateTodoRequest): Todo;
+
+  @get @route("/todos/{id}") getTodo(...GetTodoRequest): Todo | NotFound;
+
+  /** Streams every todo as server-sent events. */
+  @get @route("/watch/todos") @Onkt.stream watchTodos(...ListTodosRequest): Todo;
 }
 `
 

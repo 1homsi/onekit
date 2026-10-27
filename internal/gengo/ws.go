@@ -66,7 +66,7 @@ func writeWSOutType(p *Printer) {
 //
 // typeName/constructorName are parameterized because a project's standard
 // layout puts client.gen.go and server.gen.go in the same package (see
-// examples/onk-simple-api/api): the client and server sides each emit their
+// examples/simple-api/api): the client and server sides each emit their
 // own copy under distinct names so the two files never collide, even though
 // every other detail of the type is identical.
 func writeWSPendingType(p *Printer, typeName, constructorName, closedErrName string) {

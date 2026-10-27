@@ -71,7 +71,7 @@ func TestMigrateCorpus(t *testing.T) {
 	if corpus == "" {
 		corpus = filepath.Join("testdata", "migrate-corpus")
 	}
-	modules := repoNodeModules(t)
+	repoNodeModules(t)
 	files, err := filepath.Glob(filepath.Join(corpus, "*.onk"))
 	if err != nil {
 		t.Fatal(err)
@@ -83,12 +83,12 @@ func TestMigrateCorpus(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			checkMigration(t, modules, string(source))
+			checkMigration(t, string(source))
 		})
 	}
 }
 
-func checkMigration(t *testing.T, modules, source string) {
+func checkMigration(t *testing.T, source string) {
 	t.Helper()
 	base := t.TempDir()
 	onkDir := filepath.Join(base, "onk")
@@ -110,9 +110,7 @@ func checkMigration(t *testing.T, modules, source string) {
 	if _, err := Migrate(tspDir, MigrateOptions{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	if err := os.Symlink(modules, filepath.Join(tspDir, "node_modules")); err != nil {
-		t.Fatal(err)
-	}
+	linkTypeSpec(t, tspDir)
 	if err := Build(tspDir); err != nil {
 		t.Fatalf("build the migrated project: %v\n--- schema ---\n%s\n--- typespec ---\n%s", err, source, readTSP(t, tspDir))
 	}

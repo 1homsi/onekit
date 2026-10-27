@@ -200,8 +200,3 @@ func looksLikeProtobuf(path string) (bool, error) {
 	text := string(head[:n])
 	return protobufSyntaxLine.MatchString(text) || protobufFieldNumber.MatchString(text), nil
 }
-
-func isSchemaFileName(path string) bool {
-	ext := filepath.Ext(path)
-	return ext == onkExtension || ext == protoExtension
-}

@@ -1,20 +1,24 @@
 package onek
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// TestMigrateExample migrates examples/onk-simple-api and requires the
-// TypeSpec project to build to the output checked in from the .onk schema.
+// TestMigrateExample migrates the .onk schema examples/simple-api was
+// written in and requires the result to build to the example's checked-in
+// output.
 func TestMigrateExample(t *testing.T) {
-	modules := repoNodeModules(t)
-	example := filepath.Join("..", "..", "examples", "onk-simple-api")
 	dir := t.TempDir()
-	copyTree(t, example, dir)
+	copyTree(t, filepath.Join("..", "..", "examples", "simple-api"), dir)
+	for _, name := range []string{"main.tsp", "models.tsp", "package.json"} {
+		if err := os.Remove(filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	copyTree(t, filepath.Join("testdata", "simple-api-onk"), dir)
 
 	result, err := Migrate(dir, MigrateOptions{})
 	if err != nil {
@@ -34,20 +38,12 @@ func TestMigrateExample(t *testing.T) {
 		t.Errorf("removed = %v", result.Removed)
 	}
 
-	if err := os.Symlink(modules, filepath.Join(dir, "node_modules")); err != nil {
-		t.Fatal(err)
-	}
+	linkTypeSpec(t, dir)
 	t.Setenv("ONEK_NO_CACHE", "1")
 	if err := Build(dir); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{"api/types.gen.go", "api/validate.gen.go", "api/server.gen.go", "api/client.gen.go", "docs/openapi.yaml", "docs/openapi.json"} {
-		want, _ := os.ReadFile(filepath.Join(example, rel))
-		got, _ := os.ReadFile(filepath.Join(dir, rel))
-		if !bytes.Equal(got, want) {
-			t.Errorf("%s differs from the output of the .onk schema", rel)
-		}
-	}
+	requireExampleOutputs(t, dir)
 }
 
 func TestMigrateRefusesToOverwrite(t *testing.T) {
@@ -75,5 +71,16 @@ func TestMigrateKeepsSchemasOnRequest(t *testing.T) {
 	main, err := os.ReadFile(filepath.Join(dir, "main.tsp"))
 	if err != nil || !strings.Contains(string(main), `import "./api.tsp";`) {
 		t.Fatalf("main.tsp = %q, %v", main, err)
+	}
+}
+
+func TestBuildPointsOnkProjectsAtMigrate(t *testing.T) {
+	onkSchemasAccepted = false
+	t.Cleanup(func() { onkSchemasAccepted = true })
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "api.onk"), "package app\nmessage M {}\n")
+	err := Check(dir)
+	if err == nil || !strings.Contains(err.Error(), "onek migrate") {
+		t.Fatalf("err = %v, want a pointer to onek migrate", err)
 	}
 }

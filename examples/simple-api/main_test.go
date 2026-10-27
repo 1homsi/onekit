@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/1homsi/onekit/examples/onk-simple-api/api"
+	"github.com/1homsi/onekit/examples/simple-api/api"
 )
 
 func TestUserServiceEndToEnd(t *testing.T) {

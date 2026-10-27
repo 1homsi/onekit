@@ -10,96 +10,24 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/1homsi/onekit/internal/onklang"
 )
 
-// FormatError reports the files that would change when formatting in check
-// mode. It is intentionally machine-readable for editor and CI integrations.
-type FormatError struct {
-	Files []string
+const initSchema = `import "@typespec/http";
+import "@onkt/typespec";
+
+using TypeSpec.Http;
+
+namespace example.api;
+
+model HealthRequest {}
+
+model HealthResponse {
+  status: string;
 }
 
-func (e *FormatError) Error() string {
-	if len(e.Files) == 0 {
-		return "schema files are not formatted"
-	}
-	return fmt.Sprintf("schema files are not formatted: %s", strings.Join(e.Files, ", "))
-}
-
-// Format formats every .onk file under dir. In check mode it never writes and
-// returns a FormatError when any file differs from the canonical form.
-func Format(dir string, check bool) error {
-	schemaRoot, exts, err := resolveSchemaTreeExts(dir)
-	if err != nil {
-		return err
-	}
-	paths, err := discoverSchemaFiles(schemaRoot, exts)
-	if err != nil {
-		return err
-	}
-	if len(paths) == 0 {
-		return fmt.Errorf("no .onk files found under %s", dir)
-	}
-	return FormatFiles(paths, check)
-}
-
-func FormatFiles(paths []string, check bool) error {
-	var changed []string
-	for _, original := range paths {
-		path := original
-		dir, err := filepath.Abs(filepath.Dir(path))
-		if err != nil {
-			return err
-		}
-		if resolved, resolveErr := filepath.EvalSymlinks(dir); resolveErr == nil {
-			dir = resolved
-		}
-		path = filepath.Join(dir, filepath.Base(path))
-		data, err := readRegularFile(path)
-		if err != nil {
-			return fmt.Errorf("read %s: %w", path, err)
-		}
-		formatted, err := onklang.Format(string(data))
-		if err != nil {
-			return fmt.Errorf("format %s: %w", path, err)
-		}
-		if string(formatted) == string(data) {
-			continue
-		}
-		if len(formatted) == 0 && len(data) > 0 {
-			// writeFile treats empty output as "remove stale generated file";
-			// formatting must never delete a source schema, so leave files
-			// that carry no formattable declarations untouched.
-			continue
-		}
-		if check {
-			changed = append(changed, original)
-			continue
-		}
-		if err := writeFile(path, formatted); err != nil {
-			return err
-		}
-	}
-	if len(changed) > 0 {
-		return &FormatError{Files: changed}
-	}
-	return nil
-}
-
-const initSchema = `package example.api
-
-message HealthRequest {
-}
-
-message HealthResponse {
-  status: string
-}
-
-service HealthService {
-  base_path: "/v1"
-
-  health(HealthRequest) -> HealthResponse @get("/health")
+@route("/v1")
+interface HealthService {
+  @get @route("/health") health(...HealthRequest): HealthResponse;
 }
 `
 
@@ -160,7 +88,8 @@ func InitTemplateProject(dir string, force bool, template string) error {
 		content string
 	}{
 		{path: filepath.Join(root, configFileName), content: fmt.Sprintf(chosen.config, initModuleName(filepath.Base(root)))},
-		{path: filepath.Join(root, "api.onk"), content: chosen.schema},
+		{path: filepath.Join(root, typespecEntry), content: chosen.schema},
+		{path: filepath.Join(root, "package.json"), content: typespecPackageJSON},
 	}
 	for _, file := range files {
 		path := file.path
@@ -177,7 +106,10 @@ func InitTemplateProject(dir string, force bool, template string) error {
 			return fmt.Errorf("write %s: %w", file.path, err)
 		}
 	}
-	return ensureGitignoreEntry(filepath.Join(root, ".gitignore"), ".onekit/")
+	if err := ensureGitignoreEntry(filepath.Join(root, ".gitignore"), ".onekit/"); err != nil {
+		return err
+	}
+	return ensureGitignoreEntry(filepath.Join(root, ".gitignore"), "node_modules/")
 }
 
 func ensureGitignoreEntry(path, entry string) error {

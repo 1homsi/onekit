@@ -205,7 +205,28 @@ func groupByDirectory(pkg *onkir.Package, schemaRoot string) (*sourceIndex, erro
 	return idx, nil
 }
 
+// onkSchemasAccepted lets .onk schemas build. Projects moved to TypeSpec in
+// this release; the test suite keeps .onk as a compact fixture format for the
+// compiler and generators (TestMigrateCorpus holds every such fixture to
+// identical TypeSpec output).
+var onkSchemasAccepted = false
+
+// errOnkSchemas is the error a project still on .onk schemas gets.
+func errOnkSchemas(root string, files []string) error {
+	rel, err := filepath.Rel(root, files[0])
+	if err != nil {
+		rel = files[0]
+	}
+	return fmt.Errorf("%s is a .onk schema; onek now reads TypeSpec. Run `onek migrate --dir %s` to convert the project", rel, root)
+}
+
 func compileTree(dir string, exts []string, options onkcompile.CompileOptions) (*onkir.Package, error) {
+	return compileSchemaTree(dir, exts, options, onkSchemasAccepted)
+}
+
+// compileSchemaTree compiles every schema under dir; acceptOnk lets .onk
+// schemas through, as a compatibility baseline from before a migration.
+func compileSchemaTree(dir string, exts []string, options onkcompile.CompileOptions, acceptOnk bool) (*onkir.Package, error) {
 	root, err := canonicalProjectDir(dir)
 	if err != nil {
 		return nil, err
@@ -225,6 +246,9 @@ func compileTree(dir string, exts []string, options onkcompile.CompileOptions) (
 			continue
 		}
 		onkFiles = append(onkFiles, file)
+	}
+	if len(onkFiles) > 0 && !acceptOnk {
+		return nil, errOnkSchemas(root, onkFiles)
 	}
 	sources, err := parseSources(onkFiles)
 	if err != nil {
@@ -262,14 +286,6 @@ func loadOptionalConfig(dir string) (*Config, error) {
 		return nil, fmt.Errorf("stat %s: %w", configPath, statErr)
 	}
 	return LoadConfig(dir)
-}
-
-// resolveSchemaTree returns the effective root of the .onk schema tree for
-// a project directory: the configured schema_root when onekit.toml declares
-// one, otherwise the directory itself.
-func resolveSchemaTree(dir string) (string, error) {
-	root, _, err := resolveSchemaTreeExts(dir)
-	return root, err
 }
 
 func resolveSchemaTreeExts(dir string) (string, []string, error) {
@@ -344,7 +360,8 @@ func compileCompatibilityProject(dir string, fallback *Config) (*onkir.Package, 
 			}
 		}
 	}
-	pkg, err := compileTree(root, exts, options)
+	// The previous side of a comparison may predate the move to TypeSpec.
+	pkg, err := compileSchemaTree(root, exts, options, true)
 	if err != nil {
 		return nil, err
 	}

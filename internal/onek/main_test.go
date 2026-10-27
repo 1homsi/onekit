@@ -11,6 +11,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	_ = os.Setenv(cacheDirEnv, cacheDir)
+	onkSchemasAccepted = true
 	code := m.Run()
 	_ = os.RemoveAll(cacheDir)
 	os.Exit(code)

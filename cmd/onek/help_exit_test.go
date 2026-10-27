@@ -7,7 +7,7 @@ import (
 )
 
 func TestSubcommandHelpExitsZero(t *testing.T) {
-	for _, args := range [][]string{{"build", "-h"}, {"fmt", "--help"}, {"mock", "-h"}, {"compat", "-h"}} {
+	for _, args := range [][]string{{"build", "-h"}, {"migrate", "--help"}, {"mock", "-h"}, {"compat", "-h"}} {
 		var stderr bytes.Buffer
 		if code := exitCode(run(args), &bytes.Buffer{}, &stderr); code != 0 {
 			t.Fatalf("onek %v exited %d: %s", args, code, stderr.String())

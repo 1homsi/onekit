@@ -25,6 +25,7 @@ func TestEveryInitTemplateBuildsAndVerifies(t *testing.T) {
 			if err := InitTemplateProject(dir, false, template.Name); err != nil {
 				t.Fatalf("init: %v", err)
 			}
+			linkTypeSpec(t, dir)
 			summary, err := BuildWithSummary(dir)
 			if err != nil {
 				t.Fatalf("build: %v", err)
@@ -63,6 +64,7 @@ func TestInitTemplatesDescribeTheTargetsTheyConfigure(t *testing.T) {
 		if err := InitTemplateProject(dir, false, template.Name); err != nil {
 			t.Fatal(err)
 		}
+		linkTypeSpec(t, dir)
 		cfg, err := LoadConfig(dir)
 		if err != nil {
 			t.Fatal(err)
@@ -103,6 +105,7 @@ func TestGoInitTemplatesProduceCompilableGo(t *testing.T) {
 			if err := InitTemplateProject(dir, false, name); err != nil {
 				t.Fatal(err)
 			}
+			linkTypeSpec(t, dir)
 			if err := Build(dir); err != nil {
 				t.Fatal(err)
 			}
@@ -131,6 +134,7 @@ func TestSwiftInitTemplatesTypeCheck(t *testing.T) {
 			if err := InitTemplateProject(dir, false, name); err != nil {
 				t.Fatal(err)
 			}
+			linkTypeSpec(t, dir)
 			if err := Build(dir); err != nil {
 				t.Fatal(err)
 			}
@@ -168,6 +172,7 @@ func TestInitDefaultsToTheGoTemplate(t *testing.T) {
 	if err := Init(dir, false); err != nil {
 		t.Fatal(err)
 	}
+	linkTypeSpec(t, dir)
 	config, err := os.ReadFile(filepath.Join(dir, "onekit.toml"))
 	if err != nil || !strings.Contains(string(config), "[generate.go-server]") || strings.Contains(string(config), "ts-client") {
 		t.Fatalf("default template changed: %v\n%s", err, config)
@@ -180,6 +185,7 @@ func TestInitTemplatesStayUnopinionatedAboutFrontendLibraries(t *testing.T) {
 		if err := InitTemplateProject(dir, false, template.Name); err != nil {
 			t.Fatal(err)
 		}
+		linkTypeSpec(t, dir)
 		cfg, err := LoadConfig(dir)
 		if err != nil {
 			t.Fatal(err)
@@ -198,6 +204,7 @@ func TestPlainTypeScriptTemplateOutputNeedsOnlyTheTypeScriptCompiler(t *testing.
 	if err := InitTemplateProject(dir, false, "web"); err != nil {
 		t.Fatal(err)
 	}
+	linkTypeSpec(t, dir)
 	if err := Build(dir); err != nil {
 		t.Fatal(err)
 	}

@@ -17,13 +17,12 @@ import (
 
 	"path/filepath"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"github.com/1homsi/onekit/internal/onek"
 	"github.com/1homsi/onekit/internal/onkcompat"
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkimport"
 	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onkmigrate"
 )
 
 var version = "dev"
@@ -33,7 +32,6 @@ func usage(w io.Writer) {
   onek build [--check] [--dir DIR]
   onek check [--json | --format text|json|github] [--dir DIR]
   onek generate [--dir DIR]
-  onek fmt [--check] [--dir DIR | FILE.onk... | -]
   onek watch [--interval DURATION] [--dir DIR]
   onek mock [--addr ADDR] [--seed N] [--error-rate FLOAT] [--latency DURATION] [--watch] [--dir DIR]
   onek init [--force] [--template NAME | --list-templates] [DIR]
@@ -41,8 +39,6 @@ func usage(w io.Writer) {
   onek compat [--json] PREVIOUS-DIR CURRENT-DIR
   onek compat [--json] --against GIT-REF [CURRENT-DIR]
   onek migrate [--keep] [--force] [--dir DIR]
-  onek mcp [--dir DIR]
-  onek lsp [--dir DIR]
   onek version`)
 }
 
@@ -88,13 +84,13 @@ func run(args []string) error {
 	}
 	switch args[0] {
 	case "mcp", "lsp":
-		return runLanguageServer(args[0], args[1:])
+		return fmt.Errorf("onek %s was removed with the .onk language; TypeSpec ships its own language server (the TypeSpec extension for VS Code and other editors)", args[0])
 	case "version":
 		return runVersion(args[1:])
 	case commandBuild, "generate", commandCheck:
 		return runProjectCommand(args[0], args[1:])
 	case "fmt":
-		return runFormat(args[1:])
+		return errors.New("onek fmt was removed with the .onk language; format TypeSpec with `npx tsp format \"**/*.tsp\"`")
 	case "init":
 		return runInit(args[1:])
 	case "watch":
@@ -182,51 +178,6 @@ func runProjectCommand(command string, args []string) error {
 		return &jsonDiagnosticsExitError{err: operationErr}
 	}
 	return json.NewEncoder(os.Stdout).Encode([]onek.Diagnostic{})
-}
-
-func runFormat(args []string) error {
-	fs := flag.NewFlagSet("fmt", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	check := fs.Bool("check", false, "check formatting without writing files")
-	dir := fs.String("dir", ".", "schema project directory")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	positional := fs.Args()
-	if len(positional) == 1 && positional[0] == "-" {
-		return formatStdin(os.Stdin, os.Stdout)
-	}
-	if len(positional) > 0 && allOnkFiles(positional) {
-		return onek.FormatFiles(positional, *check)
-	}
-	if len(positional) > 1 {
-		return errors.New("fmt accepts one directory, one or more .onk files, or - for stdin")
-	} else if len(positional) == 1 {
-		*dir = positional[0]
-	}
-	return onek.Format(*dir, *check)
-}
-
-func allOnkFiles(paths []string) bool {
-	for _, path := range paths {
-		if !strings.HasSuffix(path, ".onk") && !strings.HasSuffix(path, ".proto") {
-			return false
-		}
-	}
-	return true
-}
-
-func formatStdin(in io.Reader, out io.Writer) error {
-	data, err := io.ReadAll(in)
-	if err != nil {
-		return fmt.Errorf("read stdin: %w", err)
-	}
-	formatted, err := onklang.Format(string(data))
-	if err != nil {
-		return err
-	}
-	_, err = out.Write(formatted)
-	return err
 }
 
 func runInit(args []string) error {
@@ -337,10 +288,10 @@ func runMock(args []string) error {
 func runImport(args []string) error {
 	fs := flag.NewFlagSet("import", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	outDir := fs.String("out", "./imported", "directory for the generated .onk file")
-	pkg := fs.String("package", "", "generated package name (default: derived from info.title)")
+	outDir := fs.String("out", "./imported", "directory for the generated TypeSpec files")
+	pkg := fs.String("package", "", "generated namespace (default: derived from info.title)")
 	service := fs.String("service", "", "generated service name (default: package + Service)")
-	force := fs.Bool("force", false, "overwrite an existing .onk file")
+	force := fs.Bool("force", false, "overwrite an existing .tsp file")
 	toStdout := fs.Bool("stdout", false, "print the schema instead of writing it")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -364,38 +315,59 @@ func runImport(args []string) error {
 	for _, warning := range result.Warnings {
 		fmt.Fprintln(os.Stderr, "onek import:", warning)
 	}
-	// Never write output that does not parse - a broken import is worse than
-	// a failed one.
-	ast, err := onklang.Parse(string(result.Source))
-	if err != nil {
-		return fmt.Errorf("internal: imported schema does not parse: %w", err)
-	}
-	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: result.Package + ".onk", AST: ast}}); err != nil {
-		return fmt.Errorf("imported schema does not pass onek check: %w", err)
-	}
-	if *toStdout {
-		_, err := os.Stdout.Write(result.Source)
-		return err
-	}
-	if err := os.MkdirAll(*outDir, 0o750); err != nil {
-		return fmt.Errorf("create %s: %w", *outDir, err)
-	}
 	// Defense in depth: package names derive from slug(info.title), but
 	// refuse anything that could escape the output directory.
 	if result.Package == "" || strings.ContainsAny(result.Package, "/\\") {
 		return fmt.Errorf("invalid generated package name %q", result.Package)
 	}
-	target := filepath.Join(*outDir, result.Package+".onk")
+	target := filepath.Join(*outDir, result.Package+".tsp")
+	schema, err := importedTypeSpec(result, target)
+	if err != nil {
+		return err
+	}
+	if *toStdout {
+		_, err := io.WriteString(os.Stdout, schema)
+		return err
+	}
+	if err := os.MkdirAll(*outDir, 0o750); err != nil {
+		return fmt.Errorf("create %s: %w", *outDir, err)
+	}
 	//nolint:gosec // Same validated target as the write below.
 	if _, err := os.Lstat(target); err == nil && !*force {
 		return fmt.Errorf("refusing to overwrite %s; pass --force to replace it", target)
 	}
 	//nolint:gosec // Package is validated against [a-z0-9_]+ above and out dir is user-chosen.
-	if err := os.WriteFile(target, result.Source, 0o644); err != nil {
+	if err := os.WriteFile(target, []byte(schema), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", target, err)
+	}
+	entry := filepath.Join(*outDir, onkmigrate.EntryFile)
+	if _, err := os.Lstat(entry); errors.Is(err, os.ErrNotExist) {
+		main := fmt.Sprintf("import \"./%s\";\n", filepath.Base(target))
+		//nolint:gosec // main.tsp inside the user-chosen out dir.
+		if err := os.WriteFile(entry, []byte(main), 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", entry, err)
+		}
 	}
 	fmt.Fprintf(os.Stdout, "wrote %s (%d warnings)\n", target, len(result.Warnings))
 	return nil
+}
+
+// importedTypeSpec checks an imported schema and converts it to TypeSpec.
+// Never write output that does not compile - a broken import is worse than a
+// failed one.
+func importedTypeSpec(result *onkimport.Result, target string) (string, error) {
+	ast, err := onklang.Parse(string(result.Source))
+	if err != nil {
+		return "", fmt.Errorf("internal: imported schema does not parse: %w", err)
+	}
+	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: result.Package + ".onk", AST: ast}}); err != nil {
+		return "", fmt.Errorf("imported schema does not pass onek check: %w", err)
+	}
+	out, err := onkmigrate.Convert([]onkmigrate.Source{{Path: target, AST: ast}}, onkmigrate.Options{})
+	if err != nil {
+		return "", fmt.Errorf("internal: imported schema does not convert to TypeSpec: %w", err)
+	}
+	return out[0].Content, nil
 }
 
 func runCompat(args []string) error {
@@ -482,35 +454,9 @@ func (e *jsonDiagnosticsExitError) Error() string { return e.err.Error() }
 
 func (*jsonDiagnosticsExitError) ExitCode() int { return 1 }
 
-func runLanguageServer(command string, args []string) error {
-	fs := flag.NewFlagSet(command, flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	dir := fs.String("dir", "", "project directory (LSP defaults to client workspace; MCP defaults to cwd)")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if fs.NArg() != 0 {
-		return fmt.Errorf("%s accepts only --dir DIR", command)
-	}
-	if command == "lsp" {
-		return onek.RunLSP(os.Stdin, os.Stdout, *dir)
-	}
-	if *dir == "" {
-		*dir = "."
-	}
-	info, ok := debug.ReadBuildInfo()
-	server, err := onek.NewLanguageMCPServer(*dir, resolveVersion(version, info, ok))
-	if err != nil {
-		return err
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	return server.Run(ctx, &mcp.StdioTransport{})
-}
+var commandNames = []string{"build", "check", "generate", "watch", "mock", "init", "import", "compat", "migrate", "version", "help"}
 
-var commandNames = []string{"build", "check", "generate", "fmt", "watch", "mock", "init", "import", "compat", "migrate", "mcp", "lsp", "version", "help"}
-
-var commandAliases = map[string]string{"format": "fmt", "lint": "check", "validate": "check", "gen": "generate", "serve": "mock", "new": "init"}
+var commandAliases = map[string]string{"lint": "check", "validate": "check", "gen": "generate", "serve": "mock", "new": "init"}
 
 func suggestCommand(input string) string {
 	if alias, ok := commandAliases[input]; ok {

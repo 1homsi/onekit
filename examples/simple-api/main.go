@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/1homsi/onekit/examples/onk-simple-api/api"
+	"github.com/1homsi/onekit/examples/simple-api/api"
 )
 
 type server struct {

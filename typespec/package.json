@@ -15,7 +15,7 @@
   "files": ["lib", "dist/src"],
   "scripts": {
     "build": "tsc -p .",
-    "test": "npm run build && node --test dist/test/"
+    "test": "npm run build && node --test \"dist/test/**/*.test.js\""
   },
   "peerDependencies": {
     "@typespec/compiler": "^1.17.0",

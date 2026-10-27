@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
-    title: OnkSimpleAPI
-    description: Example service migrated from examples/simple-api to .onk
+    title: SimpleAPI
+    description: Example user service, written in TypeSpec
     version: 1.0.0
 paths:
     /api/v1/users:

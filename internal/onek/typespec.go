@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -128,6 +130,25 @@ func (e *TypeSpecError) Error() string {
 }
 
 func (e *TypeSpecError) Unwrap() error { return e.Err }
+
+// typespecDiagnostic matches one `tsp compile --pretty false` diagnostic:
+// "path:line:col - error code: message".
+var typespecDiagnostic = regexp.MustCompile(`^(.+?):(\d+):(\d+) - (error|warning) (\S+): (.*)$`)
+
+// Diagnostics parses the compiler output into structured diagnostics.
+func (e *TypeSpecError) Diagnostics() []Diagnostic {
+	var diagnostics []Diagnostic
+	for _, line := range strings.Split(e.Output, "\n") {
+		match := typespecDiagnostic.FindStringSubmatch(strings.TrimSpace(line))
+		if match == nil || match[4] != "error" {
+			continue
+		}
+		lineNumber, _ := strconv.Atoi(match[2])
+		column, _ := strconv.Atoi(match[3])
+		diagnostics = append(diagnostics, Diagnostic{Path: match[1], Line: lineNumber, Column: column, Code: match[5], Message: match[6]})
+	}
+	return diagnostics
+}
 
 // typespecDiagnostics drops the compiler's progress lines from its output.
 func typespecDiagnostics(output string) string {

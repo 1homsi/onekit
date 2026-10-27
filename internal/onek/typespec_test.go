@@ -28,6 +28,16 @@ func repoNodeModules(t *testing.T) string {
 	return modules
 }
 
+// linkTypeSpec gives a test project the repository's TypeSpec toolchain.
+func linkTypeSpec(t *testing.T, dir string) {
+	t.Helper()
+	modules := repoNodeModules(t)
+	if err := os.Symlink(modules, filepath.Join(dir, "node_modules")); err != nil {
+		// Windows needs a privilege to create symlinks.
+		t.Skipf("link the TypeSpec toolchain: %v", err)
+	}
+}
+
 func copyTree(t *testing.T, src, dst string) {
 	t.Helper()
 	err := filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
@@ -50,28 +60,15 @@ func copyTree(t *testing.T, src, dst string) {
 	}
 }
 
-// TestTypeSpecExampleMatchesOnk builds examples/onk-simple-api from a
-// TypeSpec port of its schema and requires every generated file to match the
-// output checked in from the .onk schema byte for byte.
-func TestTypeSpecExampleMatchesOnk(t *testing.T) {
-	modules := repoNodeModules(t)
-	example := filepath.Join("..", "..", "examples", "onk-simple-api")
-	dir := t.TempDir()
-	copyTree(t, example, dir)
-	for _, name := range []string{"models.onk", "service.onk"} {
-		if err := os.Remove(filepath.Join(dir, name)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	copyTree(t, filepath.Join("testdata", "typespec-simple"), dir)
-	if err := os.Symlink(modules, filepath.Join(dir, "node_modules")); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("ONEK_NO_CACHE", "1")
-	if err := Build(dir); err != nil {
-		t.Fatal(err)
-	}
-	for _, rel := range []string{"api/types.gen.go", "api/validate.gen.go", "api/server.gen.go", "api/client.gen.go", "docs/openapi.yaml", "docs/openapi.json"} {
+// exampleOutputs are the generated files examples/simple-api checks in.
+var exampleOutputs = []string{"api/types.gen.go", "api/validate.gen.go", "api/server.gen.go", "api/client.gen.go", "docs/openapi.yaml", "docs/openapi.json"}
+
+// requireExampleOutputs fails unless dir generated exactly the files
+// examples/simple-api checks in.
+func requireExampleOutputs(t *testing.T, dir string) {
+	t.Helper()
+	example := filepath.Join("..", "..", "examples", "simple-api")
+	for _, rel := range exampleOutputs {
 		want, err := os.ReadFile(filepath.Join(example, rel))
 		if err != nil {
 			t.Fatal(err)
@@ -81,17 +78,27 @@ func TestTypeSpecExampleMatchesOnk(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !bytes.Equal(got, want) {
-			t.Errorf("%s differs from the output of the .onk schema", rel)
+			t.Errorf("%s differs from examples/simple-api", rel)
 		}
 	}
 }
 
-func TestTypeSpecDiagnosticsReachTheCaller(t *testing.T) {
-	modules := repoNodeModules(t)
+// TestTypeSpecExampleBuilds builds examples/simple-api from its TypeSpec
+// sources and requires the checked-in output.
+func TestTypeSpecExampleBuilds(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.Symlink(modules, filepath.Join(dir, "node_modules")); err != nil {
+	copyTree(t, filepath.Join("..", "..", "examples", "simple-api"), dir)
+	linkTypeSpec(t, dir)
+	t.Setenv("ONEK_NO_CACHE", "1")
+	if err := Build(dir); err != nil {
 		t.Fatal(err)
 	}
+	requireExampleOutputs(t, dir)
+}
+
+func TestTypeSpecDiagnosticsReachTheCaller(t *testing.T) {
+	dir := t.TempDir()
+	linkTypeSpec(t, dir)
 	if err := os.WriteFile(filepath.Join(dir, "main.tsp"), []byte("import \"@onkt/typespec\";\nmodel User { id: Missing; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -109,5 +116,13 @@ func TestTypeSpecProjectNeedsMainTsp(t *testing.T) {
 	err := Check(dir)
 	if err == nil || !strings.Contains(err.Error(), "main.tsp") {
 		t.Fatalf("err = %v, want a hint about main.tsp", err)
+	}
+}
+
+func TestTypeSpecErrorsBecomeDiagnostics(t *testing.T) {
+	err := &TypeSpecError{Output: "Diagnostics were reported during compilation:\n\nmain.tsp:3:14 - error unknown-identifier: Unknown identifier Missing\nmain.tsp:1:1 - warning deprecated: old\n\nFound 1 error."}
+	got := Diagnostics(err)
+	if len(got) != 1 || got[0].Path != "main.tsp" || got[0].Line != 3 || got[0].Column != 14 || got[0].Code != "unknown-identifier" || got[0].Message != "Unknown identifier Missing" {
+		t.Fatalf("diagnostics = %+v", got)
 	}
 }
