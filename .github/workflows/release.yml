@@ -65,11 +65,60 @@ jobs:
             echo "sha=$TAG_SHA"
           } >> "$GITHUB_OUTPUT"
 
+  npm:
+    # npm goes first: the GitHub release, its binaries and the Docker image
+    # are only published once @onkt/typespec is on npm under the same
+    # version, so a release never points at an emitter that is missing.
+    name: Publish @onkt/typespec
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: prepare
+    permissions:
+      contents: read
+      # npm trusted publishing: the registry accepts this workflow's OIDC
+      # token instead of a stored npm token, and records provenance.
+      id-token: write
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install the workspace and test the emitter
+        run: |
+          npm ci --no-audit --no-fund
+          npm test --workspace typespec
+
+      - name: Publish under the release version
+        working-directory: typespec
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          # The npm package shares the release's version, so onkt X.Y.Z and
+          # @onkt/typespec X.Y.Z always come from the same commit.
+          if npm view "@onkt/typespec@$VERSION" version >/dev/null 2>&1; then
+            echo "@onkt/typespec $VERSION is already published"
+            exit 0
+          fi
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          tag=latest
+          if [[ "$VERSION" == *-* ]]; then
+            tag=next
+          fi
+          npm publish --provenance --access public --tag "$tag"
+
   release:
     name: Release
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    needs: prepare
+    needs: [prepare, npm]
     permissions:
       contents: write
       id-token: write
@@ -166,52 +215,6 @@ jobs:
         with:
           name: release-artifacts
           path: dist/
-
-  npm:
-    name: Publish @onkt/typespec
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [prepare, release]
-    permissions:
-      contents: read
-      # npm trusted publishing: the registry accepts this workflow's OIDC
-      # token instead of a stored npm token, and records provenance.
-      id-token: write
-    steps:
-      - name: Checkout release tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-          ref: ${{ needs.prepare.outputs.sha }}
-
-      - name: Setup Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Install the workspace and test the emitter
-        run: |
-          npm ci --no-audit --no-fund
-          npm test --workspace typespec
-
-      - name: Publish under the release version
-        working-directory: typespec
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          # The npm package shares the release's version, so onkt X.Y.Z and
-          # @onkt/typespec X.Y.Z always come from the same commit.
-          if npm view "@onkt/typespec@$VERSION" version >/dev/null 2>&1; then
-            echo "@onkt/typespec $VERSION is already published"
-            exit 0
-          fi
-          npm version "$VERSION" --no-git-tag-version --allow-same-version
-          tag=latest
-          if [[ "$VERSION" == *-* ]]; then
-            tag=next
-          fi
-          npm publish --provenance --access public --tag "$tag"
 
   docker:
     name: Docker Image
