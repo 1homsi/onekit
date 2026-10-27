@@ -89,7 +89,10 @@ func routeContextLiteral(m *onkir.Method) string {
 		fields += ", meta: " + routeMetaName(m)
 	}
 	if authorizedMethod(m) {
-		fields += ", principal"
+		// Leave the key out rather than set it to undefined: RequestContext
+		// declares principal?: P, which exactOptionalPropertyTypes reads as
+		// "absent or a P".
+		fields += ", ...(principal !== undefined ? { principal } : {})"
 	}
 	return "{ " + fields + " }"
 }
