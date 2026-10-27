@@ -3,14 +3,25 @@ package gents
 import "testing"
 
 func TestTSMaxBodyDecoratorSetsAPerMethodLimit(t *testing.T) {
-	runTSSchema(t, `package app
+	runTSSchema(t, `namespace app;
 
-message Blob { data: string }
-message Done { ok: bool }
+model Blob {
+  data: string;
+}
 
-service Uploads {
-  small(Blob) -> Done @post("/small")
-  big(Blob) -> Done @post("/big") @max_body("20MiB")
+model Done {
+  ok: boolean;
+}
+
+interface Uploads {
+  @post
+  @route("/small")
+  small(...Blob): Done;
+
+  @post
+  @route("/big")
+  @Onkt.maxBody("20MiB")
+  big(...Blob): Done;
 }
 `, `
 import { createUploadsFetchHandler } from "./server.ts";

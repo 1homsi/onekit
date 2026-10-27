@@ -10,14 +10,26 @@ import (
 
 func TestMockFlattenedFieldsUseTheirPrefix(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "api.onk"), `
-message Req { id: string }
-message Addr { city: string }
-message Res {
-  id: string
-  billing: Addr @flatten(prefix: "billing_")
+	writeTestFile(t, filepath.Join(dir, "api.tsp"), `
+model Req {
+  id: string;
 }
-service Svc { get(Req) -> Res @get("/r/{id}") }
+
+model Addr {
+  city: string;
+}
+
+model Res {
+  id: string;
+  @Onkt.flatten("billing_")
+  billing: Addr;
+}
+
+interface Svc {
+  @get
+  @route("/r/{id}")
+  get(...Req): Res;
+}
 `)
 	server, err := NewMockServer(dir, MockOptions{Seed: 1})
 	if err != nil {

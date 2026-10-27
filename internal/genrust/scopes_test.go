@@ -5,19 +5,37 @@ import (
 	"testing"
 )
 
-const rustScopesSchema = `
-package app
+const rustScopesSchema = `namespace app;
 
-message Item { id: string }
-message GetItem { id: string }
-message Forbidden @status(403) { message: string }
+model Item {
+  id: string;
+}
 
-service Items {
-  base_path: "/items/v1"
+model GetItem {
+  id: string;
+}
 
-  get(GetItem) -> Item | Forbidden @get("/items/{id}") @requires("items:read")
-  remove(GetItem) -> Item | Forbidden @delete("/items/{id}") @requires("items:read", "items:write")
-  ping(GetItem) -> Item | Forbidden @get("/ping/{id}")
+@error
+model Forbidden {
+  @statusCode _: 403;
+  message: string;
+}
+
+@route("/items/v1")
+interface Items {
+  @get
+  @route("/items/{id}")
+  @Onkt.requires("items:read")
+  get(...GetItem): Item | Forbidden;
+
+  @delete
+  @route("/items/{id}")
+  @Onkt.requires("items:read", "items:write")
+  remove(...GetItem): Item | Forbidden;
+
+  @get
+  @route("/ping/{id}")
+  ping(...GetItem): Item | Forbidden;
 }
 `
 

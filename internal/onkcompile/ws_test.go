@@ -4,26 +4,36 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onkschema"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-func parseSrc(src string) (*onklang.File, error) { return onklang.Parse(src) }
+func parseSrc(src string) (*onkschema.File, error) { return onktest.Parse(src) }
 
 func TestWSMethodCompiles(t *testing.T) {
-	ast, err := parseSrc(`package w
+	ast, err := parseSrc(`namespace w;
 
-message Msg { room: string
-text: string }
-message Ev { seq: int64 }
+model Msg {
+  room: string;
+  text: string;
+}
 
-service S {
-  base_path: "/v1"
-  chat(Msg) -> Ev @ws("/rooms/{room}")
-}`)
+model Ev {
+  @encode(string)
+  seq: int64;
+}
+
+@route("/v1")
+interface S {
+  @Onkt.ws
+  @route("/rooms/{room}")
+  chat(...Msg): Ev;
+}
+`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := Compile([]Source{{Path: "w.onk", AST: ast}})
+	pkg, err := Compile([]Source{{Path: "w.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,32 +45,51 @@ service S {
 }
 
 func TestWSIDCorrelation(t *testing.T) {
-	ast, err := parseSrc(`package w
+	ast, err := parseSrc(`namespace w;
 
-message RunRequest { code: string }
-message RunResult { exit_code: int32 }
-message HostCall { id: string @ws_id
-method: string }
-message HostResult { id: string @ws_id
-value: string }
-
-message Frame {
-  payload: oneof(discriminator: "type") {
-    run: RunRequest @tag("run")
-    host_call: HostCall @tag("host_call")
-    host_result: HostResult @tag("host_result")
-    run_result: RunResult @tag("run_result")
-  }
+model RunRequest {
+  code: string;
 }
 
-service Runtime {
-  base_path: "/v1"
-  execute(Frame) -> Frame @ws("/execute")
-}`)
+model RunResult {
+  exit_code: int32;
+}
+
+model HostCall {
+  @Onkt.wsId
+  id: string;
+  method: string;
+}
+
+model HostResult {
+  @Onkt.wsId
+  id: string;
+  value: string;
+}
+
+@Onkt.discriminator("type")
+union FramePayload {
+  @Onkt.tag("run") run: RunRequest,
+  @Onkt.tag("host_call") host_call: HostCall,
+  @Onkt.tag("host_result") host_result: HostResult,
+  @Onkt.tag("run_result") run_result: RunResult,
+}
+
+model Frame {
+  payload: FramePayload;
+}
+
+@route("/v1")
+interface Runtime {
+  @Onkt.ws
+  @route("/execute")
+  execute(...Frame): Frame;
+}
+`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := Compile([]Source{{Path: "w.onk", AST: ast}})
+	pkg, err := Compile([]Source{{Path: "w.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("expected @ws_id fields on distinct oneof variants to compile, got: %v", err)
 	}
@@ -95,46 +124,112 @@ service Runtime {
 func TestWSIDRejectsInvalidUsage(t *testing.T) {
 	cases := []struct{ src, want string }{
 		{
-			`message M { active: bool @ws_id }
-message E { x: int32 }
-service S { f(M) -> E @ws("/y") }`,
+			`
+model M {
+  @Onkt.wsId
+  active: boolean;
+}
+
+model E {
+  x: int32;
+}
+
+interface S {
+  @Onkt.ws
+  @route("/y")
+  f(...M): E;
+}
+`,
 			"@ws_id requires a non-repeated string or integer field",
 		},
 		{
-			`message M { ids: string[] @ws_id }
-message E { x: int32 }
-service S { f(M) -> E @ws("/y") }`,
+			`
+model M {
+  @Onkt.wsId
+  ids: string[];
+}
+
+model E {
+  x: int32;
+}
+
+interface S {
+  @Onkt.ws
+  @route("/y")
+  f(...M): E;
+}
+`,
 			"@ws_id requires a non-repeated string or integer field",
 		},
 		{
-			`message M { a: string @ws_id
-b: string @ws_id }
-message E { x: int32 }
-service S { f(M) -> E @ws("/y") }`,
+			`
+model M {
+  @Onkt.wsId
+  a: string;
+  @Onkt.wsId
+  b: string;
+}
+
+model E {
+  x: int32;
+}
+
+interface S {
+  @Onkt.ws
+  @route("/y")
+  f(...M): E;
+}
+`,
 			"has more than one @ws_id field",
 		},
 		{
-			`message M { text: string }
-message A { id: string @ws_id }
-message B { id: int64 @ws_id }
-message U {
-  payload: oneof(discriminator: "type") {
-    a: A @tag("a")
-    b: B @tag("b")
-  }
+			`
+model M {
+  text: string;
 }
-message E { x: int32 }
-service S { f(U) -> E @ws("/y") }`,
+
+model A {
+  @Onkt.wsId
+  id: string;
+}
+
+model B {
+  @Onkt.wsId
+  @encode(string)
+  id: int64;
+}
+
+@Onkt.discriminator("type")
+union UPayload {
+  @Onkt.tag("a") a: A,
+  @Onkt.tag("b") b: B,
+}
+
+model U {
+  payload: UPayload;
+}
+
+model E {
+  x: int32;
+}
+
+interface S {
+  @Onkt.ws
+  @route("/y")
+  f(...U): E;
+}
+`,
 			"must share one scalar type",
 		},
 	}
 	for _, tc := range cases {
-		src := "package w\n\n" + tc.src
+		src := `namespace w;
+` + tc.src
 		ast, err := parseSrc(src)
 		if err != nil {
 			t.Fatalf("parse %q: %v", tc.want, err)
 		}
-		if _, err := Compile([]Source{{Path: "w.onk", AST: ast}}); err == nil || !strings.Contains(err.Error(), tc.want) {
+		if _, err := Compile([]Source{{Path: "w.tsp", AST: ast}}); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Fatalf("want %q got %v", tc.want, err)
 		}
 	}
@@ -142,111 +237,240 @@ service S { f(U) -> E @ws("/y") }`,
 
 func TestWSRejectsConflicts(t *testing.T) {
 	cases := []struct{ src, want string }{
-		{`service S { f(M) -> E @get("/x") @ws("/y") }`, "@ws cannot be combined with an HTTP verb"},
-		{`service S { f(M) -> E @ws("/y") @stream }`, "cannot be combined with @stream"},
-		{`service S { f(M) -> E @ws("/y") @body("text") }`, "@ws does not support @body"},
-		{`service S { f(M) -> E @ws() }`, "@ws requires one non-empty route"},
+		{`
+interface S {
+  @Onkt.ws
+  @route("/y")
+  @Onkt.stream
+  f(...M): E;
+}
+`, "cannot be combined with @stream"},
+		{`
+model B {
+  @body text: string;
+}
+
+interface S {
+  @Onkt.ws
+  @route("/y")
+  f(...B): E;
+}
+`, "@ws does not support @body"},
+		{`
+interface S {
+  @Onkt.ws
+  f(...M): E;
+}
+`, "@ws requires one non-empty route"},
 	}
 	for _, tc := range cases {
-		src := "package w\n\nmessage M { text: string }\nmessage E { x: int32 }\n\n" + tc.src
+		src := `namespace w;
+
+model M {
+  text: string;
+}
+
+model E {
+  x: int32;
+}
+` + tc.src
 		ast, err := parseSrc(src)
 		if err != nil {
 			t.Fatalf("parse %q: %v", tc.want, err)
 		}
-		if _, err := Compile([]Source{{Path: "w.onk", AST: ast}}); err == nil || !strings.Contains(err.Error(), tc.want) {
+		if _, err := Compile([]Source{{Path: "w.tsp", AST: ast}}); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Fatalf("want %q got %v", tc.want, err)
 		}
 	}
 }
 
-func TestWSCancelVariant(t *testing.T) {
-	const valid = `package w
-message Call { id: string @ws_id }
-message Cancel { id: string @ws_id }
-message Frame {
-  payload: oneof(discriminator: "type") {
-    call: Call @tag("call")
-    cancel: Cancel @tag("cancel") @ws_cancel
-  }
+// A TypeSpec operation has one route decorator; a document that gives a
+// method both an HTTP verb and @ws is refused.
+func TestWSRejectsAnHTTPVerbInDocuments(t *testing.T) {
+	q, dec := onktest.Q, onktest.Dec
+	file := onktest.File("w",
+		onktest.Message("M", onktest.Field("text", "string")),
+		onktest.Message("E", onktest.Field("x", "int32")),
+		onktest.Service("S", "", onktest.RPC("f", "M", "E", dec("get", q("/x")), dec("ws", q("/y")))),
+	)
+	if _, err := Compile([]Source{{Path: "w.tsp", AST: file}}); err == nil || !strings.Contains(err.Error(), "@ws cannot be combined with an HTTP verb") {
+		t.Fatalf("got %v", err)
+	}
 }
-service S { f(Frame) -> Frame @ws("/y") }`
+
+func TestWSCancelVariant(t *testing.T) {
+	const valid = `namespace w;
+
+model Call {
+  @Onkt.wsId
+  id: string;
+}
+
+model Cancel {
+  @Onkt.wsId
+  id: string;
+}
+
+@Onkt.discriminator("type")
+union FramePayload {
+  @Onkt.tag("call") call: Call,
+  @Onkt.tag("cancel") @Onkt.wsCancel cancel: Cancel,
+}
+
+model Frame {
+  payload: FramePayload;
+}
+
+interface S {
+  @Onkt.ws
+  @route("/y")
+  f(...Frame): Frame;
+}
+`
 	ast, err := parseSrc(valid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Compile([]Source{{Path: "w.onk", AST: ast}}); err != nil {
+	if _, err := Compile([]Source{{Path: "w.tsp", AST: ast}}); err != nil {
 		t.Fatalf("expected a @ws_cancel variant carrying @ws_id to compile, got: %v", err)
 	}
 
 	cases := []struct{ src, want string }{
 		{
-			`message Call { id: string @ws_id }
-message Stop { reason: string }
-message Frame {
-  payload: oneof(discriminator: "type") {
-    call: Call @tag("call")
-    stop: Stop @ws_cancel
-  }
+			`
+model Call {
+  @Onkt.wsId
+  id: string;
 }
-service S { f(Frame) -> Frame @ws("/y") }`,
+
+model Stop {
+  reason: string;
+}
+
+@Onkt.discriminator("type")
+union FramePayload {
+  @Onkt.tag("call") call: Call,
+  @Onkt.wsCancel stop: Stop,
+}
+
+model Frame {
+  payload: FramePayload;
+}
+
+interface S {
+  @Onkt.ws
+  @route("/y")
+  f(...Frame): Frame;
+}
+`,
 			"@ws_cancel variant stop on RPC f must be a message with a @ws_id field",
 		},
 		{
-			`message Call { id: string @ws_id }
-message A { id: string @ws_id }
-message B { id: string @ws_id }
-message Frame {
-  payload: oneof(discriminator: "type") {
-    call: Call @tag("call")
-    a: A @ws_cancel
-    b: B @ws_cancel
-  }
+			`
+model Call {
+  @Onkt.wsId
+  id: string;
 }
-service S { f(Frame) -> Frame @ws("/y") }`,
+
+model A {
+  @Onkt.wsId
+  id: string;
+}
+
+model B {
+  @Onkt.wsId
+  id: string;
+}
+
+@Onkt.discriminator("type")
+union FramePayload {
+  @Onkt.tag("call") call: Call,
+  @Onkt.wsCancel a: A,
+  @Onkt.wsCancel b: B,
+}
+
+model Frame {
+  payload: FramePayload;
+}
+
+interface S {
+  @Onkt.ws
+  @route("/y")
+  f(...Frame): Frame;
+}
+`,
 			"has more than one @ws_cancel variant (a and b)",
-		},
-		{
-			`message Call { id: string @ws_id }
-message Frame {
-  payload: oneof(discriminator: "type") {
-    call: Call @ws_cancel("x")
-  }
-}
-service S { f(Frame) -> Frame @ws("/y") }`,
-			"ws_cancel",
 		},
 	}
 	for _, tc := range cases {
-		ast, err := parseSrc("package w\n" + tc.src)
+		ast, err := parseSrc(`namespace w;
+` + tc.src)
 		if err != nil {
 			t.Fatalf("parse: %v", err)
 		}
-		_, err = Compile([]Source{{Path: "w.onk", AST: ast}})
+		_, err = Compile([]Source{{Path: "w.tsp", AST: ast}})
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Fatalf("want error containing %q, got %v", tc.want, err)
 		}
 	}
 }
 
+// @Onkt.wsCancel takes no argument in TypeSpec; a document that gives
+// @ws_cancel one is refused.
+func TestWSCancelTakesNoArgument(t *testing.T) {
+	q, dec := onktest.Q, onktest.Dec
+	call := onktest.Message("Call", onktest.Field("id", "string", dec("ws_id")))
+	frame := onktest.Message("Frame", onktest.Oneof("payload", []onkschema.Arg{onktest.Named("discriminator", q("type"))},
+		onktest.Variant("call", "Call", dec("ws_cancel", q("x")))))
+	file := onktest.File("w", call, frame, onktest.Service("S", "", onktest.RPC("f", "Frame", "Frame", dec("ws", q("/y")))))
+	if _, err := Compile([]Source{{Path: "w.tsp", AST: file}}); err == nil || !strings.Contains(err.Error(), "ws_cancel") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestRawFieldValidation(t *testing.T) {
-	ok := "package w\nmessage M { a: string @raw\nb: bytes @raw }\n"
+	ok := `namespace w;
+
+model M {
+  @Onkt.raw
+  a: string;
+  @Onkt.raw
+  b: bytes;
+}
+`
 	ast, err := parseSrc(ok)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Compile([]Source{{Path: "w.onk", AST: ast}}); err != nil {
+	if _, err := Compile([]Source{{Path: "w.tsp", AST: ast}}); err != nil {
 		t.Fatalf("expected @raw string and bytes fields to compile, got %v", err)
 	}
 	for _, src := range []string{
-		"message M { n: int32 @raw }",
-		"message M { s: string? @raw }",
-		"message M { s: string[] @raw }",
+		`
+model M {
+  @Onkt.raw
+  n: int32;
+}
+`,
+		`
+model M {
+  @Onkt.raw
+  s?: string;
+}
+`,
+		`
+model M {
+  @Onkt.raw
+  s: string[];
+}
+`,
 	} {
-		ast, err := parseSrc("package w\n" + src + "\n")
+		ast, err := parseSrc(`namespace w;
+` + src + "\n")
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = Compile([]Source{{Path: "w.onk", AST: ast}})
+		_, err = Compile([]Source{{Path: "w.tsp", AST: ast}})
 		if err == nil || !strings.Contains(err.Error(), "@raw requires a non-repeated, non-optional string or bytes field") {
 			t.Fatalf("%s: want @raw rejection, got %v", src, err)
 		}
@@ -254,24 +478,82 @@ func TestRawFieldValidation(t *testing.T) {
 }
 
 func TestWSTimeoutValidation(t *testing.T) {
-	ok := "package w\nmessage Call { id: string @ws_id\nt: int64 @ws_timeout }\nmessage Frame { payload: oneof(discriminator: \"type\") { call: Call } }\nservice S { f(Frame) -> Frame @ws(\"/y\") }\n"
+	ok := `namespace w;
+
+model Call {
+  @Onkt.wsId
+  id: string;
+  @Onkt.wsTimeout
+  @encode(string)
+  t: int64;
+}
+
+@Onkt.discriminator("type")
+union FramePayload {
+  call: Call,
+}
+
+model Frame {
+  payload: FramePayload;
+}
+
+interface S {
+  @Onkt.ws
+  @route("/y")
+  f(...Frame): Frame;
+}
+`
 	ast, err := parseSrc(ok)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Compile([]Source{{Path: "w.onk", AST: ast}}); err != nil {
+	if _, err := Compile([]Source{{Path: "w.tsp", AST: ast}}); err != nil {
 		t.Fatalf("expected @ws_timeout next to @ws_id to compile, got %v", err)
 	}
 	for src, want := range map[string]string{
-		"message M { t: string @ws_timeout }":                                                                                       "@ws_timeout requires a non-repeated, non-optional integer field",
-		"message Call { t: int64 @ws_timeout }\nservice S { f(Call) -> Call @ws(\"/y\") }":                                          "must sit next to a @ws_id field",
-		"message Call { id: string @ws_id\na: int64 @ws_timeout\nb: int32 @ws_timeout }\nservice S { f(Call) -> Call @ws(\"/y\") }": "more than one @ws_timeout field",
+		`
+model M {
+  @Onkt.wsTimeout
+  t: string;
+}
+`: "@ws_timeout requires a non-repeated, non-optional integer field",
+		`
+model Call {
+  @Onkt.wsTimeout
+  @encode(string)
+  t: int64;
+}
+
+interface S {
+  @Onkt.ws
+  @route("/y")
+  f(...Call): Call;
+}
+`: "must sit next to a @ws_id field",
+		`
+model Call {
+  @Onkt.wsId
+  id: string;
+  @Onkt.wsTimeout
+  @encode(string)
+  a: int64;
+  @Onkt.wsTimeout
+  b: int32;
+}
+
+interface S {
+  @Onkt.ws
+  @route("/y")
+  f(...Call): Call;
+}
+`: "more than one @ws_timeout field",
 	} {
-		ast, err := parseSrc("package w\n" + src + "\n")
+		ast, err := parseSrc(`namespace w;
+` + src + "\n")
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = Compile([]Source{{Path: "w.onk", AST: ast}})
+		_, err = Compile([]Source{{Path: "w.tsp", AST: ast}})
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("%s: want %q, got %v", src, want, err)
 		}

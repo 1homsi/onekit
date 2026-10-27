@@ -1,7 +1,0 @@
-
-package app
-message GetUser { id: string @len(1, 10) }
-message User { id: string }
-message NotFoundError @status(404) { resource: string }
-message ValidationError @status(400) { message: string }
-service Users { get(GetUser) -> User | NotFoundError | ValidationError @get("/users/{id}") }

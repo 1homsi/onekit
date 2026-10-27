@@ -1,3 +1,0 @@
-package app
-message R {}
-service S { get(R) -> R @get("/r") }

@@ -5,24 +5,42 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func TestPythonClientKeepsBuiltinsWhenErrorsShadowThem(t *testing.T) {
-	ast, err := onklang.Parse(`
-package app
-message Msg { text: string }
-message TimeoutError @status(504) { message: string }
-message ConnectionError @status(502) { message: string }
-service Chat {
-  send(Msg) -> Msg | TimeoutError | ConnectionError @post("/send")
-  stream(Msg) -> Msg @ws("/chat")
+	ast, err := onktest.Parse(`namespace app;
+
+model Msg {
+  text: string;
+}
+
+@error
+model TimeoutError {
+  @statusCode _: 504;
+  message: string;
+}
+
+@error
+model ConnectionError {
+  @statusCode _: 502;
+  message: string;
+}
+
+interface Chat {
+  @post
+  @route("/send")
+  send(...Msg): Msg | TimeoutError | ConnectionError;
+
+  @Onkt.ws
+  @route("/chat")
+  stream(...Msg): Msg;
 }
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}

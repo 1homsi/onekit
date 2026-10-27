@@ -1,2 +1,0 @@
-message Q { id: string @required  page: int32? @query @required }
-service API { a(Q) -> Q @get("/x/{id}") }

@@ -2,16 +2,23 @@ package genrust
 
 import "testing"
 
-const rustBytesOneofFixture = `
-package app
-message Blob {
-  content: oneof {
-    raw: bytes @tag("raw")
-    text: string @tag("text")
-    size: int64 @tag("size")
-  }
+const rustBytesOneofFixture = `namespace app;
+
+union BlobContent {
+  @Onkt.tag("raw") raw: bytes,
+  @Onkt.tag("text") text: string,
+  @Onkt.tag("size") size: int64,
 }
-service Store { put(Blob) -> Blob @post("/blobs") }
+
+model Blob {
+  content: BlobContent;
+}
+
+interface Store {
+  @post
+  @route("/blobs")
+  put(...Blob): Blob;
+}
 `
 
 const rustBytesOneofMain = `mod generated;

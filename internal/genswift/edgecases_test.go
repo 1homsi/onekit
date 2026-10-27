@@ -2,60 +2,136 @@ package genswift
 
 import "testing"
 
-const edgeSchema = `
-package app
-enum Kind { NEW DEFAULT VALUES }
-message Empty {}
-message Inner { note: string }
-message Outer {
-  message Child { label: string }
-  enum Mode { FAST SLOW }
-  child: Child
-  mode: Mode
+const edgeSchema = `namespace app;
+
+enum Kind {
+  NEW,
+  DEFAULT,
+  VALUES,
 }
-message Node { name: string children: Node[] parent: Node? }
-message Awkward {
-  switch: string
-  var: int32
-  values: string[]
-  kind: Kind
-  maybe_kind: Kind?
-  maybe_bytes: bytes?
-  maybe_big: int64?
-  maybe_huge: uint64?
-  num_big: int64 @encode("number")
-  millis: timestamp @encode("unix_millis")
-  url_bytes: bytes @encode("base64url_raw")
-  null_empty: Inner @empty("null")
-  omit_empty: Inner @empty("omit")
-  size: int32 @in(10, 25)
-  huge_in: uint64? @in(1, 2)
-  description: string
-  json: string
-  pick: oneof(flatten: true) {
-    inner: Inner @tag("inner")
-  }
-  alt: oneof(discriminator: "t") {
-    blob: bytes @tag("blob")
-    kind_ref: Kind @tag("kind")
-    empty: Empty @tag("empty")
-  } @required
-  must: string? @required
-  must_list: string[] @required
-  must_inner: Inner @required
-  counts: map[string, uint64]
-  levels: Kind[]
-  stamps: timestamp[]
+
+model Empty {}
+
+model Inner {
+  note: string;
 }
-message Ids { v: int64[] @unwrap }
-message Blob { data: json @unwrap }
-message Bag { items: json[] extra: map[string, json] }
-message Lookup { v: map[string, Inner] @unwrap }
-message Wrapped { v: Inner @unwrap }
-message Problem @status(409) { reasons: string[] details: map[string, string] }
-service Weird {
-  close(Empty) -> Empty @post("/close")
-  get(Awkward) -> Awkward | Problem @post("/get")
+
+model Outer {
+  child: Child;
+  mode: Mode;
+}
+
+@Onkt.parent(Outer)
+model Child {
+  label: string;
+}
+
+@Onkt.parent(Outer)
+enum Mode {
+  FAST,
+  SLOW,
+}
+
+model Node {
+  name: string;
+  children: Node[];
+  parent?: Node;
+}
+
+@discriminated(#{ discriminatorPropertyName: "type", envelope: "none" })
+union AwkwardPick {
+  @Onkt.tag("inner") inner: Inner,
+}
+
+@Onkt.discriminator("t")
+union AwkwardAlt {
+  @Onkt.tag("blob") blob: bytes,
+  @Onkt.tag("kind") kind_ref: Kind,
+  @Onkt.tag("empty") empty: Empty,
+}
+
+model Awkward {
+  switch: string;
+  var: int32;
+  values: string[];
+  kind: Kind;
+  maybe_kind?: Kind;
+  maybe_bytes?: bytes;
+  @encode(string)
+  maybe_big?: int64;
+  @encode(string)
+  maybe_huge?: uint64;
+  num_big: int64;
+  @Onkt.encode("unix_millis")
+  millis: utcDateTime;
+  @Onkt.encode("base64url_raw")
+  url_bytes: bytes;
+  @Onkt.empty("null")
+  null_empty: Inner;
+  @Onkt.empty("omit")
+  omit_empty: Inner;
+  @Onkt.values(10, 25)
+  size: int32;
+  @Onkt.values(1, 2)
+  @encode(string)
+  huge_in?: uint64;
+  description: string;
+  json: string;
+  pick: AwkwardPick;
+  @Onkt.required
+  alt: AwkwardAlt;
+  @Onkt.required
+  must?: string;
+  @Onkt.required
+  must_list: string[];
+  @Onkt.required
+  must_inner: Inner;
+  counts: Record<uint64>;
+  levels: Kind[];
+  stamps: utcDateTime[];
+}
+
+model Ids {
+  @Onkt.unwrap
+  @Onkt.encode("string")
+  v: int64[];
+}
+
+model Blob {
+  @Onkt.unwrap
+  data: unknown;
+}
+
+model Bag {
+  items: unknown[];
+  extra: Record<unknown>;
+}
+
+model Lookup {
+  @Onkt.unwrap
+  v: Record<Inner>;
+}
+
+model Wrapped {
+  @Onkt.unwrap
+  v: Inner;
+}
+
+@error
+model Problem {
+  @statusCode _: 409;
+  reasons: string[];
+  details: Record<string>;
+}
+
+interface Weird {
+  @post
+  @route("/close")
+  close(...Empty): Empty;
+
+  @post
+  @route("/get")
+  get(...Awkward): Awkward | Problem;
 }
 `
 

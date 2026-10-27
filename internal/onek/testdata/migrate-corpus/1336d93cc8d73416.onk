@@ -1,4 +1,0 @@
-package small
-message M {
-  n: int32 @rule("value >= 0", "n must not be negative")
-}

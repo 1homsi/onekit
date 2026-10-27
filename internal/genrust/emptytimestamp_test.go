@@ -2,15 +2,20 @@ package genrust
 
 import "testing"
 
-const rustEmptyTimestampFixture = `
-package app
-message Event {
-  name: string
-  at: timestamp
-  day: timestamp @encode("date")
-  seen: timestamp?
+const rustEmptyTimestampFixture = `namespace app;
+
+model Event {
+  name: string;
+  at: utcDateTime;
+  day: plainDate;
+  seen?: utcDateTime;
 }
-service Events { create(Event) -> Event @post("/events") }
+
+interface Events {
+  @post
+  @route("/events")
+  create(...Event): Event;
+}
 `
 
 const rustEmptyTimestampMain = `mod generated;

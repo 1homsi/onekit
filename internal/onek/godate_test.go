@@ -3,12 +3,11 @@ package onek
 import "testing"
 
 func TestGoDateFieldsCompileAndTolerateAbsentValues(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Trip {
-  start: timestamp @encode(date)
-  end: timestamp @encode(date)
+model Trip {
+  start: plainDate;
+  end: plainDate;
 }
 `, `package api
 

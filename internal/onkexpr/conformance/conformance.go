@@ -11,36 +11,38 @@ import (
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkexpr"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const header = `package conformance
+const header = `namespace conformance;
 
-enum Status { OPEN DONE ARCHIVED }
+enum Status { OPEN, DONE, ARCHIVED }
 
-message Meta {
-  owner: string
-  tags: string[]
+model Meta {
+  owner: string;
+  tags: string[];
 }
 
 `
 
-const subjectFields = `  name: string @rule("size(value) <= 6", "field-name-size")
-  count: int32 @rule("value >= -100", "field-count-floor")
-  big: int64
-  zero: int32
-  ratio: float64
-  flag: bool
-  maybe: string?
-  maybe_n: int32?
-  status: Status
-  tags: string[]
-  nums: int32[]
-  labels: map[string, string]
-  scores: map[string, int32]
-  meta: Meta
-  metas: Meta[]
-  data: bytes
+// subjectFields are the Subject's fields. big is carried as a JSON string,
+// which the inputs below rely on.
+const subjectFields = `  @Onkt.rule("size(value) <= 6", "field-name-size") name: string;
+  @Onkt.rule("value >= -100", "field-count-floor") count: int32;
+  @encode(string) big: int64;
+  zero: int32;
+  ratio: float64;
+  flag: boolean;
+  maybe?: string;
+  maybe_n?: int32;
+  status: Status;
+  tags: string[];
+  nums: int32[];
+  labels: Record<string>;
+  scores: Record<int32>;
+  meta: Meta;
+  metas: Meta[];
+  data: bytes;
 `
 
 var Rules = []string{
@@ -162,18 +164,18 @@ var Inputs = []string{
 	`{"name":"e\u0301","count":-2147483648,"big":"3037000500","ratio":123456.789,"flag":true,"maybe_n":-1}`,
 }
 
+// SchemaSource is the conformance schema in TypeSpec.
 func SchemaSource() string {
 	var b strings.Builder
 	b.WriteString(header)
-	b.WriteString("message Subject")
 	for i, rule := range Rules {
-		b.WriteString("\n  @rule(")
+		b.WriteString("@Onkt.rule(")
 		b.WriteString(strconv.Quote(rule))
 		b.WriteString(", ")
 		b.WriteString(strconv.Quote(Label(i)))
-		b.WriteString(")")
+		b.WriteString(")\n")
 	}
-	b.WriteString(" {\n")
+	b.WriteString("model Subject {\n")
 	b.WriteString(subjectFields)
 	b.WriteString("}\n")
 	return b.String()
@@ -184,11 +186,11 @@ func Label(index int) string {
 }
 
 func Compile() (*onkir.Package, *onkir.File, *onkir.Message, error) {
-	ast, err := onklang.Parse(SchemaSource())
+	ast, err := onktest.Parse(SchemaSource())
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "conformance.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "conformance.tsp", AST: ast}})
 	if err != nil {
 		return nil, nil, nil, err
 	}

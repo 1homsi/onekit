@@ -1,2 +1,0 @@
-package app
-message R { by_id: map[int64, string]  by_n: map[uint32, string]  by_s: map[string, string] }

@@ -3,12 +3,14 @@ package onek
 import "testing"
 
 func TestGoIntegerInValidation(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Page {
-  size: int32 @in(10, 25, 50)
-  version: uint64? @in(1, 2)
+model Page {
+  @Onkt.values(10, 25, 50)
+  size: int32;
+  @Onkt.values(1, 2)
+  @encode(string)
+  version?: uint64;
 }
 `, `package api
 

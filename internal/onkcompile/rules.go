@@ -6,7 +6,7 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkexpr"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onkschema"
 )
 
 func (c *compiler) validateRules(sources []Source) error {
@@ -20,7 +20,7 @@ func (c *compiler) validateRules(sources []Source) error {
 	return nil
 }
 
-func (c *compiler) validateMessageRules(md *onklang.MessageDecl, path string) error {
+func (c *compiler) validateMessageRules(md *onkschema.MessageDecl, path string) error {
 	m := c.msgNode[md]
 	for _, d := range md.Decorators {
 		if d.Name != onkexpr.RuleDecorator {
@@ -48,7 +48,7 @@ func (c *compiler) validateMessageRules(md *onklang.MessageDecl, path string) er
 	return nil
 }
 
-func checkRuleDecorator(d onklang.Decorator, path string, m *onkir.Message, f *onkir.Field) error {
+func checkRuleDecorator(d onkschema.Decorator, path string, m *onkir.Message, f *onkir.Field) error {
 	source, message := d.Args[0].Value, d.Args[1].Value
 	if _, err := onkexpr.CompileRule(source, m, f); err != nil {
 		var exprErr *onkexpr.Error

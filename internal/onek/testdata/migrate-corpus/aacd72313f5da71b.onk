@@ -1,4 +1,0 @@
-package app
-message R { a: string }
-message E {}
-service S { x(R) -> E @any("/x/{a...}") @http }

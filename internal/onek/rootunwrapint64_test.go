@@ -3,12 +3,24 @@ package onek
 import "testing"
 
 func TestGoRootUnwrapInt64UsesStrings(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Ids { v: int64[] @unwrap }
-message Total { v: uint64 @unwrap }
-message Count { v: int64 @unwrap @encode("number") }
+model Ids {
+  @Onkt.unwrap
+  @Onkt.encode("string")
+  v: int64[];
+}
+
+model Total {
+  @Onkt.unwrap
+  @encode(string)
+  v: uint64;
+}
+
+model Count {
+  @Onkt.unwrap
+  v: int64;
+}
 `, `package api
 
 import (

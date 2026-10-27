@@ -1,5 +1,0 @@
-package x
-
-message Bbbb {
-  id: string
-}

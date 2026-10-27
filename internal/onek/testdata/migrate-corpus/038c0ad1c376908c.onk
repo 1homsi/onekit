@@ -1,5 +1,0 @@
-package api
-message Item { name: string }
-message Patch {
-  n: int64? @nullable @encode("number")
-}

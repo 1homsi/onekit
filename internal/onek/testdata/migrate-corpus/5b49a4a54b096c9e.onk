@@ -1,4 +1,0 @@
-
-package app
-message A { v: string }
-message M { p: oneof { a: A } @required }

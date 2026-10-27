@@ -1,4 +1,0 @@
-package app
-message M {
-  d: float64 @rule("value * 2.0 < 10.0", "small")
-}

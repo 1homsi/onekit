@@ -1,6 +1,6 @@
 package onkir
 
-// ScalarKind enumerates the primitive types of the .onk language.
+// ScalarKind enumerates the primitive types of a schema.
 type ScalarKind int
 
 const (
@@ -29,7 +29,7 @@ const (
 )
 
 // scalarKindNames is the single source of truth mapping each ScalarKind to
-// its .onk source spelling; String and ParseScalarKind both derive from it so
+// its schema spelling; String and ParseScalarKind both derive from it so
 // the two can never drift apart.
 var scalarKindNames = [...]string{
 	ScalarString:    "string",
@@ -53,7 +53,7 @@ var scalarKindsByName = func() map[string]ScalarKind {
 	return kinds
 }()
 
-// String returns the .onk source spelling of the scalar kind, or "unknown"
+// String returns the schema spelling of the scalar kind, or "unknown"
 // for values outside the defined range.
 func (s ScalarKind) String() string {
 	if s < 0 || int(s) >= len(scalarKindNames) {
@@ -62,7 +62,7 @@ func (s ScalarKind) String() string {
 	return scalarKindNames[s]
 }
 
-// ParseScalarKind maps a .onk scalar type name onto its IR kind.
+// ParseScalarKind maps a scalar type name onto its IR kind.
 func ParseScalarKind(name string) (ScalarKind, bool) {
 	kind, ok := scalarKindsByName[name]
 	return kind, ok
@@ -231,7 +231,7 @@ type Service struct {
 	File     *File
 }
 
-// File is one compiled .onk source file.
+// File is one compiled schema file.
 type File struct {
 	Path     string
 	Package  string

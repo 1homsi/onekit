@@ -1,4 +1,0 @@
-
-package app
-message Item { name: string @len(1, 5) }
-message Catalog { items: map[string, Item] }

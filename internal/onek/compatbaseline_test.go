@@ -6,12 +6,22 @@ import (
 )
 
 func TestCompatibilityBaselineWithoutConfigUsesCurrentConfig(t *testing.T) {
-	schema := "message R { id: string }\nservice S { get(R) -> R @get(\"/r/{id}\") }\n"
+	schema := `
+model R {
+  id: string;
+}
+
+interface S {
+  @get
+  @route("/r/{id}")
+  get(...R): R;
+}
+`
 	current := t.TempDir()
-	writeTestFile(t, filepath.Join(current, "onekit.toml"), "module = \"x\"\nroute_prefix = \"/api\"\nschema_root = \"schema\"\n")
-	writeTestFile(t, filepath.Join(current, "schema", "api.onk"), schema)
+	writeTestFile(t, filepath.Join(current, "onkt.toml"), "module = \"x\"\nroute_prefix = \"/api\"\nschema_root = \"schema\"\n")
+	writeTestFile(t, filepath.Join(current, "schema", "api.tsp"), schema)
 	previous := t.TempDir()
-	writeTestFile(t, filepath.Join(previous, "schema", "api.onk"), schema)
+	writeTestFile(t, filepath.Join(previous, "schema", "api.tsp"), schema)
 	findings, err := Compatibility(previous, current)
 	if err != nil {
 		t.Fatal(err)

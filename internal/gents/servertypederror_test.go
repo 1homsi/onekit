@@ -3,11 +3,23 @@ package gents
 import "testing"
 
 func TestTSServerTypedErrorHelpers(t *testing.T) {
-	runTSSchema(t, `
-package app
-message R { id: string }
-message NotFoundError @status(404) { resource_id: string }
-service S { get(R) -> R | NotFoundError @get("/r/{id}") }
+	runTSSchema(t, `namespace app;
+
+model R {
+  id: string;
+}
+
+@error
+model NotFoundError {
+  @statusCode _: 404;
+  resource_id: string;
+}
+
+interface S {
+  @get
+  @route("/r/{id}")
+  get(...R): R | NotFoundError;
+}
 `, `
 import { createSFetchHandler, httpErrorFromNotFoundError } from "./server.ts";
 

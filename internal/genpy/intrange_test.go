@@ -3,12 +3,13 @@ package genpy
 import "testing"
 
 func TestPythonValidateChecksIntegerRanges(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message Counts {
-  small: int32
-  count: uint32
-  big: int64?
+	runPythonSchema(t, `namespace app;
+
+model Counts {
+  small: int32;
+  count: uint32;
+  @encode(string)
+  big?: int64;
 }
 `, `
 from models import Counts

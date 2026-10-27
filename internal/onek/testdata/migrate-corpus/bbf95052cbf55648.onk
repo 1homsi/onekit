@@ -1,5 +1,0 @@
-package api
-message Item { name: string }
-message Patch {
-  note: string? @nullable
-}

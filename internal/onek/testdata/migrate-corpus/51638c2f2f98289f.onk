@@ -1,5 +1,0 @@
-package support.settings.v1
-
-message Settings {
-  b: string
-}

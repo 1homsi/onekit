@@ -1,3 +1,0 @@
-
-enum Role { ADMIN  USER }
-message M { role: Role? @required }

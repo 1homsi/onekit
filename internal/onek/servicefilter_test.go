@@ -7,26 +7,32 @@ import (
 	"testing"
 )
 
-const filterSchema = `package app
+const filterSchema = `namespace app;
 
-message Item { id: string }
-
-service Public {
-  base_path: "/v1"
-  list(Item) -> Item @get("/items")
+model Item {
+  id: string;
 }
 
-service Admin {
-  base_path: "/admin"
-  purge(Item) -> Item @post("/purge")
+@route("/v1")
+interface Public {
+  @get
+  @route("/items")
+  list(...Item): Item;
+}
+
+@route("/admin")
+interface Admin {
+  @post
+  @route("/purge")
+  purge(...Item): Item;
 }
 `
 
 func buildFiltered(t *testing.T, targets string) (string, error) {
 	t.Helper()
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/app/gen\"\n\n"+targets)
-	writeTestFile(t, filepath.Join(dir, "api.onk"), filterSchema)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/app/gen\"\n\n"+targets)
+	writeTestFile(t, filepath.Join(dir, "api.tsp"), filterSchema)
 	return dir, Build(dir)
 }
 
@@ -98,7 +104,7 @@ func TestServiceFilterRemovesTheOutputWhenNoServiceRemains(t *testing.T) {
 	if _, err := os.Stat(client); err != nil {
 		t.Fatalf("expected a Dart client without a filter: %v", err)
 	}
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/app/gen\"\n\n[generate.dart-client]\nout = \"gen/dart\"\nexclude_services = [\"*\"]\n")
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/app/gen\"\n\n[generate.dart-client]\nout = \"gen/dart\"\nexclude_services = [\"*\"]\n")
 	if err := Build(dir); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}

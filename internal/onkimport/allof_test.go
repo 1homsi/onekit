@@ -17,7 +17,7 @@ func TestImportResolvesSingleAndNestedAllOf(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(result.Source)
-	for _, want := range []string{"id: string\n", "name: string\n", "status: StatusValues?"} {
+	for _, want := range []string{"  id: string;\n", "  name: string;\n", "  status?: StatusValues;\n"} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("missing %q:\n%s\n%v", want, src, result.Warnings)
 		}

@@ -6,14 +6,20 @@ import (
 )
 
 func TestOpenAPIOneofMatchesWireShape(t *testing.T) {
-	doc := openAPIForSchema(t, `
-package app
-message EmailAuth { email: string }
-message Login {
-  method: oneof(discriminator: "auth_type") {
-    email: EmailAuth @tag("email")
-    token: string @tag("token")
-  }
+	doc := openAPIForSchema(t, `namespace app;
+
+model EmailAuth {
+  email: string;
+}
+
+@Onkt.discriminator("auth_type")
+union LoginMethod {
+  @Onkt.tag("email") email: EmailAuth,
+  @Onkt.tag("token") token: string,
+}
+
+model Login {
+  method: LoginMethod;
 }
 `)
 	flat := strings.Join(strings.Fields(doc), " ")
@@ -31,13 +37,19 @@ message Login {
 }
 
 func TestOpenAPIFlattenedOneofMergesVariantFields(t *testing.T) {
-	doc := openAPIForSchema(t, `
-package app
-message EmailAuth { email: string }
-message Login {
-  method: oneof(discriminator: "auth_type", flatten: true) {
-    email: EmailAuth @tag("email")
-  }
+	doc := openAPIForSchema(t, `namespace app;
+
+model EmailAuth {
+  email: string;
+}
+
+@discriminated(#{ discriminatorPropertyName: "auth_type", envelope: "none" })
+union LoginMethod {
+  @Onkt.tag("email") email: EmailAuth,
+}
+
+model Login {
+  method: LoginMethod;
 }
 `)
 	flat := strings.Join(strings.Fields(doc), " ")

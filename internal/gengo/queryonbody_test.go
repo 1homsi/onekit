@@ -8,22 +8,32 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const queryOnBodySchema = `package app
+const queryOnBodySchema = `namespace app;
 
-message Save {
-  id: string
-  name: string
-  dry_run: bool @query
-  tags: string[] @query("tag")
+model Save {
+  id: string;
+  name: string;
+  @query
+  dry_run: boolean;
+  @query("tag")
+  tags: string[];
 }
-message Saved { id: string  name: string  dry_run: bool  tags: string[] }
 
-service Things {
-  base_path: "/v1"
-  save(Save) -> Saved @put("/things/{id}")
+model Saved {
+  id: string;
+  name: string;
+  dry_run: boolean;
+  tags: string[];
+}
+
+@route("/v1")
+interface Things {
+  @put
+  @route("/things/{id}")
+  save(...Save): Saved;
 }
 `
 
@@ -74,11 +84,11 @@ func TestGoQueryParamsOnBodyBearingRoutes(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	ast, err := onklang.Parse(queryOnBodySchema)
+	ast, err := onktest.Parse(queryOnBodySchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.onk", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"go-server", "go-client"}})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.tsp", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"go-server", "go-client"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,11 +128,11 @@ func TestGoQueryParamsOnBodyBearingRoutes(t *testing.T) {
 }
 
 func TestQueryOnBodyBearingRouteNeedsTargetsThatSupportIt(t *testing.T) {
-	ast, err := onklang.Parse(queryOnBodySchema)
+	ast, err := onktest.Parse(queryOnBodySchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.onk", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"go-server", "python-client"}})
+	_, err = onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.tsp", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"go-server", "python-client"}})
 	if err == nil || !strings.Contains(err.Error(), "go, ts and openapi targets only") {
 		t.Fatalf("expected the unsupported-target error, got %v", err)
 	}

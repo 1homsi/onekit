@@ -3,11 +3,23 @@ package genpy
 import "testing"
 
 func TestPythonSSEClientFollowsEventStreamFraming(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message Req { id: string }
-message Tick { n: int32  text: string }
-service Feed { watch(Req) -> Tick @get("/feed/{id}") @stream }
+	runPythonSchema(t, `namespace app;
+
+model Req {
+  id: string;
+}
+
+model Tick {
+  n: int32;
+  text: string;
+}
+
+interface Feed {
+  @get
+  @route("/feed/{id}")
+  @Onkt.stream
+  watch(...Req): Tick;
+}
 `, `
 import http.server, threading
 from client import FeedClient, StreamError

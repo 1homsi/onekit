@@ -2,10 +2,17 @@ package genrust
 
 import "testing"
 
-const rustTimeoutFixture = `
-package app
-message R { id: string }
-service S { get(R) -> R @get("/r/{id}") }
+const rustTimeoutFixture = `namespace app;
+
+model R {
+  id: string;
+}
+
+interface S {
+  @get
+  @route("/r/{id}")
+  get(...R): R;
+}
 `
 
 const rustTimeoutMain = `

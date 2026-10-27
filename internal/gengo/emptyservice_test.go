@@ -13,16 +13,7 @@ func TestServiceWithoutRPCsGeneratesCompilableGo(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	file := compileFixtureSource(t, `package app
-
-message R { a: string }
-
-service Empty {}
-
-service Real {
-  op(R) -> R @post("/op")
-}
-`)
+	file := compileFixtureSource(t, "namespace app;\n\nmodel R {\n  a: string;\n}\n\ninterface Empty {\n}\n\ninterface Real {\n  @post\n  @route(\"/op\")\n  `op`(...R): R;\n}\n")
 	types, err := GenerateTypes(file)
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +42,11 @@ service Real {
 		t.Fatalf("%v\n%s", err, out)
 	}
 
-	only := compileFixtureSource(t, "package app\n\nservice Empty {}\n")
+	only := compileFixtureSource(t, `namespace app;
+
+interface Empty {
+}
+`)
 	if out, err := GenerateServerWithOptions(only, nil, Options{}); err != nil || out != nil {
 		t.Fatalf("a file whose only service is empty has no server: %q %v", out, err)
 	}

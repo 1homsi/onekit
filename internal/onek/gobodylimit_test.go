@@ -3,12 +3,17 @@ package onek
 import "testing"
 
 func TestGoServerBodyLimitOptionAnd413(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Note { text: string }
+model Note {
+  text: string;
+}
 
-service Notes { create(Note) -> Note @post("/notes") }
+interface Notes {
+  @post
+  @route("/notes")
+  create(...Note): Note;
+}
 `, `package api
 
 import (

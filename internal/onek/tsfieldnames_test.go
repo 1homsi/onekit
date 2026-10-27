@@ -7,14 +7,21 @@ import (
 	"testing"
 )
 
-const tsFieldNamesSchema = `package fe
+const tsFieldNamesSchema = `namespace fe;
 
-message Req { folder_id: string }
-message Res { is_default: bool }
+model Req {
+  folder_id: string;
+}
 
-service Svc {
-  base_path: "/v1"
-  getThing(Req) -> Res @get("/things/{folder_id}")
+model Res {
+  is_default: boolean;
+}
+
+@route("/v1")
+interface Svc {
+  @get
+  @route("/things/{folder_id}")
+  getThing(...Req): Res;
 }
 `
 
@@ -25,8 +32,8 @@ func buildTSFieldNames(t *testing.T, target, fieldNames string) (string, error) 
 	if fieldNames != "" {
 		option = "field_names = \"" + fieldNames + "\"\n"
 	}
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/fe\"\n\n[generate."+target+"]\nout = \"gen\"\n"+option)
-	writeTestFile(t, filepath.Join(dir, "svc.onk"), tsFieldNamesSchema)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/fe\"\n\n[generate."+target+"]\nout = \"gen\"\n"+option)
+	writeTestFile(t, filepath.Join(dir, "svc.tsp"), tsFieldNamesSchema)
 	err := Build(dir)
 	return dir, err
 }

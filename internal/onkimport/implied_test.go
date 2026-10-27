@@ -14,7 +14,7 @@ func TestImportInfersObjectsAndNullableTypes(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(result.Source)
-	for _, want := range []string{"name: string\n", "nick: string?", "age: int32?", "tags: string[]"} {
+	for _, want := range []string{"  name: string;\n", "  nick?: string;\n", "  age?: int32;\n", "  tags: string[];\n"} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("missing %q:\n%s\n%v", want, src, result.Warnings)
 		}

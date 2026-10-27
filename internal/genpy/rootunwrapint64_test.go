@@ -3,10 +3,19 @@ package genpy
 import "testing"
 
 func TestPythonRootUnwrapInt64UsesStrings(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message Ids { v: int64[] @unwrap }
-message Total { v: uint64 @unwrap }
+	runPythonSchema(t, `namespace app;
+
+model Ids {
+  @Onkt.unwrap
+  @Onkt.encode("string")
+  v: int64[];
+}
+
+model Total {
+  @Onkt.unwrap
+  @encode(string)
+  v: uint64;
+}
 `, `
 from models import Ids, Total
 assert Ids(v=[1, -2]).to_dict() == ["1", "-2"]

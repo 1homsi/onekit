@@ -1,6 +1,0 @@
-package app
-message Page {
-  size: int32 @in(25, 50)
-  version: int64 @in(3, 4)
-}
-service S { get(Page) -> Page @get("/p") }

@@ -1,9 +1,0 @@
-
-package app
-message Event {
-  name: string
-  at: timestamp
-  day: timestamp @encode("date")
-  seen: timestamp?
-}
-service Events { create(Event) -> Event @post("/events") }

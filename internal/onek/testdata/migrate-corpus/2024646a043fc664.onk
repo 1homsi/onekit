@@ -1,8 +1,0 @@
-package p
-message TickReq { id: string }
-message Tick { value: int64 }
-message Boom @status(500) { message: string }
-service Svc {
-  base_path: "/api"
-  watch(TickReq) -> Tick | Boom @get("/watch/{id}") @stream
-}

@@ -5,13 +5,20 @@ import (
 	"testing"
 )
 
-const rustDeprecatedFixture = `
-package app
-message Note {
-  id: string
-  title: string @deprecated("use heading")
+const rustDeprecatedFixture = `namespace app;
+
+model Note {
+  id: string;
+  #deprecated "use heading"
+  title: string;
 }
-service Notes { get(Note) -> Note @get("/notes/{id}") @deprecated }
+
+interface Notes {
+  #deprecated ""
+  @get
+  @route("/notes/{id}")
+  get(...Note): Note;
+}
 `
 
 func TestRustMarksDeprecatedFieldsAndMethods(t *testing.T) {

@@ -89,7 +89,7 @@ func TestGoSharedRuntimeLetsOneSetOfHooksServeEveryModule(t *testing.T) {
 		t.Skip("go toolchain not available")
 	}
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `module = "example.com/shared/gen"
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), `module = "example.com/shared/gen"
 
 [generate.go-server]
 out = "./gen"
@@ -98,22 +98,32 @@ runtime = "shared"
 [generate.go-client]
 out = "./gen"
 `)
-	writeTestFile(t, filepath.Join(dir, "orders", "orders.onk"), `package orders
+	writeTestFile(t, filepath.Join(dir, "orders", "orders.tsp"), `namespace orders;
 
-message Order { id: string }
+model Order {
+  id: string;
+}
 
-service Orders {
-  base_path: "/v1"
-  create(Order) -> Order @post("/orders")
+@route("/v1")
+interface Orders {
+  @post
+  @route("/orders")
+  create(...Order): Order;
 }
 `)
-	writeTestFile(t, filepath.Join(dir, "users", "users.onk"), `package users
+	writeTestFile(t, filepath.Join(dir, "users", "users.tsp"), `namespace users;
 
-message User { name: string @len(1, 20) }
+model User {
+  @minLength(1)
+  @maxLength(20)
+  name: string;
+}
 
-service Users {
-  base_path: "/v1"
-  create(User) -> User @post("/users")
+@route("/v1")
+interface Users {
+  @post
+  @route("/users")
+  create(...User): User;
 }
 `)
 	if err := Build(dir); err != nil {
@@ -207,27 +217,61 @@ func TestGoSharedRuntimeCarriesPrincipalStreamsAndSockets(t *testing.T) {
 		t.Skip("go toolchain not available")
 	}
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `module = "example.com/shared/gen"
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), `module = "example.com/shared/gen"
 
 [generate.go-server]
 out = "./gen"
 runtime = "shared"
 runtime_dir = "rt/core"
 `)
-	writeTestFile(t, filepath.Join(dir, "docs", "docs.onk"), `package docs
+	writeTestFile(t, filepath.Join(dir, "docs", "docs.tsp"), `namespace docs;
 
-message Principal @principal { user_id: string  org: string }
-message DeleteDoc { id: string  owner_org: string }
-message WatchDocs { org: string @query }
-message Doc { id: string }
-message Ack { ok: bool }
-message Frame { id: string @ws_id  text: string }
+@Onkt.principal
+model Principal {
+  user_id: string;
+  org: string;
+}
 
-service Docs {
-  base_path: "/v1"
-  delete(DeleteDoc) -> Ack @post("/docs/delete") @authorize("auth.org == req.owner_org", "no")
-  watch(WatchDocs) -> Doc @get("/docs/watch") @stream @authorize("auth.org == req.org", "not your organization")
-  chat(Frame) -> Frame @ws("/docs/chat")
+model DeleteDoc {
+  id: string;
+  owner_org: string;
+}
+
+model WatchDocs {
+  @query
+  org: string;
+}
+
+model Doc {
+  id: string;
+}
+
+model Ack {
+  ok: boolean;
+}
+
+model Frame {
+  @Onkt.wsId
+  id: string;
+  text: string;
+}
+
+@route("/v1")
+interface Docs {
+  @post
+  @route("/docs/delete")
+  @Onkt.authorize("auth.org == req.owner_org", "no")
+  delete(...DeleteDoc): Ack;
+
+  @get
+  @route("/docs/watch")
+  @Onkt.stream
+  @Onkt.authorize("auth.org == req.org", "not your organization")
+  watch(...WatchDocs): Doc;
+
+  @Onkt.ws
+  @route("/docs/chat")
+  chat(...Frame): Frame;
 }
 `)
 	if err := Build(dir); err != nil {
@@ -238,7 +282,7 @@ service Docs {
 		t.Fatalf("runtime_dir was not honored: %v", err)
 	}
 	runtimeSource, _ := os.ReadFile(filepath.Join(gen, "rt", "core", "runtime.gen.go"))
-	if !strings.Contains(string(runtimeSource), "package core") || !strings.Contains(string(runtimeSource), "websocket.AcceptOptions") {
+	if !strings.Contains(string(runtimeSource), "package core\n") || !strings.Contains(string(runtimeSource), "websocket.AcceptOptions") {
 		t.Fatalf("the runtime package must be named after runtime_dir and carry the WebSocket options:\n%.400s", runtimeSource)
 	}
 	writeTestFile(t, filepath.Join(gen, "go.mod"), "module example.com/shared/gen\n\ngo 1.26\n\nrequire github.com/coder/websocket v1.8.15\n")
@@ -265,8 +309,20 @@ func TestGoRuntimeConfigValidation(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/x\"\n\n[generate.go-server]\nout = \"./gen\"\n"+tc.toml)
-			writeTestFile(t, filepath.Join(dir, "a.onk"), "package a\nmessage M { id: string }\nservice S { base_path: \"/v1\"\n  m(M) -> M @post(\"/m\") }\n")
+			writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/x\"\n\n[generate.go-server]\nout = \"./gen\"\n"+tc.toml)
+			writeTestFile(t, filepath.Join(dir, "a.tsp"), `namespace a;
+
+model M {
+  id: string;
+}
+
+@route("/v1")
+interface S {
+  @post
+  @route("/m")
+  m(...M): M;
+}
+`)
 			err := Build(dir)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error = %v, want containing %q", err, tc.want)

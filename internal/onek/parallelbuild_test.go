@@ -8,16 +8,28 @@ import (
 	"testing"
 )
 
-const everyTargetCatalogOnk = `
-package hub.catalog
+const everyTargetCatalogTypeSpec = `using common;
 
-service CatalogService {
-  base_path: "/catalog/v1"
+namespace hub.catalog;
 
-  getPrice(Lookup) -> Money | NotFound @get("/prices/{id}")
-  setPrice(Money) -> Money | NotFound @post("/prices")
-  watchPrice(Lookup) -> Tick | NotFound @get("/prices/{id}/watch") @stream
-  live(Tick) -> Tick @ws("/live")
+@route("/catalog/v1")
+interface CatalogService {
+  @get
+  @route("/prices/{id}")
+  getPrice(...Lookup): Money | NotFound;
+
+  @post
+  @route("/prices")
+  setPrice(...Money): Money | NotFound;
+
+  @get
+  @route("/prices/{id}/watch")
+  @Onkt.stream
+  watchPrice(...Lookup): Tick | NotFound;
+
+  @Onkt.ws
+  @route("/live")
+  live(...Tick): Tick;
 }
 `
 
@@ -56,12 +68,12 @@ out = "./gen/openapi"
 func buildEveryTarget(t *testing.T) map[string][]byte {
 	t.Helper()
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), everyTargetToml)
-	writeTestFile(t, filepath.Join(dir, "common", "money.onk"), commonMoneyOnk)
-	writeTestFile(t, filepath.Join(dir, "common", "shared.onk"), strictESMSharedOnk)
-	writeTestFile(t, filepath.Join(dir, "hub", "catalog", "v1", "service.onk"), everyTargetCatalogOnk)
-	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.onk"), businessServiceOnk)
-	writeTestFile(t, filepath.Join(dir, "rt", "runtime.onk"), strictESMRuntimeOnk)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), everyTargetToml)
+	writeTestFile(t, filepath.Join(dir, "common", "money.tsp"), commonMoneyTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "common", "shared.tsp"), strictESMSharedTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "hub", "catalog", "v1", "service.tsp"), everyTargetCatalogTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.tsp"), businessServiceTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "rt", "runtime.tsp"), strictESMRuntimeTypeSpec)
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build error: %v", err)
 	}

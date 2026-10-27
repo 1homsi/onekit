@@ -1,4 +1,0 @@
-package api
-message Note { id: string  text: string }
-service S { get(Note) -> Note @get("/notes/{id}")
- update(Note) -> Note @put("/notes/{id}") }

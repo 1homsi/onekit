@@ -3,9 +3,6 @@ package onkimport
 import (
 	"strings"
 	"testing"
-
-	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
 )
 
 func TestImportKeepsAnOptionalMapAsAPlainMap(t *testing.T) {
@@ -40,14 +37,8 @@ components:
 		t.Fatalf("an optional additionalProperties object must import: %v", err)
 	}
 	source := string(result.Source)
-	if !strings.Contains(source, "labels: map[string, string]\n") || strings.Contains(source, "map[string, string]?") {
+	if !strings.Contains(source, "  labels: Record<string>;\n") || strings.Contains(source, "labels?:") {
 		t.Fatalf("the map must stay a plain map:\n%s", source)
 	}
-	ast, err := onklang.Parse(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: "maps.onk", AST: ast}}); err != nil {
-		t.Fatalf("the imported schema must compile: %v\n%s", err, source)
-	}
+	requireFaithfulTypeSpec(t, result)
 }

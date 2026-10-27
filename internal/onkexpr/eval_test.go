@@ -7,44 +7,48 @@ import (
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkexpr"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const fixtureSchema = `package fixture
+const fixtureSchema = `namespace fixture;
 
-enum Status { OPEN DONE }
-
-message Inner {
-  owner: string
-  tags: string[]
+enum Status {
+  OPEN,
+  DONE,
 }
 
-message Subject {
-  n: int32
-  big: int64
-  zero: int32
-  d: float64
-  s: string
-  b: bool
-  opt: string?
-  optn: int32?
-  status: Status
-  tags: string[]
-  nums: int32[]
-  labels: map[string, string]
-  inner: Inner
-  items: Inner[]
-  data: bytes
+model Inner {
+  owner: string;
+  tags: string[];
+}
+
+model Subject {
+  n: int32;
+  @encode(string)
+  big: int64;
+  zero: int32;
+  d: float64;
+  s: string;
+  b: boolean;
+  opt?: string;
+  optn?: int32;
+  status: Status;
+  tags: string[];
+  nums: int32[];
+  labels: Record<string>;
+  inner: Inner;
+  items: Inner[];
+  data: bytes;
 }
 `
 
 func fixture(t *testing.T) *onkir.Message {
 	t.Helper()
-	file, err := onklang.Parse(fixtureSchema)
+	file, err := onktest.Parse(fixtureSchema)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "fixture.onk", AST: file}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "fixture.tsp", AST: file}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -210,11 +214,11 @@ func TestEvaluationSemantics(t *testing.T) {
 }
 
 func compileSource(src string) (*onkir.Package, error) {
-	file, err := onklang.Parse(src)
+	file, err := onktest.Parse(src)
 	if err != nil {
 		return nil, err
 	}
-	return onkcompile.Compile([]onkcompile.Source{{Path: "t.onk", AST: file}})
+	return onkcompile.Compile([]onkcompile.Source{{Path: "t.tsp", AST: file}})
 }
 
 func emptyMessage(t *testing.T) *onkir.Message {

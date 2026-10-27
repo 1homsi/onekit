@@ -1,9 +1,0 @@
-package app
-message R {}
-service API {
-  headers: {
-    "X-Key": string @required @auth("api_key")
-    "X-Tenant": string @required
-  }
-  get(R) -> R @get("/r")
-}

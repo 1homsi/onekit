@@ -1,3 +1,0 @@
-package app
-message R { x: string }
-// license note

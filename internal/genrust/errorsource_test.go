@@ -2,10 +2,17 @@ package genrust
 
 import "testing"
 
-const rustErrorSourceFixture = `
-package app
-message R { id: string }
-service S { get(R) -> R @get("/r/{id}") }
+const rustErrorSourceFixture = `namespace app;
+
+model R {
+  id: string;
+}
+
+interface S {
+  @get
+  @route("/r/{id}")
+  get(...R): R;
+}
 `
 
 const rustErrorSourceMain = `

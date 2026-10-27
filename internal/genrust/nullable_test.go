@@ -2,19 +2,27 @@ package genrust
 
 import "testing"
 
-const rustNullableSchema = `
-package app
+const rustNullableSchema = `namespace app;
 
-message Item { name: string @len(1, 10) }
-message Patch {
-  id: int32
-  folder_id: int64? @nullable @encode("number")
-  note: string? @nullable @len(1, 5)
-  item: Item? @nullable
+model Item {
+  @minLength(1)
+  @maxLength(10)
+  name: string;
 }
 
-service Patches {
-  patch(Patch) -> Patch @patch("/patch")
+model Patch {
+  id: int32;
+  folder_id?: int64 | null;
+  @minLength(1)
+  @maxLength(5)
+  note?: string | null;
+  item?: Item | null;
+}
+
+interface Patches {
+  @patch
+  @route("/patch")
+  patch(...Patch): Patch;
 }
 `
 

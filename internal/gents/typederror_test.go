@@ -3,11 +3,24 @@ package gents
 import "testing"
 
 func TestTSClientThrowsTypedApiErrors(t *testing.T) {
-	runTSSchema(t, `
-package app
-message R { id: string }
-message NotFoundError @status(404) { resource_id: string  message: string }
-service S { get(R) -> R | NotFoundError @get("/r/{id}") }
+	runTSSchema(t, `namespace app;
+
+model R {
+  id: string;
+}
+
+@error
+model NotFoundError {
+  @statusCode _: 404;
+  resource_id: string;
+  message: string;
+}
+
+interface S {
+  @get
+  @route("/r/{id}")
+  get(...R): R | NotFoundError;
+}
 `, `
 import { ApiError, SClient, TypedApiError } from "./client.ts";
 

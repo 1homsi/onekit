@@ -10,11 +10,22 @@ import (
 
 func TestOpenAPIServiceDocumentResolvesWebSocketFrameRefs(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"x\"\n\n[generate.openapi]\nout = \"./docs\"\n")
-	writeTestFile(t, filepath.Join(dir, "api.onk"), `
-message ChatIn { text: string }
-message ChatOut { text: string  author: string }
-service Chat { chat(ChatIn) -> ChatOut @ws("/chat") }
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"x\"\n\n[generate.openapi]\nout = \"./docs\"\n")
+	writeTestFile(t, filepath.Join(dir, "api.tsp"), `
+model ChatIn {
+  text: string;
+}
+
+model ChatOut {
+  text: string;
+  author: string;
+}
+
+interface Chat {
+  @Onkt.ws
+  @route("/chat")
+  chat(...ChatIn): ChatOut;
+}
 `)
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build: %v", err)

@@ -1,5 +1,0 @@
-package app
-enum E { A B }
-message M @rule("self.es.all(e, e == 'A')", "all A") {
-  es: E[]
-}

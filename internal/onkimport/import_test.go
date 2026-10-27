@@ -5,8 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/1homsi/onekit/internal/onkcompat"
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 const petstoreMini = `
@@ -112,48 +113,60 @@ func TestImportConvertsPetstoreMini(t *testing.T) {
 		t.Fatalf("package = %q, want pet_adoption", result.Package)
 	}
 	for _, want := range []string{
-		`package pet_adoption`,
-		`base_path: "/v1"`,
+		"namespace pet_adoption;\n",
+		"@route(\"/v1\")\ninterface PetAdoptionService {",
 		// request messages carry bound parameters
-		`message ShowPetByIdRequest {`,
-		`petId: string`,
-		`limit: int32? @query`,
-		// body binding is declared at RPC level; the request field stays plain
-		`body: NewPet`,
+		"model ShowPetByIdRequest {",
+		"  petId: string;\n",
+		"  @query\n  limit?: int32;\n",
+		// the request body is the request's @body field
+		"  @body\n  body: NewPet;\n",
 		// named error components are reused canonically instead of synthesized
-		`AddPet(AddPetRequest) -> Pet | ValidationProblem @body("body") @post("/pets")`,
-		`ShowPetById(ShowPetByIdRequest) -> Pet | ShowPetByIdError404 @get("/pets/{petId}")`,
+		"  @post\n  @route(\"/pets\")\n  AddPet(...AddPetRequest): Pet | ValidationProblem;\n",
+		"  @get\n  @route(\"/pets/{petId}\")\n  ShowPetById(...ShowPetByIdRequest): Pet | ShowPetByIdError404;\n",
 		// validators mirror string formats
-		`id: string @uuid`,
-		// optional fields place ? between type and validators
-		`owner_email: string? @email`,
-		`homepage: string? @uri`,
-		`born_at: timestamp`,
-		`lives_left: int64`,
-		// enum members preserve wire values via @json
-		`enum PetStatusValues {`,
-		`AVAILABLE @json("available")`,
+		"  @format(\"uuid\")\n  id: string;\n",
+		"  @format(\"email\")\n  owner_email?: string;\n",
+		"  @format(\"uri\")\n  homepage?: string;\n",
+		"  born_at?: utcDateTime;\n",
+		"  lives_left?: int64;\n",
+		// enum members preserve wire values
+		"enum PetStatusValues {",
+		"  AVAILABLE: \"available\",\n",
 		// allOf merged into NewPet
-		`status: PetStatusValues?`,
+		"  status?: PetStatusValues;\n",
 		// error messages declare their status
-		`message ShowPetByIdError404 @status(404) {`,
+		"@error\nmodel ShowPetByIdError404 {\n  @statusCode _: 404;\n",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("generated .onk missing %q:\n%s", want, src)
+			t.Fatalf("imported TypeSpec missing %q:\n%s", want, src)
 		}
 	}
 
 	if len(result.Warnings) == 0 {
 		t.Fatalf("expected warnings for oneOf composition, got none")
 	}
+	requireFaithfulTypeSpec(t, result)
+}
 
-	// Quality gate: emitted source must parse AND compile.
-	ast, err := onklang.Parse(src)
+// requireFaithfulTypeSpec holds the quality gate every import passes: the
+// TypeSpec compiles, and it means exactly the declarations the importer built.
+func requireFaithfulTypeSpec(t *testing.T, result *Result) {
+	t.Helper()
+	built, err := onkcompile.Compile([]onkcompile.Source{{Path: result.Package + ".tsp", AST: result.File}})
 	if err != nil {
-		t.Fatalf("generated .onk does not parse: %v\n%s", err, src)
+		t.Fatalf("imported declarations do not compile: %v", err)
 	}
-	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: result.Package + ".onk", AST: ast}}); err != nil {
-		t.Fatalf("generated .onk does not compile: %v\n%s", err, src)
+	ast, err := onktest.Parse(string(result.Source))
+	if err != nil {
+		t.Fatalf("imported TypeSpec does not compile: %v\n%s", err, result.Source)
+	}
+	spelled, err := onkcompile.Compile([]onkcompile.Source{{Path: result.Package + ".tsp", AST: ast}})
+	if err != nil {
+		t.Fatalf("imported TypeSpec does not pass onkt check: %v\n%s", err, result.Source)
+	}
+	if findings := onkcompat.Compare(built, spelled); len(findings) != 0 {
+		t.Fatalf("the TypeSpec differs from the imported declarations: %+v\n%s", findings, result.Source)
 	}
 }
 
@@ -168,20 +181,6 @@ func TestImportIsDeterministic(t *testing.T) {
 	}
 	if !bytes.Equal(first.Source, second.Source) {
 		t.Fatalf("import is not deterministic")
-	}
-}
-
-func TestImportFormatterStable(t *testing.T) {
-	result, err := Import([]byte(petstoreMini), Options{})
-	if err != nil {
-		t.Fatalf("import: %v", err)
-	}
-	formatted, err := onklang.Format(string(result.Source))
-	if err != nil {
-		t.Fatalf("format: %v", err)
-	}
-	if !bytes.Equal(formatted, result.Source) {
-		t.Fatalf("imported output is not formatter-canonical:\n--- imported ---\n%s\n--- formatted ---\n%s", result.Source, formatted)
 	}
 }
 

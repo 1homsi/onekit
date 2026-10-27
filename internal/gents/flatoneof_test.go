@@ -3,15 +3,24 @@ package gents
 import "testing"
 
 func TestTSFlattenedOneofMergesVariantFieldsOnTheWire(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Email { address: string }
-message Phone { number: string }
-message Contact {
-  via: oneof(discriminator: "kind", flatten: true) {
-    email: Email @tag("email")
-    phone: Phone @tag("phone")
-  }
+	runTSSchema(t, `namespace app;
+
+model Email {
+  address: string;
+}
+
+model Phone {
+  number: string;
+}
+
+@discriminated(#{ discriminatorPropertyName: "kind", envelope: "none" })
+union ContactVia {
+  @Onkt.tag("email") email: Email,
+  @Onkt.tag("phone") phone: Phone,
+}
+
+model Contact {
+  via: ContactVia;
 }
 `, `
 import { decodeContact, encodeContact } from "./types.ts";

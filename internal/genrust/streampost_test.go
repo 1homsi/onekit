@@ -2,21 +2,35 @@ package genrust
 
 import "testing"
 
-const rustStreamPostSchema = `
-package app
+const rustStreamPostSchema = `namespace app;
 
-message TurnRequest { prompt: string }
-message Text { text: string }
-message Done { reason: string }
-message TurnEvent {
-  payload: oneof(discriminator: "type") {
-    text: Text @tag("text")
-    done: Done @tag("done")
-  }
+model TurnRequest {
+  prompt: string;
 }
 
-service Agent {
-  turn(TurnRequest) -> TurnEvent @post("/turn") @stream
+model Text {
+  text: string;
+}
+
+model Done {
+  reason: string;
+}
+
+@Onkt.discriminator("type")
+union TurnEventPayload {
+  @Onkt.tag("text") text: Text,
+  @Onkt.tag("done") done: Done,
+}
+
+model TurnEvent {
+  payload: TurnEventPayload;
+}
+
+interface Agent {
+  @post
+  @route("/turn")
+  @Onkt.stream
+  turn(...TurnRequest): TurnEvent;
 }
 `
 

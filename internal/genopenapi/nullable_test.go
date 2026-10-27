@@ -5,25 +5,28 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func TestNullableFieldsAllowNullInSchema(t *testing.T) {
-	ast, err := onklang.Parse(`package app
+	ast, err := onktest.Parse(`namespace app;
 
-message Item { name: string }
-message Patch {
-  id: int32
-  folder_id: int64? @nullable @encode("number")
-  note: string? @nullable
-  item: Item? @nullable
-  plain: string?
+model Item {
+  name: string;
+}
+
+model Patch {
+  id: int32;
+  folder_id?: int64 | null;
+  note?: string | null;
+  item?: Item | null;
+  plain?: string;
 }
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}

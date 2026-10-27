@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-const nullableBenchSchema = `package app
+const nullableBenchSchema = `namespace app;
 
-message App {
-  id: int64 @encode("number")
-  name: string
-  slug: string
-  folder_id: int64? @nullable @encode("number")
-  owner: string
+model App {
+  id: int64;
+  name: string;
+  slug: string;
+  folder_id?: int64 | null;
+  owner: string;
 }
 `
 

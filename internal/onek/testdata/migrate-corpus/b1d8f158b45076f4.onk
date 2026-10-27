@@ -1,4 +1,0 @@
-
-package app
-message Note { text: string @len(1, 5)  email: string @email }
-service Notes { create(Note) -> Note @post("/notes") }

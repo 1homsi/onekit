@@ -2,10 +2,17 @@ package genrust
 
 import "testing"
 
-const rustContextFixture = `
-package app
-message Who { id: string }
-service Users { whoami(Who) -> Who @get("/users/{id}") }
+const rustContextFixture = `namespace app;
+
+model Who {
+  id: string;
+}
+
+interface Users {
+  @get
+  @route("/users/{id}")
+  whoami(...Who): Who;
+}
 `
 
 const rustContextMain = `

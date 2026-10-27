@@ -1,9 +1,0 @@
-
-package app
-message EmailAuth { email: string }
-message Login {
-  method: oneof(discriminator: "auth_type") {
-    email: EmailAuth @tag("email")
-    token: string @tag("token")
-  }
-}

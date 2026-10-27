@@ -9,12 +9,32 @@ import (
 
 func TestMockInjectsEveryDeclaredErrorType(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "api.onk"), `
-message Req { id: string }
-message Res { id: string }
-message NotFound @status(404) { message: string }
-message Conflict @status(409) { message: string }
-service Svc { get(Req) -> Res | NotFound | Conflict @get("/r/{id}") }
+	writeTestFile(t, filepath.Join(dir, "api.tsp"), `
+model Req {
+  id: string;
+}
+
+model Res {
+  id: string;
+}
+
+@error
+model NotFound {
+  @statusCode _: 404;
+  message: string;
+}
+
+@error
+model Conflict {
+  @statusCode _: 409;
+  message: string;
+}
+
+interface Svc {
+  @get
+  @route("/r/{id}")
+  get(...Req): Res | NotFound | Conflict;
+}
 `)
 	server, err := NewMockServer(dir, MockOptions{Seed: 3, ErrorRate: 1})
 	if err != nil {

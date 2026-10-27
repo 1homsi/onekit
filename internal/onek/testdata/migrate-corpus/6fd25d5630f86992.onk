@@ -1,8 +1,0 @@
-
-package examples.json
-
-message Envelope {
-  payload: json
-  attributes: map[string, json]
-  items: json[]
-}

@@ -7,50 +7,55 @@ import (
 	"testing"
 )
 
-const commonMoneyOnk = `
-package common
+const commonMoneyTypeSpec = `namespace common;
 
-message Money {
-  amount_cents: int64
-  currency: string
+model Money {
+  @encode(string)
+  amount_cents: int64;
+  currency: string;
 }
 `
 
-const businessServiceOnk = `
-package hub.business
+const businessServiceTypeSpec = `using common;
 
-message GetBusinessRequest {
-  id: string
+namespace hub.business;
+
+model GetBusinessRequest {
+  id: string;
 }
 
-message Business {
-  id: string
-  name: string
-  balance: Money
+model Business {
+  id: string;
+  name: string;
+  balance: Money;
 }
 
-service BusinessService {
-  getBusiness(GetBusinessRequest) -> Business @get("/businesses/{id}")
-}
-`
-
-const timeEntryServiceOnk = `
-package hr.time_entry
-
-message ListEntriesRequest {
-  employee_id: string @query("employee_id")
-}
-
-message Entry {
-  id: string
-}
-
-service TimeEntryService {
-  listEntries(ListEntriesRequest) -> Entry @get("/entries")
+interface BusinessService {
+  @get
+  @route("/businesses/{id}")
+  getBusiness(...GetBusinessRequest): Business;
 }
 `
 
-const multiServiceOnekitToml = `
+const timeEntryServiceTypeSpec = `namespace hr.time_entry;
+
+model ListEntriesRequest {
+  @query("employee_id")
+  employee_id: string;
+}
+
+model Entry {
+  id: string;
+}
+
+interface TimeEntryService {
+  @get
+  @route("/entries")
+  listEntries(...ListEntriesRequest): Entry;
+}
+`
+
+const multiServiceToml = `
 module = "example.com/voxie/gen/go"
 route_prefix = "/api"
 
@@ -79,10 +84,10 @@ func TestBuildInfersBasePathAndSplitsPackagesByDirectory(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), multiServiceOnekitToml)
-	writeTestFile(t, filepath.Join(dir, "common", "money.onk"), commonMoneyOnk)
-	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.onk"), businessServiceOnk)
-	writeTestFile(t, filepath.Join(dir, "hr", "time_entry", "v1", "service.onk"), timeEntryServiceOnk)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), multiServiceToml)
+	writeTestFile(t, filepath.Join(dir, "common", "money.tsp"), commonMoneyTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.tsp"), businessServiceTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "hr", "time_entry", "v1", "service.tsp"), timeEntryServiceTypeSpec)
 
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build error: %v", err)

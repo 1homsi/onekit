@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/1homsi/onekit/internal/onkschema"
 )
 
 // text returns the string value stored at m[key], or "" for anything else.
@@ -304,17 +306,40 @@ func truthy(v any) bool {
 	}
 }
 
-// composeFieldLine assembles "name: type[?] [suffix]" keeping the optional
-// marker between the type and its decorators, which is where the .onk
-// grammar expects it.
-func composeFieldLine(name string, ft fieldType, optional bool, owner, rawName string) string {
-	typeExpr := ft.expr
-	marker := ""
-	if (optional || ft.nullable) && !strings.HasSuffix(typeExpr, "[]") && !strings.HasPrefix(typeExpr, "map[") {
-		marker = "?"
+// composeField builds a field from its type. The optional marker covers a
+// nullable type too, except on lists and maps, which are never optional.
+func composeField(name string, ft fieldType, optional bool) *onkschema.FieldDecl {
+	field := &onkschema.FieldDecl{Name: name, Decorators: append([]onkschema.Decorator(nil), ft.decorators...)}
+	expr := ft.expr
+	if strings.HasSuffix(expr, "[]") {
+		field.Repeated = true
+		expr = strings.TrimSuffix(expr, "[]")
 	}
-	line := name + ": " + typeExpr + marker + ft.suffix
-	_ = owner
-	_ = rawName
-	return line
+	field.Type = typeRef(expr)
+	field.Optional = (optional || ft.nullable) && !field.Repeated && !field.Type.IsMap
+	return field
+}
+
+// typeRef turns a type expression into a reference.
+func typeRef(expr string) *onkschema.TypeRef {
+	if inner, ok := strings.CutPrefix(expr, "map<"); ok {
+		key, value, _ := strings.Cut(strings.TrimSuffix(inner, ">"), ",")
+		return &onkschema.TypeRef{IsMap: true, MapKey: strings.TrimSpace(key), MapVal: typeRef(strings.TrimSpace(value))}
+	}
+	return &onkschema.TypeRef{Name: expr}
+}
+
+func isMapExpr(expr string) bool { return strings.HasPrefix(expr, "map<") }
+
+func dec(name string, args ...onkschema.Arg) onkschema.Decorator {
+	return onkschema.Decorator{Name: name, Args: args}
+}
+
+func quoted(value string) onkschema.Arg { return onkschema.Arg{Value: value, Quoted: true} }
+
+func num(value string) onkschema.Arg { return onkschema.Arg{Value: value} }
+
+// authDecorators mark a credential header of the given scheme.
+func authDecorators(scheme, schemeName string) []onkschema.Decorator {
+	return []onkschema.Decorator{dec("required"), dec("auth", quoted(scheme)), dec("auth_scheme_name", quoted(schemeName))}
 }

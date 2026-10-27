@@ -7,72 +7,83 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const jsonMappingFixture = `
-package main
+const jsonMappingFixture = `namespace main;
 
-message Money {
-  amount_cents: int64
-  amount_number: int64 @encode(number)
-  optional_amount: int64?
-  amounts: int64[]
+model Money {
+  @encode(string)
+  amount_cents: int64;
+  amount_number: int64;
+  @encode(string)
+  optional_amount?: int64;
+  @Onkt.encode("string")
+  amounts: int64[];
 }
 
 enum Status {
-  UNSPECIFIED
-  ACTIVE @json("active")
+  UNSPECIFIED,
+  ACTIVE: "active",
 }
 
-message StatusHolder {
-  status: Status
-  status_num: Status @encode(number)
-  statuses: Status[]
-  status_by_name: map[string, Status]
+model StatusHolder {
+  status: Status;
+  @Onkt.encode("number")
+  status_num: Status;
+  statuses: Status[];
+  status_by_name: Record<Status>;
 }
 
-message Document {
-  data: bytes
-  hash: bytes @encode(hex)
-  optional_hash: bytes? @encode(hex)
-  chunks: bytes[]
-  by_hash: map[string, bytes]
+model Document {
+  data: bytes;
+  @Onkt.encode("hex")
+  hash: bytes;
+  @Onkt.encode("hex")
+  optional_hash?: bytes;
+  chunks: bytes[];
+  by_hash: Record<bytes>;
 }
 
-message Event {
-  created_at: timestamp
-  unix_at: timestamp @encode(unix_seconds)
+model Event {
+  created_at: utcDateTime;
+  @encode("unixTimestamp", int64)
+  unix_at: utcDateTime;
 }
 
-message Address {
-  street: string
-  city: string
+model Address {
+  street: string;
+  city: string;
 }
 
-message Order {
-  id: string
-  billing: Address @flatten(prefix: "billing_")
+model Order {
+  id: string;
+  @Onkt.flatten("billing_")
+  billing: Address;
 }
 
-message Meta {
-  note: string
+model Meta {
+  note: string;
 }
 
-message ResponseNull {
-  meta: Meta @empty(null)
+model ResponseNull {
+  @Onkt.empty("null")
+  meta: Meta;
 }
 
-message IdList {
-  ids: string[] @unwrap
+model IdList {
+  @Onkt.unwrap
+  ids: string[];
 }
 
-message BlobList {
-  values: bytes[] @unwrap
+model BlobList {
+  @Onkt.unwrap
+  values: bytes[];
 }
 
-message StatusMap {
-  values: map[string, Status] @unwrap
+model StatusMap {
+  @Onkt.unwrap
+  values: Record<Status>;
 }
 `
 
@@ -196,11 +207,11 @@ func TestJSONMappingAnnotations(t *testing.T) {
 		t.Skip("python3 not available")
 	}
 
-	ast, err := onklang.Parse(jsonMappingFixture)
+	ast, err := onktest.Parse(jsonMappingFixture)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile error: %v", err)
 	}

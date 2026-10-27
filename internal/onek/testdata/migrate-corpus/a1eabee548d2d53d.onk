@@ -1,9 +1,0 @@
-
-message NotFoundError @status(404) {
-  resource_type: string
-  resource_id: string
-}
-
-message PlainMessage {
-  x: string
-}

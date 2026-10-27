@@ -1,6 +1,0 @@
-package a
-
-message Changed {
-  id: string
-  extra: string
-}

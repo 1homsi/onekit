@@ -16,7 +16,7 @@ func TestImportAcceptsJSONMediaTypeVariants(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(result.Source)
-	for _, want := range []string{"name: string", "id: string", "detail: string", "@status(422)"} {
+	for _, want := range []string{"  name?: string;\n", "  id?: string;\n", "  detail?: string;\n", "@statusCode _: 422;"} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("missing %q:\n%s", want, src)
 		}

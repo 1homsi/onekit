@@ -1,4 +1,0 @@
-package api
-message Req { id: string  filter: string  limit: int32 }
-message Res { ok: bool }
-service S { read(Req) -> Res @get("/x/{id}") }

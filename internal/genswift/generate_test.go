@@ -7,22 +7,41 @@ import (
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
-const mixedSchema = `
-package app
-message Ask { id: string }
-message Reply { text: string }
-service Chat {
-  ping(Ask) -> Reply @get("/ping/{id}")
-  live(Ask) -> Reply @ws("/live")
+const mixedSchema = `namespace app;
+
+model Ask {
+  id: string;
+}
+
+model Reply {
+  text: string;
+}
+
+interface Chat {
+  @get
+  @route("/ping/{id}")
+  ping(...Ask): Reply;
+
+  @Onkt.ws
+  @route("/live")
+  live(...Ask): Reply;
 }
 `
 
-const socketOnlySchema = `
-package app
-message Ask { id: string }
-message Reply { text: string }
-service Live {
-  live(Ask) -> Reply @ws("/live")
+const socketOnlySchema = `namespace app;
+
+model Ask {
+  id: string;
+}
+
+model Reply {
+  text: string;
+}
+
+interface Live {
+  @Onkt.ws
+  @route("/live")
+  live(...Ask): Reply;
 }
 `
 
@@ -55,9 +74,13 @@ func TestIdentifiersAvoidSwiftKeywordsAndGeneratedMembers(t *testing.T) {
 }
 
 func TestTypesAreFinalClassesSoMessagesCanBeRecursive(t *testing.T) {
-	out := string(GenerateTypes(compileSwiftSchema(t, `
-package app
-message Node { name: string parent: Node? children: Node[] }
+	out := string(GenerateTypes(compileSwiftSchema(t, `namespace app;
+
+model Node {
+  name: string;
+  parent?: Node;
+  children: Node[];
+}
 `)))
 	for _, want := range []string{
 		"public final class Node: OnekitMessage, Equatable, CustomStringConvertible {",
@@ -71,12 +94,27 @@ message Node { name: string parent: Node? children: Node[] }
 }
 
 func TestErrorMessagesConformToError(t *testing.T) {
-	out := string(GenerateTypes(compileSwiftSchema(t, `
-package app
-message Ask { id: string }
-message Reply { text: string }
-message Missing @status(404) { code: string }
-service Lookup { find(Ask) -> Reply | Missing @get("/find/{id}") }
+	out := string(GenerateTypes(compileSwiftSchema(t, `namespace app;
+
+model Ask {
+  id: string;
+}
+
+model Reply {
+  text: string;
+}
+
+@error
+model Missing {
+  @statusCode _: 404;
+  code: string;
+}
+
+interface Lookup {
+  @get
+  @route("/find/{id}")
+  find(...Ask): Reply | Missing;
+}
 `)))
 	if !strings.Contains(out, "public final class Missing: OnekitMessage, Equatable, CustomStringConvertible, Error, @unchecked Sendable {") {
 		t.Fatalf("declared error types must be throwable:\n%s", out)
@@ -84,9 +122,13 @@ service Lookup { find(Ask) -> Reply | Missing @get("/find/{id}") }
 }
 
 func TestDeprecatedFieldsKeepTheirWarningForCallersOnly(t *testing.T) {
-	out := string(GenerateTypes(compileSwiftSchema(t, `
-package app
-message Legacy { old: string @deprecated("use new_name") new_name: string }
+	out := string(GenerateTypes(compileSwiftSchema(t, `namespace app;
+
+model Legacy {
+  #deprecated "use new_name"
+  old: string;
+  new_name: string;
+}
 `)))
 	for _, want := range []string{
 		"private var _old: String",
@@ -113,14 +155,40 @@ func (r testNamespaces) ResolveEnum(e *onkir.Enum) (string, bool) {
 }
 
 func TestNamespacedTypesWrapDeclarationsAndQualifyForeignReferences(t *testing.T) {
-	file := compileSwiftSchema(t, `
-package app
-enum Kind { A B }
-message Money { cents: int64 }
-message Order { total: Money kind: Kind history: Money[] by_kind: map[string, Money] }
-message Get { id: string }
-message NotFound @status(404) { id: string }
-service Orders { get(Get) -> Order | NotFound @get("/orders/{id}") }
+	file := compileSwiftSchema(t, `namespace app;
+
+enum Kind {
+  A,
+  B,
+}
+
+model Money {
+  @encode(string)
+  cents: int64;
+}
+
+model Order {
+  total: Money;
+  kind: Kind;
+  history: Money[];
+  by_kind: Record<Money>;
+}
+
+model Get {
+  id: string;
+}
+
+@error
+model NotFound {
+  @statusCode _: 404;
+  id: string;
+}
+
+interface Orders {
+  @get
+  @route("/orders/{id}")
+  get(...Get): Order | NotFound;
+}
 `)
 	resolver := testNamespaces{"Money": "CommonV1", "Kind": "CommonV1"}
 	types := string(GenerateTypesInNamespace(file, "ShopV1", resolver))
@@ -148,7 +216,12 @@ service Orders { get(Get) -> Order | NotFound @get("/orders/{id}") }
 }
 
 func TestFlatGenerationIsUnchangedWithoutANamespace(t *testing.T) {
-	file := compileSwiftSchema(t, "package app\nmessage M { id: string }\n")
+	file := compileSwiftSchema(t, `namespace app;
+
+model M {
+  id: string;
+}
+`)
 	out := string(GenerateTypes(file))
 	if strings.Contains(out, "extension ") || strings.Contains(out, "public enum ") && strings.Contains(out, "{}") {
 		t.Fatalf("the schema root stays at module level:\n%s", out)

@@ -61,26 +61,29 @@ func TestGeneratedPythonRulesMatchTheReferenceEvaluator(t *testing.T) {
 }
 
 func TestPythonRulesRunInGeneratedModels(t *testing.T) {
-	runPythonSchema(t, `
-package app
+	runPythonSchema(t, `namespace app;
 
-enum Tier { FREE PRO }
-
-message Customer {
-  name: string
-  tags: string[]
+enum Tier {
+  FREE,
+  PRO,
 }
 
-message Order
-  @rule("self.tier != 'FREE' || size(self.items) <= 1", "free orders hold one item")
-  @rule("self.owner.name != ''", "an owner name is required")
-  @rule("!has(self.coupon) || size(self.coupon) == 4", "coupons have four characters")
-{
-  tier: Tier
-  owner: Customer
-  items: string[]
-  coupon: string?
-  total: int64 @rule("value >= 0 && value <= 1000000", "total out of range")
+model Customer {
+  name: string;
+  tags: string[];
+}
+
+@Onkt.rule("self.tier != 'FREE' || size(self.items) <= 1", "free orders hold one item")
+@Onkt.rule("self.owner.name != ''", "an owner name is required")
+@Onkt.rule("!has(self.coupon) || size(self.coupon) == 4", "coupons have four characters")
+model Order {
+  tier: Tier;
+  owner: Customer;
+  items: string[];
+  coupon?: string;
+  @Onkt.rule("value >= 0 && value <= 1000000", "total out of range")
+  @encode(string)
+  total: int64;
 }
 `, `
 from models import Order, Customer, Tier

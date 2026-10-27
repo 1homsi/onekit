@@ -1,7 +1,0 @@
-
-package check
-
-message DeleteRequest { id: string }
-message DeleteResponse {}
-
-service Items { remove(DeleteRequest) -> DeleteResponse @delete("/items/{id}") }

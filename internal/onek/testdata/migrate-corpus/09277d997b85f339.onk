@@ -1,9 +1,0 @@
-
-package check
-
-message Ping { id: string }
-
-service Pings {
-  headers: { "X-Request-Id": string @required }
-  get(Ping) -> Ping @get("/pings/{id}")
-}

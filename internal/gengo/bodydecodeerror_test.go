@@ -13,50 +13,64 @@ func TestGoServerBodyDecodeErrorNamesPathAndProblem(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	file := compileFixtureSource(t, `package app
+	file := compileFixtureSource(t, `namespace app;
 
 enum ResourceType {
-  REST @json("rest")
-  S3 @json("s3")
-  SQL @json("sql")
+  REST: "rest",
+  S3: "s3",
+  SQL: "sql",
 }
 
-message SqlOptions {
-  host: string
-  port: int32
+model SqlOptions {
+  host: string;
+  port: int32;
 }
 
-message Options {
-  sql: SqlOptions?
+model Options {
+  sql?: SqlOptions;
 }
 
-message CreateResource {
-  name: string
-  type: ResourceType
-  options: Options?
-  tags: string[]
-  labels: map[string, SqlOptions]
-  size: int64
-  created: timestamp?
-  ratio: float32
+model CreateResource {
+  name: string;
+  type: ResourceType;
+  options?: Options;
+  tags: string[];
+  labels: Record<SqlOptions>;
+  @encode(string)
+  size: int64;
+  created?: utcDateTime;
+  ratio: float32;
 }
 
-message Resource { name: string }
-
-message Wrapped {
-  id: string
-  options: Options
+model Resource {
+  name: string;
 }
 
-message Counted {
-  id: string
-  count: int64[]
+model Wrapped {
+  id: string;
+  @body
+  options: Options;
 }
 
-service Resources {
-  create(CreateResource) -> Resource @post("/api/v1/resources")
-  wrap(Wrapped) -> Resource @put("/api/v1/wrapped/{id}") @body("options")
-  count(Counted) -> Resource @put("/api/v1/counted/{id}") @body("count")
+model Counted {
+  id: string;
+  @body
+  @Onkt.encode("string")
+  count: int64[];
+}
+
+interface Resources {
+  @post
+  @route("/api/v1/resources")
+  create(...CreateResource): Resource;
+
+  @put
+  @route("/api/v1/wrapped/{id}")
+  wrap(...Wrapped): Resource;
+
+  @put
+  @route("/api/v1/counted/{id}")
+  count(...Counted): Resource;
 }
 `)
 	types, err := GenerateTypes(file)

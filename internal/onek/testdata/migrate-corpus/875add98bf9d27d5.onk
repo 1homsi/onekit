@@ -1,9 +1,0 @@
-
-package app
-message Req { msg: string }
-message Res { msg: string }
-message NotFound @status(404) { reason: string }
-
-service Echo {
-  echo(Req) -> Res | NotFound @post("/echo")
-}

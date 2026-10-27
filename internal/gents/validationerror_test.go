@@ -3,10 +3,21 @@ package gents
 import "testing"
 
 func TestTSClientThrowsRequestValidationError(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Note { text: string @len(1, 5)  email: string @email }
-service Notes { create(Note) -> Note @post("/notes") }
+	runTSSchema(t, `namespace app;
+
+model Note {
+  @minLength(1)
+  @maxLength(5)
+  text: string;
+  @format("email")
+  email: string;
+}
+
+interface Notes {
+  @post
+  @route("/notes")
+  create(...Note): Note;
+}
 `, `
 import { NotesClient, RequestValidationError } from "./client.ts";
 

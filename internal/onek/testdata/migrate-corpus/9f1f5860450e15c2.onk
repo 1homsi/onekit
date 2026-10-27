@@ -1,2 +1,0 @@
-package app
-message Span @rule("self.low <= self.high", "a") @rule("self.high < 100", "b") { low: int32 @rule("value >= 0", "c") high: int32 }

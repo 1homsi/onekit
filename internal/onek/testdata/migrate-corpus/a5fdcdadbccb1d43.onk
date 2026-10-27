@@ -1,4 +1,0 @@
-
-package app
-message Who { id: string }
-service Users { whoami(Who) -> Who @get("/users/{id}") }

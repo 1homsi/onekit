@@ -1,3 +1,0 @@
-package app
-message A {}
-message M { v: oneof(discriminator: "kind") { a: A } }

@@ -1,9 +1,0 @@
-package app
-message R {}
-service API {
-  headers: {
-    "X-Key": string @required @auth("api_key") @example("k-123") @auth_scheme_name("Key")
-    "X-Trace": string
-  }
-  get(R) -> R @get("/r")
-}

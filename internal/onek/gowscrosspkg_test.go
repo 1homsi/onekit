@@ -6,25 +6,27 @@ import (
 	"testing"
 )
 
-const wsCrossPackageCommonOnk = `
-package common
+const wsCrossPackageCommonTypeSpec = `namespace common;
 
-message Ping {
-  room: string
-  text: string
+model Ping {
+  room: string;
+  text: string;
 }
 
-message Pong {
-  room: string
-  text: string
+model Pong {
+  room: string;
+  text: string;
 }
 `
 
-const wsCrossPackageHubOnk = `
-package hub
+const wsCrossPackageHubTypeSpec = `using common;
 
-service Chat {
-  chat(Ping) -> Pong @ws("/chat")
+namespace hub;
+
+interface Chat {
+  @Onkt.ws
+  @route("/chat")
+  chat(...Ping): Pong;
 }
 `
 
@@ -33,7 +35,7 @@ func TestGoWSWithCrossPackageFramesCompiles(t *testing.T) {
 		t.Skip("go toolchain not available")
 	}
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), `
 module = "example.com/wsx/gen/go"
 
 [generate.go-server]
@@ -42,8 +44,8 @@ out = "./gen/go"
 [generate.go-client]
 out = "./gen/go"
 `)
-	writeTestFile(t, filepath.Join(dir, "common", "frames.onk"), wsCrossPackageCommonOnk)
-	writeTestFile(t, filepath.Join(dir, "hub", "service.onk"), wsCrossPackageHubOnk)
+	writeTestFile(t, filepath.Join(dir, "common", "frames.tsp"), wsCrossPackageCommonTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "hub", "service.tsp"), wsCrossPackageHubTypeSpec)
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build error: %v", err)
 	}

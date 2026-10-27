@@ -1,3 +1,0 @@
-
-message R { id: string }
-service API { a(R) -> R @get("/users/{id}") }

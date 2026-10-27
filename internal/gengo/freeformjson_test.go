@@ -8,16 +8,35 @@ import (
 	"testing"
 )
 
-const freeFormSchema = `package app
+const freeFormSchema = `namespace app;
 
-message RunIn { id: string  input: json @object }
-message RunOut { value: json @unwrap }
-message Raw { id: string  payload: json }
+model RunIn {
+  id: string;
+  @Onkt.object
+  @body
+  input: unknown;
+}
 
-service Queries {
-  base_path: "/v1"
-  run(RunIn) -> RunOut @post("/queries/{id}/run") @body("input")
-  any(Raw) -> RunOut @post("/any/{id}") @body("payload")
+model RunOut {
+  @Onkt.unwrap
+  value: unknown;
+}
+
+model Raw {
+  id: string;
+  @body
+  payload: unknown;
+}
+
+@route("/v1")
+interface Queries {
+  @post
+  @route("/queries/{id}/run")
+  run(...RunIn): RunOut;
+
+  @post
+  @route("/any/{id}")
+  any(...Raw): RunOut;
 }
 `
 

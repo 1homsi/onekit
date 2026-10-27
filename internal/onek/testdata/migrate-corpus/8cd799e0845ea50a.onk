@@ -1,6 +1,0 @@
-package api
-message Req { path: string }
-message NReq { n: int32 }
-message Empty {}
-message Res { ok: bool }
-service S { read(Req) -> Res @get("/files/{path...}") }

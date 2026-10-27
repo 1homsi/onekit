@@ -31,7 +31,7 @@ paths:
 		t.Fatal(err)
 	}
 	src := string(result.Source)
-	for _, want := range []string{"name: string", "reason: string", "@status(404)"} {
+	for _, want := range []string{"  name?: string;\n", "  reason?: string;\n", "@statusCode _: 404;"} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("missing %q:\n%s\nwarnings: %v", want, src, result.Warnings)
 		}

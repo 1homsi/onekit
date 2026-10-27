@@ -2,13 +2,17 @@ package genrust
 
 import "testing"
 
-const rustFormatFixture = `
-package app
-message Contact {
-  email: string @email
-  id: string @uuid
-  site: string @uri
-  code: string @pattern("^[A-Z]+$")
+const rustFormatFixture = `namespace app;
+
+model Contact {
+  @format("email")
+  email: string;
+  @format("uuid")
+  id: string;
+  @format("uri")
+  site: string;
+  @pattern("^[A-Z]+$")
+  code: string;
 }
 `
 

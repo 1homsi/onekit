@@ -1,2 +1,0 @@
-message R { id: string  name: string }
-service S { get(R) -> R @put("/r/{id}") }

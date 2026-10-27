@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func readAppendFixture(t *testing.T, name string) string {
@@ -32,11 +32,11 @@ func writeTreeFile(t *testing.T, path, content string) {
 
 func generateAppendFixture(t *testing.T, schema string, emitZero bool) string {
 	t.Helper()
-	ast, err := onklang.Parse(schema)
+	ast, err := onktest.Parse(schema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.onk", AST: ast}}, onkcompile.CompileOptions{EmitZeroValues: emitZero})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.tsp", AST: ast}}, onkcompile.CompileOptions{EmitZeroValues: emitZero})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func generateAppendFixture(t *testing.T, schema string, emitZero bool) string {
 }
 
 func TestMessagesGetAnAppendEncoder(t *testing.T) {
-	out := generateAppendFixture(t, readAppendFixture(t, "kitchen.onk"), true)
+	out := generateAppendFixture(t, readAppendFixture(t, "kitchen.tsp"), true)
 	for _, want := range []string{
 		"func (m *Kitchen) AppendJSON(b []byte) ([]byte, error)",
 		"func (m *Kitchen) MarshalJSON() ([]byte, error) {\n\treturn onkMarshalJSON(m)",
@@ -73,13 +73,16 @@ func TestMessagesGetAnAppendEncoder(t *testing.T) {
 }
 
 func TestFlattenedMessagesKeepTheReflectionEncoder(t *testing.T) {
-	out := generateAppendFixture(t, `package app
+	out := generateAppendFixture(t, `namespace app;
 
-message Inner { v: string }
+model Inner {
+  v: string;
+}
 
-message Outer {
-  name: string
-  inner: Inner @flatten(prefix: "in_")
+model Outer {
+  name: string;
+  @Onkt.flatten("in_")
+  inner: Inner;
 }
 `, false)
 	if strings.Contains(out, "AppendJSON") {
@@ -88,13 +91,21 @@ message Outer {
 }
 
 func TestServerWritesResponsesThroughTheAppendEncoder(t *testing.T) {
-	file := compileFixtureSource(t, `package app
+	file := compileFixtureSource(t, `namespace app;
 
-message Req { id: string }
-message Res { id: string  tags: string[] }
+model Req {
+  id: string;
+}
 
-service S {
-  get(Req) -> Res @post("/x")
+model Res {
+  id: string;
+  tags: string[];
+}
+
+interface S {
+  @post
+  @route("/x")
+  get(...Req): Res;
 }
 `)
 	server, err := GenerateServerWithOptions(file, nil, Options{})
@@ -113,7 +124,7 @@ func TestAppendEncoderMatchesTheReflectionEncoder(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	schema := readAppendFixture(t, "kitchen.onk")
+	schema := readAppendFixture(t, "kitchen.tsp")
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/diff\n\ngo 1.27\n")
 	writeFile(t, filepath.Join(dir, "fill_test.go"), readAppendFixture(t, "fill_test.go.txt"))
@@ -136,7 +147,7 @@ func TestAppendEncoderMatchesTheReflectionEncoder(t *testing.T) {
 			pair = strings.ReplaceAll(pair, name+"(", name+n+"(")
 		}
 		writeFile(t, filepath.Join(dir, "pair"+n+"_test.go"), pair)
-		writeFile(t, filepath.Join(dir, "fresh"+n, "fill_test.go"), strings.Replace(readAppendFixture(t, "fill_test.go.txt"), "package diff", "package app", 1))
+		writeFile(t, filepath.Join(dir, "fresh"+n, "fill_test.go"), strings.Replace(readAppendFixture(t, "fill_test.go.txt"), "package diff\n", "package app\n", 1))
 		writeFile(t, filepath.Join(dir, "fresh"+n, "fast_test.go"), readAppendFixture(t, "fast_test.go.txt"))
 	}
 	cmd := exec.Command("go", "test", "-count=1", "-v", "./...")
@@ -160,7 +171,7 @@ func TestAppendEncoderBenchmarkAgainstThePlainStruct(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/bench\n\ngo 1.27\n")
 	writeTreeFile(t, filepath.Join(dir, "legacy", "types.go"), readAppendFixture(t, "resource_legacy.go.txt"))
-	writeTreeFile(t, filepath.Join(dir, "fresh", "types.go"), generateAppendFixture(t, readAppendFixture(t, "resource.onk"), true))
+	writeTreeFile(t, filepath.Join(dir, "fresh", "types.go"), generateAppendFixture(t, readAppendFixture(t, "resource.tsp"), true))
 	writeFile(t, filepath.Join(dir, "bench_test.go"), readAppendFixture(t, "bench_test.go.txt"))
 	cmd := exec.Command("go", "test", "-run", "XXX", "-bench", ".", "-benchmem", "-benchtime", "3000x", ".")
 	cmd.Dir = dir
@@ -199,32 +210,28 @@ func TestAppendEncoderBenchmarkAgainstThePlainStruct(t *testing.T) {
 	}
 }
 
-const wireCodecSchema = `package app
+const wireCodecSchema = `namespace app;
 
-message Req {
-  id: string
-
-  n: int32
-
-  tags: string[]
-
-  note: string?
+model Req {
+  id: string;
+  n: int32;
+  tags: string[];
+  note?: string;
 }
 
-message Res {
-  id: string
-
-  echoed: int32
-
-  tags: string[]
-
-  big: int64
-
-  note: string?
+model Res {
+  id: string;
+  echoed: int32;
+  tags: string[];
+  @encode(string)
+  big: int64;
+  note?: string;
 }
 
-service S {
-  echo(Req) -> Res @post("/echo")
+interface S {
+  @post
+  @route("/echo")
+  echo(...Req): Res;
 }
 `
 
@@ -312,7 +319,7 @@ func TestGeneratedServerAndClientUseTheWireCodecs(t *testing.T) {
 }
 
 func TestDecoderFastPathCoversEveryFieldKind(t *testing.T) {
-	out := generateAppendFixture(t, readAppendFixture(t, "kitchen.onk"), true)
+	out := generateAppendFixture(t, readAppendFixture(t, "kitchen.tsp"), true)
 	for _, want := range []string{
 		"func (m *Kitchen) DecodeJSON(data []byte) error",
 		"func (m *Kitchen) UnmarshalJSON(data []byte) error {\n\treturn m.DecodeJSON(data)",

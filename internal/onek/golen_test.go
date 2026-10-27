@@ -3,10 +3,13 @@ package onek
 import "testing"
 
 func TestGoLenCountsCharacters(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Name { value: string @len(1, 4) }
+model Name {
+  @minLength(1)
+  @maxLength(4)
+  value: string;
+}
 `, `package api
 
 import "testing"

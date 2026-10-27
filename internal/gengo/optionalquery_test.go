@@ -6,34 +6,40 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 // Reproduces a real bug found migrating voxie: a scalar field that is both
 // `optional` (so its Go type is a pointer) and tagged @query generated code
 // that assigned/converted a bare value directly into the pointer field,
 // which fails to compile.
-const optionalQuerySrc = `
-package main
+const optionalQuerySrc = `namespace main;
 
-message SearchWidgetsRequest {
-  status: int32? @query("status")
-  owner_id: int64? @query("owner_id")
-  q: string @query("q")
-  tags: string[] @query("tag")
+model SearchWidgetsRequest {
+  @query("status")
+  status?: int32;
+  @query("owner_id")
+  @encode(string)
+  owner_id?: int64;
+  @query("q")
+  q: string;
+  @query("tag")
+  tags: string[];
 }
 
-message SearchWidgetsResponse {
-  count: int32
-  status_echo: int32?
-  owner_id_echo: int64?
-  tags_count: int32
+model SearchWidgetsResponse {
+  count: int32;
+  status_echo?: int32;
+  @encode(string)
+  owner_id_echo?: int64;
+  tags_count: int32;
 }
 
-service WidgetService {
-  base_path: "/api/v1"
-
-  searchWidgets(SearchWidgetsRequest) -> SearchWidgetsResponse @get("/widgets")
+@route("/api/v1")
+interface WidgetService {
+  @get
+  @route("/widgets")
+  searchWidgets(...SearchWidgetsRequest): SearchWidgetsResponse;
 }
 `
 
@@ -107,11 +113,11 @@ func TestOptionalScalarQueryParamsRoundTrip(t *testing.T) {
 		t.Skip("go toolchain not available")
 	}
 
-	ast, err := onklang.Parse(optionalQuerySrc)
+	ast, err := onktest.Parse(optionalQuerySrc)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile error: %v", err)
 	}

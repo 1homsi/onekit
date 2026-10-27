@@ -1,9 +1,0 @@
-
-package app
-message Msg {
-  room: string
-  limit: int32? @query
-  tags: string[] @query("tag")
-  text: string
-}
-service Chat { chat(Msg) -> Msg @ws("/rooms/{room}") }

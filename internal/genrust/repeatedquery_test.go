@@ -6,11 +6,25 @@ import (
 )
 
 func TestRustServerBindsRepeatedQueryParametersByPair(t *testing.T) {
-	out := string(GenerateServer(compileRustSchema(t, `
-package app
-message Filter { id: string tags: string[] @query limit: int32? @query }
-message Item { id: string }
-service S { list(Filter) -> Item @get("/items/{id}") }
+	out := string(GenerateServer(compileRustSchema(t, `namespace app;
+
+model Filter {
+  id: string;
+  @query
+  tags: string[];
+  @query
+  limit?: int32;
+}
+
+model Item {
+  id: string;
+}
+
+interface S {
+  @get
+  @route("/items/{id}")
+  list(...Filter): Item;
+}
 `)))
 	for _, want := range []string{
 		"query: Result<Query<Vec<(String, String)>>, axum::extract::rejection::QueryRejection>,",
@@ -28,11 +42,23 @@ service S { list(Filter) -> Item @get("/items/{id}") }
 }
 
 func TestRustServerKeepsTypedQueryExtractionWithoutRepeatedParameters(t *testing.T) {
-	out := string(GenerateServer(compileRustSchema(t, `
-package app
-message Filter { id: string limit: int32? @query }
-message Item { id: string }
-service S { list(Filter) -> Item @get("/items/{id}") }
+	out := string(GenerateServer(compileRustSchema(t, `namespace app;
+
+model Filter {
+  id: string;
+  @query
+  limit?: int32;
+}
+
+model Item {
+  id: string;
+}
+
+interface S {
+  @get
+  @route("/items/{id}")
+  list(...Filter): Item;
+}
 `)))
 	if !strings.Contains(out, "query: Result<Query<Filter>, axum::extract::rejection::QueryRejection>,") {
 		t.Fatalf("scalar-only query requests keep the typed extractor:\n%s", out)

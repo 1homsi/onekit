@@ -6,53 +6,59 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const jsonMappingFixture = `
-package main
+const jsonMappingFixture = `namespace main;
 
-message Money {
-  amount_cents: int64
-  amount_number: int64 @encode(number)
-  amounts: int64[]
+model Money {
+  @encode(string)
+  amount_cents: int64;
+  amount_number: int64;
+  @Onkt.encode("string")
+  amounts: int64[];
 }
 
 enum Status {
-  UNSPECIFIED
-  ACTIVE @json("active")
+  UNSPECIFIED,
+  ACTIVE: "active",
 }
 
-message StatusHolder {
-  status: Status
-  status_num: Status @encode(number)
+model StatusHolder {
+  status: Status;
+  @Onkt.encode("number")
+  status_num: Status;
 }
 
-message Event {
-  created_at: timestamp
-  unix_at: timestamp @encode(unix_seconds)
+model Event {
+  created_at: utcDateTime;
+  @encode("unixTimestamp", int64)
+  unix_at: utcDateTime;
 }
 
-message Address {
-  street: string
-  city: string
+model Address {
+  street: string;
+  city: string;
 }
 
-message Order {
-  id: string
-  billing: Address @flatten(prefix: "billing_")
+model Order {
+  id: string;
+  @Onkt.flatten("billing_")
+  billing: Address;
 }
 
-message Meta {
-  note: string
+model Meta {
+  note: string;
 }
 
-message ResponseNull {
-  meta: Meta @empty(null)
+model ResponseNull {
+  @Onkt.empty("null")
+  meta: Meta;
 }
 
-message IdList {
-  ids: string[] @unwrap
+model IdList {
+  @Onkt.unwrap
+  ids: string[];
 }
 `
 
@@ -140,11 +146,11 @@ main();
 
 func compileJSONMappingFixture(t *testing.T) *onkcompile.Source {
 	t.Helper()
-	ast, err := onklang.Parse(jsonMappingFixture)
+	ast, err := onktest.Parse(jsonMappingFixture)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	return &onkcompile.Source{Path: "app.onk", AST: ast}
+	return &onkcompile.Source{Path: "app.tsp", AST: ast}
 }
 
 func TestJSONMappingTypeScriptTypeChecks(t *testing.T) {

@@ -9,22 +9,29 @@ import (
 	"testing"
 )
 
-const compatBaseSchema = `
-package api
+// compatBaseSchema is a complete TypeSpec file: the action runs the real
+// TypeSpec compiler.
+const compatBaseSchema = `import "@typespec/http";
+import "@onkt/typespec";
 
-message Item {
-  id: string
-  count: int32
+using TypeSpec.Http;
+
+namespace api;
+
+model Item {
+  id: string;
+  count: int32;
 }
 
-message GetItemRequest {
-  id: string
+model GetItemRequest {
+  id: string;
 }
 
-service Items {
-  base_path: "/items/v1"
-
-  getItem(GetItemRequest) -> Item @get("/items/{id}")
+@route("/items/v1")
+interface Items {
+  @get
+  @route("/items/{id}")
+  getItem(...GetItemRequest): Item;
 }
 `
 
@@ -59,15 +66,17 @@ func setupCompatAction(t *testing.T) compatActionEnv {
 		t.Fatal(err)
 	}
 	for name, content := range map[string]string{
-		"onekit.toml":      "module = \"example.com/act\"\n\n[generate.go-server]\nout = \"./gen/go\"\n\n[generate.dart-client]\nout = \"./gen/dart\"\n",
-		"api/items.onk":    compatBaseSchema,
-		".gitignore":       "gen/\n",
+		"onkt.toml":        "module = \"example.com/act\"\n\n[generate.go-server]\nout = \"./gen/go\"\n\n[generate.dart-client]\nout = \"./gen/dart\"\n",
+		"api/items.tsp":    compatBaseSchema,
+		".gitignore":       "gen/\nnode_modules\n",
 		"api/.gitkeep.txt": "",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
+	// The report compiles TypeSpec with the project's own toolchain.
+	linkTypeSpec(t, dir)
 	runGit(t, dir, "init", "-q", "-b", "main")
 	runGit(t, dir, "add", "-A")
 	runGit(t, dir, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "-m", "base")
@@ -108,7 +117,7 @@ func (e compatActionEnv) run(t *testing.T, against, allow string) (string, strin
 
 func (e compatActionEnv) breakSchema(t *testing.T) {
 	t.Helper()
-	path := filepath.Join(e.dir, "api", "items.onk")
+	path := filepath.Join(e.dir, "api", "items.tsp")
 	schema := strings.Replace(compatBaseSchema, "count: int32", "total: int32", 1)
 	if err := os.WriteFile(path, []byte(schema), 0o644); err != nil {
 		t.Fatal(err)

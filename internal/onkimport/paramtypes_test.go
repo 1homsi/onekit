@@ -3,9 +3,6 @@ package onkimport
 import (
 	"strings"
 	"testing"
-
-	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
 )
 
 func TestImportBindsEnumAndTimestampParameters(t *testing.T) {
@@ -18,14 +15,8 @@ func TestImportBindsEnumAndTimestampParameters(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(result.Source)
-	if !strings.Contains(src, `status: string @in("available", "sold")`) || !strings.Contains(src, "since: string? @query") {
+	if !strings.Contains(src, `  status: "available" | "sold";`) || !strings.Contains(src, "  @query\n  since?: string;\n") {
 		t.Fatalf("parameters not bindable:\n%s", src)
 	}
-	ast, err := onklang.Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: "pets.onk", AST: ast}}); err != nil {
-		t.Fatalf("import does not compile: %v\n%s", err, src)
-	}
+	requireFaithfulTypeSpec(t, result)
 }

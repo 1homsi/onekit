@@ -5,30 +5,42 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const streamPostSchema = `package app
+const streamPostSchema = `namespace app;
 
-message TurnRequest { prompt: string }
-message Text { text: string }
-message TurnEvent {
-  payload: oneof(discriminator: "type") {
-    text: Text @tag("text")
-  }
+model TurnRequest {
+  prompt: string;
 }
 
-service Agent {
-  turn(TurnRequest) -> TurnEvent @post("/turn") @stream
+model Text {
+  text: string;
+}
+
+@Onkt.discriminator("type")
+union TurnEventPayload {
+  @Onkt.tag("text") text: Text,
+}
+
+model TurnEvent {
+  payload: TurnEventPayload;
+}
+
+interface Agent {
+  @post
+  @route("/turn")
+  @Onkt.stream
+  turn(...TurnRequest): TurnEvent;
 }
 `
 
 func TestPostStreamSendsBody(t *testing.T) {
-	ast, err := onklang.Parse(streamPostSchema)
+	ast, err := onktest.Parse(streamPostSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}

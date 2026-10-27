@@ -26,7 +26,7 @@ var (
 	captureWriteMu sync.Mutex
 )
 
-// Build parses and compiles every .onk file under dir, then generates every
+// Build parses and compiles every schema under dir, then generates every
 // target configured in onkt.toml.
 func Build(dir string) error {
 	_, err := build(dir)

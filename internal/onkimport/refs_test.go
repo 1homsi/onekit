@@ -26,7 +26,7 @@ func TestImportResolvesReferencedParametersBodiesAndResponses(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(result.Source)
-	for _, want := range []string{"limit: int32? @query", "name: string", "id: string", "reason: string", "@status(404)", `@body("body")`} {
+	for _, want := range []string{"  @query\n  limit?: int32;\n", "  name?: string;\n", "  id?: string;\n", "  reason?: string;\n", "@statusCode _: 404;", "  @body\n  body: CreatePetBody;\n"} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("missing %q:\n%s", want, src)
 		}

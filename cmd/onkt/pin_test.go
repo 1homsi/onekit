@@ -75,7 +75,7 @@ func TestPinnedVersionDownloadsVerifiesAndRunsTheRelease(t *testing.T) {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "onekit.toml"), []byte("version = \"9.9.9\"\nmodule = \"example.com/x\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, "onkt.toml"), []byte("version = \"9.9.9\"\nmodule = \"example.com/x\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	run := func(extraEnv ...string) (string, error) {

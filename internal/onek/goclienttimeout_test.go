@@ -3,11 +3,17 @@ package onek
 import "testing"
 
 func TestGoClientBoundsTheWaitForResponseHeaders(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Ping { id: string }
-service Pings { get(Ping) -> Ping @get("/pings/{id}") }
+model Ping {
+  id: string;
+}
+
+interface Pings {
+  @get
+  @route("/pings/{id}")
+  get(...Ping): Ping;
+}
 `, `package api
 
 import (

@@ -1,8 +1,0 @@
-
-package api
-message Outer {
-  inner: Inner
-  message Inner @rule("size(self.name) > 0", "name required") {
-    name: string
-  }
-}

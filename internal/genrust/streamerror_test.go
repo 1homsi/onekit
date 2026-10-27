@@ -2,15 +2,27 @@ package genrust
 
 import "testing"
 
-const rustStreamErrorSchema = `
-package app
+const rustStreamErrorSchema = `namespace app;
 
-message Req { id: string }
-message Tick { n: int32 }
-message Quota @status(429) { message: string }
+model Req {
+  id: string;
+}
 
-service Feed {
-  watch(Req) -> Tick | Quota @get("/watch") @stream
+model Tick {
+  n: int32;
+}
+
+@error
+model Quota {
+  @statusCode _: 429;
+  message: string;
+}
+
+interface Feed {
+  @get
+  @route("/watch")
+  @Onkt.stream
+  watch(...Req): Tick | Quota;
 }
 `
 

@@ -3,15 +3,15 @@ package gents
 import (
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func compileForTest(src string) (*onkir.File, error) {
-	ast, err := onklang.Parse(src)
+	ast, err := onktest.Parse(src)
 	if err != nil {
 		return nil, err
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "fixture.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "fixture.tsp", AST: ast}})
 	if err != nil {
 		return nil, err
 	}

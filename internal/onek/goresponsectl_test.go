@@ -3,12 +3,18 @@ package onek
 import "testing"
 
 func TestGoHandlersControlStatusAndHeaders(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Item { id: string  name: string }
+model Item {
+  id: string;
+  name: string;
+}
 
-service Items { create(Item) -> Item @post("/items") }
+interface Items {
+  @post
+  @route("/items")
+  create(...Item): Item;
+}
 `, `package api
 
 import (

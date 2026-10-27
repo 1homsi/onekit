@@ -3,14 +3,28 @@ package onek
 import "testing"
 
 func TestGoValidatesOneofMessageVariants(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message EmailAuth { email: string @email  password: string @len(8, 72) }
-message TokenAuth { token: string }
+model EmailAuth {
+  @format("email")
+  email: string;
+  @minLength(8)
+  @maxLength(72)
+  password: string;
+}
 
-message LoginRequest {
-  auth: oneof { email: EmailAuth  token: TokenAuth  code: string }
+model TokenAuth {
+  token: string;
+}
+
+union LoginRequestAuth {
+  email: EmailAuth,
+  token: TokenAuth,
+  code: string,
+}
+
+model LoginRequest {
+  auth: LoginRequestAuth;
 }
 `, `package api
 

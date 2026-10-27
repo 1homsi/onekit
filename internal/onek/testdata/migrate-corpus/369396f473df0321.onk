@@ -1,4 +1,0 @@
-package app
-message Req { id: string? }
-message User { name: string? }
-service API { get(Req) -> User @post("/users") }

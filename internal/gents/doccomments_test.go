@@ -6,20 +6,26 @@ import (
 )
 
 func TestTSOutputCarriesJSDoc(t *testing.T) {
-	file := compileTSSchema(t, `package app
-/// A stored note.
-///
-/// Notes end with */ safely.
-message Note {
-  /// Unique identifier.
-  id: string
+	file := compileTSSchema(t, `namespace app;
+
+@doc("A stored note.\n\nNotes end with */ safely.")
+model Note {
+  /** Unique identifier. */
+  id: string;
 }
-/// Visibility of a note.
-enum Visibility { PRIVATE PUBLIC }
-/// Manages notes.
-service Notes {
-  /// Fetch one note.
-  get(Note) -> Note @get("/notes/{id}")
+
+/** Visibility of a note. */
+enum Visibility {
+  PRIVATE,
+  PUBLIC,
+}
+
+/** Manages notes. */
+interface Notes {
+  /** Fetch one note. */
+  @get
+  @route("/notes/{id}")
+  get(...Note): Note;
 }
 `)
 	types, server, client := string(GenerateTypes(file)), string(GenerateServer(file)), string(GenerateClient(file))

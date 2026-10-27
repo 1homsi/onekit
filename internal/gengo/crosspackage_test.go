@@ -8,40 +8,43 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const commonSrc = `
-package common
+const commonSrc = `namespace common;
 
 enum Currency {
-  UNSPECIFIED
-  USD
+  UNSPECIFIED,
+  USD,
 }
 
-message Money {
-  amount_cents: int64
-  currency: Currency
+model Money {
+  @encode(string)
+  amount_cents: int64;
+  currency: Currency;
 }
 `
 
-const ordersSrc = `
-package orders
+const ordersSrc = `using common;
 
-message GetOrderRequest {
-  id: string
+
+namespace orders;
+
+model GetOrderRequest {
+  id: string;
 }
 
-message Order {
-  id: string
-  price: Money
-  preferred_currency: Currency
+model Order {
+  id: string;
+  price: Money;
+  preferred_currency: Currency;
 }
 
-service OrderService {
-  base_path: "/orders/v1"
-
-  getOrder(GetOrderRequest) -> Order @get("/orders/{id}")
+@route("/orders/v1")
+interface OrderService {
+  @get
+  @route("/orders/{id}")
+  getOrder(...GetOrderRequest): Order;
 }
 `
 
@@ -77,19 +80,12 @@ func compileCrossPackageFixture(
 	t *testing.T,
 ) (*onkir.File, *onkir.File, map[*onkir.Message]string, map[*onkir.Enum]string) {
 	t.Helper()
-	commonAST, err := onklang.Parse(commonSrc)
-	if err != nil {
-		t.Fatalf("parse common: %v", err)
+	// The two files compile together, as one TypeSpec project.
+	var sources []onkcompile.Source
+	for _, file := range onktest.Files(t, map[string]string{"common/money.tsp": commonSrc, "orders/v1/service.tsp": ordersSrc}) {
+		sources = append(sources, onkcompile.Source{Path: file.Path, AST: &file.File})
 	}
-	ordersAST, err := onklang.Parse(ordersSrc)
-	if err != nil {
-		t.Fatalf("parse orders: %v", err)
-	}
-
-	pkg, err := onkcompile.Compile([]onkcompile.Source{
-		{Path: "common/money.onk", AST: commonAST},
-		{Path: "orders/v1/service.onk", AST: ordersAST},
-	})
+	pkg, err := onkcompile.Compile(sources)
 	if err != nil {
 		t.Fatalf("compile error: %v", err)
 	}

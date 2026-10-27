@@ -8,8 +8,27 @@ import (
 
 func TestRepeatedStyleValuesChangesGoTypes(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/x\"\nrepeated_style = \"values\"\n\n[generate.go-server]\nout = \"gen\"\n")
-	writeTestFile(t, filepath.Join(dir, "api.onk"), "message Row { id: string }\nmessage List { rows: Row[] }\nmessage Q { limit: int32 @query }\nservice S { list(Q) -> List @get(\"/rows\") }\n")
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/x\"\nrepeated_style = \"values\"\n\n[generate.go-server]\nout = \"gen\"\n")
+	writeTestFile(t, filepath.Join(dir, "api.tsp"), `
+model Row {
+  id: string;
+}
+
+model List {
+  rows: Row[];
+}
+
+model Q {
+  @query
+  limit: int32;
+}
+
+interface S {
+  @get
+  @route("/rows")
+  list(...Q): List;
+}
+`)
 	if err := Build(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -21,8 +40,12 @@ func TestRepeatedStyleValuesChangesGoTypes(t *testing.T) {
 
 func TestRepeatedStyleRejectsUnknownValues(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/x\"\nrepeated_style = \"refs\"\n")
-	writeTestFile(t, filepath.Join(dir, "api.onk"), "message A { id: string }\n")
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/x\"\nrepeated_style = \"refs\"\n")
+	writeTestFile(t, filepath.Join(dir, "api.tsp"), `
+model A {
+  id: string;
+}
+`)
 	if err := Check(dir); err == nil || !strings.Contains(err.Error(), "repeated_style") {
 		t.Fatalf("expected a repeated_style error, got %v", err)
 	}

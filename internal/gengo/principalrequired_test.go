@@ -8,15 +8,27 @@ import (
 	"testing"
 )
 
-const principalRequiredSchema = `package app
+const principalRequiredSchema = `namespace app;
 
-message Principal @principal { user_id: string }
-message Req { id: string }
-message Ack { ok: bool }
+@Onkt.principal
+model Principal {
+  user_id: string;
+}
 
-service Docs {
-  base_path: "/v1"
-  open(Req) -> Ack @post("/open") @authorize("req.id != ''", "an id is required")
+model Req {
+  id: string;
+}
+
+model Ack {
+  ok: boolean;
+}
+
+@route("/v1")
+interface Docs {
+  @post
+  @route("/open")
+  @Onkt.authorize("req.id != ''", "an id is required")
+  open(...Req): Ack;
 }
 `
 

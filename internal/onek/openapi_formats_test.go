@@ -14,9 +14,9 @@ import (
 
 func TestBuildOpenAPIBothFormats(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), onekitToml)
-	writeTestFile(t, filepath.Join(dir, "models.onk"), modelsOnk)
-	writeTestFile(t, filepath.Join(dir, "service.onk"), serviceOnk)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), onekitToml)
+	writeTestFile(t, filepath.Join(dir, "models.tsp"), modelsTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "service.tsp"), serviceTypeSpec)
 	if err := Build(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -76,14 +76,18 @@ func TestBuildOpenAPIBothFormats(t *testing.T) {
 
 func TestOpenAPISplitsServicesAndCleansCombinedOutputs(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `module = "example.com/test"
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), `module = "example.com/test"
 schema_root = "api"
 [generate.openapi]
 out = "gen/openapi"
 `)
-	writeTestFile(t, filepath.Join(dir, "api/common/money.onk"), commonMoneyOnk+"\nmessage Unused { value: string }\n")
-	writeTestFile(t, filepath.Join(dir, "api/hub/business/v1/service.onk"), businessServiceOnk)
-	writeTestFile(t, filepath.Join(dir, "api/hr/time_entry/v1/service.onk"), timeEntryServiceOnk)
+	writeTestFile(t, filepath.Join(dir, "api/common/money.tsp"), commonMoneyTypeSpec+`
+model Unused {
+  value: string;
+}
+`)
+	writeTestFile(t, filepath.Join(dir, "api/hub/business/v1/service.tsp"), businessServiceTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "api/hr/time_entry/v1/service.tsp"), timeEntryServiceTypeSpec)
 	root := filepath.Join(dir, "gen/openapi")
 	// Simulate the manifest from the previous combined generator.
 	for _, name := range []string{"openapi.yaml", "openapi.json", "notes.txt"} {
@@ -148,9 +152,14 @@ out = "gen/openapi"
 		}
 	}
 	// Multiple services in one directory must not overwrite each other.
-	extra := filepath.Join(dir, "api/hub/business/v1/extra.onk")
-	writeTestFile(t, extra, `package hub.business
-service ExtraService { fetch(GetBusinessRequest) -> Business @get("/extra/{id}") }
+	extra := filepath.Join(dir, "api/hub/business/v1/extra.tsp")
+	writeTestFile(t, extra, `namespace hub.business;
+
+interface ExtraService {
+  @get
+  @route("/extra/{id}")
+  fetch(...GetBusinessRequest): Business;
+}
 `)
 	if err := Build(dir); err != nil {
 		t.Fatal(err)

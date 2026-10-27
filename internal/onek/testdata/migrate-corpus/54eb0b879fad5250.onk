@@ -1,6 +1,0 @@
-package app
-enum Status { active inactive }
-enum Filter { active inactive }
-message Req { filter: Filter }
-message Res { status: Status }
-service API { get(Req) -> Res @post("/items") }

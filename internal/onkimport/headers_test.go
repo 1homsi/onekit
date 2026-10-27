@@ -3,9 +3,6 @@ package onkimport
 import (
 	"strings"
 	"testing"
-
-	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
 )
 
 func TestImportConvertsHeaderParametersAndSecurity(t *testing.T) {
@@ -30,17 +27,11 @@ func TestImportConvertsHeaderParametersAndSecurity(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(result.Source)
-	ast, err := onklang.Parse(src)
-	if err != nil {
-		t.Fatalf("%v\n%s", err, src)
-	}
-	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: "pets.onk", AST: ast}}); err != nil {
-		t.Fatalf("import does not compile: %v\n%s", err, src)
-	}
+	requireFaithfulTypeSpec(t, result)
 	for _, want := range []string{
-		`"X-API-Key": string @required @auth("api_key") @auth_scheme_name("ApiKey")`,
-		`"X-Request-Id": string @required @format("uuid")`,
-		`"Authorization": string @required @auth("bearer") @auth_scheme_name("Jwt")`,
+		`@header("X-API-Key") @Onkt.auth("api_key", "ApiKey") header_x_api_key: string`,
+		`@header("X-Request-Id") @format("uuid") header_x_request_id: string`,
+		`@header("Authorization") @Onkt.auth("bearer", "Jwt") header_authorization: string`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("missing %q:\n%s", want, src)

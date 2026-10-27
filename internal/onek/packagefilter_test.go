@@ -7,24 +7,27 @@ import (
 	"testing"
 )
 
-const runtimeOnk = `
-package jsruntime
+const runtimeTypeSpec = `namespace jsruntime;
 
-message Ping { id: string }
+model Ping {
+  id: string;
+}
 
-service Pings {
-  base_path: "/pings"
-  ping(Ping) -> Ping @post("/ping")
+@route("/pings")
+interface Pings {
+  @post
+  @route("/ping")
+  ping(...Ping): Ping;
 }
 `
 
 func writePackageProject(t *testing.T, targets string) string {
 	t.Helper()
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/voxie/gen\"\n\n"+targets)
-	writeTestFile(t, filepath.Join(dir, "common", "money.onk"), commonMoneyOnk)
-	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.onk"), businessServiceOnk)
-	writeTestFile(t, filepath.Join(dir, "jsruntime", "ping.onk"), runtimeOnk)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/voxie/gen\"\n\n"+targets)
+	writeTestFile(t, filepath.Join(dir, "common", "money.tsp"), commonMoneyTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.tsp"), businessServiceTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "jsruntime", "ping.tsp"), runtimeTypeSpec)
 	return dir
 }
 
@@ -77,7 +80,7 @@ func TestPackageFilterRemovesOutputsItNoLongerKeeps(t *testing.T) {
 	if !exists(stale) {
 		t.Fatal("the unfiltered build should write jsruntime")
 	}
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/voxie/gen\"\n\n[generate.ts-client]\nout = \"gen/web\"\nexclude_packages = [\"jsruntime\"]\n")
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/voxie/gen\"\n\n[generate.ts-client]\nout = \"gen/web\"\nexclude_packages = [\"jsruntime\"]\n")
 	if err := Build(dir); err != nil {
 		t.Fatal(err)
 	}

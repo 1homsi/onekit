@@ -3,14 +3,15 @@ package onek
 import "testing"
 
 func TestGoOneofInt64VariantsUseStrings(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Box {
-  value: oneof {
-    big: int64 @tag("big")
-    top: uint64 @tag("top")
-  }
+union BoxValue {
+  @Onkt.tag("big") big: int64,
+  @Onkt.tag("top") top: uint64,
+}
+
+model Box {
+  value: BoxValue;
 }
 `, `package api
 

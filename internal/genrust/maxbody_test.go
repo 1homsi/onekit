@@ -2,15 +2,25 @@ package genrust
 
 import "testing"
 
-const rustMaxBodySchema = `
-package app
+const rustMaxBodySchema = `namespace app;
 
-message Blob { data: string }
-message Done { ok: bool }
+model Blob {
+  data: string;
+}
 
-service Uploads {
-  small(Blob) -> Done @post("/small")
-  big(Blob) -> Done @post("/big") @max_body("10MiB")
+model Done {
+  ok: boolean;
+}
+
+interface Uploads {
+  @post
+  @route("/small")
+  small(...Blob): Done;
+
+  @post
+  @route("/big")
+  @Onkt.maxBody("10MiB")
+  big(...Blob): Done;
 }
 `
 

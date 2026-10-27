@@ -8,17 +8,20 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const nullableSchema = `package app
+const nullableSchema = `namespace app;
 
-message Item { name: string }
-message Patch {
-  id: int32
-  folder_id: int64? @nullable @encode("number")
-  note: string? @nullable
-  item: Item? @nullable
+model Item {
+  name: string;
+}
+
+model Patch {
+  id: int32;
+  folder_id?: int64 | null;
+  note?: string | null;
+  item?: Item | null;
 }
 `
 
@@ -29,11 +32,11 @@ func TestSwiftNullableFieldsKeepAbsentNullAndValueApart(t *testing.T) {
 	if _, err := exec.LookPath("swiftc"); err != nil {
 		t.Skip("swiftc not available")
 	}
-	ast, err := onklang.Parse(nullableSchema)
+	ast, err := onktest.Parse(nullableSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}

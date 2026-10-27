@@ -3,9 +3,12 @@ package genpy
 import "testing"
 
 func TestPythonUUIDMatchesGoFormat(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message Ref { id: string @uuid }
+	runPythonSchema(t, `namespace app;
+
+model Ref {
+  @format("uuid")
+  id: string;
+}
 `, `
 from models import Ref
 

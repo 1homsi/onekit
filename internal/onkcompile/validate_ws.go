@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onkschema"
 )
 
 // validateWSCorrelation enforces that @ws_id, if used at all on a @ws
@@ -164,7 +164,7 @@ func validateWSTimeoutFields(filePath, methodName string, message *onkir.Message
 	return nil
 }
 
-func validateWSFieldDecorator(filePath string, field *onklang.FieldDecl, name string) error {
+func validateWSFieldDecorator(filePath string, field *onkschema.FieldDecl, name string) error {
 	if name == "ws_timeout" && (field.Repeated || field.Optional || !isIntegerTypeRef(field.Type)) {
 		return &Error{Path: filePath, Line: field.Line, Msg: "@ws_timeout requires a non-repeated, non-optional integer field"}
 	}

@@ -6,13 +6,21 @@ import (
 )
 
 func TestOpenAPIQueryParametersRequiredOnlyWhenDeclared(t *testing.T) {
-	doc := openAPIForSchema(t, `
-package app
-message List {
-  page: int32 @query
-  cursor: string @query @required
+	doc := openAPIForSchema(t, `namespace app;
+
+model List {
+  @query
+  page: int32;
+  @query
+  @Onkt.required
+  cursor: string;
 }
-service S { list(List) -> List @get("/items") }
+
+interface S {
+  @get
+  @route("/items")
+  list(...List): List;
+}
 `)
 	flat := strings.Join(strings.Fields(doc), " ")
 	if strings.Contains(flat, "name: page in: query required: true") || !strings.Contains(flat, "name: cursor in: query required: true") {

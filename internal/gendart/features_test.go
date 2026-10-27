@@ -2,50 +2,109 @@ package gendart
 
 import "testing"
 
-const featureSchema = `
-package app
-/// Visibility.
-enum Visibility { PRIVATE PUBLIC_VIEW }
-message Meta { owner: string @email }
-message Note {
-  /// The id.
-  id: string @uuid
-  title: string @len(1, 20)
-  count: int32 @range(0, 100)
-  big: int64
-  huge: uint64
-  ratio: float64 @gte(0)
-  tags: string[] @max_items(3)
-  data: bytes
-  hex: bytes @encode("hex")
-  at: timestamp
-  day: timestamp @encode("date")
-  secs: timestamp @encode("unix_seconds")
-  vis: Visibility
-  vis_num: Visibility @encode("number")
-  maybe: string?
-  meta: Meta
-  flat: Meta @flatten(prefix: "m_")
-  labels: map[string, int64]
-  raw_json: json
-  old: string @deprecated("use title")
-  body: oneof(discriminator: "kind") {
-    text: string @tag("text")
-    meta_ref: Meta @tag("meta")
-    n: int64 @tag("n")
-  }
+const featureSchema = `namespace app;
+
+/** Visibility. */
+enum Visibility {
+  PRIVATE,
+  PUBLIC_VIEW,
 }
-message Ids { v: int64[] @unwrap }
-message GetNote { id: string @uuid limit: int32? @query tags: string[] @query }
-message NotFound @status(404) { code: string }
-/// Notes API.
-service Notes {
-  /// Fetch.
-  get(GetNote) -> Note | NotFound @get("/notes/{id}")
-  create(Note) -> Note @post("/notes")
-  ids(GetNote) -> Ids @get("/ids/{id}")
-  watch(GetNote) -> Note | NotFound @get("/watch/{id}") @stream
-  legacy(GetNote) -> Note @get("/legacy/{id}") @deprecated
+
+model Meta {
+  @format("email")
+  owner: string;
+}
+
+@Onkt.discriminator("kind")
+union NoteBody {
+  @Onkt.tag("text") text: string,
+  @Onkt.tag("meta") meta_ref: Meta,
+  @Onkt.tag("n") n: int64,
+}
+
+model Note {
+  /** The id. */
+  @format("uuid")
+  id: string;
+  @minLength(1)
+  @maxLength(20)
+  title: string;
+  @Onkt.range(0, 100)
+  count: int32;
+  @encode(string)
+  big: int64;
+  @encode(string)
+  huge: uint64;
+  @minValue(0)
+  ratio: float64;
+  @maxItems(3)
+  tags: string[];
+  data: bytes;
+  @Onkt.encode("hex")
+  hex: bytes;
+  at: utcDateTime;
+  day: plainDate;
+  @encode("unixTimestamp", int64)
+  secs: utcDateTime;
+  vis: Visibility;
+  @Onkt.encode("number")
+  vis_num: Visibility;
+  maybe?: string;
+  meta: Meta;
+  @Onkt.flatten("m_")
+  flat: Meta;
+  labels: Record<int64>;
+  raw_json: unknown;
+  #deprecated "use title"
+  old: string;
+  body: NoteBody;
+}
+
+model Ids {
+  @Onkt.unwrap
+  @Onkt.encode("string")
+  v: int64[];
+}
+
+model GetNote {
+  @format("uuid")
+  id: string;
+  @query
+  limit?: int32;
+  @query
+  tags: string[];
+}
+
+@error
+model NotFound {
+  @statusCode _: 404;
+  code: string;
+}
+
+/** Notes API. */
+interface Notes {
+  /** Fetch. */
+  @get
+  @route("/notes/{id}")
+  get(...GetNote): Note | NotFound;
+
+  @post
+  @route("/notes")
+  create(...Note): Note;
+
+  @get
+  @route("/ids/{id}")
+  ids(...GetNote): Ids;
+
+  @get
+  @route("/watch/{id}")
+  @Onkt.stream
+  watch(...GetNote): Note | NotFound;
+
+  #deprecated ""
+  @get
+  @route("/legacy/{id}")
+  legacy(...GetNote): Note;
 }
 `
 

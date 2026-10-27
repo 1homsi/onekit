@@ -1,5 +1,0 @@
-
-package main
-message Request { id: int64 page: int32 @query }
-message Response { ok: bool }
-service API { get(Request) -> Response @get("/items/{id}") }

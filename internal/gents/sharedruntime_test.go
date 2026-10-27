@@ -8,25 +8,42 @@ import (
 	"testing"
 )
 
-const sharedRuntimeOrders = `package orders
+const sharedRuntimeOrders = `namespace orders;
 
-message Order { id: string }
-message Missing @status(404) { reason: string }
+model Order {
+  id: string;
+}
 
-service Orders {
-  base_path: "/v1"
-  get(Order) -> Order | Missing @get("/orders/{id}")
-  watch(Order) -> Order @get("/orders/{id}/watch") @stream
+@error
+model Missing {
+  @statusCode _: 404;
+  reason: string;
+}
+
+@route("/v1")
+interface Orders {
+  @get
+  @route("/orders/{id}")
+  get(...Order): Order | Missing;
+
+  @get
+  @route("/orders/{id}/watch")
+  @Onkt.stream
+  watch(...Order): Order;
 }
 `
 
-const sharedRuntimeUsers = `package users
+const sharedRuntimeUsers = `namespace users;
 
-message User { id: string }
+model User {
+  id: string;
+}
 
-service Users {
-  base_path: "/v1"
-  get(User) -> User @get("/users/{id}")
+@route("/v1")
+interface Users {
+  @get
+  @route("/users/{id}")
+  get(...User): User;
 }
 `
 

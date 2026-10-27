@@ -1,9 +1,0 @@
-
-package app
-message Payload { name: string @required @len(2, 20) @pattern("^[a-z]+$") }
-message Request { payload: Payload }
-message Response { ok: bool }
-service API {
-  headers: { "Authorization": string @required @auth("bearer") @auth_scheme_name("UserAuth") }
-  create(Request) -> Response @post("/items") @body("payload")
-}

@@ -29,8 +29,10 @@ func stampFor(t *testing.T, stamps []fileStamp, path string) fileStamp {
 
 func TestProjectSnapshotReusesDigestsOfSettledFiles(t *testing.T) {
 	dir := snapshotTempDir(t)
-	schema := filepath.Join(dir, "api.onk")
-	writeTestFile(t, schema, "message A {}\n")
+	schema := filepath.Join(dir, "api.tsp")
+	writeTestFile(t, schema, `
+model A {}
+`)
 	old := time.Now().Add(-time.Hour)
 	if err := os.Chtimes(schema, old, old); err != nil {
 		t.Fatal(err)
@@ -53,8 +55,10 @@ func TestProjectSnapshotReusesDigestsOfSettledFiles(t *testing.T) {
 
 func TestProjectSnapshotRehashesRecentlyModifiedFiles(t *testing.T) {
 	dir := snapshotTempDir(t)
-	schema := filepath.Join(dir, "api.onk")
-	writeTestFile(t, schema, "message A {}\n")
+	schema := filepath.Join(dir, "api.tsp")
+	writeTestFile(t, schema, `
+model A {}
+`)
 	info, err := os.Stat(schema)
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +67,9 @@ func TestProjectSnapshotRehashesRecentlyModifiedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, schema, "message B {}\n")
+	writeTestFile(t, schema, `
+model B {}
+`)
 	if err := os.Chtimes(schema, info.ModTime(), info.ModTime()); err != nil {
 		t.Fatal(err)
 	}
@@ -78,8 +84,10 @@ func TestProjectSnapshotRehashesRecentlyModifiedFiles(t *testing.T) {
 
 func TestProjectSnapshotDetectsEditsToSettledFiles(t *testing.T) {
 	dir := snapshotTempDir(t)
-	schema := filepath.Join(dir, "api.onk")
-	writeTestFile(t, schema, "message A {}\n")
+	schema := filepath.Join(dir, "api.tsp")
+	writeTestFile(t, schema, `
+model A {}
+`)
 	old := time.Now().Add(-time.Hour)
 	if err := os.Chtimes(schema, old, old); err != nil {
 		t.Fatal(err)
@@ -88,7 +96,9 @@ func TestProjectSnapshotDetectsEditsToSettledFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, schema, "message B {}\n")
+	writeTestFile(t, schema, `
+model B {}
+`)
 	second, err := projectSnapshot(dir, first)
 	if err != nil {
 		t.Fatal(err)
@@ -100,13 +110,17 @@ func TestProjectSnapshotDetectsEditsToSettledFiles(t *testing.T) {
 
 func TestProjectSnapshotDetectsAddedAndRemovedFiles(t *testing.T) {
 	dir := snapshotTempDir(t)
-	writeTestFile(t, filepath.Join(dir, "a.onk"), "message A {}\n")
+	writeTestFile(t, filepath.Join(dir, "a.tsp"), `
+model A {}
+`)
 	first, err := projectSnapshot(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	extra := filepath.Join(dir, "b.onk")
-	writeTestFile(t, extra, "message B {}\n")
+	extra := filepath.Join(dir, "b.tsp")
+	writeTestFile(t, extra, `
+model B {}
+`)
 	added, err := projectSnapshot(dir, first)
 	if err != nil {
 		t.Fatal(err)

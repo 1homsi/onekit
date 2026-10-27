@@ -8,16 +8,16 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func genFile(t *testing.T, src string) *onkir.File {
 	t.Helper()
-	ast, err := onklang.Parse(src)
+	ast, err := onktest.Parse(src)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "schema.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "schema.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -37,10 +37,22 @@ func mustParseGo(t *testing.T, label string, data []byte) {
 // writeFlattenUnmarshalAssignments emitted `childRaw :=` / `hasChild :=` at
 // function scope once per flattened field, so a second @flatten in the same
 // message redeclared both and the package did not compile.
-const twoFlattens = `package p
-message A { a: string }
-message B { b: string }
-message Two { x: A @flatten  y: B @flatten }
+const twoFlattens = `namespace p;
+
+model A {
+  a: string;
+}
+
+model B {
+  b: string;
+}
+
+model Two {
+  @Onkt.flatten
+  x: A;
+  @Onkt.flatten
+  y: B;
+}
 `
 
 func TestTwoFlattenFieldsInOneMessageEmitValidGo(t *testing.T) {
@@ -67,12 +79,22 @@ func TestTwoFlattenFieldsInOneMessageEmitValidGo(t *testing.T) {
 // only a `default:` arm, which Go rejects: the binding is used by no case.
 // Guarded by go/parser, so any future rewrite that reintroduces an unused
 // binding fails here regardless of its exact shape.
-const streamWithoutErrorUnion = `package p
-message Req { room: string }
-message Tick { id: string }
-service S {
-  base_path: "/v1"
-  watch(Req) -> Tick @get("/events/{room}") @stream
+const streamWithoutErrorUnion = `namespace p;
+
+model Req {
+  room: string;
+}
+
+model Tick {
+  id: string;
+}
+
+@route("/v1")
+interface S {
+  @get
+  @route("/events/{room}")
+  @Onkt.stream
+  watch(...Req): Tick;
 }
 `
 
@@ -88,13 +110,28 @@ func TestStreamWithoutErrorUnionEmitsValidGo(t *testing.T) {
 }
 
 // Non-regression: a stream method WITH an error union must keep its typed arms.
-const streamWithErrorUnion = `package p
-message Req { room: string }
-message Tick { id: string }
-message Boom @status(500) { message: string }
-service S {
-  base_path: "/v1"
-  watch(Req) -> Tick | Boom @get("/events/{room}") @stream
+const streamWithErrorUnion = `namespace p;
+
+model Req {
+  room: string;
+}
+
+model Tick {
+  id: string;
+}
+
+@error
+model Boom {
+  @statusCode _: 500;
+  message: string;
+}
+
+@route("/v1")
+interface S {
+  @get
+  @route("/events/{room}")
+  @Onkt.stream
+  watch(...Req): Tick | Boom;
 }
 `
 

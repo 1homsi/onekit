@@ -1,7 +1,0 @@
-message M {
-  /*
-   * about a
-   *   indented detail
-   */
-  a: string
-}

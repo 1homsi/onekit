@@ -1,8 +1,0 @@
-package probe
-
-message Req { id: string }
-message Res { ok: bool }
-
-service Svc {
-  list(Req) -> Res @get("/things")
-}

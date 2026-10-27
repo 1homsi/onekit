@@ -20,12 +20,12 @@ func swiftTempDir(t *testing.T) string {
 
 func TestBuildSwiftClientTypeChecksAcrossPackages(t *testing.T) {
 	dir := swiftTempDir(t)
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/app\"\n\n[generate.swift-client]\nout = \"./ios/Sources/Api\"\n")
-	writeTestFile(t, filepath.Join(dir, "common", "money.onk"), commonMoneyOnk)
-	writeTestFile(t, filepath.Join(dir, "common", "shared.onk"), strictESMSharedOnk)
-	writeTestFile(t, filepath.Join(dir, "hub", "catalog", "v1", "service.onk"), strictESMCatalogOnk)
-	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.onk"), businessServiceOnk)
-	writeTestFile(t, filepath.Join(dir, "rt", "runtime.onk"), strictESMRuntimeOnk)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/app\"\n\n[generate.swift-client]\nout = \"./ios/Sources/Api\"\n")
+	writeTestFile(t, filepath.Join(dir, "common", "money.tsp"), commonMoneyTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "common", "shared.tsp"), strictESMSharedTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "hub", "catalog", "v1", "service.tsp"), strictESMCatalogTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.tsp"), businessServiceTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "rt", "runtime.tsp"), strictESMRuntimeTypeSpec)
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build error: %v", err)
 	}
@@ -92,9 +92,43 @@ func swiftTypeCheck(t *testing.T, root string) {
 
 func TestBuildSwiftClientNamespacesPackagesThatShareTypeNames(t *testing.T) {
 	dir := swiftTempDir(t)
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/app\"\n\n[generate.swift-client]\nout = \"./ios\"\n")
-	writeTestFile(t, filepath.Join(dir, "a", "a.onk"), "package a\nmessage Item { x: string }\nmessage Req { id: string }\nservice A { get(Req) -> Item @get(\"/a/{id}\") }\n")
-	writeTestFile(t, filepath.Join(dir, "b", "v1", "b.onk"), "package b\nmessage Item { y: int32 }\nmessage Req { id: string }\nmessage Uses { a: Item }\nservice B { get(Req) -> Uses @get(\"/b/{id}\") }\n")
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/app\"\n\n[generate.swift-client]\nout = \"./ios\"\n")
+	writeTestFile(t, filepath.Join(dir, "a", "a.tsp"), `namespace a;
+
+model Item {
+  x: string;
+}
+
+model Req {
+  id: string;
+}
+
+interface A {
+  @get
+  @route("/a/{id}")
+  get(...Req): Item;
+}
+`)
+	writeTestFile(t, filepath.Join(dir, "b", "v1", "b.tsp"), `namespace b;
+
+model Item {
+  y: int32;
+}
+
+model Req {
+  id: string;
+}
+
+model Uses {
+  a: Item;
+}
+
+interface B {
+  @get
+  @route("/b/{id}")
+  get(...Req): Uses;
+}
+`)
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -121,9 +155,9 @@ func TestBuildSwiftClientNamespacesPackagesThatShareTypeNames(t *testing.T) {
 
 func TestBuildSwiftClientQualifiesReferencesAcrossNamespaces(t *testing.T) {
 	dir := swiftTempDir(t)
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/app\"\n\n[generate.swift-client]\nout = \"./ios\"\n")
-	writeTestFile(t, filepath.Join(dir, "common", "money.onk"), commonMoneyOnk)
-	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.onk"), businessServiceOnk)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/app\"\n\n[generate.swift-client]\nout = \"./ios\"\n")
+	writeTestFile(t, filepath.Join(dir, "common", "money.tsp"), commonMoneyTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.tsp"), businessServiceTypeSpec)
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -139,18 +173,48 @@ func TestBuildSwiftClientQualifiesReferencesAcrossNamespaces(t *testing.T) {
 
 func TestBuildSwiftClientRejectsGenuineNameCollisions(t *testing.T) {
 	dir := swiftTempDir(t)
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/app\"\n\n[generate.swift-client]\nout = \"./ios\"\n")
-	writeTestFile(t, filepath.Join(dir, "common", "a.onk"), "package common\nmessage Item { x: string }\nmessage Req { id: string }\nservice C { get(Req) -> Item @get(\"/c/{id}\") }\n")
-	writeTestFile(t, filepath.Join(dir, "root.onk"), "package root\nmessage Common { y: int32 }\n")
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/app\"\n\n[generate.swift-client]\nout = \"./ios\"\n")
+	writeTestFile(t, filepath.Join(dir, "common", "a.tsp"), `namespace common;
+
+model Item {
+  x: string;
+}
+
+model Req {
+  id: string;
+}
+
+interface C {
+  @get
+  @route("/c/{id}")
+  get(...Req): Item;
+}
+`)
+	writeTestFile(t, filepath.Join(dir, "root.tsp"), `namespace root;
+
+model Common {
+  y: int32;
+}
+`)
 	err := Build(dir)
 	if err == nil || !strings.Contains(err.Error(), `"Common"`) || !strings.Contains(err.Error(), "namespace") {
 		t.Fatalf("a root type named like a package namespace must be rejected clearly, got %v", err)
 	}
 
 	dup := swiftTempDir(t)
-	writeTestFile(t, filepath.Join(dup, "onekit.toml"), "module = \"example.com/app\"\n\n[generate.swift-client]\nout = \"./ios\"\n")
-	writeTestFile(t, filepath.Join(dup, "a-b", "x.onk"), "package p\nmessage M { x: string }\n")
-	writeTestFile(t, filepath.Join(dup, "a", "b", "y.onk"), "package q\nmessage N { x: string }\n")
+	writeTestFile(t, filepath.Join(dup, "onkt.toml"), "module = \"example.com/app\"\n\n[generate.swift-client]\nout = \"./ios\"\n")
+	writeTestFile(t, filepath.Join(dup, "a-b", "x.tsp"), `namespace p;
+
+model M {
+  x: string;
+}
+`)
+	writeTestFile(t, filepath.Join(dup, "a", "b", "y.tsp"), `namespace q;
+
+model N {
+  x: string;
+}
+`)
 	err = Build(dup)
 	if err == nil || !strings.Contains(err.Error(), "both map to the Swift namespace") {
 		t.Fatalf("two directories with one namespace must be rejected, got %v", err)

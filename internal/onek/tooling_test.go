@@ -37,8 +37,8 @@ func TestInitRefusesToOverwriteWithoutForce(t *testing.T) {
 	if err := Init(partial, false); err == nil {
 		t.Fatal("expected init to refuse a partially existing project")
 	}
-	if _, err := os.Stat(filepath.Join(partial, "onekit.toml")); !os.IsNotExist(err) {
-		t.Fatalf("init refusal should not create onekit.toml, stat error: %v", err)
+	if _, err := os.Stat(filepath.Join(partial, "onkt.toml")); !os.IsNotExist(err) {
+		t.Fatalf("init refusal should not create onkt.toml, stat error: %v", err)
 	}
 
 	dir := t.TempDir()
@@ -54,8 +54,8 @@ func TestInitRefusesToOverwriteWithoutForce(t *testing.T) {
 }
 
 func TestDiagnosticsPreserveParserLocation(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "broken.onk")
-	if err := os.WriteFile(path, []byte("message Broken {\n  value: string\n"), 0o644); err != nil {
+	path := filepath.Join(t.TempDir(), "broken.tsp")
+	if err := os.WriteFile(path, []byte("model Broken {\n  value: string\n"), 0o644); err != nil {
 		t.Fatalf("write broken schema: %v", err)
 	}
 	_, err := parseSources([]string{path})

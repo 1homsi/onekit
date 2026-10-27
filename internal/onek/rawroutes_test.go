@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-const rawRoutesOnekitToml = `
+const rawRoutesToml = `
 module = "example.com/raw/gen/go"
 
 [generate.go-server]
@@ -42,25 +42,34 @@ out = "./gen/rust"
 out = "./gen/openapi"
 `
 
-const rawRoutesOnk = `
-package app
+const rawRoutesTypeSpec = `namespace app;
 
-message Empty {}
+model Empty {}
 
-message Slug {
-  slug: string
+model Slug {
+  slug: string;
 }
 
-message Item {
-  id: string
+model Item {
+  id: string;
 }
 
-service Apps {
-  base_path: "/apps"
+@route("/apps")
+interface Apps {
+  @get
+  @route("/{slug}/bundle.js")
+  @Onkt.http(#{ contentType: "application/javascript" })
+  @Onkt.guard("app/use/:slug")
+  bundle(...Slug): Empty;
 
-  bundle(Slug) -> Empty @get("/{slug}/bundle.js") @http("application/javascript") @guard("app/use/:slug")
-  proxy(Slug) -> Empty @any("/{slug}/proxy") @http
-  info(Slug) -> Item @get("/{slug}/info")
+  @Onkt.method("ANY")
+  @route("/{slug}/proxy")
+  @Onkt.http
+  proxy(...Slug): Empty;
+
+  @get
+  @route("/{slug}/info")
+  info(...Slug): Item;
 }
 `
 
@@ -69,8 +78,8 @@ func TestRawRoutesAreLeftOutOfTargetsThatCannotServeThem(t *testing.T) {
 		t.Skip("go toolchain not available")
 	}
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), rawRoutesOnekitToml)
-	writeTestFile(t, filepath.Join(dir, "app", "api.onk"), rawRoutesOnk)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), rawRoutesToml)
+	writeTestFile(t, filepath.Join(dir, "app", "api.tsp"), rawRoutesTypeSpec)
 	if err := Build(dir); err != nil {
 		t.Fatalf("a project with raw routes and every target must build: %v", err)
 	}

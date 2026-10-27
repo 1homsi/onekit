@@ -8,14 +8,25 @@ import (
 	"testing"
 )
 
-const maxBodySchema = `package app
+const maxBodySchema = `namespace app;
 
-message Blob { data: string }
-message Done { ok: bool }
+model Blob {
+  data: string;
+}
 
-service Uploads {
-  small(Blob) -> Done @post("/small")
-  big(Blob) -> Done @post("/big") @max_body("1MiB")
+model Done {
+  ok: boolean;
+}
+
+interface Uploads {
+  @post
+  @route("/small")
+  small(...Blob): Done;
+
+  @post
+  @route("/big")
+  @Onkt.maxBody("1MiB")
+  big(...Blob): Done;
 }
 `
 

@@ -1,6 +1,0 @@
-package app
-message M {
-  plain: int64
-  numbered: int64 @encode("number")
-  text: string
-}

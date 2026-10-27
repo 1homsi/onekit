@@ -1,6 +1,0 @@
-
-package check
-
-message Signup { email: string @email  name: string @len(2, 10) }
-
-service Accounts { signup(Signup) -> Signup @post("/signup") }

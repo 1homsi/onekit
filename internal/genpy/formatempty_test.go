@@ -3,13 +3,17 @@ package genpy
 import "testing"
 
 func TestPythonFormatValidatorsSkipEmptyStrings(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message M {
-  email: string @email
-  id: string @uuid
-  site: string @uri
-  code: string @pattern("^[A-Z]+$")
+	runPythonSchema(t, `namespace app;
+
+model M {
+  @format("email")
+  email: string;
+  @format("uuid")
+  id: string;
+  @format("uri")
+  site: string;
+  @pattern("^[A-Z]+$")
+  code: string;
 }
 `, `
 from models import M

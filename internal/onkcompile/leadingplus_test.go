@@ -3,19 +3,8 @@ package onkcompile
 import "testing"
 
 func TestNumericDecoratorsAcceptALeadingPlusEverywhere(t *testing.T) {
-	src := `package app
-message M {
-  a: int32 @range(+1, +5)
-  b: int32 @gte(+1)
-  c: string @len(+1, +5)
-  d: int32 @in(+1, 5)
-  e: string[] @max_items(+3)
-  f: string @in("+1", "x")
-}
-message E {}
-service S { op(M) -> E @post("/m") }
-`
-	pkg, err := CompileWithOptions([]Source{{Path: "a.onk", AST: parseOrFatal(t, src)}}, CompileOptions{})
+	src := "namespace app;\n\nmodel M {\n  @Onkt.range(1, 5)\n  a: int32;\n  @minValue(1)\n  b: int32;\n  @minLength(1)\n  @maxLength(5)\n  c: string;\n  @Onkt.values(1, 5)\n  d: int32;\n  @maxItems(3)\n  e: string[];\n  f: \"+1\" | \"x\";\n}\n\nmodel E {}\n\ninterface S {\n  @post\n  @route(\"/m\")\n  `op`(...M): E;\n}\n"
+	pkg, err := CompileWithOptions([]Source{{Path: "a.tsp", AST: parseOrFatal(t, src)}}, CompileOptions{})
 	if err != nil {
 		t.Fatalf("a leading plus must be accepted by every numeric decorator: %v", err)
 	}

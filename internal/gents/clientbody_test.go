@@ -7,18 +7,29 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const clientBodySchema = `package app
+const clientBodySchema = `namespace app;
 
-message Ping { n: int32 }
-message Pong { note: string }
+model Ping {
+  n: int32;
+}
 
-service Echo {
-  base_path: "/e"
-  ping(Ping) -> Pong @post("/ping")
-  watch(Ping) -> Pong @get("/watch") @stream
+model Pong {
+  note: string;
+}
+
+@route("/e")
+interface Echo {
+  @post
+  @route("/ping")
+  ping(...Ping): Pong;
+
+  @get
+  @route("/watch")
+  @Onkt.stream
+  watch(...Ping): Pong;
 }
 `
 
@@ -26,11 +37,11 @@ func TestTSClientBodyLimitsAndSSEFraming(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not available")
 	}
-	ast, err := onklang.Parse(clientBodySchema)
+	ast, err := onktest.Parse(clientBodySchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "api.onk", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"ts-client"}})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "api.tsp", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"ts-client"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,11 +106,11 @@ func TestTSClientPerCallHeaderOverridesTheDefaultWhateverTheCase(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not available")
 	}
-	ast, err := onklang.Parse(clientBodySchema)
+	ast, err := onktest.Parse(clientBodySchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "api.onk", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"ts-client"}})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "api.tsp", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"ts-client"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,21 +149,35 @@ func TestTSClientRejectsDotSegmentPathParameters(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not available")
 	}
-	ast, err := onklang.Parse(`package app
+	ast, err := onktest.Parse(`namespace app;
 
-message Item { id: string }
-message Count { n: int32 }
+model Item {
+  id: string;
+}
 
-service Items {
-  get(Item) -> Item @get("/items/{id}")
-  watch(Item) -> Item @get("/watch/{id}") @stream
-  total(Count) -> Item @get("/total/{n}")
+model Count {
+  n: int32;
+}
+
+interface Items {
+  @get
+  @route("/items/{id}")
+  get(...Item): Item;
+
+  @get
+  @route("/watch/{id}")
+  @Onkt.stream
+  watch(...Item): Item;
+
+  @get
+  @route("/total/{n}")
+  total(...Count): Item;
 }
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "api.onk", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"ts-client"}})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "api.tsp", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"ts-client"}})
 	if err != nil {
 		t.Fatal(err)
 	}

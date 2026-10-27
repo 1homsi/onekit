@@ -23,7 +23,7 @@ import (
 	"github.com/1homsi/onekit/internal/gents"
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 // runtimeSchema is the multiplexing reference case: the server answers a Run
@@ -32,40 +32,64 @@ import (
 // a call of its own on a timeout; the server answers the resulting @ws_cancel
 // frame with RunResult 9, proving the cancel crossed the language boundary. Every variant name is
 // multi-word so a camelCase/snake_case mismatch on the wire can't hide.
-const runtimeSchema = `
-package wsc
+const runtimeSchema = `namespace wsc;
 
-message RunRequest { code: string @raw }
-message Chunk {
-  index: int32
-  data: bytes @raw
-}
-message RunResult {
-  exit_code: int32
-  result_json: string @raw
-  chunks: Chunk[]
-}
-message HostCall { id: string @ws_id
-method: string
-timeout_ms: int64 @ws_timeout }
-message HostResult { id: string @ws_id
-value: string }
-message Cancel { id: string @ws_id }
-
-message Frame {
-  payload: oneof(discriminator: "type") {
-    run: RunRequest @tag("run")
-    host_call: HostCall @tag("host_call")
-    host_result: HostResult @tag("host_result")
-    run_result: RunResult @tag("run_result")
-    cancel: Cancel @tag("cancel") @ws_cancel
-  }
+model RunRequest {
+  @Onkt.raw
+  code: string;
 }
 
-service Runtime {
-  base_path: "/v1"
+model Chunk {
+  index: int32;
+  @Onkt.raw
+  data: bytes;
+}
 
-  execute(Frame) -> Frame @ws("/execute")
+model RunResult {
+  exit_code: int32;
+  @Onkt.raw
+  result_json: string;
+  chunks: Chunk[];
+}
+
+model HostCall {
+  @Onkt.wsId
+  id: string;
+  method: string;
+  @Onkt.wsTimeout
+  @encode(string)
+  timeout_ms: int64;
+}
+
+model HostResult {
+  @Onkt.wsId
+  id: string;
+  value: string;
+}
+
+model Cancel {
+  @Onkt.wsId
+  id: string;
+}
+
+@Onkt.discriminator("type")
+union FramePayload {
+  @Onkt.tag("run") run: RunRequest,
+  @Onkt.tag("host_call") host_call: HostCall,
+  @Onkt.tag("host_result") host_result: HostResult,
+  @Onkt.tag("run_result") run_result: RunResult,
+  @Onkt.tag("cancel") @Onkt.wsCancel cancel: Cancel,
+}
+
+model Frame {
+  payload: FramePayload;
+}
+
+@route("/v1")
+interface Runtime {
+  @Onkt.ws
+  @route("/execute")
+  execute(...Frame): Frame;
 }
 `
 
@@ -323,11 +347,11 @@ func TestWSTSClientGoServer(t *testing.T) {
 
 func compileSchema(t *testing.T) *onkir.File {
 	t.Helper()
-	ast, err := onklang.Parse(runtimeSchema)
+	ast, err := onktest.Parse(runtimeSchema)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "wsc.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "wsc.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

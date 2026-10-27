@@ -8,24 +8,45 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func TestGoErrorMessageMayHaveAnErrorField(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	ast, err := onklang.Parse(`package app
-message ErrorBody { code: string message: string request_id: string }
-message ApiFailure @status(500) { error: ErrorBody }
-message Ping { validate: string }
-message Pong { ok: bool }
-service S { ping(Ping) -> Pong | ApiFailure @get("/ping") }
+	ast, err := onktest.Parse(`namespace app;
+
+model ErrorBody {
+  code: string;
+  message: string;
+  request_id: string;
+}
+
+@error
+model ApiFailure {
+  @statusCode _: 500;
+  error: ErrorBody;
+}
+
+model Ping {
+  validate: string;
+}
+
+model Pong {
+  ok: boolean;
+}
+
+interface S {
+  @get
+  @route("/ping")
+  ping(...Ping): Pong | ApiFailure;
+}
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}

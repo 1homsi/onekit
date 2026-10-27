@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onkschema"
 )
 
-func validateServiceDecl(filePath string, service *onklang.ServiceDecl, routeScope string, seenRoutes map[string]string, options CompileOptions) error {
+func validateServiceDecl(filePath string, service *onkschema.ServiceDecl, routeScope string, seenRoutes map[string]string, options CompileOptions) error {
 	if err := validateDeclarationName(filePath, service.Line, service.Name, options); err != nil {
 		return err
 	}
@@ -37,7 +37,7 @@ func validateServiceDecl(filePath string, service *onklang.ServiceDecl, routeSco
 	return nil
 }
 
-func validateServiceRPC(filePath string, rpc *onklang.RPCDecl, service *onklang.ServiceDecl, routeScope string, seenRoutes, seenMethods map[string]string, serviceHeaderNames map[string]bool, options CompileOptions) error {
+func validateServiceRPC(filePath string, rpc *onkschema.RPCDecl, service *onkschema.ServiceDecl, routeScope string, seenRoutes, seenMethods map[string]string, serviceHeaderNames map[string]bool, options CompileOptions) error {
 	if !options.AllowLegacyContracts {
 		if err := validateMemberName(filePath, rpc.Line, rpc.Name, options); err != nil {
 			return err
@@ -84,7 +84,7 @@ func routeKey(verb, route string) string {
 	return strings.ToUpper(verb) + " " + pathParameterPattern.ReplaceAllString(route, "{}")
 }
 
-func validateHeaders(path string, headers []onklang.HeaderDecl) error {
+func validateHeaders(path string, headers []onkschema.HeaderDecl) error {
 	seen := map[string]bool{}
 	for _, header := range headers {
 		key := strings.ToLower(header.Name)
@@ -142,7 +142,7 @@ var singleUseRPCDecorators = map[string]bool{
 	"max_body": true, "deprecated": true,
 }
 
-func rejectRepeatedDecorators(path string, rpc *onklang.RPCDecl) error {
+func rejectRepeatedDecorators(path string, rpc *onkschema.RPCDecl) error {
 	seen := map[string]bool{}
 	for _, decorator := range rpc.Decorators {
 		if !singleUseRPCDecorators[decorator.Name] {
@@ -156,7 +156,7 @@ func rejectRepeatedDecorators(path string, rpc *onklang.RPCDecl) error {
 	return nil
 }
 
-func validateRPC(path string, rpc *onklang.RPCDecl, allowEmptyRoute bool) (string, string, error) {
+func validateRPC(path string, rpc *onkschema.RPCDecl, allowEmptyRoute bool) (string, string, error) {
 	var verb, route string
 	for _, decorator := range rpc.Decorators {
 		if isHTTPVerb(decorator.Name) {
@@ -305,7 +305,7 @@ func pathParameterNames(route string) []string {
 	return names
 }
 
-func validateWSRPC(path string, rpc *onklang.RPCDecl, verb, route string) (string, string, error) {
+func validateWSRPC(path string, rpc *onkschema.RPCDecl, verb, route string) (string, string, error) {
 	if verb != "" {
 		return "", "", &Error{Path: path, Line: rpc.Line, Msg: "@ws cannot be combined with an HTTP verb; it replaces the transport binding"}
 	}

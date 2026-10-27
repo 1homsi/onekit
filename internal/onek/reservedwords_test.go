@@ -7,32 +7,13 @@ import (
 	"testing"
 )
 
-const reservedWordsSchema = `package app
-
-message Q {
-  in: string
-  from: string
-  default: string
-  type: string
-  class: string
-  enum: string
-  import: string
-  none: string
-  return: string
-}
-message Out { q: Q }
-
-service S {
-  base_path: "/v1"
-  get(Q) -> Out @get("/q")
-}
-`
+const reservedWordsSchema = "namespace app;\n\nmodel Q {\n  in: string;\n  from: string;\n  default: string;\n  type: string;\n  class: string;\n  `enum`: string;\n  `import`: string;\n  none: string;\n  `return`: string;\n}\n\nmodel Out {\n  q: Q;\n}\n\n@route(\"/v1\")\ninterface S {\n  @get\n  @route(\"/q\")\n  get(...Q): Out;\n}\n"
 
 func reservedWordsProject(t *testing.T, targets string) string {
 	t.Helper()
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/x\"\n\n"+targets)
-	writeTestFile(t, filepath.Join(dir, "app.onk"), reservedWordsSchema)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/x\"\n\n"+targets)
+	writeTestFile(t, filepath.Join(dir, "app.tsp"), reservedWordsSchema)
 	return dir
 }
 

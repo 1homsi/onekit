@@ -9,62 +9,72 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const fixtureSrc = `
-package app
+const fixtureSrc = `namespace app;
 
-message Address {
-  street: string
-  city: string
+model Address {
+  street: string;
+  city: string;
 }
 
-message User {
-  id: string
-  name: string @len(2, 100)
-  email: string @email
-  bio: string?
-  tags: string[]
-  labels: map[string, string]
-  home_address: Address
+model User {
+  id: string;
+  @minLength(2)
+  @maxLength(100)
+  name: string;
+  @format("email")
+  email: string;
+  bio?: string;
+  tags: string[];
+  labels: Record<string>;
+  home_address: Address;
 }
 
 enum Status {
-  UNSPECIFIED
-  ACTIVE @json("active")
+  UNSPECIFIED,
+  ACTIVE: "active",
 }
 
-message CreateUserRequest {
-  name: string @len(2, 100)
-  email: string @email
+model CreateUserRequest {
+  @minLength(2)
+  @maxLength(100)
+  name: string;
+  @format("email")
+  email: string;
 }
 
-message GetUserRequest {
-  id: string
+model GetUserRequest {
+  id: string;
 }
 
-message NotFoundError @status(404) {
-  resource_type: string
-  resource_id: string
+@error
+model NotFoundError {
+  @statusCode _: 404;
+  resource_type: string;
+  resource_id: string;
 }
 
-service UserService {
-  base_path: "/api/v1"
+@route("/api/v1")
+interface UserService {
+  @post
+  @route("/users")
+  createUser(...CreateUserRequest): User;
 
-  createUser(CreateUserRequest) -> User @post("/users")
-
-  getUser(GetUserRequest) -> User | NotFoundError @get("/users/{id}")
+  @get
+  @route("/users/{id}")
+  getUser(...GetUserRequest): User | NotFoundError;
 }
 `
 
 func compileFixture(t *testing.T) *onkir.File {
 	t.Helper()
-	ast, err := onklang.Parse(fixtureSrc)
+	ast, err := onktest.Parse(fixtureSrc)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile error: %v", err)
 	}
@@ -88,16 +98,28 @@ func TestGenerateClientProducesOutput(t *testing.T) {
 }
 
 func TestGenerateStreamingClientProducesIterator(t *testing.T) {
-	ast, err := onklang.Parse(`
-package app
-message StreamRequest { channel: string @query }
-message Event { value: string }
-service Events { streamEvents(StreamRequest) -> Event @get("/events") @stream }
+	ast, err := onktest.Parse(`namespace app;
+
+model StreamRequest {
+  @query
+  channel: string;
+}
+
+model Event {
+  value: string;
+}
+
+interface Events {
+  @get
+  @route("/events")
+  @Onkt.stream
+  streamEvents(...StreamRequest): Event;
+}
 `)
 	if err != nil {
 		t.Fatalf("parse fixture: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "stream.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "stream.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile fixture: %v", err)
 	}
@@ -110,21 +132,29 @@ service Events { streamEvents(StreamRequest) -> Event @get("/events") @stream }
 }
 
 func TestGenerateClientUsesJSONBooleanQueryValues(t *testing.T) {
-	ast, err := onklang.Parse(`
-package app
-message SearchRequest {
-  enabled: bool @query
-  tags: string[] @query("tag")
+	ast, err := onktest.Parse(`namespace app;
+
+model SearchRequest {
+  @query
+  enabled: boolean;
+  @query("tag")
+  tags: string[];
 }
-message SearchResponse { ok: bool }
-service SearchService {
-  search(SearchRequest) -> SearchResponse @get("/search")
+
+model SearchResponse {
+  ok: boolean;
+}
+
+interface SearchService {
+  @get
+  @route("/search")
+  search(...SearchRequest): SearchResponse;
 }
 `)
 	if err != nil {
 		t.Fatalf("parse fixture: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "search.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "search.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile fixture: %v", err)
 	}

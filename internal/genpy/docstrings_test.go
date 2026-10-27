@@ -3,25 +3,40 @@ package genpy
 import "testing"
 
 func TestPythonOutputCarriesDocstrings(t *testing.T) {
-	runPythonSchema(t, `
-package app
-/// A stored note.
-///
-/// Quotes """ and \ stay intact.
-message Note {
-  /// Unique identifier.
-  id: string
+	runPythonSchema(t, `namespace app;
+
+/**
+ * A stored note.
+ *
+ * Quotes """ and \ stay intact.
+ */
+model Note {
+  /** Unique identifier. */
+  id: string;
 }
-/// Nothing inside.
-message Empty {}
-/// Visibility of a note.
-enum Visibility { PRIVATE PUBLIC }
-/// Raised when a note is missing.
-message Missing @status(404) { id: string }
-/// Manages notes.
-service Notes {
-  /// Fetch one note.
-  get(Note) -> Note | Missing @get("/notes/{id}")
+
+/** Nothing inside. */
+model Empty {}
+
+/** Visibility of a note. */
+enum Visibility {
+  PRIVATE,
+  PUBLIC,
+}
+
+/** Raised when a note is missing. */
+@error
+model Missing {
+  @statusCode _: 404;
+  id: string;
+}
+
+/** Manages notes. */
+interface Notes {
+  /** Fetch one note. */
+  @get
+  @route("/notes/{id}")
+  get(...Note): Note | Missing;
 }
 `, `
 import inspect

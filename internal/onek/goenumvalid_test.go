@@ -3,15 +3,17 @@ package onek
 import "testing"
 
 func TestGoEnumsRejectUnknownValues(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-enum Status { ACTIVE  DISABLED }
+enum Status {
+  ACTIVE,
+  DISABLED,
+}
 
-message Account {
-  status: Status
-  previous: Status?
-  history: Status[]
+model Account {
+  status: Status;
+  previous?: Status;
+  history: Status[];
 }
 `, `package api
 

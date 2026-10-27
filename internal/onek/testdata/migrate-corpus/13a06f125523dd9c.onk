@@ -1,7 +1,0 @@
-package app
-
-/// Bravo doc line.
-// plain note between doc and decl
-message Bravo {
-  b: string
-}

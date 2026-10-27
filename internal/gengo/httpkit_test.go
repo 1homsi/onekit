@@ -8,15 +8,27 @@ import (
 	"testing"
 )
 
-const httpkitSchema = `package app
+const httpkitSchema = `namespace app;
 
-message Thing { id: int64 @encode("number")  name: string }
-message GetThing { id: int64 @encode("number") }
+model Thing {
+  id: int64;
+  name: string;
+}
 
-service Things {
-  base_path: "/v1"
-  get(GetThing) -> Thing @get("/things/{id}") @guard("things/read/:id", "audit")
-  fail(GetThing) -> Thing @get("/fail/{id}")
+model GetThing {
+  id: int64;
+}
+
+@route("/v1")
+interface Things {
+  @get
+  @route("/things/{id}")
+  @Onkt.guard("things/read/:id", "audit")
+  get(...GetThing): Thing;
+
+  @get
+  @route("/fail/{id}")
+  fail(...GetThing): Thing;
 }
 `
 

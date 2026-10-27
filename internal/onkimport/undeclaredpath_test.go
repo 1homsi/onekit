@@ -3,9 +3,6 @@ package onkimport
 import (
 	"strings"
 	"testing"
-
-	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
 )
 
 func TestImportDeclaresUndeclaredPathParameters(t *testing.T) {
@@ -16,14 +13,8 @@ func TestImportDeclaresUndeclaredPathParameters(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(result.Source)
-	ast, err := onklang.Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: "pets.onk", AST: ast}}); err != nil {
-		t.Fatalf("import does not compile: %v\n%s", err, src)
-	}
-	if !strings.Contains(src, "owner_id: string") || !strings.Contains(src, `@get("/owners/{owner_id}/pets/{petId}")`) {
+	requireFaithfulTypeSpec(t, result)
+	if !strings.Contains(src, "  owner_id: string;\n") || !strings.Contains(src, "  @get\n  @route(\"/owners/{owner_id}/pets/{petId}\")\n") {
 		t.Fatalf("undeclared parameter not imported:\n%s", src)
 	}
 	if !strings.Contains(strings.Join(result.Warnings, "\n"), `path parameter "owner-id" is not declared`) {

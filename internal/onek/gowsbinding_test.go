@@ -3,16 +3,22 @@ package onek
 import "testing"
 
 func TestGoWSBindsPathAndQueryIntoFrames(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Msg {
-  room: string
-  limit: int32? @query
-  text: string @len(1, 100)
+model Msg {
+  room: string;
+  @query
+  limit?: int32;
+  @minLength(1)
+  @maxLength(100)
+  text: string;
 }
 
-service Chat { chat(Msg) -> Msg @ws("/rooms/{room}") }
+interface Chat {
+  @Onkt.ws
+  @route("/rooms/{room}")
+  chat(...Msg): Msg;
+}
 `, `package api
 
 import (

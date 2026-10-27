@@ -1,5 +1,0 @@
-
-package app
-message Req { id: string }
-message Tick { n: int32  text: string }
-service Feed { watch(Req) -> Tick @get("/feed/{id}") @stream }

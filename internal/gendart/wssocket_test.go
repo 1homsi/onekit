@@ -2,11 +2,21 @@ package gendart
 
 import "testing"
 
-const wsSocketSchema = `
-package app
-message Blob { room: string limit: int32? @query name: string data: bytes @raw }
-service Chat {
-  join(Blob) -> Blob @ws("/rooms/{room}")
+const wsSocketSchema = `namespace app;
+
+model Blob {
+  room: string;
+  @query
+  limit?: int32;
+  name: string;
+  @Onkt.raw
+  data: bytes;
+}
+
+interface Chat {
+  @Onkt.ws
+  @route("/rooms/{room}")
+  join(...Blob): Blob;
 }
 `
 

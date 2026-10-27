@@ -3,12 +3,13 @@ package onek
 import "testing"
 
 func TestGoBase64BytesEncodingCompiles(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Blob {
-  data: bytes @encode(base64)
-  maybe: bytes? @encode(base64)
+model Blob {
+  @Onkt.encode("base64")
+  data: bytes;
+  @Onkt.encode("base64")
+  maybe?: bytes;
 }
 `, `package api
 

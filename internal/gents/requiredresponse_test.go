@@ -8,47 +8,18 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const requiredResponseSchema = `package app
-
-enum Level { LOW HIGH }
-message Inner { count: int32  label: string }
-message Env {
-  id: int64 @encode("number")
-  is_default: bool
-  name: string
-  level: Level
-  tags: string[]
-  by_name: map[string, string]
-  note: string?
-  inner: Inner
-  items: Inner[]
-  created_at: timestamp
-  parent: Env
-  maybe_inner: Inner?
-}
-message Patch { id: int64 @encode("number")  is_default: bool  name: string }
-message Shared { id: int32  flag: bool }
-message Lookup { id: int64 @encode("number") }
-message Gone @status(404) { reason: string }
-
-service Envs {
-  base_path: "/v1"
-  get(Lookup) -> Env | Gone @get("/envs/{id}")
-  update(Patch) -> Shared @post("/envs")
-  echo(Shared) -> Shared @post("/echo")
-}
-`
+const requiredResponseSchema = "namespace app;\n\nenum Level {\n  LOW,\n  HIGH,\n}\n\nmodel Inner {\n  count: int32;\n  label: string;\n}\n\nmodel Env {\n  id: int64;\n  is_default: boolean;\n  name: string;\n  level: Level;\n  tags: string[];\n  by_name: Record<string>;\n  note?: string;\n  inner: Inner;\n  items: Inner[];\n  created_at: utcDateTime;\n  parent: Env;\n  maybe_inner?: Inner;\n}\n\nmodel Patch {\n  id: int64;\n  is_default: boolean;\n  name: string;\n}\n\nmodel Shared {\n  id: int32;\n  `flag`: boolean;\n}\n\nmodel Lookup {\n  id: int64;\n}\n\n@error\nmodel Gone {\n  @statusCode _: 404;\n  reason: string;\n}\n\n@route(\"/v1\")\ninterface Envs {\n  @get\n  @route(\"/envs/{id}\")\n  get(...Lookup): Env | Gone;\n\n  @post\n  @route(\"/envs\")\n  update(...Patch): Shared;\n\n  @post\n  @route(\"/echo\")\n  echo(...Shared): Shared;\n}\n"
 
 func compileWithEmitZero(t *testing.T, emitZero bool) *onkir.File {
 	t.Helper()
-	ast, err := onklang.Parse(requiredResponseSchema)
+	ast, err := onktest.Parse(requiredResponseSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "api.onk", AST: ast}}, onkcompile.CompileOptions{EmitZeroValues: emitZero})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "api.tsp", AST: ast}}, onkcompile.CompileOptions{EmitZeroValues: emitZero})
 	if err != nil {
 		t.Fatal(err)
 	}

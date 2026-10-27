@@ -3,9 +3,6 @@ package onkimport
 import (
 	"strings"
 	"testing"
-
-	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
 )
 
 func TestImportHandlesDigitLeadingAndCollidingEnumValues(t *testing.T) {
@@ -15,16 +12,10 @@ func TestImportHandlesDigitLeadingAndCollidingEnumValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(result.Source)
-	for _, want := range []string{`V_4K @json("4k")`, `V_1080P @json("1080p")`, `A_B @json("a-b")`, `A_B_2 @json("a_b")`} {
+	for _, want := range []string{`V_4K: "4k",`, `V_1080P: "1080p",`, `A_B: "a-b",`, `A_B_2: "a_b",`} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("missing %q:\n%s", want, src)
 		}
 	}
-	ast, err := onklang.Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: "video.onk", AST: ast}}); err != nil {
-		t.Fatalf("import does not compile: %v", err)
-	}
+	requireFaithfulTypeSpec(t, result)
 }

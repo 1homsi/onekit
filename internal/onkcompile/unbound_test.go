@@ -6,29 +6,26 @@ import (
 )
 
 func TestCompileRejectsRequiredFieldsTheRouteNeverSends(t *testing.T) {
-	tests := map[string]string{
-		"body": `
-message B { v: string }
-message Q { b: B  note: string @required }
-service API { a(Q) -> Q @post("/x") @body("b") }
-`,
-	}
-	for name, schema := range tests {
-		_, err := Compile([]Source{{Path: "api.onk", AST: parseOrFatal(t, schema)}})
-		if err == nil || !strings.Contains(err.Error(), `@required field "note" on RPC a is never sent`) {
-			t.Fatalf("%s: want unbound required error, got %v", name, err)
-		}
+	// Beside a @body field, a field that is neither a path nor a query
+	// parameter does not cross the wire.
+	_, err := Compile([]Source{{Path: "api.tsp", AST: parseOrFatal(t, `
+model B { v: string; }
+model Q { @body b: B; @Onkt.required @bodyIgnore note: string; }
+interface API { @post @route("/x") a(...Q): Q; }
+`)}})
+	if err == nil || !strings.Contains(err.Error(), `@required field "note" on RPC a is never sent`) {
+		t.Fatalf("want unbound required error, got %v", err)
 	}
 	for _, schema := range []string{
-		`message Q { id: string  note: string @required }
-service API { a(Q) -> Q @get("/x/{id}") }`,
-		`message Q { id: string @required  page: int32? @query @required }
-service API { a(Q) -> Q @get("/x/{id}") }`,
-		`message Q { note: string @required }
-service API { a(Q) -> Q @post("/x") }`,
+		`model Q { id: string; @Onkt.required note: string; }
+interface API { @get @route("/x/{id}") a(...Q): Q; }`,
+		`model Q { @Onkt.required id: string; @query @Onkt.required page?: int32; }
+interface API { @get @route("/x/{id}") a(...Q): Q; }`,
+		`model Q { @Onkt.required note: string; }
+interface API { @post @route("/x") a(...Q): Q; }`,
 	} {
-		if _, err := Compile([]Source{{Path: "api.onk", AST: parseOrFatal(t, schema)}}); err != nil {
-			t.Fatalf("bound required fields rejected: %v", err)
+		if _, err := Compile([]Source{{Path: "api.tsp", AST: parseOrFatal(t, schema)}}); err != nil {
+			t.Fatalf("bound required fields rejected: %v\n%s", err, schema)
 		}
 	}
 }

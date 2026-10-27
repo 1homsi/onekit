@@ -5,7 +5,7 @@ import (
 	"slices"
 
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onkschema"
 )
 
 const httpDecorator = "http"
@@ -15,7 +15,7 @@ var (
 	rawResponseKinds = []string{onkir.RawBodyStream, onkir.RawBodyJSON, onkir.RawResponseRedirect, onkir.RawResponseWebSocket}
 )
 
-func validateRawHTTPRPC(path string, rpc *onklang.RPCDecl, verb string) error {
+func validateRawHTTPRPC(path string, rpc *onkschema.RPCDecl, verb string) error {
 	if !hasDecorator(rpc.Decorators, httpDecorator) {
 		if verb == anyVerb {
 			return &Error{Path: path, Line: rpc.Line, Msg: "@any needs @http: only a hand-written handler can serve every method"}
@@ -83,7 +83,7 @@ func validateRawHTTPContract(filePath string, method *onkir.Method) error {
 	return nil
 }
 
-func validateResponseDecorator(path string, rpc *onklang.RPCDecl, decorator onklang.Decorator) error {
+func validateResponseDecorator(path string, rpc *onkschema.RPCDecl, decorator onkschema.Decorator) error {
 	if decorator.Name == successDecorator {
 		return validateSuccess(path, rpc, decorator)
 	}

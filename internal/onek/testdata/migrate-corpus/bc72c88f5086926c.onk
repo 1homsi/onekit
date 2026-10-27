@@ -1,5 +1,0 @@
-
-package app
-message Search { term: string }
-message Results { ids: string[] }
-service Items { search(Search) -> Results @query("/items/search") }

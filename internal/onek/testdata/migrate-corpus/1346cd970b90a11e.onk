@@ -1,3 +1,0 @@
-package app
-message E {}
-service S { a(E) -> E @post("/x") @success(204) }

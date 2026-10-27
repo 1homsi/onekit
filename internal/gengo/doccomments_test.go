@@ -5,34 +5,41 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func TestGoOutputCarriesDocComments(t *testing.T) {
-	ast, err := onklang.Parse(`package app
-/// A stored note.
-///
-/// Notes are immutable.
-message Note {
-  /// Unique identifier.
-  id: string
+	ast, err := onktest.Parse(`namespace app;
+
+/**
+ * A stored note.
+ *
+ * Notes are immutable.
+ */
+model Note {
+  /** Unique identifier. */
+  id: string;
 }
-/// Visibility of a note.
+
+/** Visibility of a note. */
 enum Visibility {
-  /// Only the author.
-  PRIVATE
-  PUBLIC
+  /** Only the author. */
+  PRIVATE,
+  PUBLIC,
 }
-/// Manages notes.
-service Notes {
-  /// Fetch one note.
-  get(Note) -> Note @get("/notes/{id}")
+
+/** Manages notes. */
+interface Notes {
+  /** Fetch one note. */
+  @get
+  @route("/notes/{id}")
+  get(...Note): Note;
 }
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}

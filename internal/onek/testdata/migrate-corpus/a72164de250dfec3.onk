@@ -1,5 +1,0 @@
-package common
-message Money @rule("self.cents >= 0", "no negative money") {
-  cents: int64
-  note: string @deprecated
-}

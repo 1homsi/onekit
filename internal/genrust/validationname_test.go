@@ -2,13 +2,35 @@ package genrust
 
 import "testing"
 
-const rustValidationNameFixture = `
-package app
-message GetUser { id: string @len(1, 10) }
-message User { id: string }
-message NotFoundError @status(404) { resource: string }
-message ValidationError @status(400) { message: string }
-service Users { get(GetUser) -> User | NotFoundError | ValidationError @get("/users/{id}") }
+const rustValidationNameFixture = `namespace app;
+
+model GetUser {
+  @minLength(1)
+  @maxLength(10)
+  id: string;
+}
+
+model User {
+  id: string;
+}
+
+@error
+model NotFoundError {
+  @statusCode _: 404;
+  resource: string;
+}
+
+@error
+model ValidationError {
+  @statusCode _: 400;
+  message: string;
+}
+
+interface Users {
+  @get
+  @route("/users/{id}")
+  get(...GetUser): User | NotFoundError | ValidationError;
+}
 `
 
 const rustValidationNameMain = `mod generated;

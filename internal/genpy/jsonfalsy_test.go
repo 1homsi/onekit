@@ -3,9 +3,11 @@ package genpy
 import "testing"
 
 func TestPythonKeepsFalsyJSONValues(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message M { data: json }
+	runPythonSchema(t, `namespace app;
+
+model M {
+  data: unknown;
+}
 `, `
 from models import M
 

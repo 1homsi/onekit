@@ -1,7 +1,0 @@
-
-package app
-message Counts {
-  small: int32
-  count: uint32
-  big: int64?
-}

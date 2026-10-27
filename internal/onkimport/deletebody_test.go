@@ -3,9 +3,6 @@ package onkimport
 import (
 	"strings"
 	"testing"
-
-	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
 )
 
 func TestImportDropsBodiesOnNonBodyVerbs(t *testing.T) {
@@ -18,13 +15,7 @@ func TestImportDropsBodiesOnNonBodyVerbs(t *testing.T) {
 	if strings.Contains(src, "@body") {
 		t.Fatalf("body kept on DELETE:\n%s", src)
 	}
-	ast, err := onklang.Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: "pets.onk", AST: ast}}); err != nil {
-		t.Fatalf("import does not compile: %v\n%s", err, src)
-	}
+	requireFaithfulTypeSpec(t, result)
 	if len(result.Warnings) == 0 || !strings.Contains(strings.Join(result.Warnings, "\n"), "request body on DELETE") {
 		t.Fatalf("missing warning: %v", result.Warnings)
 	}

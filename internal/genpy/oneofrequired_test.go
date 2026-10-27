@@ -3,10 +3,20 @@ package genpy
 import "testing"
 
 func TestPythonRequiredOneof(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message A { v: string }
-message M { p: oneof { a: A } @required }
+	runPythonSchema(t, `namespace app;
+
+model A {
+  v: string;
+}
+
+union MP {
+  a: A,
+}
+
+model M {
+  @Onkt.required
+  p: MP;
+}
 `, `
 from models import M
 

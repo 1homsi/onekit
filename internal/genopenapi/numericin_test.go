@@ -6,11 +6,12 @@ import (
 )
 
 func TestOpenAPIEnumTypesMatchTheField(t *testing.T) {
-	doc := openAPIForSchema(t, `
-package app
-message Page {
-  size: int32 @in(10, 25)
-  code: string @in("1", "2")
+	doc := openAPIForSchema(t, `namespace app;
+
+model Page {
+  @Onkt.values(10, 25)
+  size: int32;
+  code: "1" | "2";
 }
 `)
 	flat := strings.Join(strings.Fields(doc), " ")

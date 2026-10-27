@@ -3,11 +3,21 @@ package onek
 import "testing"
 
 func TestGoRequiredOneof(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message A { v: string }
-message M { p: oneof { a: A  s: string } @required }
+model A {
+  v: string;
+}
+
+union MP {
+  a: A,
+  s: string,
+}
+
+model M {
+  @Onkt.required
+  p: MP;
+}
 `, `package api
 
 import "testing"

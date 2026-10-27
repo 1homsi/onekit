@@ -8,30 +8,96 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onkschema"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const rawRoutesSchema = `package app
+const rawRoutesSchema = `namespace app;
 
-message Empty {}
-message Slug { slug: string }
-message DraftBody { source: string  minify: bool }
-message DraftRequest { slug: string  draft: DraftBody }
-message Policy { allowed: bool  reason: string }
-message UploadResult { name: string  size: int32 }
-message ProxyRequest { slug: string  resource: string  path: string  trace: string @query }
+model Empty {}
 
-service Apps {
-  base_path: "/apps"
-  bundle(Slug) -> Empty @get("/{slug}/bundle.js") @http("application/javascript") @guard("app/use/:slug") @meta("audit.event", "bundle")
-  draft(DraftRequest) -> Empty @post("/{slug}/bundle-draft.js") @http("application/javascript", request: "json") @body("draft")
-  policy(Slug) -> Policy @get("/{slug}/local-execution") @http(response: "json")
-  run(Slug) -> Empty @get("/{slug}/local-execution/run") @http(response: "websocket")
-  oauth(Slug) -> Empty @get("/{slug}/oauth") @http(response: "redirect")
-  upload(Slug) -> UploadResult @post("/{slug}/uploads") @http(request: "multipart", response: "json") @max_body("64MiB")
-  proxy(ProxyRequest) -> Empty @any("/{slug}/proxy/{resource}/{path...}") @http @guard("app/use/:slug")
-  info(Slug) -> Policy @get("/{slug}/info")
-  hints(Slug) -> Empty @get("/{slug}/hints") @http
+model Slug {
+  slug: string;
+}
+
+model DraftBody {
+  source: string;
+  minify: boolean;
+}
+
+model DraftRequest {
+  slug: string;
+  @body
+  draft: DraftBody;
+}
+
+model Policy {
+  allowed: boolean;
+  reason: string;
+}
+
+model UploadResult {
+  name: string;
+  size: int32;
+}
+
+model ProxyRequest {
+  slug: string;
+  resource: string;
+  path: string;
+  @query
+  trace: string;
+}
+
+@route("/apps")
+interface Apps {
+  @get
+  @route("/{slug}/bundle.js")
+  @Onkt.http(#{ contentType: "application/javascript" })
+  @Onkt.guard("app/use/:slug")
+  @Onkt.meta("audit.event", "bundle")
+  bundle(...Slug): Empty;
+
+  @post
+  @route("/{slug}/bundle-draft.js")
+  @Onkt.http(#{ contentType: "application/javascript", request: "json" })
+  draft(...DraftRequest): Empty;
+
+  @get
+  @route("/{slug}/local-execution")
+  @Onkt.http(#{ response: "json" })
+  policy(...Slug): Policy;
+
+  @get
+  @route("/{slug}/local-execution/run")
+  @Onkt.http(#{ response: "websocket" })
+  run(...Slug): Empty;
+
+  @get
+  @route("/{slug}/oauth")
+  @Onkt.http(#{ response: "redirect" })
+  oauth(...Slug): Empty;
+
+  @post
+  @route("/{slug}/uploads")
+  @Onkt.http(#{ request: "multipart", response: "json" })
+  @Onkt.maxBody("64MiB")
+  upload(...Slug): UploadResult;
+
+  @Onkt.method("ANY")
+  @route("/{slug}/proxy/{resource}/{+path}")
+  @Onkt.http
+  @Onkt.guard("app/use/:slug")
+  proxy(...ProxyRequest): Empty;
+
+  @get
+  @route("/{slug}/info")
+  info(...Slug): Policy;
+
+  @get
+  @route("/{slug}/hints")
+  @Onkt.http
+  hints(...Slug): Empty;
 }
 `
 
@@ -321,11 +387,11 @@ type rawRoutesOutput struct{ types, validation, server, client string }
 
 func compileRawRoutes(t *testing.T) rawRoutesOutput {
 	t.Helper()
-	ast, err := onklang.Parse(rawRoutesSchema)
+	ast, err := onktest.Parse(rawRoutesSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.onk", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"go-server", "go-client", "ts-client", "ts-server", "openapi"}})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.tsp", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"go-server", "go-client", "ts-client", "ts-server", "openapi"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,11 +448,11 @@ func TestSharedRuntimeCompilesRawRoutes(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	ast, err := onklang.Parse(rawRoutesSchema)
+	ast, err := onktest.Parse(rawRoutesSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.onk", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"go-server"}})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.tsp", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"go-server"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,46 +485,152 @@ func TestRawRoutesCompileRules(t *testing.T) {
 		name, schema string
 		want         string
 	}{
-		{"any without http", `message R { a: string }
-message E {}
-service S { x(R) -> E @any("/x/{a}") }`, "@any needs @http"},
-		{"json request without body", `message R { a: string }
-message E {}
-service S { x(R) -> E @post("/x/{a}") @http(request: "json") }`, "needs @body"},
-		{"body without json request", `message B { v: string }
-message R { a: string  b: B }
-message E {}
-service S { x(R) -> E @post("/x/{a}") @http @body("b") }`, `needs @http(request: "json")`},
-		{"unknown request kind", `message R { a: string }
-message E {}
-service S { x(R) -> E @post("/x/{a}") @http(request: "xml") }`, "@http request must be one of"},
-		{"unknown response kind", `message R { a: string }
-message E {}
-service S { x(R) -> E @get("/x/{a}") @http(response: "sse") }`, "@http response must be one of"},
-		{"unknown argument", `message R { a: string }
-message E {}
-service S { x(R) -> E @get("/x/{a}") @http(mode: "x") }`, `no argument "mode"`},
-		{"request on a get", `message R { a: string }
-message E {}
-service S { x(R) -> E @get("/x/{a}") @http(request: "multipart") }`, "needs a verb with a body"},
-		{"typed response without json", `message R { a: string }
-message E { v: string }
-service S { x(R) -> E @get("/x/{a}") @http }`, "handler writes the response itself"},
-		{"typed response with json", `message R { a: string }
-message E { v: string }
-service S { x(R) -> E @get("/x/{a}") @http(response: "json") }`, ""},
-		{"every target", `message R { a: string }
-message E {}
-service S { x(R) -> E @any("/x/{a...}") @http }`, ""},
+		{"any without http", `
+model R {
+  a: string;
+}
+
+model E {}
+
+interface S {
+  @Onkt.method("ANY")
+  @route("/x/{a}")
+  x(...R): E;
+}
+`, "@any needs @http"},
+		{"json request without body", `
+model R {
+  a: string;
+}
+
+model E {}
+
+interface S {
+  @post
+  @route("/x/{a}")
+  @Onkt.http(#{ request: "json" })
+  x(...R): E;
+}
+`, "needs @body"},
+		{"body without json request", `
+model B {
+  v: string;
+}
+
+model R {
+  a: string;
+  @body
+  b: B;
+}
+
+model E {}
+
+interface S {
+  @post
+  @route("/x/{a}")
+  @Onkt.http
+  x(...R): E;
+}
+`, `needs @http(request: "json")`},
+		{"request on a get", `
+model R {
+  a: string;
+}
+
+model E {}
+
+interface S {
+  @get
+  @route("/x/{a}")
+  @Onkt.http(#{ request: "multipart" })
+  x(...R): E;
+}
+`, "needs a verb with a body"},
+		{"typed response without json", `
+model R {
+  a: string;
+}
+
+model E {
+  v: string;
+}
+
+interface S {
+  @get
+  @route("/x/{a}")
+  @Onkt.http
+  x(...R): E;
+}
+`, "handler writes the response itself"},
+		{"typed response with json", `
+model R {
+  a: string;
+}
+
+model E {
+  v: string;
+}
+
+interface S {
+  @get
+  @route("/x/{a}")
+  @Onkt.http(#{ response: "json" })
+  x(...R): E;
+}
+`, ""},
+		{"every target", `
+model R {
+  a: string;
+}
+
+model E {}
+
+interface S {
+  @Onkt.method("ANY")
+  @route("/x/{+a}")
+  @Onkt.http
+  x(...R): E;
+}
+`, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ast, err := onklang.Parse("package app\n" + tc.schema + "\n")
+			ast, err := onktest.Parse(`namespace app;
+` + tc.schema + "\n")
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "a.onk", AST: ast}}, onkcompile.CompileOptions{})
+			_, err = onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "a.tsp", AST: ast}}, onkcompile.CompileOptions{})
 			if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+				t.Fatalf("got %v want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TypeSpec's typed @Onkt.http options refuse these values; documents from
+// any frontend that carry them are refused too.
+func TestRawRoutesRejectUnknownHTTPOptionsInDocuments(t *testing.T) {
+	q, dec := onktest.Q, onktest.Dec
+	cases := []struct {
+		name string
+		verb string
+		http onkschema.Decorator
+		want string
+	}{
+		{"unknown request kind", "post", dec("http", onktest.Named("request", q("xml"))), "@http request must be one of"},
+		{"unknown response kind", "get", dec("http", onktest.Named("response", q("sse"))), "@http response must be one of"},
+		{"unknown argument", "get", dec("http", onktest.Named("mode", q("x"))), `no argument "mode"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			file := onktest.File("app",
+				onktest.Message("R", onktest.Field("a", "string")),
+				onktest.Message("E"),
+				onktest.Service("S", "", onktest.RPC("x", "R", "E", dec(tc.verb, q("/x/{a}")), tc.http)),
+			)
+			_, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "a.tsp", AST: file}}, onkcompile.CompileOptions{})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("got %v want %q", err, tc.want)
 			}
 		})

@@ -23,16 +23,26 @@ func requiredOf(t *testing.T, doc, name string) []string {
 }
 
 func TestOpenAPIDoesNotRequireFieldsTheServerOmits(t *testing.T) {
-	doc := openAPIForSchema(t, `
-package app
-message Meta { owner: string }
-message Audit { by: string }
-message Item {
-  id: string
-  meta: Meta? @flatten(prefix: "meta_")
-  audit: Audit @flatten(prefix: "audit_")
-  extra: Meta @empty("omit")
-  kept: Meta @empty("null")
+	doc := openAPIForSchema(t, `namespace app;
+
+model Meta {
+  owner: string;
+}
+
+model Audit {
+  by: string;
+}
+
+model Item {
+  id: string;
+  @Onkt.flatten("meta_")
+  meta?: Meta;
+  @Onkt.flatten("audit_")
+  audit: Audit;
+  @Onkt.empty("omit")
+  extra: Meta;
+  @Onkt.empty("null")
+  kept: Meta;
 }
 `)
 	got := requiredOf(t, doc, "app.Item")

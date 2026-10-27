@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/1homsi/onekit/internal/onkcompat"
 	"github.com/1homsi/onekit/internal/onkcompile"
@@ -123,7 +124,7 @@ func applyRoutePrefix(pkg *onkir.Package, prefix string) {
 	}
 }
 
-// sourceGroup is one compiled schema directory: every .onk file directly
+// sourceGroup is one compiled schema directory: every schema file directly
 // under it, merged into a single onkir.File for generation. Each directory
 // maps 1:1 to one generated Go/TS/Python package - the same "one service per
 // directory" convention already used by every migrated proto-based service.
@@ -205,11 +206,10 @@ func groupByDirectory(pkg *onkir.Package, schemaRoot string) (*sourceIndex, erro
 	return idx, nil
 }
 
-// onkSchemasAccepted lets .onk schemas build. Projects moved to TypeSpec in
-// this release; the test suite keeps .onk as a compact fixture format for the
-// compiler and generators (TestMigrateCorpus holds every such fixture to
-// identical TypeSpec output).
-var onkSchemasAccepted = false
+// onkSchemasAccepted lets .onk schemas build. Projects build from TypeSpec;
+// only TestMigrateCorpus builds a .onk project, to compare it with the
+// TypeSpec onkt migrate writes for it.
+var onkSchemasAccepted atomic.Bool
 
 // errOnkSchemas is the error a project still on .onk schemas gets.
 func errOnkSchemas(root string, files []string) error {
@@ -221,7 +221,7 @@ func errOnkSchemas(root string, files []string) error {
 }
 
 func compileTree(dir string, exts []string, options onkcompile.CompileOptions) (*onkir.Package, error) {
-	return compileSchemaTree(dir, exts, options, onkSchemasAccepted)
+	return compileSchemaTree(dir, exts, options, onkSchemasAccepted.Load())
 }
 
 // compileSchemaTree compiles every schema under dir; acceptOnk lets .onk
@@ -238,11 +238,10 @@ func compileSchemaTree(dir string, exts []string, options onkcompile.CompileOpti
 	if len(files) == 0 {
 		return nil, fmt.Errorf("no schema files found under %s", dir)
 	}
-	var onkFiles []string
-	hasTypeSpec := false
+	var onkFiles, tspFiles []string
 	for _, file := range files {
 		if strings.HasSuffix(file, tspExtension) {
-			hasTypeSpec = true
+			tspFiles = append(tspFiles, file)
 			continue
 		}
 		onkFiles = append(onkFiles, file)
@@ -254,8 +253,8 @@ func compileSchemaTree(dir string, exts []string, options onkcompile.CompileOpti
 	if err != nil {
 		return nil, err
 	}
-	if hasTypeSpec {
-		tspSources, err := typespecSources(root)
+	if len(tspFiles) > 0 {
+		tspSources, err := typespecSources(root, tspFiles)
 		if err != nil {
 			return nil, err
 		}

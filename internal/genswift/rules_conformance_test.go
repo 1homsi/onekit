@@ -9,7 +9,7 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkexpr/conformance"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 const swiftRulesHarness = `import Foundation
@@ -67,25 +67,28 @@ func TestGeneratedSwiftRulesMatchTheReferenceEvaluator(t *testing.T) {
 }
 
 func TestSwiftRulesRunInGeneratedModels(t *testing.T) {
-	runSwiftSchema(t, `
-package app
+	runSwiftSchema(t, `namespace app;
 
-enum Tier { FREE PRO }
-
-message Customer {
-  name: string
+enum Tier {
+  FREE,
+  PRO,
 }
 
-message Order
-  @rule("self.tier != 'FREE' || size(self.items) <= 1", "free orders hold one item")
-  @rule("self.owner.name != ''", "an owner name is required")
-  @rule("!has(self.coupon) || size(self.coupon) == 4", "coupons have four characters")
-{
-  tier: Tier
-  owner: Customer
-  items: string[]
-  coupon: string?
-  total: int64 @rule("value >= 0 && value <= 1000000", "total out of range")
+model Customer {
+  name: string;
+}
+
+@Onkt.rule("self.tier != 'FREE' || size(self.items) <= 1", "free orders hold one item")
+@Onkt.rule("self.owner.name != ''", "an owner name is required")
+@Onkt.rule("!has(self.coupon) || size(self.coupon) == 4", "coupons have four characters")
+model Order {
+  tier: Tier;
+  owner: Customer;
+  items: string[];
+  coupon?: string;
+  @Onkt.rule("value >= 0 && value <= 1000000", "total out of range")
+  @encode(string)
+  total: int64;
 }
 `, `
 let good = Order(tier: .pro, owner: Customer(name: "a"), items: ["x", "y"], total: 10)
@@ -101,13 +104,66 @@ print("OK")
 
 func TestSwiftRulesCompileCleanlyForEveryFeatureSubset(t *testing.T) {
 	for name, schema := range map[string]string{
-		"macro only":    "package app\nmessage M @rule(\"self.xs.all(x, x > 0)\", \"positive\") {\n  xs: int32[]\n}\n",
-		"matches only":  "package app\nmessage M {\n  s: string @rule(\"value.matches('[a-z]+')\", \"lower case\")\n}\n",
-		"message list":  "package app\nmessage I {\n  n: int32\n}\nmessage M @rule(\"self.items.exists(i, i.n > 1)\", \"one item above one\") {\n  items: I[]\n}\n",
-		"map and bytes": "package app\nmessage M @rule(\"'k' in self.m && size(self.b) > 0\", \"map key and bytes\") {\n  m: map[string, int32]\n  b: bytes\n}\n",
-		"enum list":     "package app\nenum E { A B }\nmessage M @rule(\"self.es.all(e, e == 'A')\", \"all A\") {\n  es: E[]\n}\n",
-		"double only":   "package app\nmessage M {\n  d: float64 @rule(\"value * 2.0 < 10.0\", \"small\")\n}\n",
-		"deprecated":    "package app\nmessage M @rule(\"self.old > 0\", \"old is positive\") {\n  old: int32 @deprecated\n}\n",
+		"macro only": `namespace app;
+
+@Onkt.rule("self.xs.all(x, x > 0)", "positive")
+model M {
+  xs: int32[];
+}
+`,
+		"matches only": `namespace app;
+
+model M {
+  @Onkt.rule("value.matches('[a-z]+')", "lower case")
+  s: string;
+}
+`,
+		"message list": `namespace app;
+
+model I {
+  n: int32;
+}
+
+@Onkt.rule("self.items.exists(i, i.n > 1)", "one item above one")
+model M {
+  items: I[];
+}
+`,
+		"map and bytes": `namespace app;
+
+@Onkt.rule("'k' in self.m && size(self.b) > 0", "map key and bytes")
+model M {
+  m: Record<int32>;
+  b: bytes;
+}
+`,
+		"enum list": `namespace app;
+
+enum E {
+  A,
+  B,
+}
+
+@Onkt.rule("self.es.all(e, e == 'A')", "all A")
+model M {
+  es: E[];
+}
+`,
+		"double only": `namespace app;
+
+model M {
+  @Onkt.rule("value * 2.0 < 10.0", "small")
+  d: float64;
+}
+`,
+		"deprecated": `namespace app;
+
+@Onkt.rule("self.old > 0", "old is positive")
+model M {
+  #deprecated ""
+  old: int32;
+}
+`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			runSwiftSchema(t, schema, "print(\"OK\")\n")
@@ -122,7 +178,13 @@ func TestSwiftRulesWorkInsideANamespace(t *testing.T) {
 	if _, err := exec.LookPath("swiftc"); err != nil {
 		t.Skip("swiftc not available")
 	}
-	file := compileSwiftSchema(t, "package app\nmessage M @rule(\"self.n > 0\", \"positive\") {\n  n: int32\n}\n")
+	file := compileSwiftSchema(t, `namespace app;
+
+@Onkt.rule("self.n > 0", "positive")
+model M {
+  n: int32;
+}
+`)
 	dir := t.TempDir()
 	writeSwiftFile(t, filepath.Join(dir, "Onekit.swift"), string(GenerateRuntime()))
 	writeSwiftFile(t, filepath.Join(dir, "Models.swift"), string(GenerateTypesInNamespace(file, "AppV1", nil)))
@@ -146,15 +208,33 @@ func TestSwiftRulesReachMessagesFromAnotherNamespace(t *testing.T) {
 	if _, err := exec.LookPath("swiftc"); err != nil {
 		t.Skip("swiftc not available")
 	}
-	common, err := onklang.Parse("package common\nmessage Money @rule(\"self.cents >= 0\", \"no negative money\") {\n  cents: int64\n  note: string @deprecated\n}\n")
-	if err != nil {
-		t.Fatal(err)
+	// The files compile together, as one TypeSpec project.
+	var sources []onkcompile.Source
+	for _, file := range onktest.Files(t, map[string]string{
+		"common/money.tsp": `namespace common;
+
+@Onkt.rule("self.cents >= 0", "no negative money")
+model Money {
+  @encode(string)
+  cents: int64;
+  #deprecated ""
+  note: string;
+}
+`,
+		"shop/order.tsp": `using common;
+
+
+namespace shop;
+
+@Onkt.rule("self.total.cents <= 1000 && self.total.note == ''", "too expensive")
+model Order {
+  total: Money;
+}
+`,
+	}) {
+		sources = append(sources, onkcompile.Source{Path: file.Path, AST: &file.File})
 	}
-	shop, err := onklang.Parse("package shop\nimport \"../common/money.onk\"\nmessage Order @rule(\"self.total.cents <= 1000 && self.total.note == ''\", \"too expensive\") {\n  total: Money\n}\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "common/money.onk", AST: common}, {Path: "shop/order.onk", AST: shop}})
+	pkg, err := onkcompile.Compile(sources)
 	if err != nil {
 		t.Fatal(err)
 	}

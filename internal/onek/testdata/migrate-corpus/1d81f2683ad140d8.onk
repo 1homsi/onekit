@@ -1,3 +1,0 @@
-package app
-message Note { id: string }
-service Notes { get(Note) -> Note @get("/notes/{id}") @deprecated("use fetch") }

@@ -3,13 +3,21 @@ package gents
 import "testing"
 
 func TestTSMidStreamErrorsUseTheConfiguredErrorWriter(t *testing.T) {
-	runTSSchema(t, `package app
+	runTSSchema(t, `namespace app;
 
-message Req { id: string }
-message Tick { n: int32 }
+model Req {
+  id: string;
+}
 
-service Feed {
-  watch(Req) -> Tick @get("/watch") @stream
+model Tick {
+  n: int32;
+}
+
+interface Feed {
+  @get
+  @route("/watch")
+  @Onkt.stream
+  watch(...Req): Tick;
 }
 `, `
 import { createFeedFetchHandler, HttpError } from "./server.ts";

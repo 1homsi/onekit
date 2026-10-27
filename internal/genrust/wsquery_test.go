@@ -2,15 +2,22 @@ package genrust
 
 import "testing"
 
-const rustWSQueryFixture = `
-package app
-message Msg {
-  room: string
-  limit: int32? @query
-  tags: string[] @query("tag")
-  text: string
+const rustWSQueryFixture = `namespace app;
+
+model Msg {
+  room: string;
+  @query
+  limit?: int32;
+  @query("tag")
+  tags: string[];
+  text: string;
 }
-service Chat { chat(Msg) -> Msg @ws("/rooms/{room}") }
+
+interface Chat {
+  @Onkt.ws
+  @route("/rooms/{room}")
+  chat(...Msg): Msg;
+}
 `
 
 const rustWSQueryMain = `

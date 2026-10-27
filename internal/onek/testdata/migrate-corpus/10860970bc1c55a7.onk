@@ -1,2 +1,0 @@
-package app
-message Span { low: int32 high: int32 }

@@ -1,2 +1,0 @@
-package app
-message Item { id: int64 ids: int64[] name: string }

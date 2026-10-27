@@ -1,4 +1,0 @@
-package app
-message Req { id: string }
-message Res {}
-service API { get(Req) -> Res @get("/items/{id}") @requires("items:read") }

@@ -2,28 +2,35 @@ package genrust
 
 import "testing"
 
-const rustAuthorizeSchema = `
-package app
+const rustAuthorizeSchema = `namespace app;
 
-message Principal @principal {
-  user_id: string
-  roles: string[]
-  org: string
+@Onkt.principal
+model Principal {
+  user_id: string;
+  roles: string[];
+  org: string;
 }
 
-message DeleteDoc {
-  id: string
-  owner_org: string
+model DeleteDoc {
+  id: string;
+  owner_org: string;
 }
 
-message Ack { ok: bool }
+model Ack {
+  ok: boolean;
+}
 
-service Docs {
-  base_path: "/v1"
-  delete(DeleteDoc) -> Ack @post("/docs/delete")
-    @authorize("'admin' in auth.roles || auth.org == req.owner_org", "not allowed to delete this document")
-    @authorize("size(auth.user_id) > 0", "sign in first")
-  open(DeleteDoc) -> Ack @post("/docs/open")
+@route("/v1")
+interface Docs {
+  @post
+  @route("/docs/delete")
+  @Onkt.authorize("'admin' in auth.roles || auth.org == req.owner_org", "not allowed to delete this document")
+  @Onkt.authorize("size(auth.user_id) > 0", "sign in first")
+  delete(...DeleteDoc): Ack;
+
+  @post
+  @route("/docs/open")
+  open(...DeleteDoc): Ack;
 }
 `
 

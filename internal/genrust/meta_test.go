@@ -2,16 +2,27 @@ package genrust
 
 import "testing"
 
-const rustMetaSchema = `
-package app
+const rustMetaSchema = `namespace app;
 
-message Doc { slug: string }
-message Done { ok: bool }
+model Doc {
+  slug: string;
+}
 
-service Docs {
-  base_path: "/v1"
-  edit(Doc) -> Done @post("/apps/{slug}/edit") @meta("guard", "app/edit/:slug") @meta("audit.event", "app.update")
-  health(Doc) -> Done @get("/health/{slug}")
+model Done {
+  ok: boolean;
+}
+
+@route("/v1")
+interface Docs {
+  @post
+  @route("/apps/{slug}/edit")
+  @Onkt.meta("guard", "app/edit/:slug")
+  @Onkt.meta("audit.event", "app.update")
+  edit(...Doc): Done;
+
+  @get
+  @route("/health/{slug}")
+  health(...Doc): Done;
 }
 `
 

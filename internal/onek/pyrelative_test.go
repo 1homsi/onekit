@@ -11,11 +11,23 @@ func TestPythonPackagesImportFromANestedLocation(t *testing.T) {
 		t.Skip("python3 not available")
 	}
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"x\"\n\n[generate.python-client]\nout = \"./src/app/generated\"\n")
-	writeTestFile(t, filepath.Join(dir, "common", "models.onk"), "message Addr { city: string }\n")
-	writeTestFile(t, filepath.Join(dir, "users", "api.onk"), `import "../common/models.onk"
-message U { id: string  addr: Addr }
-service Users { get(U) -> U @put("/u/{id}") }
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"x\"\n\n[generate.python-client]\nout = \"./src/app/generated\"\n")
+	writeTestFile(t, filepath.Join(dir, "common", "models.tsp"), `
+model Addr {
+  city: string;
+}
+`)
+	writeTestFile(t, filepath.Join(dir, "users", "api.tsp"), `
+model U {
+  id: string;
+  addr: Addr;
+}
+
+interface Users {
+  @put
+  @route("/u/{id}")
+  get(...U): U;
+}
 `)
 	writeTestFile(t, filepath.Join(dir, "src", "app", "__init__.py"), "")
 	if err := Build(dir); err != nil {

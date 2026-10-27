@@ -2,13 +2,26 @@ package genrust
 
 import "testing"
 
-const rustRejectionFixture = `
-package app
-message Note { text: string  count: int32 }
-message ListNotes { limit: int32 @query }
-service Notes {
-  create(Note) -> Note @post("/notes")
-  list(ListNotes) -> Note @get("/notes")
+const rustRejectionFixture = `namespace app;
+
+model Note {
+  text: string;
+  count: int32;
+}
+
+model ListNotes {
+  @query
+  limit: int32;
+}
+
+interface Notes {
+  @post
+  @route("/notes")
+  create(...Note): Note;
+
+  @get
+  @route("/notes")
+  list(...ListNotes): Note;
 }
 `
 

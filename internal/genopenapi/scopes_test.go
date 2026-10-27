@@ -5,25 +5,41 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func TestGenerateListsRequiredScopesUnderTheAuthScheme(t *testing.T) {
-	src := `
-package app
-message Item { id: string }
-message GetItem { id: string }
-service API {
-  headers: { "Authorization": string @required @auth("bearer") @auth_scheme_name("UserAuth") }
-  get(GetItem) -> Item @get("/items/{id}") @requires("items:read", "items:write")
-  ping(GetItem) -> Item @get("/ping/{id}")
+	src := `namespace app;
+
+model Item {
+  id: string;
+}
+
+model GetItem {
+  id: string;
+}
+
+/** Headers every API operation takes. */
+alias APIHeaders = {
+  @header("Authorization") @Onkt.auth("bearer", "UserAuth") header_authorization: string;
+};
+
+interface API {
+  @get
+  @route("/items/{id}")
+  @Onkt.requires("items:read", "items:write")
+  get(...APIHeaders, ...GetItem): Item;
+
+  @get
+  @route("/ping/{id}")
+  ping(...APIHeaders, ...GetItem): Item;
 }
 `
-	ast, err := onklang.Parse(src)
+	ast, err := onktest.Parse(src)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

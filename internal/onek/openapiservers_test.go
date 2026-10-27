@@ -9,13 +9,21 @@ import (
 
 func TestOpenAPIServersFromConfig(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `module = "x"
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), `module = "x"
 
 [generate.openapi]
 out = "./docs"
 servers = ["https://api.example.com/v1", "http://localhost:8080"]
 `)
-	writeTestFile(t, filepath.Join(dir, "api.onk"), "message R {}\nservice S { get(R) -> R @get(\"/r\") }\n")
+	writeTestFile(t, filepath.Join(dir, "api.tsp"), `
+model R {}
+
+interface S {
+  @get
+  @route("/r")
+  get(...R): R;
+}
+`)
 	if err := Build(dir); err != nil {
 		t.Fatal(err)
 	}

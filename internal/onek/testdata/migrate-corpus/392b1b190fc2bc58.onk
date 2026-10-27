@@ -1,9 +1,0 @@
-
-message Req { id: string }
-message Res {
-  counts: map[string, int64]
-  sizes: map[string, uint64]
-  seen: map[string, timestamp]
-  blobs: map[string, bytes]
-}
-service Svc { get(Req) -> Res @get("/r/{id}") }

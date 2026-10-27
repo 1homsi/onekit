@@ -1,8 +1,0 @@
-package users
-
-message User { name: string @len(1, 20) }
-
-service Users {
-  base_path: "/v1"
-  create(User) -> User @post("/users")
-}

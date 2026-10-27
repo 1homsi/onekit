@@ -17,7 +17,7 @@ func TestLoadConfigSuggestsKnownKeys(t *testing.T) {
 	}
 	for config, want := range tests {
 		dir := t.TempDir()
-		writeTestFile(t, filepath.Join(dir, "onekit.toml"), config)
+		writeTestFile(t, filepath.Join(dir, "onkt.toml"), config)
 		_, err := LoadConfig(dir)
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("config %q: want %q, got %v", config, want, err)
@@ -35,7 +35,7 @@ func TestLoadConfigValidatesInt64Encoding(t *testing.T) {
 		if value != "" {
 			config = "module = \"x\"\nint64_encoding = \"" + value + "\"\n[generate.go-server]\nout = \"./a\"\n"
 		}
-		writeTestFile(t, filepath.Join(dir, "onekit.toml"), config)
+		writeTestFile(t, filepath.Join(dir, "onkt.toml"), config)
 		cfg, err := LoadConfig(dir)
 		if ok && err != nil {
 			t.Errorf("%q should load: %v", value, err)
@@ -51,7 +51,7 @@ func TestLoadConfigValidatesInt64Encoding(t *testing.T) {
 
 func TestLoadConfigPassesEmitZeroValuesToTheCompiler(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"x\"\nemit_zero_values = true\n[generate.go-server]\nout = \"./a\"\n")
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"x\"\nemit_zero_values = true\n[generate.go-server]\nout = \"./a\"\n")
 	cfg, err := LoadConfig(dir)
 	if err != nil {
 		t.Fatal(err)

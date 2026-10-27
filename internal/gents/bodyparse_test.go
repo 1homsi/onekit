@@ -3,10 +3,17 @@ package gents
 import "testing"
 
 func TestTSServerBodyParsing(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Note { text: string }
-service Notes { create(Note) -> Note @post("/notes") }
+	runTSSchema(t, `namespace app;
+
+model Note {
+  text: string;
+}
+
+interface Notes {
+  @post
+  @route("/notes")
+  create(...Note): Note;
+}
 `, `
 import { createNotesRoutes } from "./server.ts";
 

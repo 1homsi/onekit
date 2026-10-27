@@ -7,20 +7,7 @@ import (
 )
 
 func TestTS64BitRulesCompareExactly(t *testing.T) {
-	runTSSchema(t, `
-package app
-message A {
-  n: int64 @range(0, 9223372036854775806)
-  u: uint64 @gte(9007199254740993)
-  k: int64 @in(9007199254740993, 5)
-  l: int64 @lt(9007199254740993) @gt(-9007199254740993)
-  plain: int32 @range(0, 10)
-  oa: int64? @range(0, 100)
-  ob: uint64? @gte(5)
-  oc: int64? @in(1, 2) @encode("number")
-}
-service S { op(A) -> A @post("/a") }
-`, `
+	runTSSchema(t, "namespace app;\n\nmodel A {\n  @Onkt.range(0, 9223372036854775806)\n  @encode(string)\n  n: int64;\n  @minValue(9007199254740993)\n  @encode(string)\n  u: uint64;\n  @Onkt.values(9007199254740993, 5)\n  @encode(string)\n  k: int64;\n  @maxValueExclusive(9007199254740993)\n  @minValueExclusive(-9007199254740993)\n  @encode(string)\n  l: int64;\n  @Onkt.range(0, 10)\n  plain: int32;\n  @Onkt.range(0, 100)\n  @encode(string)\n  oa?: int64;\n  @minValue(5)\n  @encode(string)\n  ob?: uint64;\n  @Onkt.values(1, 2)\n  oc?: int64;\n}\n\ninterface S {\n  @post\n  @route(\"/a\")\n  `op`(...A): A;\n}\n", `
 import { validateA } from "./types.ts";
 
 const check = (ok: boolean, message: string) => { if (!ok) throw new Error(message); };
@@ -46,17 +33,7 @@ console.log("OK");
 `)
 }
 
-const ts64StrictSchema = `
-package app
-message A {
-  n: int64 @range(0, 100)
-  oa: int64? @range(0, 100)
-  ob: uint64? @gte(5) @lt(9007199254740993)
-  oc: int64? @in(1, 2) @encode("number")
-  od: int64 @gt(-1) @encode("number")
-}
-service S { op(A) -> A @post("/a") }
-`
+const ts64StrictSchema = "namespace app;\n\nmodel A {\n  @Onkt.range(0, 100)\n  @encode(string)\n  n: int64;\n  @Onkt.range(0, 100)\n  @encode(string)\n  oa?: int64;\n  @minValue(5)\n  @maxValueExclusive(9007199254740993)\n  @encode(string)\n  ob?: uint64;\n  @Onkt.values(1, 2)\n  oc?: int64;\n  @minValueExclusive(-1)\n  od: int64;\n}\n\ninterface S {\n  @post\n  @route(\"/a\")\n  `op`(...A): A;\n}\n"
 
 func TestTS64BitRulesTypeCheckStrictly(t *testing.T) {
 	if _, err := exec.LookPath("tsc"); err != nil {

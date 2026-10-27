@@ -1,4 +1,0 @@
-
-message Request {
-  provider: string @in("", "google")
-}

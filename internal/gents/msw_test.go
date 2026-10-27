@@ -5,29 +5,52 @@ import (
 	"testing"
 )
 
-const mswFixture = `
-package mswfix
+const mswFixture = `namespace mswfix;
 
-enum Plan { FREE PRO }
-message NotFound @status(404) { message: string }
-
-message User {
-  id: string @uuid
-  email: string @email
-  plan: Plan
-  joined_at: timestamp @encode(unix_seconds)
-  avatar: bytes @encode(hex)
+enum Plan {
+  FREE,
+  PRO,
 }
 
-message GetUserRequest { id: string @uuid }
-message Empty {}
+@error
+model NotFound {
+  @statusCode _: 404;
+  message: string;
+}
 
-service UserService {
-  base_path: "/v1"
+model User {
+  @format("uuid")
+  id: string;
+  @format("email")
+  email: string;
+  plan: Plan;
+  @encode("unixTimestamp", int64)
+  joined_at: utcDateTime;
+  @Onkt.encode("hex")
+  avatar: bytes;
+}
 
-  getUser(GetUserRequest) -> User @get("/users/{id}")
-  search(Empty) -> User @query("/users/search")
-  events(Empty) -> User @get("/users/events") @stream
+model GetUserRequest {
+  @format("uuid")
+  id: string;
+}
+
+model Empty {}
+
+@route("/v1")
+interface UserService {
+  @get
+  @route("/users/{id}")
+  getUser(...GetUserRequest): User;
+
+  @Onkt.method("QUERY")
+  @route("/users/search")
+  search(...Empty): User;
+
+  @get
+  @route("/users/events")
+  @Onkt.stream
+  events(...Empty): User;
 }
 `
 
@@ -61,7 +84,12 @@ func TestGenerateMSWHandlers(t *testing.T) {
 }
 
 func TestGenerateMSWNilWithoutServices(t *testing.T) {
-	file, err := compileForTest("package empty\n\nmessage M { x: string }\n")
+	file, err := compileForTest(`namespace empty;
+
+model M {
+  x: string;
+}
+`)
 	if err != nil {
 		t.Fatalf("fixture: %v", err)
 	}
@@ -77,20 +105,35 @@ func TestMSWPathPattern(t *testing.T) {
 }
 
 func TestMSWStreamFramesAreNamedAfterTheOneofVariant(t *testing.T) {
-	file, err := compileForTest(`package app
+	file, err := compileForTest(`namespace app;
 
-message Text { text: string }
-message Done { reason: string }
-message Turn {
-  payload: oneof(discriminator: "type") {
-    text: Text @tag("text")
-    done: Done @tag("done")
-  }
+model Text {
+  text: string;
 }
-message TurnRequest { prompt: string }
 
-service Agent {
-  turn(TurnRequest) -> Turn @post("/turn") @stream
+model Done {
+  reason: string;
+}
+
+@Onkt.discriminator("type")
+union TurnPayload {
+  @Onkt.tag("text") text: Text,
+  @Onkt.tag("done") done: Done,
+}
+
+model Turn {
+  payload: TurnPayload;
+}
+
+model TurnRequest {
+  prompt: string;
+}
+
+interface Agent {
+  @post
+  @route("/turn")
+  @Onkt.stream
+  turn(...TurnRequest): Turn;
 }
 `)
 	if err != nil {

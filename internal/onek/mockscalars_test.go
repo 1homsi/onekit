@@ -10,15 +10,23 @@ import (
 
 func TestMockFixturesFillEveryMapValueScalar(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "api.onk"), `
-message Req { id: string }
-message Res {
-  counts: map[string, int64]
-  sizes: map[string, uint64]
-  seen: map[string, timestamp]
-  blobs: map[string, bytes]
+	writeTestFile(t, filepath.Join(dir, "api.tsp"), `
+model Req {
+  id: string;
 }
-service Svc { get(Req) -> Res @get("/r/{id}") }
+
+model Res {
+  counts: Record<int64>;
+  sizes: Record<uint64>;
+  seen: Record<utcDateTime>;
+  blobs: Record<bytes>;
+}
+
+interface Svc {
+  @get
+  @route("/r/{id}")
+  get(...Req): Res;
+}
 `)
 	server, err := NewMockServer(dir, MockOptions{Seed: 1})
 	if err != nil {

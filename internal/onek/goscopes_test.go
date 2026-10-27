@@ -3,19 +3,33 @@ package onek
 import "testing"
 
 func TestGoServerEnforcesRequiredScopes(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Item { id: string }
-message GetItem { id: string }
-message Nothing {}
+model Item {
+  id: string;
+}
 
-service Items {
-  base_path: "/items/v1"
+model GetItem {
+  id: string;
+}
 
-  get(GetItem) -> Item @get("/items/{id}") @requires("items:read")
-  remove(GetItem) -> Nothing @delete("/items/{id}") @requires("items:read", "items:write")
-  ping(Nothing) -> Nothing @get("/ping")
+model Nothing {}
+
+@route("/items/v1")
+interface Items {
+  @get
+  @route("/items/{id}")
+  @Onkt.requires("items:read")
+  get(...GetItem): Item;
+
+  @delete
+  @route("/items/{id}")
+  @Onkt.requires("items:read", "items:write")
+  remove(...GetItem): Nothing;
+
+  @get
+  @route("/ping")
+  ping(...Nothing): Nothing;
 }
 `, `package api
 

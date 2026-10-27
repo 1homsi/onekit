@@ -3,14 +3,18 @@ package onek
 import "testing"
 
 func TestGoOptionalNumberEnumCompilesAndRoundTrips(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-enum Status { UNKNOWN  ACTIVE }
+enum Status {
+  UNKNOWN,
+  ACTIVE,
+}
 
-message Item {
-  status: Status @encode(number)
-  maybe: Status? @encode(number)
+model Item {
+  @Onkt.encode("number")
+  status: Status;
+  @Onkt.encode("number")
+  maybe?: Status;
 }
 `, `package api
 

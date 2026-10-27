@@ -1,2 +1,0 @@
-package p
-message R{ x: string}

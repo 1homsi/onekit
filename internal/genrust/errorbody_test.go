@@ -6,16 +6,16 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func compileRustSchema(t *testing.T, schema string) *onkir.File {
 	t.Helper()
-	ast, err := onklang.Parse(schema)
+	ast, err := onktest.Parse(schema)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -23,10 +23,19 @@ func compileRustSchema(t *testing.T, schema string) *onkir.File {
 }
 
 func TestRustServerErrorBodiesUseMessageKey(t *testing.T) {
-	out := string(GenerateServer(compileRustSchema(t, `
-package app
-message R { id: string @len(1, 10) }
-service S { get(R) -> R @get("/r/{id}") }
+	out := string(GenerateServer(compileRustSchema(t, `namespace app;
+
+model R {
+  @minLength(1)
+  @maxLength(10)
+  id: string;
+}
+
+interface S {
+  @get
+  @route("/r/{id}")
+  get(...R): R;
+}
 `)))
 	if strings.Contains(out, `json!({ "error":`) || !strings.Contains(out, `json!({ "message": "internal server error" })`) {
 		t.Fatalf("error bodies must use the message key like Go and TypeScript:\n%s", out)
@@ -34,11 +43,23 @@ service S { get(R) -> R @get("/r/{id}") }
 }
 
 func TestRustClientFallsBackWhenTypedErrorBodyDoesNotDecode(t *testing.T) {
-	out := string(GenerateClient(compileRustSchema(t, `
-package app
-message R { id: string }
-message NotFound @status(404) { resource: string }
-service S { get(R) -> R | NotFound @get("/r/{id}") }
+	out := string(GenerateClient(compileRustSchema(t, `namespace app;
+
+model R {
+  id: string;
+}
+
+@error
+model NotFound {
+  @statusCode _: 404;
+  resource: string;
+}
+
+interface S {
+  @get
+  @route("/r/{id}")
+  get(...R): R | NotFound;
+}
 `)))
 	if strings.Contains(out, "map_err(SGetError::Decode)?;\nreturn Err(SGetError::NotFound") || !strings.Contains(out, "if let Ok(error) = serde_json::from_slice::<NotFound>(&body) {") {
 		t.Fatalf("typed error decode must fall through to UnexpectedStatus:\n%s", out)
@@ -46,11 +67,24 @@ service S { get(R) -> R | NotFound @get("/r/{id}") }
 }
 
 func TestRustStreamErrorsDoNotLeakInternalMessages(t *testing.T) {
-	out := string(GenerateServer(compileRustSchema(t, `
-package app
-message R { id: string }
-message Gone @status(410) { reason: string }
-service S { watch(R) -> R | Gone @get("/w/{id}") @stream }
+	out := string(GenerateServer(compileRustSchema(t, `namespace app;
+
+model R {
+  id: string;
+}
+
+@error
+model Gone {
+  @statusCode _: 410;
+  reason: string;
+}
+
+interface S {
+  @get
+  @route("/w/{id}")
+  @Onkt.stream
+  watch(...R): R | Gone;
+}
 `)))
 	for _, want := range []string{
 		`Err(error) => stream_error_event(error.into_response(), error_writer.as_ref(), &request_headers).await,`,

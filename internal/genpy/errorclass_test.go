@@ -3,13 +3,18 @@ package genpy
 import "testing"
 
 func TestPythonErrorClassDefaultsAndEquality(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message Detail { field: string }
-message InvalidError @status(400) {
-  message: string
-  details: Detail[]
-  meta: map[string, string]
+	runPythonSchema(t, `namespace app;
+
+model Detail {
+  field: string;
+}
+
+@error
+model InvalidError {
+  @statusCode _: 400;
+  message: string;
+  details: Detail[];
+  meta: Record<string>;
 }
 `, `
 from models import InvalidError

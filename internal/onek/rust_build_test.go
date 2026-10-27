@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-const rustOnekitToml = `
+const rustToml = `
 module = "example.com/ignored/by/rust"
 route_prefix = "/api"
 
@@ -43,28 +43,39 @@ uuid = "1"
 validator = "0.20"
 `
 
-const rustBusinessServiceOnk = `
-package hub.business
+const rustBusinessServiceTypeSpec = `using common;
 
-message GetBusinessRequest {
-  id: string
+namespace hub.business;
+
+model GetBusinessRequest {
+  id: string;
 }
 
-message Business {
-  id: string
-  name: string
-  balance: Money
+model Business {
+  id: string;
+  name: string;
+  balance: Money;
 }
 
-message UpdateBusinessRequest {
-  id: string
-  business: Business
+model UpdateBusinessRequest {
+  id: string;
+  @body
+  business: Business;
 }
 
-service BusinessService {
-  getBusiness(GetBusinessRequest) -> Business @get("/businesses/{id}")
-  updateBusiness(UpdateBusinessRequest) -> Business @put("/businesses/{id}") @body("business")
-  watchBusiness(GetBusinessRequest) -> Business @get("/businesses/{id}/events") @stream
+interface BusinessService {
+  @get
+  @route("/businesses/{id}")
+  getBusiness(...GetBusinessRequest): Business;
+
+  @put
+  @route("/businesses/{id}")
+  updateBusiness(...UpdateBusinessRequest): Business;
+
+  @get
+  @route("/businesses/{id}/events")
+  @Onkt.stream
+  watchBusiness(...GetBusinessRequest): Business;
 }
 `
 
@@ -152,9 +163,9 @@ func TestBuildGeneratesCompilingRustClientServerAndModules(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), rustOnekitToml)
-	writeTestFile(t, filepath.Join(dir, "common", "money.onk"), commonMoneyOnk)
-	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.onk"), rustBusinessServiceOnk)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), rustToml)
+	writeTestFile(t, filepath.Join(dir, "common", "money.tsp"), commonMoneyTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.tsp"), rustBusinessServiceTypeSpec)
 
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build error: %v", err)

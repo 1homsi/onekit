@@ -20,8 +20,8 @@ import (
 
 const (
 	tspExtension = ".tsp"
-	// typespecEntry is the file TypeSpec compiles from, at the schema root;
-	// every other .tsp file is reached through its imports.
+	// typespecEntry is the file TypeSpec compiles from when a project has
+	// one at its schema root; without it every .tsp file is compiled.
 	typespecEntry   = "main.tsp"
 	typespecEmitter = "@onkt/typespec"
 	// typespecTimeout bounds one `tsp compile`, which normally takes about a
@@ -29,18 +29,46 @@ const (
 	typespecTimeout = 2 * time.Minute
 )
 
+// compileTypeSpecProject compiles the TypeSpec project rooted at root and
+// returns its schema document. Tests replace it with an in-process compiler.
+var compileTypeSpecProject = runTypeSpecProject
+
+// runTypeSpecProject runs the project's own `tsp compile`.
+func runTypeSpecProject(root string, files []string) (*onkschema.Document, error) {
+	entry := filepath.Join(root, typespecEntry)
+	if _, err := os.Stat(entry); err == nil {
+		return runTypeSpec(root, entry)
+	}
+	return runTypeSpecFiles(root, files)
+}
+
 // typespecSources compiles the TypeSpec project rooted at root with the
 // @onkt/typespec emitter and returns its declarations as compiler sources.
-func typespecSources(root string) ([]onkcompile.Source, error) {
-	entry := filepath.Join(root, typespecEntry)
-	if _, err := os.Stat(entry); err != nil {
-		return nil, fmt.Errorf("found .tsp files but no %s in %s; TypeSpec projects compile from %s at the schema root", typespecEntry, root, typespecEntry)
-	}
-	doc, err := runTypeSpec(root, entry)
+func typespecSources(root string, files []string) ([]onkcompile.Source, error) {
+	doc, err := compileTypeSpecProject(root, files)
 	if err != nil {
 		return nil, err
 	}
 	return typespecDocumentSources(root, doc)
+}
+
+// runTypeSpecFiles compiles a project without a main.tsp from a generated
+// entry that imports every .tsp file under the schema root.
+func runTypeSpecFiles(root string, files []string) (*onkschema.Document, error) {
+	dir, err := os.MkdirTemp("", "onkt-entry-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	var b strings.Builder
+	for _, file := range files {
+		fmt.Fprintf(&b, "import %q;\n", filepath.ToSlash(file))
+	}
+	entry := filepath.Join(dir, typespecEntry)
+	if err := os.WriteFile(entry, []byte(b.String()), genFilePerm); err != nil {
+		return nil, err
+	}
+	return runTypeSpec(root, entry)
 }
 
 // typespecDocumentSources turns an emitted schema document into compiler
@@ -95,7 +123,7 @@ func runTypeSpec(root, entry string) (*onkschema.Document, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), typespecTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, tsp, "compile", entry,
-		"--emit", typespecEmitter,
+		"--emit", findEmitter(root),
 		"--option", typespecEmitter+".emitter-output-dir="+out,
 		"--pretty", "false",
 	)
@@ -126,6 +154,21 @@ func Getenv(name string) string {
 		return os.Getenv("ONEK_" + legacy)
 	}
 	return ""
+}
+
+// findEmitter is the project's installed @onkt/typespec, found the way npm
+// resolves packages from the schema root. TypeSpec would otherwise resolve
+// it from the entry file, which may be a generated one outside the project.
+func findEmitter(root string) string {
+	for dir := root; ; dir = filepath.Dir(dir) {
+		candidate := filepath.Join(dir, "node_modules", filepath.FromSlash(typespecEmitter))
+		if info, err := os.Stat(filepath.Join(candidate, "package.json")); err == nil && !info.IsDir() {
+			return candidate
+		}
+		if filepath.Dir(dir) == dir {
+			return typespecEmitter
+		}
+	}
 }
 
 // TypeSpecError is a failed `tsp compile`; Output holds its diagnostics.

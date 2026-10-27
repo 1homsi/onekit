@@ -8,16 +8,16 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func compileTSSchema(t *testing.T, schema string) *onkir.File {
 	t.Helper()
-	ast, err := onklang.Parse(schema)
+	ast, err := onktest.Parse(schema)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -52,13 +52,17 @@ func runTSSchemaWithOptions(t *testing.T, schema string, opts Options, main stri
 }
 
 func TestTSFormatValidatorsSkipEmptyStrings(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Contact {
-  email: string @email
-  id: string @uuid
-  site: string @uri
-  code: string @pattern("^[A-Z]+$")
+	runTSSchema(t, `namespace app;
+
+model Contact {
+  @format("email")
+  email: string;
+  @format("uuid")
+  id: string;
+  @format("uri")
+  site: string;
+  @pattern("^[A-Z]+$")
+  code: string;
 }
 `, `
 import { validateContact } from "./types.ts";

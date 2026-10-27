@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func runPythonSchema(t *testing.T, schema, script string) {
@@ -15,11 +15,11 @@ func runPythonSchema(t *testing.T, schema, script string) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
 	}
-	ast, err := onklang.Parse(schema)
+	ast, err := onktest.Parse(schema)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -36,11 +36,13 @@ func runPythonSchema(t *testing.T, schema, script string) {
 }
 
 func TestPythonRequiredRejectsEmptyCollections(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message M {
-  ids: string[] @required
-  labels: map[string, string] @required
+	runPythonSchema(t, `namespace app;
+
+model M {
+  @Onkt.required
+  ids: string[];
+  @Onkt.required
+  labels: Record<string>;
 }
 `, `
 from models import M
@@ -57,14 +59,26 @@ print("OK")
 }
 
 func TestPythonKeepAliveReusesOneConnection(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message Req { msg: string }
-message Res { msg: string }
-message NotFound @status(404) { reason: string }
+	runPythonSchema(t, `namespace app;
 
-service Echo {
-  echo(Req) -> Res | NotFound @post("/echo")
+model Req {
+  msg: string;
+}
+
+model Res {
+  msg: string;
+}
+
+@error
+model NotFound {
+  @statusCode _: 404;
+  reason: string;
+}
+
+interface Echo {
+  @post
+  @route("/echo")
+  echo(...Req): Res | NotFound;
 }
 `, `
 import json, socket, threading
@@ -173,13 +187,20 @@ print("OK")
 }
 
 func TestPythonClientAcceptsAnEmptySuccessBody(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message Req { id: string }
-message Res { id: string }
+	runPythonSchema(t, `namespace app;
 
-service Items {
-  remove(Req) -> Res @post("/remove")
+model Req {
+  id: string;
+}
+
+model Res {
+  id: string;
+}
+
+interface Items {
+  @post
+  @route("/remove")
+  remove(...Req): Res;
 }
 `, `
 import threading
@@ -207,15 +228,29 @@ print("OK")
 }
 
 func TestPythonClientRejectsDotSegmentPathParameters(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message Item { id: string }
-message Count { n: int32 }
+	runPythonSchema(t, `namespace app;
 
-service Items {
-  get(Item) -> Item @get("/items/{id}")
-  watch(Item) -> Item @get("/watch/{id}") @stream
-  total(Count) -> Item @get("/total/{n}")
+model Item {
+  id: string;
+}
+
+model Count {
+  n: int32;
+}
+
+interface Items {
+  @get
+  @route("/items/{id}")
+  get(...Item): Item;
+
+  @get
+  @route("/watch/{id}")
+  @Onkt.stream
+  watch(...Item): Item;
+
+  @get
+  @route("/total/{n}")
+  total(...Count): Item;
 }
 `, `
 import threading

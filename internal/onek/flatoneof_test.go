@@ -3,16 +3,24 @@ package onek
 import "testing"
 
 func TestGoFlattenedOneofMergesVariantFieldsOnTheWire(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Email { address: string }
-message Phone { number: string }
-message Contact {
-  via: oneof(discriminator: "kind", flatten: true) {
-    email: Email @tag("email")
-    phone: Phone @tag("phone")
-  }
+model Email {
+  address: string;
+}
+
+model Phone {
+  number: string;
+}
+
+@discriminated(#{ discriminatorPropertyName: "kind", envelope: "none" })
+union ContactVia {
+  @Onkt.tag("email") email: Email,
+  @Onkt.tag("phone") phone: Phone,
+}
+
+model Contact {
+  via: ContactVia;
 }
 `, `package api
 

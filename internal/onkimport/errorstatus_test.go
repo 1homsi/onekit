@@ -3,9 +3,6 @@ package onkimport
 import (
 	"strings"
 	"testing"
-
-	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
 )
 
 func TestImportKeepsEveryStatusOfASharedErrorSchema(t *testing.T) {
@@ -20,16 +17,10 @@ func TestImportKeepsEveryStatusOfASharedErrorSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(result.Source)
-	for _, want := range []string{"message Error @status(400)", "message Error404 @status(404)", "message Error500 @status(500)", "| Error | Error404 | Error500"} {
+	for _, want := range []string{"@error\nmodel Error {\n  @statusCode _: 400;", "@error\nmodel Error404 {\n  @statusCode _: 404;", "@error\nmodel Error500 {\n  @statusCode _: 500;", "| Error | Error404 | Error500;"} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("missing %q:\n%s", want, src)
 		}
 	}
-	ast, err := onklang.Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: "pets.onk", AST: ast}}); err != nil {
-		t.Fatalf("import does not compile: %v\n%s", err, src)
-	}
+	requireFaithfulTypeSpec(t, result)
 }

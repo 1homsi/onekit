@@ -3,11 +3,13 @@ package gents
 import "testing"
 
 func TestTSRequiredRejectsEmptyCollections(t *testing.T) {
-	runTSSchema(t, `
-package app
-message M {
-  ids: string[] @required
-  labels: map[string, string] @required
+	runTSSchema(t, `namespace app;
+
+model M {
+  @Onkt.required
+  ids: string[];
+  @Onkt.required
+  labels: Record<string>;
 }
 `, `
 import { validateM } from "./types.ts";

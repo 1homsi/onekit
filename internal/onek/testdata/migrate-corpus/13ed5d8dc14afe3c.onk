@@ -1,8 +1,0 @@
-
-package app
-message Detail { field: string }
-message InvalidError @status(400) {
-  message: string
-  details: Detail[]
-  meta: map[string, string]
-}

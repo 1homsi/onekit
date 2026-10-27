@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func TestGeneratedRustIsWarningFree(t *testing.T) {
@@ -19,23 +19,53 @@ func TestGeneratedRustIsWarningFree(t *testing.T) {
 	if err := exec.Command("cargo", "clippy", "--version").Run(); err != nil {
 		t.Skip("clippy not available")
 	}
-	ast, err := onklang.Parse(`
-package app
-enum Status { ACTIVE  GONE }
-message Item { id: string @uuid  status: Status  tags: string[] }
-message ListItems { limit: int32 @query }
-service Items {
-  headers: { "X-Key": string @required @format("uuid") }
-  get(Item) -> Item @put("/items/{id}")
-  list(ListItems) -> Item @get("/items")
-  create(Item) -> Item @post("/items")
-  watch(ListItems) -> Item @get("/items/watch") @stream
+	ast, err := onktest.Parse(`namespace app;
+
+enum Status {
+  ACTIVE,
+  GONE,
+}
+
+model Item {
+  @format("uuid")
+  id: string;
+  status: Status;
+  tags: string[];
+}
+
+model ListItems {
+  @query
+  limit: int32;
+}
+
+/** Headers every Items operation takes. */
+alias ItemsHeaders = {
+  @header("X-Key") @format("uuid") header_x_key: string;
+};
+
+interface Items {
+  @put
+  @route("/items/{id}")
+  get(...ItemsHeaders, ...Item): Item;
+
+  @get
+  @route("/items")
+  list(...ItemsHeaders, ...ListItems): Item;
+
+  @post
+  @route("/items")
+  create(...ItemsHeaders, ...Item): Item;
+
+  @get
+  @route("/items/watch")
+  @Onkt.stream
+  watch(...ItemsHeaders, ...ListItems): Item;
 }
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}

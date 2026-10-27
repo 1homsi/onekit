@@ -9,71 +9,101 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const wsFixtureSrc = `
-package wsf
+const wsFixtureSrc = `namespace wsf;
 
-message ChatMessage { room: string text: string }
-message ChatEvent { seq: int64 text: string }
+model ChatMessage {
+  room: string;
+  text: string;
+}
 
-service ChatService {
-  base_path: "/v1"
+model ChatEvent {
+  @encode(string)
+  seq: int64;
+  text: string;
+}
 
-  chat(ChatMessage) -> ChatEvent @ws("/rooms/{room}")
+@route("/v1")
+interface ChatService {
+  @Onkt.ws
+  @route("/rooms/{room}")
+  chat(...ChatMessage): ChatEvent;
 }
 `
 
 func compileWSFile(t *testing.T) *onkir.File {
 	t.Helper()
-	ast, err := onklang.Parse(wsFixtureSrc)
+	ast, err := onktest.Parse(wsFixtureSrc)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "ws.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "ws.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
 	return pkg.Files[0]
 }
 
-const wsCorrelatedFixtureSrc = `
-package wsc
+const wsCorrelatedFixtureSrc = `namespace wsc;
 
-message RunRequest { code: string }
-message RunResult { exit_code: int32 }
-message HostCall { id: string @ws_id
-method: string
-timeout_ms: int64 @ws_timeout }
-message HostResult { id: string @ws_id
-value: string }
-message Cancel { id: string @ws_id }
-
-message Frame {
-  payload: oneof(discriminator: "type") {
-    run: RunRequest @tag("run")
-    host_call: HostCall @tag("host_call")
-    host_result: HostResult @tag("host_result")
-    run_result: RunResult @tag("run_result")
-    cancel: Cancel @tag("cancel") @ws_cancel
-  }
+model RunRequest {
+  code: string;
 }
 
-service Runtime {
-  base_path: "/v1"
+model RunResult {
+  exit_code: int32;
+}
 
-  execute(Frame) -> Frame @ws("/execute")
+model HostCall {
+  @Onkt.wsId
+  id: string;
+  method: string;
+  @Onkt.wsTimeout
+  @encode(string)
+  timeout_ms: int64;
+}
+
+model HostResult {
+  @Onkt.wsId
+  id: string;
+  value: string;
+}
+
+model Cancel {
+  @Onkt.wsId
+  id: string;
+}
+
+@Onkt.discriminator("type")
+union FramePayload {
+  @Onkt.tag("run") run: RunRequest,
+  @Onkt.tag("host_call") host_call: HostCall,
+  @Onkt.tag("host_result") host_result: HostResult,
+  @Onkt.tag("run_result") run_result: RunResult,
+  @Onkt.tag("cancel") @Onkt.wsCancel cancel: Cancel,
+}
+
+model Frame {
+  payload: FramePayload;
+}
+
+@route("/v1")
+interface Runtime {
+  @Onkt.ws
+  @route("/execute")
+  execute(...Frame): Frame;
 }
 `
 
 func compileWSCorrelatedFile(t *testing.T) *onkir.File {
 	t.Helper()
-	ast, err := onklang.Parse(wsCorrelatedFixtureSrc)
+	ast, err := onktest.Parse(wsCorrelatedFixtureSrc)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "wsc.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "wsc.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -986,32 +1016,42 @@ func TestGeneratedWSCorrelatedRuntimeRoutesMultipleVariants(t *testing.T) {
 	}
 }
 
-const wsRawFixtureSrc = `
-package wsr
+const wsRawFixtureSrc = `namespace wsr;
 
-message RunRequest { code: string @raw }
-message Chunk {
-  index: int32
-  data: bytes @raw
-}
-message RunResult {
-  exit_code: int32
-  result_json: string @raw
-  chunks: Chunk[]
-  note: string
+model RunRequest {
+  @Onkt.raw
+  code: string;
 }
 
-message Frame {
-  payload: oneof(discriminator: "type") {
-    run: RunRequest @tag("run")
-    run_result: RunResult @tag("run_result")
-  }
+model Chunk {
+  index: int32;
+  @Onkt.raw
+  data: bytes;
 }
 
-service Runtime {
-  base_path: "/v1"
+model RunResult {
+  exit_code: int32;
+  @Onkt.raw
+  result_json: string;
+  chunks: Chunk[];
+  note: string;
+}
 
-  execute(Frame) -> Frame @ws("/execute")
+@Onkt.discriminator("type")
+union FramePayload {
+  @Onkt.tag("run") run: RunRequest,
+  @Onkt.tag("run_result") run_result: RunResult,
+}
+
+model Frame {
+  payload: FramePayload;
+}
+
+@route("/v1")
+interface Runtime {
+  @Onkt.ws
+  @route("/execute")
+  execute(...Frame): Frame;
 }
 `
 
@@ -1171,11 +1211,11 @@ func TestGeneratedWSRawFrames(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	ast, err := onklang.Parse(wsRawFixtureSrc)
+	ast, err := onktest.Parse(wsRawFixtureSrc)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "wsr.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "wsr.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -1216,56 +1256,63 @@ func TestGeneratedWSRawFrames(t *testing.T) {
 	}
 }
 
-const wsFastJSONFixtureSrc = `
-package wsj
+const wsFastJSONFixtureSrc = `namespace wsj;
 
 enum Level {
-  LOW
-  MID
-  HIGH
+  LOW,
+  MID,
+  HIGH,
 }
 
-message Inner {
-  name: string
-  n: int32
+model Inner {
+  name: string;
+  n: int32;
 }
 
-message All {
-  s: string
-  b: bool
-  i32: int32
-  u32: uint32
-  i64: int64
-  u64: uint64
-  i64n: int64 @encode(number)
-  f32: float32
-  f64: float64
-  by: bytes
-  lvl: Level
-  ts: timestamp
-  j: json
-  m: map[string, Inner]
-  inner: Inner
-  inners: Inner[]
-  ss: string[]
-  i64s: int64[]
-  lvls: Level[]
-  os: string?
-  oi64: int64?
-  ob: bool?
-  olvl: Level?
-  choice: oneof(discriminator: "kind") {
-    a: Inner @tag("a")
-    t: string @tag("t")
-    n: int64 @tag("n")
-    l: Level @tag("l")
-  }
+@Onkt.discriminator("kind")
+union AllChoice {
+  @Onkt.tag("a") a: Inner,
+  @Onkt.tag("t") t: string,
+  @Onkt.tag("n") n: int64,
+  @Onkt.tag("l") l: Level,
 }
 
-service S {
-  base_path: "/v1"
+model All {
+  s: string;
+  b: boolean;
+  i32: int32;
+  u32: uint32;
+  @encode(string)
+  i64: int64;
+  @encode(string)
+  u64: uint64;
+  i64n: int64;
+  f32: float32;
+  f64: float64;
+  by: bytes;
+  lvl: Level;
+  ts: utcDateTime;
+  j: unknown;
+  m: Record<Inner>;
+  inner: Inner;
+  inners: Inner[];
+  ss: string[];
+  @Onkt.encode("string")
+  i64s: int64[];
+  lvls: Level[];
+  os?: string;
+  @encode(string)
+  oi64?: int64;
+  ob?: boolean;
+  olvl?: Level;
+  choice: AllChoice;
+}
 
-  f(All) -> All @ws("/x")
+@route("/v1")
+interface S {
+  @Onkt.ws
+  @route("/x")
+  f(...All): All;
 }
 `
 
@@ -1441,11 +1488,11 @@ func TestGeneratedWSFastJSONMatchesEncodingJSON(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	ast, err := onklang.Parse(wsFastJSONFixtureSrc)
+	ast, err := onktest.Parse(wsFastJSONFixtureSrc)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "wsj.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "wsj.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -1471,37 +1518,41 @@ func TestGeneratedWSFastJSONMatchesEncodingJSON(t *testing.T) {
 	}
 }
 
-const wsPerfFixtureSrc = `
-package wsp
+const wsPerfFixtureSrc = `namespace wsp;
 
-message Call {
-  id: string
-  method: string
-  args: string[]
+model Call {
+  id: string;
+  method: string;
+  args: string[];
 }
 
-message RunResult {
-  exit_code: int32
-  result_json: string @raw
+model RunResult {
+  exit_code: int32;
+  @Onkt.raw
+  result_json: string;
 }
 
-message PlainResult {
-  exit_code: int32
-  result_json: string
+model PlainResult {
+  exit_code: int32;
+  result_json: string;
 }
 
-message Frame {
-  payload: oneof(discriminator: "type") {
-    call: Call @tag("call")
-    run_result: RunResult @tag("run_result")
-    plain_result: PlainResult @tag("plain_result")
-  }
+@Onkt.discriminator("type")
+union FramePayload {
+  @Onkt.tag("call") call: Call,
+  @Onkt.tag("run_result") run_result: RunResult,
+  @Onkt.tag("plain_result") plain_result: PlainResult,
 }
 
-service Runtime {
-  base_path: "/v1"
+model Frame {
+  payload: FramePayload;
+}
 
-  execute(Frame) -> Frame @ws("/execute")
+@route("/v1")
+interface Runtime {
+  @Onkt.ws
+  @route("/execute")
+  execute(...Frame): Frame;
 }
 `
 
@@ -1689,11 +1740,11 @@ func TestGeneratedWSPerfBudgets(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	ast, err := onklang.Parse(wsPerfFixtureSrc)
+	ast, err := onktest.Parse(wsPerfFixtureSrc)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "wsp.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "wsp.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

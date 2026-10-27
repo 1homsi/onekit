@@ -3,26 +3,40 @@ package onkcompile
 import (
 	"strings"
 	"testing"
+
+	"github.com/1homsi/onekit/internal/onkschema"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
+// Bounds a field cannot hold, as a document may carry them: TypeSpec already
+// refuses some of these (a fractional @minLength, a string bound), and the
+// compiler refuses all of them from any frontend.
 func TestCompileRejectsBoundsTheFieldTypeCannotHold(t *testing.T) {
-	tests := map[string]string{
-		`s: string @len(1.5, 3)`:          "non-negative integer",
-		`s: string[] @min_items(1.5)`:     "non-negative integer",
-		`n: int32 @gte(1.5)`:              "within the range of int32",
-		`n: uint32 @range(-5, 10)`:        "within the range of uint32",
-		`n: int32 @range(0, 99999999999)`: "within the range of int32",
-		`n: float64 @lte("NaN")`:          "finite decimal",
-		`n: float64 @gt("0x1p4")`:         "finite decimal",
+	q, n, dec, field := onktest.Q, onktest.N, onktest.Dec, onktest.Field
+	tests := []struct {
+		field *onkschema.FieldDecl
+		want  string
+	}{
+		{field("s", "string", dec("len", n("1.5"), n("3"))), "non-negative integer"},
+		{field("s", "string[]", dec("min_items", n("1.5"))), "non-negative integer"},
+		{field("n", "int32", dec("gte", n("1.5"))), "within the range of int32"},
+		{field("n", "uint32", dec("range", n("-5"), n("10"))), "within the range of uint32"},
+		{field("n", "int32", dec("range", n("0"), n("99999999999"))), "within the range of int32"},
+		{field("n", "float64", dec("lte", q("NaN"))), "finite decimal"},
+		{field("n", "float64", dec("gt", q("0x1p4"))), "finite decimal"},
 	}
-	for field, want := range tests {
-		_, err := Compile([]Source{{Path: "api.onk", AST: parseOrFatal(t, "message M { "+field+" }")}})
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Fatalf("%s: want %q, got %v", field, want, err)
+	for _, tt := range tests {
+		file := onktest.File("", onktest.Message("M", tt.field))
+		_, err := Compile([]Source{{Path: "api.tsp", AST: file}})
+		if err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Fatalf("%s %+v: want %q, got %v", tt.field.Name, tt.field.Decorators, tt.want, err)
 		}
 	}
-	for _, field := range []string{`n: float64 @range(0.5, 1e6)`, `n: int64 @gte(-9223372036854775808)`} {
-		if _, err := Compile([]Source{{Path: "api.onk", AST: parseOrFatal(t, "message M { "+field+" }")}}); err != nil {
+}
+
+func TestCompileAcceptsBoundsTheFieldTypeHolds(t *testing.T) {
+	for _, field := range []string{`@Onkt.range(0.5, 1000000) n: float64;`, `@minValue(-9223372036854775808) n: int64;`} {
+		if _, err := Compile([]Source{{Path: "api.tsp", AST: parseOrFatal(t, "model M { "+field+" }")}}); err != nil {
 			t.Fatalf("%s: rejected valid bound: %v", field, err)
 		}
 	}

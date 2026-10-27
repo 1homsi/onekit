@@ -1,4 +1,0 @@
-package p
-message A { a: string }
-message B { b: string }
-message Two { x: A @flatten  y: B @flatten }

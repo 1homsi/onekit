@@ -3,14 +3,21 @@ package onek
 import "testing"
 
 func TestGoServerChecksAuthorizationScheme(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Ping { id: string }
+model Ping {
+  id: string;
+}
 
-service Pings {
-  headers: { "Authorization": string @required @auth("bearer") }
-  get(Ping) -> Ping @get("/pings/{id}")
+/** Headers every Pings operation takes. */
+alias PingsHeaders = {
+  @header("Authorization") @Onkt.auth("bearer") header_authorization: string;
+};
+
+interface Pings {
+  @get
+  @route("/pings/{id}")
+  get(...PingsHeaders, ...Ping): Ping;
 }
 `, `package api
 

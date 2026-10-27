@@ -6,32 +6,55 @@ import (
 	"testing"
 )
 
-const tsWireNamesSchema = `package app
+const tsWireNamesSchema = `namespace app;
 
-enum Level { LOW HIGH }
-message Inner { v: string @len(1, 5) }
-message Entry
-  @rule("self.is_default || self.rev_no > 0", "a non-default record needs a revision")
-{
-  folder_id: string @len(1, 10)
-  is_default: bool
-  rev_no: int32
-  created_at: timestamp?
-  note: string? @nullable
-  tags: string[]
-  by_name: map[string, Inner]
-  inner: Inner?
-  choice: oneof(discriminator: "kind") {
-    alpha_one: Inner @tag("a")
-    beta: Level @tag("b")
-  }
+enum Level {
+  LOW,
+  HIGH,
 }
-message Lookup { folder_id: string  rev_no: int32 @query("rev_no") }
 
-service Entries {
-  base_path: "/v1"
-  get(Lookup) -> Entry @get("/f/{folder_id}")
-  save(Entry) -> Entry @post("/f")
+model Inner {
+  @minLength(1)
+  @maxLength(5)
+  v: string;
+}
+
+@Onkt.discriminator("kind")
+union EntryChoice {
+  @Onkt.tag("a") alpha_one: Inner,
+  @Onkt.tag("b") beta: Level,
+}
+
+@Onkt.rule("self.is_default || self.rev_no > 0", "a non-default record needs a revision")
+model Entry {
+  @minLength(1)
+  @maxLength(10)
+  folder_id: string;
+  is_default: boolean;
+  rev_no: int32;
+  created_at?: utcDateTime;
+  note?: string | null;
+  tags: string[];
+  by_name: Record<Inner>;
+  inner?: Inner;
+  choice: EntryChoice;
+}
+
+model Lookup {
+  folder_id: string;
+  @query("rev_no")
+  rev_no: int32;
+}
+
+@route("/v1")
+interface Entries {
+  @get
+  @route("/f/{folder_id}")
+  get(...Lookup): Entry;
+
+  @post
+  @route("/f")
+  save(...Entry): Entry;
 }
 `
 
@@ -86,9 +109,16 @@ func TestTSWireFieldNamesTypeCheckUnderStrict(t *testing.T) {
 		t.Skip("tsc not available")
 	}
 	file := compileTSSchema(t, tsWireNamesSchema+`
-service Feed {
-  watch(Lookup) -> Entry @get("/watch/{folder_id}") @stream
-  push(Entry) -> Entry @post("/push") @stream
+interface Feed {
+  @get
+  @route("/watch/{folder_id}")
+  @Onkt.stream
+  watch(...Lookup): Entry;
+
+  @post
+  @route("/push")
+  @Onkt.stream
+  push(...Entry): Entry;
 }
 `)
 	for name, opts := range map[string]Options{"wire": {WireFieldNames: true}, "camel": {}} {

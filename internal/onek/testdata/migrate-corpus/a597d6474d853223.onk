@@ -1,5 +1,0 @@
-package x
-
-message Aaaa {
-  id: string
-}

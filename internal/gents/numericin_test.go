@@ -6,11 +6,14 @@ import (
 )
 
 func TestTSIntegerInValidation(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Page {
-  size: int32 @in(10, 25, 50)
-  version: int64? @in(1, 2)
+	runTSSchema(t, `namespace app;
+
+model Page {
+  @Onkt.values(10, 25, 50)
+  size: int32;
+  @Onkt.values(1, 2)
+  @encode(string)
+  version?: int64;
 }
 `, `
 import { validatePage } from "./types.ts";
@@ -23,12 +26,21 @@ console.log("OK");
 }
 
 func TestMSWUsesTheFirstAllowedIntegerValue(t *testing.T) {
-	file := compileTSSchema(t, `package app
-message Page {
-  size: int32 @in(25, 50)
-  version: int64 @in(3, 4)
+	file := compileTSSchema(t, `namespace app;
+
+model Page {
+  @Onkt.values(25, 50)
+  size: int32;
+  @Onkt.values(3, 4)
+  @encode(string)
+  version: int64;
 }
-service S { get(Page) -> Page @get("/p") }
+
+interface S {
+  @get
+  @route("/p")
+  get(...Page): Page;
+}
 `)
 	out := string(GenerateMSWHandlers(file))
 	for _, want := range []string{`"size": 25`, `"version": "3"`} {

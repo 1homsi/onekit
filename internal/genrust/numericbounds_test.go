@@ -2,17 +2,30 @@ package genrust
 
 import "testing"
 
-const rustNumericBoundsFixture = `
-package app
-message Bounds {
-  price: float64 @gte(0) @lte(100)
-  ratio: float32 @range(0, 1)
-  count: int32 @range(1, 1000000)
-  small: uint32 @lt(10)
-  weight: float64 @range(-1.5, 1e3)
-  offset: int64 @gt(-5)
+const rustNumericBoundsFixture = `namespace app;
+
+model Bounds {
+  @minValue(0)
+  @maxValue(100)
+  price: float64;
+  @Onkt.range(0, 1)
+  ratio: float32;
+  @Onkt.range(1, 1000000)
+  count: int32;
+  @maxValueExclusive(10)
+  small: uint32;
+  @Onkt.range(-1.5, 1000)
+  weight: float64;
+  @minValueExclusive(-5)
+  @encode(string)
+  offset: int64;
 }
-service S { check(Bounds) -> Bounds @post("/check") }
+
+interface S {
+  @post
+  @route("/check")
+  check(...Bounds): Bounds;
+}
 `
 
 const rustNumericBoundsMain = `mod generated;

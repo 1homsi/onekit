@@ -5,23 +5,35 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func TestPythonStreamAndSocketPathParamsFormatBooleans(t *testing.T) {
-	ast, err := onklang.Parse(`
-package app
-message R { live: bool }
-message E { v: string }
-service S {
-  watch(R) -> E @get("/w/{live}") @stream
-  chat(R) -> E @ws("/c/{live}")
+	ast, err := onktest.Parse(`namespace app;
+
+model R {
+  live: boolean;
+}
+
+model E {
+  v: string;
+}
+
+interface S {
+  @get
+  @route("/w/{live}")
+  @Onkt.stream
+  watch(...R): E;
+
+  @Onkt.ws
+  @route("/c/{live}")
+  chat(...R): E;
 }
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}

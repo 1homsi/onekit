@@ -1,3 +1,0 @@
-message Settings {
-  b: string
-}

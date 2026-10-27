@@ -170,6 +170,31 @@ class DocumentBuilder {
     return { line: line + 1, col: character + 1 };
   }
 
+  /** Where a decorator application sits, falling back to its target. */
+  private nodePosition(node: object | undefined, fallback: Type): Position {
+    const location = node ? getSourceLocation(node as Parameters<typeof getSourceLocation>[0]) : undefined;
+    if (!location || location.isSynthetic) return this.position(fallback);
+    const { line, character } = location.file.getLineAndCharacterOfPosition(location.pos);
+    return { line: line + 1, col: character + 1 };
+  }
+
+  /** The position of the decorator named `name` (such as "@post") on a type. */
+  private decoratorPosition(type: Type & { decorators?: { definition?: { name: string }; node?: object }[] }, name: string): Position {
+    const app = type.decorators?.find((d) => d.definition?.name === name);
+    return this.nodePosition(app?.node, type);
+  }
+
+  /** A type's onkt decorators in source order, each at its own position. */
+  private onktWithPositions(type: Model | Operation): S.Decorator[] {
+    const out: S.Decorator[] = [];
+    for (const app of [...type.decorators].reverse()) {
+      if (app.definition?.namespace?.name !== "Onkt") continue;
+      const position = this.nodePosition(app.node, type);
+      for (const d of getAppliedOnktDecorators(app.node, type)) out.push({ ...d, ...position });
+    }
+    return out;
+  }
+
   private span(type: Type): S.Span {
     const location = getSourceLocation(type);
     if (!location || location.isSynthetic) return {};
@@ -247,7 +272,7 @@ class DocumentBuilder {
       const status = this.errorStatus(model);
       if (status !== undefined) decorators.push({ name: "status", args: [num(status)], ...this.position(model) });
     }
-    for (const d of getOnktDecorators(this.program, model)) decorators.push({ ...d, ...this.position(model) });
+    for (const d of this.onktWithPositions(model)) decorators.push(d);
     if (decorators.length > 0) decl.decorators = decorators;
 
     const fields: S.FieldDecl[] = [];
@@ -588,8 +613,11 @@ class DocumentBuilder {
     if (doc) decl.doc = doc;
 
     const rpcs = ops.map((op) => this.rpc(op, pkg));
-    const base = wildcards(this.containerRoute(container));
-    decl.basePath = base === "" ? "/" : base;
+    // Without a @route the service is served under its source directory,
+    // which onkt infers when the document leaves the base path out;
+    // @route("/") serves it at the root.
+    const base = this.containerRoute(container);
+    if (base !== undefined) decl.basePath = wildcards(base) || "/";
 
     // A header every operation spreads in from the same model property
     // (`...ApiKeyHeaders`) belongs to the service; a header an operation
@@ -674,16 +702,23 @@ class DocumentBuilder {
     return headers;
   }
 
-  /** The route an operation container adds: its own `@route` after its namespaces'. */
-  private containerRoute(container: Type): string {
+  /**
+   * The route an operation container adds: its own `@route` after its
+   * namespaces', or undefined when none of them declares one.
+   */
+  private containerRoute(container: Type): string | undefined {
     const parts: string[] = [];
+    let declared = false;
     let current: Namespace | Interface | undefined = container.kind === "Interface" || container.kind === "Namespace" ? container : undefined;
     while (current) {
       const route = getRoutePath(this.program, current)?.path;
-      if (route) parts.unshift(route);
+      if (route !== undefined) {
+        declared = true;
+        parts.unshift(route);
+      }
       current = current.namespace;
     }
-    return parts.map((part) => part.replace(/\/+$/, "")).join("");
+    return declared ? parts.map((part) => part.replace(/\/+$/, "")).join("") : undefined;
   }
 
   private rpc(op: HttpOperation, pkg: string): { decl: S.RPCDecl; headerOrigins: Array<ModelProperty | undefined> } {
@@ -706,7 +741,8 @@ class DocumentBuilder {
     const onkt = getOnktDecorators(this.program, operation);
     const isWS = onkt.some((d) => d.name === "ws");
     const method = onkt.find((d) => d.name === "method")?.args[0].value.toLowerCase();
-    decorators.push({ name: isWS ? "ws" : (method ?? op.verb), args: [str(route)], ...position });
+    const routeDecorator = isWS ? "@ws" : method ? "@method" : `@${op.verb}`;
+    decorators.push({ name: isWS ? "ws" : (method ?? op.verb), args: [str(route)], ...this.decoratorPosition(operation, routeDecorator) });
     const deprecated = getDeprecationDetails(this.program, operation);
     if (deprecated) decorators.push({ name: "deprecated", ...(deprecated.message ? { args: [str(deprecated.message)] } : {}), ...position });
 
@@ -726,8 +762,8 @@ class DocumentBuilder {
     if (response.success !== undefined && response.success !== 200) {
       decorators.push({ name: "success", args: [num(response.success)], ...position });
     }
-    for (const d of onkt) {
-      if (d.name !== "ws" && d.name !== "method") decorators.push({ ...d, ...position });
+    for (const d of this.onktWithPositions(operation)) {
+      if (d.name !== "ws" && d.name !== "method") decorators.push(d);
     }
     decl.decorators = decorators;
     return { decl, headerOrigins: request.headerOrigins };

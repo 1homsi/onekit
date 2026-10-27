@@ -6,7 +6,7 @@ import (
 	"math/big"
 	"regexp"
 
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onkschema"
 )
 
 var decimalLiteral = regexp.MustCompile(`^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
@@ -22,7 +22,7 @@ var countDecorators = map[string]bool{"len": true, "min_items": true, "max_items
 
 var comparisonDecorators = map[string]bool{"gt": true, "gte": true, "lt": true, "lte": true, "range": true}
 
-func validateNumericBounds(filePath string, line int, decorator onklang.Decorator, typ *onklang.TypeRef) error {
+func validateNumericBounds(filePath string, line int, decorator onkschema.Decorator, typ *onkschema.TypeRef) error {
 	if err := validateArgumentKinds(filePath, line, decorator, typ); err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func fitsInteger(value string, minimum, maximum *big.Int) bool {
 // validateArgumentKinds rejects a number written as a string and a string
 // written as a number: @range("1", "5") and @in(1, true) on a string field
 // compiled to code that compares the wrong kind of value.
-func validateArgumentKinds(filePath string, line int, decorator onklang.Decorator, typ *onklang.TypeRef) error {
+func validateArgumentKinds(filePath string, line int, decorator onkschema.Decorator, typ *onkschema.TypeRef) error {
 	wantQuoted, wantNumber := false, false
 	switch {
 	case countDecorators[decorator.Name], comparisonDecorators[decorator.Name]:

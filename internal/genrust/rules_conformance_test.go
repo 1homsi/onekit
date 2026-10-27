@@ -100,23 +100,26 @@ func writeRustFile(t *testing.T, path, content string) {
 	}
 }
 
-const rustRulesValidateSchema = `
-package app
+const rustRulesValidateSchema = `namespace app;
 
-enum Tier { FREE PRO }
-
-message Customer {
-  name: string
+enum Tier {
+  FREE,
+  PRO,
 }
 
-message Order
-  @rule("self.tier != 'FREE' || size(self.items) <= 1", "free orders hold one item")
-  @rule("self.owner.name != ''", "an owner name is required")
-{
-  tier: Tier
-  owner: Customer
-  items: string[]
-  total: int64 @rule("value >= 0 && value <= 1000000", "total out of range")
+model Customer {
+  name: string;
+}
+
+@Onkt.rule("self.tier != 'FREE' || size(self.items) <= 1", "free orders hold one item")
+@Onkt.rule("self.owner.name != ''", "an owner name is required")
+model Order {
+  tier: Tier;
+  owner: Customer;
+  items: string[];
+  @Onkt.rule("value >= 0 && value <= 1000000", "total out of range")
+  @encode(string)
+  total: int64;
 }
 `
 

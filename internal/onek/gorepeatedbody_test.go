@@ -3,13 +3,24 @@ package onek
 import "testing"
 
 func TestGoRepeatedInt64BodyRoundTrips(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message BulkRequest { ids: int64[] }
-message BulkResponse { total: int64 }
+model BulkRequest {
+  @body
+  @Onkt.encode("string")
+  ids: int64[];
+}
 
-service Bulk { remove(BulkRequest) -> BulkResponse @post("/bulk") @body("ids") }
+model BulkResponse {
+  @encode(string)
+  total: int64;
+}
+
+interface Bulk {
+  @post
+  @route("/bulk")
+  remove(...BulkRequest): BulkResponse;
+}
 `, `package api
 
 import (

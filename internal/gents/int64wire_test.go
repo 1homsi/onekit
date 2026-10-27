@@ -5,26 +5,43 @@ import (
 	"testing"
 )
 
-const int64WireSchema = `
-package wire
+const int64WireSchema = `namespace wire;
 
-message Box {
-  body: oneof(discriminator: "kind") {
-    n: int64 @tag("n")
-    u: uint64 @tag("u")
-    label: string @tag("label")
-  }
-  totals: map[string, int64]
-  ids: int64[]
-  single: int64
+@Onkt.discriminator("kind")
+union BoxBody {
+  @Onkt.tag("n") n: int64,
+  @Onkt.tag("u") u: uint64,
+  @Onkt.tag("label") label: string,
 }
 
-message Ask { id: string }
-message NotFound @status(404) { code: string }
+model Box {
+  body: BoxBody;
+  totals: Record<int64>;
+  @Onkt.encode("string")
+  ids: int64[];
+  @encode(string)
+  single: int64;
+}
 
-service Boxes {
-  get(Ask) -> Box | NotFound @get("/boxes/{id}")
-  watch(Ask) -> Box | NotFound @get("/watch/{id}") @stream
+model Ask {
+  id: string;
+}
+
+@error
+model NotFound {
+  @statusCode _: 404;
+  code: string;
+}
+
+interface Boxes {
+  @get
+  @route("/boxes/{id}")
+  get(...Ask): Box | NotFound;
+
+  @get
+  @route("/watch/{id}")
+  @Onkt.stream
+  watch(...Ask): Box | NotFound;
 }
 `
 

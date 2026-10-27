@@ -6,16 +6,27 @@ import (
 )
 
 func TestOpenAPIPathAndQueryParametersKeepFieldContracts(t *testing.T) {
-	doc := openAPIForSchema(t, `
-package app
-message GetUser {
-  /// The user's identifier.
-  id: string @uuid
-  /// Number of results.
-  limit: int32? @query @range(1, 100)
+	doc := openAPIForSchema(t, `namespace app;
+
+model GetUser {
+  /** The user's identifier. */
+  @format("uuid")
+  id: string;
+  /** Number of results. */
+  @query
+  @Onkt.range(1, 100)
+  limit?: int32;
 }
-message User { id: string }
-service Users { get(GetUser) -> User @get("/users/{id}") }
+
+model User {
+  id: string;
+}
+
+interface Users {
+  @get
+  @route("/users/{id}")
+  get(...GetUser): User;
+}
 `)
 	flat := strings.Join(strings.Fields(doc), " ")
 	for _, want := range []string{

@@ -17,7 +17,7 @@ func TestImportLengthAndItemBounds(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(result.Source)
-	if !strings.Contains(src, "nick: string? @len(3, 2147483647)") || strings.Contains(src, "@len(5, 2)") || strings.Contains(src, "@min_items(4)") {
+	if !strings.Contains(src, "  @minLength(3)\n  @maxLength(2147483647)\n  nick?: string;\n") || strings.Contains(src, "@minLength(5)") || strings.Contains(src, "@minItems(4)") {
 		t.Fatalf("unexpected constraints:\n%s", src)
 	}
 	warnings := strings.Join(result.Warnings, "\n")

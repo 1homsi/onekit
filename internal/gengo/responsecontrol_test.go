@@ -8,24 +8,53 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onkschema"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const responseControlSchema = `package app
+const responseControlSchema = `namespace app;
 
-message Empty {}
-message Page { etag: string @query  ok: bool }
-message Done { ok: bool }
-message Login { user: string }
-message Session { user: string }
+model Empty {}
 
-service Web {
-  base_path: "/v1"
-  files(Page) -> Page @get("/files")
-  view(Empty) -> Empty @post("/views") @success(204)
-  login(Login) -> Session @post("/login")
-  oauth(Empty) -> Empty @get("/oauth/start")
-  created(Login) -> Session @post("/things") @success(201)
+model Page {
+  @query
+  etag: string;
+  ok: boolean;
+}
+
+model Done {
+  ok: boolean;
+}
+
+model Login {
+  user: string;
+}
+
+model Session {
+  user: string;
+}
+
+@route("/v1")
+interface Web {
+  @get
+  @route("/files")
+  files(...Page): Page;
+
+  @post
+  @route("/views")
+  view(...Empty): { @statusCode _: 204; @body body: Empty };
+
+  @post
+  @route("/login")
+  login(...Login): Session;
+
+  @get
+  @route("/oauth/start")
+  oauth(...Empty): Empty;
+
+  @post
+  @route("/things")
+  created(...Login): { @statusCode _: 201; @body body: Session };
 }
 `
 
@@ -111,11 +140,11 @@ func TestGoResponseControlCookiesRedirectsAndBodylessStatuses(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	ast, err := onklang.Parse(responseControlSchema)
+	ast, err := onktest.Parse(responseControlSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.onk", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"go-server"}})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.tsp", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"go-server"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,19 +179,32 @@ func TestGoResponseControlCookiesRedirectsAndBodylessStatuses(t *testing.T) {
 }
 
 func TestSuccessDecoratorValidation(t *testing.T) {
-	for _, tc := range []struct{ rpc, want string }{
-		{`@success(204)`, ""},
-		{`@success(404)`, "2xx"},
-		{`@success`, "one status"},
-		{`@success(abc)`, "2xx"},
+	for _, tc := range []struct{ status, want string }{
+		{"204", ""},
+		{"404", "2xx"},
 	} {
-		ast, err := onklang.Parse("package app\nmessage E {}\nservice S { a(E) -> E @post(\"/x\") " + tc.rpc + " }\n")
+		ast, err := onktest.Parse("namespace app;\nmodel E {}\ninterface S { @post @route(\"/x\") a(...E): { @statusCode _: " + tc.status + "; @body body: E }; }\n")
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = onkcompile.Compile([]onkcompile.Source{{Path: "a.onk", AST: ast}})
+		_, err = onkcompile.Compile([]onkcompile.Source{{Path: "a.tsp", AST: ast}})
 		if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
-			t.Errorf("%s: got %v want %q", tc.rpc, err, tc.want)
+			t.Errorf("%s: got %v want %q", tc.status, err, tc.want)
+		}
+	}
+	// A status TypeSpec cannot write: none at all, or not a number.
+	q, n, dec := onktest.Q, onktest.N, onktest.Dec
+	for _, tc := range []struct {
+		success onkschema.Decorator
+		want    string
+	}{
+		{dec("success"), "one status"},
+		{dec("success", n("abc")), "2xx"},
+	} {
+		file := onktest.File("app", onktest.Message("E"), onktest.Service("S", "", onktest.RPC("a", "E", "E", dec("post", q("/x")), tc.success)))
+		_, err := onkcompile.Compile([]onkcompile.Source{{Path: "a.tsp", AST: file}})
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%+v: got %v want %q", tc.success, err, tc.want)
 		}
 	}
 }

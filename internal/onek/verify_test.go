@@ -10,9 +10,9 @@ import (
 
 func TestVerifyGeneratedReportsDriftWithoutWriting(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), onekitToml)
-	writeTestFile(t, filepath.Join(dir, "models.onk"), modelsOnk)
-	writeTestFile(t, filepath.Join(dir, "service.onk"), serviceOnk)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), onekitToml)
+	writeTestFile(t, filepath.Join(dir, "models.tsp"), modelsTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "service.tsp"), serviceTypeSpec)
 
 	var drift *DriftError
 	if err := VerifyGenerated(dir); !errors.As(err, &drift) || !strings.Contains(err.Error(), "api/types.gen.go (missing)") {

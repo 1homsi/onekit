@@ -11,11 +11,17 @@ func TestBuildRemovesOutputsLeftBehindWhenOutChanges(t *testing.T) {
 	config := func(out string) string {
 		return "module = \"example.com/api\"\n[generate.go-server]\nout = \"" + out + "\"\n"
 	}
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), config("./old"))
-	writeTestFile(t, filepath.Join(dir, "api.onk"), `
-message Request {}
-message Response {}
-service API { get(Request) -> Response @get("/items") }
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), config("./old"))
+	writeTestFile(t, filepath.Join(dir, "api.tsp"), `
+model Request {}
+
+model Response {}
+
+interface API {
+  @get
+  @route("/items")
+  get(...Request): global.Response;
+}
 `)
 	if err := Build(dir); err != nil {
 		t.Fatalf("first Build error: %v", err)
@@ -26,7 +32,7 @@ service API { get(Request) -> Response @get("/items") }
 	}
 	userFile := filepath.Join(dir, "old", "handlers.go")
 	writeTestFile(t, userFile, "package api\n")
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), config("./new"))
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), config("./new"))
 	if err := Build(dir); err != nil {
 		t.Fatalf("second Build error: %v", err)
 	}

@@ -6,17 +6,25 @@ import (
 )
 
 func TestOpenAPIIncludesServiceAndEnumDocs(t *testing.T) {
-	doc := openAPIForSchema(t, `
-package app
-/// Order lifecycle.
+	doc := openAPIForSchema(t, `namespace app;
+
+/** Order lifecycle. */
 enum Status {
-  /// Waiting for payment.
-  PENDING
-  PAID
+  /** Waiting for payment. */
+  PENDING,
+  PAID,
 }
-message Order { status: Status }
-/// Manages orders.
-service Orders { get(Order) -> Order @post("/orders") }
+
+model Order {
+  status: Status;
+}
+
+/** Manages orders. */
+interface Orders {
+  @post
+  @route("/orders")
+  get(...Order): Order;
+}
 `)
 	flat := strings.Join(strings.Fields(doc), " ")
 	for _, want := range []string{

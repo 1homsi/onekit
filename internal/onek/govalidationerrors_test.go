@@ -3,12 +3,21 @@ package onek
 import "testing"
 
 func TestGoServerReturnsViolationList(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Signup { email: string @email  name: string @len(2, 10) }
+model Signup {
+  @format("email")
+  email: string;
+  @minLength(2)
+  @maxLength(10)
+  name: string;
+}
 
-service Accounts { signup(Signup) -> Signup @post("/signup") }
+interface Accounts {
+  @post
+  @route("/signup")
+  signup(...Signup): Signup;
+}
 `, `package api
 
 import (

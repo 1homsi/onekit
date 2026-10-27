@@ -2,16 +2,26 @@ package gents
 
 import "testing"
 
-const tsWildcardSchema = `package app
+const tsWildcardSchema = `namespace app;
 
-message FileRef { path: string }
-message Content { path: string }
-message Empty {}
+model FileRef {
+  path: string;
+}
 
-service Files {
-  base_path: "/files"
-  read(FileRef) -> Content @get("/{path...}")
-  root(Empty) -> Content @get("")
+model Content {
+  path: string;
+}
+
+model Empty {}
+
+@route("/files")
+interface Files {
+  @get
+  @route("/{+path}")
+  read(...FileRef): Content;
+
+  @get
+  root(...Empty): Content;
 }
 `
 

@@ -2,9 +2,12 @@ package genrust
 
 import "testing"
 
-const rustUUIDFixture = `
-package app
-message Ref { id: string @uuid }
+const rustUUIDFixture = `namespace app;
+
+model Ref {
+  @format("uuid")
+  id: string;
+}
 `
 
 const rustUUIDMain = `

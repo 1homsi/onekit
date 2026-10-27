@@ -6,7 +6,7 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkexpr"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onkschema"
 )
 
 type principalSite struct {
@@ -18,8 +18,8 @@ type principalSite struct {
 
 func (c *compiler) findPrincipal(sources []Source) (*principalSite, error) {
 	var found *principalSite
-	var walk func(md *onklang.MessageDecl, path string) error
-	walk = func(md *onklang.MessageDecl, path string) error {
+	var walk func(md *onkschema.MessageDecl, path string) error
+	walk = func(md *onkschema.MessageDecl, path string) error {
 		for _, d := range md.Decorators {
 			if d.Name != principalDecorator {
 				continue
@@ -67,7 +67,7 @@ func (c *compiler) validateAuthorize(sources []Source) error {
 	return nil
 }
 
-func (c *compiler) validateRPCAuthorize(path string, rpc *onklang.RPCDecl, principal *principalSite) error {
+func (c *compiler) validateRPCAuthorize(path string, rpc *onkschema.RPCDecl, principal *principalSite) error {
 	method := c.rpcNode[rpc]
 	for _, d := range rpc.Decorators {
 		if d.Name != authorizeDecorator {

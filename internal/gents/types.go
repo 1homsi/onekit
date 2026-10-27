@@ -479,7 +479,7 @@ func writeFlattenedFields(p *Printer, child *onkir.Message, wirePrefix string) {
 }
 
 // wireKey returns a field's JSON wire key - always the raw snake_case name
-// as declared in .onk (or, under a @flatten prefix, wirePrefix+name) -
+// as declared in the schema (or, under a @flatten prefix, wirePrefix+name) -
 // independent of its camelCase TS property name.
 func wireKey(wirePrefix string, f *onkir.Field) string {
 	return wirePrefix + f.Name

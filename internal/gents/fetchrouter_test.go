@@ -3,12 +3,21 @@ package gents
 import "testing"
 
 func TestTSFetchHandlerRoutesAndRejects(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Note { id: string  text: string }
-service Notes {
-  get(Note) -> Note @get("/notes/{id}")
-  update(Note) -> Note @put("/notes/{id}")
+	runTSSchema(t, `namespace app;
+
+model Note {
+  id: string;
+  text: string;
+}
+
+interface Notes {
+  @get
+  @route("/notes/{id}")
+  get(...Note): Note;
+
+  @put
+  @route("/notes/{id}")
+  update(...Note): Note;
 }
 `, `
 import { createNotesFetchHandler } from "./server.ts";
@@ -29,11 +38,17 @@ console.log("OK");
 }
 
 func TestTSNodeHandlerSurvivesMalformedPercentEscapes(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Note { id: string  text: string }
-service Notes {
-  get(Note) -> Note @get("/notes/{id}")
+	runTSSchema(t, `namespace app;
+
+model Note {
+  id: string;
+  text: string;
+}
+
+interface Notes {
+  @get
+  @route("/notes/{id}")
+  get(...Note): Note;
 }
 `, `
 import http from "node:http";

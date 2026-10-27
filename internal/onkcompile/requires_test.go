@@ -5,37 +5,37 @@ import (
 	"testing"
 )
 
-func compileRequires(t *testing.T, rpc string) error {
+func compileRequires(t *testing.T, decorators string) error {
 	t.Helper()
-	_, err := Compile([]Source{{Path: "api.onk", AST: parseOrFatal(t, "message R {}\nservice API {\n  "+rpc+"\n}\n")}})
+	_, err := Compile([]Source{{Path: "api.tsp", AST: parseOrFatal(t, "model R {}\ninterface API {\n  "+decorators+" a(...R): R;\n}\n")}})
 	return err
 }
 
 func TestCompileAcceptsRequiresOnHTTPAndStreamMethods(t *testing.T) {
-	for _, rpc := range []string{
-		`a(R) -> R @get("/a") @requires("items:read")`,
-		`a(R) -> R @post("/a") @requires("items:read", "items:write", "admin/all", "a.b-c_d")`,
-		`a(R) -> R @get("/a") @stream @requires("events:read")`,
+	for _, decorators := range []string{
+		`@get @route("/a") @Onkt.requires("items:read")`,
+		`@post @route("/a") @Onkt.requires("items:read", "items:write", "admin/all", "a.b-c_d")`,
+		`@get @route("/a") @Onkt.stream @Onkt.requires("events:read")`,
 	} {
-		if err := compileRequires(t, rpc); err != nil {
-			t.Fatalf("%s: %v", rpc, err)
+		if err := compileRequires(t, decorators); err != nil {
+			t.Fatalf("%s: %v", decorators, err)
 		}
 	}
 }
 
 func TestCompileRejectsInvalidRequires(t *testing.T) {
-	for rpc, want := range map[string]string{
-		`a(R) -> R @get("/a") @requires`:                            "at least one scope",
-		`a(R) -> R @get("/a") @requires("items read")`:              "invalid @requires scope",
-		`a(R) -> R @get("/a") @requires("")`:                        "invalid @requires scope",
-		`a(R) -> R @get("/a") @requires("a", "a")`:                  `duplicate @requires scope "a"`,
-		`a(R) -> R @get("/a") @requires("a") @requires("b")`:        "single @requires",
-		`a(R) -> R @ws("/a") @requires("a")`:                        "not supported on @ws methods yet",
-		`a(R) -> R @get("/a") @requires("items:read", "wild*card")`: "invalid @requires scope",
+	for decorators, want := range map[string]string{
+		`@get @route("/a") @Onkt.requires`:                            "at least one scope",
+		`@get @route("/a") @Onkt.requires("items read")`:              "invalid @requires scope",
+		`@get @route("/a") @Onkt.requires("")`:                        "invalid @requires scope",
+		`@get @route("/a") @Onkt.requires("a", "a")`:                  `duplicate @requires scope "a"`,
+		`@get @route("/a") @Onkt.requires("a") @Onkt.requires("b")`:   "single @requires",
+		`@Onkt.ws @route("/a") @Onkt.requires("a")`:                   "not supported on @ws methods yet",
+		`@get @route("/a") @Onkt.requires("items:read", "wild*card")`: "invalid @requires scope",
 	} {
-		err := compileRequires(t, rpc)
+		err := compileRequires(t, decorators)
 		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Fatalf("%s: want error containing %q, got %v", rpc, want, err)
+			t.Fatalf("%s: want error containing %q, got %v", decorators, want, err)
 		}
 	}
 }

@@ -8,33 +8,44 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const repeatedValuesSchema = `package app
+const repeatedValuesSchema = `namespace app;
 
-message Row {
-  id: string
-  name: string @len(1, 20)
-  tags: string[]
+model Row {
+  id: string;
+  @minLength(1)
+  @maxLength(20)
+  name: string;
+  tags: string[];
 }
 
-message List {
-  rows: Row[] @max_items(500)
-  @rule("self.rows.all(r, r.id != '')", "every row needs an id")
+model List {
+  @maxItems(500)
+  @Onkt.rule("self.rows.all(r, r.id != '')", "every row needs an id")
+  rows: Row[];
 }
 
-message Save {
-  rows: Row[]
-  note: string
+model Save {
+  rows: Row[];
+  note: string;
 }
 
-message Query { limit: int32 @query }
+model Query {
+  @query
+  limit: int32;
+}
 
-service Rows {
-  base_path: "/v1"
-  list(Query) -> List @get("/rows")
-  save(Save) -> List @post("/rows")
+@route("/v1")
+interface Rows {
+  @get
+  @route("/rows")
+  list(...Query): List;
+
+  @post
+  @route("/rows")
+  save(...Save): List;
 }
 `
 
@@ -93,11 +104,11 @@ func TestGoRepeatedValuesStyleGeneratesSlicesOfValues(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	ast, err := onklang.Parse(repeatedValuesSchema)
+	ast, err := onktest.Parse(repeatedValuesSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.onk", AST: ast}}, onkcompile.CompileOptions{EmitZeroValues: true, RepeatedValues: true})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.tsp", AST: ast}}, onkcompile.CompileOptions{EmitZeroValues: true, RepeatedValues: true})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,9 +1,0 @@
-
-package check
-
-message EmailAuth { email: string @email  password: string @len(8, 72) }
-message TokenAuth { token: string }
-
-message LoginRequest {
-  auth: oneof { email: EmailAuth  token: TokenAuth  code: string }
-}

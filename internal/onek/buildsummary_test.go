@@ -7,9 +7,9 @@ import (
 
 func TestBuildWithSummaryCountsFilesAndTargets(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), onekitToml)
-	writeTestFile(t, filepath.Join(dir, "models.onk"), modelsOnk)
-	writeTestFile(t, filepath.Join(dir, "service.onk"), serviceOnk)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), onekitToml)
+	writeTestFile(t, filepath.Join(dir, "models.tsp"), modelsTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "service.tsp"), serviceTypeSpec)
 	summary, err := BuildWithSummary(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -19,8 +19,10 @@ func TestBuildWithSummaryCountsFilesAndTargets(t *testing.T) {
 	}
 
 	empty := t.TempDir()
-	writeTestFile(t, filepath.Join(empty, "onekit.toml"), "module = \"x\"\n")
-	writeTestFile(t, filepath.Join(empty, "api.onk"), "message M {}\n")
+	writeTestFile(t, filepath.Join(empty, "onkt.toml"), "module = \"x\"\n")
+	writeTestFile(t, filepath.Join(empty, "api.tsp"), `
+model M {}
+`)
 	summary, err = BuildWithSummary(empty)
 	if err != nil || len(summary.Targets) != 0 {
 		t.Fatalf("no-target build: %+v %v", summary, err)

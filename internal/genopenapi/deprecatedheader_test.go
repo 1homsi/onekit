@@ -6,15 +6,22 @@ import (
 )
 
 func TestOpenAPIMarksBareDeprecatedHeaders(t *testing.T) {
-	doc := openAPIForSchema(t, `
-package app
-message R {}
-service S {
-  headers: {
-    "X-Old": string @deprecated
-    "X-Older": string @deprecated("use X-New")
-  }
-  get(R) -> R @get("/r")
+	doc := openAPIForSchema(t, `namespace app;
+
+model R {}
+
+/** Headers every S operation takes. */
+alias SHeaders = {
+  #deprecated ""
+  @header("X-Old") header_x_old?: string;
+  #deprecated "use X-New"
+  @header("X-Older") header_x_older?: string;
+};
+
+interface S {
+  @get
+  @route("/r")
+  get(...SHeaders, ...R): R;
 }
 `)
 	flat := strings.Join(strings.Fields(doc), " ")

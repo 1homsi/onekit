@@ -7,18 +7,41 @@ import (
 
 func TestCompileRejectsFlattenCycles(t *testing.T) {
 	for schema, want := range map[string]string{
-		`message Node { child: Node? @flatten(prefix: "c_") }`: "@flatten cycle: Node -> Node",
-		`message A { b: B @flatten(prefix: "b_") }
-message B { a: A @flatten(prefix: "a_") }`: "@flatten cycle: A -> B -> A",
+		`
+model Node {
+  @Onkt.flatten("c_")
+  child?: Node;
+}
+`: "@flatten cycle: Node -> Node",
+		`
+model A {
+  @Onkt.flatten("b_")
+  b: B;
+}
+
+model B {
+  @Onkt.flatten("a_")
+  a: A;
+}
+`: "@flatten cycle: A -> B -> A",
 	} {
-		_, err := Compile([]Source{{Path: "api.onk", AST: parseOrFatal(t, schema)}})
+		_, err := Compile([]Source{{Path: "api.tsp", AST: parseOrFatal(t, schema)}})
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("want %q, got %v", want, err)
 		}
 	}
-	if _, err := Compile([]Source{{Path: "api.onk", AST: parseOrFatal(t, `
-message Addr { city: string }
-message Order { bill: Addr @flatten(prefix: "bill_")  ship: Addr @flatten(prefix: "ship_") }`)}}); err != nil {
+	if _, err := Compile([]Source{{Path: "api.tsp", AST: parseOrFatal(t, `
+model Addr {
+  city: string;
+}
+
+model Order {
+  @Onkt.flatten("bill_")
+  bill: Addr;
+  @Onkt.flatten("ship_")
+  ship: Addr;
+}
+`)}}); err != nil {
 		t.Fatalf("acyclic flatten rejected: %v", err)
 	}
 }

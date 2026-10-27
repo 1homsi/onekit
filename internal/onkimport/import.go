@@ -1,6 +1,7 @@
-// Package onkimport converts OpenAPI 3.x documents into .onk schema source.
-// It is intentionally opinionated: deterministic output, local $refs only,
-// and warnings (never errors) for constructs without a faithful .onk mapping.
+// Package onkimport converts OpenAPI 3.x documents into onekit schemas, which
+// it renders as TypeSpec. It is intentionally opinionated: deterministic
+// output, local $refs only, and warnings (never errors) for constructs
+// without a faithful onekit mapping.
 //
 // Modeling rules:
 //   - every operation becomes <Op>Request / <Op>Response messages plus an RPC
@@ -22,13 +23,16 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/1homsi/onekit/internal/onkmigrate"
+	"github.com/1homsi/onekit/internal/onkschema"
 )
 
 const maxDepth = 32
 
 // Options tunes conversion.
 type Options struct {
-	// Package is the .onk package declaration.
+	// Package is the schema's namespace.
 	Package string
 	// Service is the generated service name (default: Api + "Service").
 	Service string
@@ -36,9 +40,18 @@ type Options struct {
 
 // Result carries the converted schema plus non-fatal diagnostics.
 type Result struct {
-	Source   []byte
+	// Source is the schema as TypeSpec.
+	Source []byte
+	// File holds the declarations Source spells.
+	File     *onkschema.File
 	Package  string
 	Warnings []string
+}
+
+// importedMessage is a message under construction.
+type importedMessage struct {
+	fields     []*onkschema.FieldDecl
+	decorators []onkschema.Decorator
 }
 
 type importer struct {
@@ -46,11 +59,11 @@ type importer struct {
 	opts Options
 
 	warnings    []string
-	messages    map[string][]string // name -> field lines; nil while converting
+	messages    map[string]*importedMessage // nil while converting
 	orderMsg    []string
 	errorMsgs   map[string]bool
 	errorStatus map[string]int
-	enums       map[string][]string // name -> member lines
+	enums       map[string][]onkschema.EnumValueDecl
 	orderEnum   []string
 
 	usedNames map[string]bool
@@ -58,7 +71,8 @@ type importer struct {
 	refActive map[string]bool
 }
 
-// Import converts an OpenAPI 3.x document (YAML or JSON) into .onk source.
+// Import converts an OpenAPI 3.x document (YAML or JSON) into a TypeSpec
+// schema.
 func Import(data []byte, opts Options) (*Result, error) {
 	var root map[string]any
 	if err := yaml.Unmarshal(data, &root); err != nil {
@@ -78,27 +92,33 @@ func Import(data []byte, opts Options) (*Result, error) {
 	if pkg == "" {
 		pkg = slug(text(asMap(root["info"]), "title"), "api")
 	}
-	service := opts.Service
-	if service == "" {
-		service = Pascal(pkg) + "Service"
+	serviceName := opts.Service
+	if serviceName == "" {
+		serviceName = Pascal(pkg) + "Service"
 	}
 	im := &importer{
 		root:        root,
-		opts:        Options{Package: pkg, Service: service},
-		messages:    map[string][]string{},
+		opts:        Options{Package: pkg, Service: serviceName},
+		messages:    map[string]*importedMessage{},
 		errorMsgs:   map[string]bool{},
 		errorStatus: map[string]int{},
-		enums:       map[string][]string{},
+		enums:       map[string][]onkschema.EnumValueDecl{},
 		usedNames:   map[string]bool{},
 		refDone:     map[string]fieldType{},
 		refActive:   map[string]bool{},
 	}
-	rpcs, err := im.convertPaths()
+	service, err := im.convertPaths()
+	if err != nil {
+		return nil, err
+	}
+	file := im.file(service)
+	source, err := render(file)
 	if err != nil {
 		return nil, err
 	}
 	return &Result{
-		Source:   im.render(rpcs),
+		Source:   source,
+		File:     file,
 		Package:  pkg,
 		Warnings: im.warnings,
 	}, nil
@@ -108,7 +128,7 @@ func Import(data []byte, opts Options) (*Result, error) {
 
 var httpMethods = []string{"get", "put", "post", "delete", "patch"}
 
-func (im *importer) convertPaths() ([]string, error) {
+func (im *importer) convertPaths() (*onkschema.ServiceDecl, error) {
 	basePath := "/"
 	if server := firstMap(asSlice(im.root["servers"])); server != nil {
 		if raw := text(server, "url"); raw != "" {
@@ -125,7 +145,7 @@ func (im *importer) convertPaths() ([]string, error) {
 	}
 	sort.Strings(keys)
 
-	var rpcs []string
+	var rpcs []*onkschema.RPCDecl
 	for _, pathKey := range keys {
 		item := asMap(paths[pathKey])
 		if item == nil {
@@ -152,19 +172,19 @@ func (im *importer) convertPaths() ([]string, error) {
 	if len(rpcs) == 0 {
 		return nil, errors.New("document declares no operations")
 	}
-	return append([]string{"base_path: \"" + basePath + "\""}, rpcs...), nil
+	return &onkschema.ServiceDecl{Name: im.opts.Service, BasePath: basePath, RPCs: rpcs}, nil
 }
 
-func (im *importer) convertOperation(op map[string]any, method, pathKey string, params []any) string {
+func (im *importer) convertOperation(op map[string]any, method, pathKey string, params []any) *onkschema.RPCDecl {
 	opName := im.operationName(op, method, pathKey)
 
 	reqName := im.registerMessage(opName + "Request")
 
 	requestBody, hasBody := im.requestBodyFor(op, opName, method)
 	pr := im.convertParameters(op, params, pathKey, reqName, opName, hasBody)
-	pr.otherLines = append(pr.otherLines, im.undeclaredPathLines(pathKey, opName, &pr)...)
-	pr.otherLines = append(pr.otherLines, im.requestBodyLines(requestBody, opName)...)
-	im.messages[reqName] = append(pr.otherLines, pr.queryLines...)
+	pr.otherFields = append(pr.otherFields, im.undeclaredPathFields(pathKey, opName, &pr)...)
+	pr.otherFields = append(pr.otherFields, im.requestBodyFields(requestBody, opName)...)
+	im.messages[reqName] = &importedMessage{fields: append(pr.otherFields, pr.queryFields...)}
 
 	return im.renderRPC(op, opName, reqName, method, pr, hasBody)
 }
@@ -194,17 +214,17 @@ func (im *importer) requestBodyFor(op map[string]any, opName, method string) (ma
 }
 
 type operationParams struct {
-	route      string
-	boundPath  map[string]bool
-	queryLines []string
-	otherLines []string
-	headers    []importedHeader
-	scopes     []string
+	route       string
+	boundPath   map[string]bool
+	queryFields []*onkschema.FieldDecl
+	otherFields []*onkschema.FieldDecl
+	headers     []onkschema.HeaderDecl
+	scopes      []string
 }
 
 func (im *importer) convertParameters(op map[string]any, params []any, pathKey, reqName, opName string, hasBody bool) operationParams {
 	boundPath := map[string]bool{}
-	var queryLines, otherLines []string
+	var queryFields, otherFields []*onkschema.FieldDecl
 	headers, scopes := im.securityHeaders(op, opName)
 	route := pathKey
 	for _, rawParam := range params {
@@ -230,124 +250,105 @@ func (im *importer) convertParameters(op map[string]any, params []any, pathKey, 
 		}
 		ft := im.parameterFieldType(param["schema"], reqName+Pascal(field), opName, name)
 		optional := !truthy(param["required"]) && in != paramInPath
-		line := composeFieldLine(field, ft, optional, opName, name)
+		decl := composeField(field, ft, optional)
 		switch in {
 		case paramInPath:
 			if field != name {
 				route = strings.ReplaceAll(route, "{"+name+"}", "{"+field+"}")
 			}
 			boundPath[name] = true
-			otherLines = append(otherLines, line)
+			otherFields = append(otherFields, decl)
 		case "query":
 			switch {
 			case hasBody:
 				im.warnf("%s: query parameter %q folded without binding (@query is reserved for non-body verbs)", opName, name)
-				queryLines = append(queryLines, line)
 			case name == field:
-				queryLines = append(queryLines, line+" @query")
+				decl.Decorators = append(decl.Decorators, dec("query"))
 			default:
-				queryLines = append(queryLines, line+" @query(\""+name+"\")")
+				decl.Decorators = append(decl.Decorators, dec("query", quoted(name)))
 			}
+			queryFields = append(queryFields, decl)
 		}
 	}
-	return operationParams{route: route, boundPath: boundPath, queryLines: queryLines, otherLines: otherLines, headers: headers, scopes: scopes}
+	return operationParams{route: route, boundPath: boundPath, queryFields: queryFields, otherFields: otherFields, headers: headers, scopes: scopes}
 }
 
-func (im *importer) undeclaredPathLines(pathKey, opName string, pr *operationParams) []string {
-	var otherLines []string
+func (im *importer) undeclaredPathFields(pathKey, opName string, pr *operationParams) []*onkschema.FieldDecl {
+	var fields []*onkschema.FieldDecl
 	for _, name := range pathTemplateNames(pathKey) {
 		if pr.boundPath[name] {
 			continue
 		}
 		field := safeIdent(name)
 		pr.route = strings.ReplaceAll(pr.route, "{"+name+"}", "{"+field+"}")
-		otherLines = append(otherLines, field+": string")
+		fields = append(fields, composeField(field, fieldType{expr: scalarString}, false))
 		im.warnf("%s: path parameter %q is not declared; imported as a string", opName, name)
 	}
-	return otherLines
+	return fields
 }
 
-func (im *importer) requestBodyLines(requestBody map[string]any, opName string) []string {
-	var otherLines []string
+func (im *importer) requestBodyFields(requestBody map[string]any, opName string) []*onkschema.FieldDecl {
+	var fields []*onkschema.FieldDecl
 	if requestBody != nil {
 		if schema, ok := im.jsonSchema(asMap(requestBody["content"])); ok {
 			ft, _ := im.schemaTypeExpr(schema, opName+"Body", 1)
 			// @body is declared at RPC level; the field itself stays plain.
-			line := composeFieldLine("body", ft, !truthy(requestBody["required"]), opName, "body")
-			otherLines = append(otherLines, line)
+			fields = append(fields, composeField("body", ft, !truthy(requestBody["required"])))
 		}
 	}
-	return otherLines
+	return fields
 }
 
-func (im *importer) renderRPC(op map[string]any, opName, reqName, method string, pr operationParams, hasBody bool) string {
-	route, headers, scopes := pr.route, pr.headers, pr.scopes
+func (im *importer) renderRPC(op map[string]any, opName, reqName, method string, pr operationParams, hasBody bool) *onkschema.RPCDecl {
 	respName, union, stream := im.responsePieces(opName, method, asMap(op["responses"]))
-	var rpc strings.Builder
-	rpc.WriteString("  " + opName + "(" + reqName + ") -> " + respName)
-	for _, errName := range union {
-		rpc.WriteString(" | ")
-		rpc.WriteString(errName)
-	}
+	rpc := &onkschema.RPCDecl{Name: opName, RequestType: reqName, ResponseType: respName, ErrorTypes: union, Headers: pr.headers}
 	if hasBody {
-		rpc.WriteString(" @body(\"body\")")
+		rpc.Decorators = append(rpc.Decorators, dec("body", quoted("body")))
 	}
-	rpc.WriteString(" @" + method + "(\"" + route + "\")")
+	rpc.Decorators = append(rpc.Decorators, dec(method, quoted(pr.route)))
 	if stream {
-		rpc.WriteString(" @stream")
+		rpc.Decorators = append(rpc.Decorators, dec("stream"))
 	}
-	if len(scopes) > 0 {
-		quoted := make([]string, 0, len(scopes))
-		for _, scope := range scopes {
-			quoted = append(quoted, strconv.Quote(scope))
+	if len(pr.scopes) > 0 {
+		scopes := make([]onkschema.Arg, 0, len(pr.scopes))
+		for _, scope := range pr.scopes {
+			scopes = append(scopes, quoted(scope))
 		}
-		rpc.WriteString(" @requires(" + strings.Join(quoted, ", ") + ")")
+		rpc.Decorators = append(rpc.Decorators, dec("requires", scopes...))
 	}
-	if len(headers) > 0 {
-		rpc.WriteString(" {\n    headers: {\n")
-		for _, header := range headers {
-			rpc.WriteString("      " + header.line + "\n")
-		}
-		rpc.WriteString("    }\n  }")
-	}
-	return rpc.String()
-}
-
-type importedHeader struct {
-	name string
-	line string
+	return rpc
 }
 
 var implicitHeaders = map[string]bool{"accept": true, "content-type": true, "content-length": true}
 
-func appendHeader(headers []importedHeader, name, decorators string) []importedHeader {
+func appendHeader(headers []onkschema.HeaderDecl, name string, decorators []onkschema.Decorator) []onkschema.HeaderDecl {
 	if name == "" || implicitHeaders[strings.ToLower(name)] {
 		return headers
 	}
 	for _, existing := range headers {
-		if strings.EqualFold(existing.name, name) {
+		if strings.EqualFold(existing.Name, name) {
 			return headers
 		}
 	}
-	return append(headers, importedHeader{name: name, line: strconv.Quote(name) + ": string" + decorators})
+	return append(headers, onkschema.HeaderDecl{Name: name, Type: scalarString, Decorators: decorators})
 }
 
-func headerDecorators(param map[string]any) string {
-	var out string
+func headerDecorators(param map[string]any) []onkschema.Decorator {
+	var out []onkschema.Decorator
 	if truthy(param["required"]) {
-		out += " @required"
+		out = append(out, dec("required"))
 	}
 	switch format := text(asMap(param["schema"]), "format"); format {
 	case "uuid", "email", "uri":
-		out += " @format(\"" + format + "\")"
+		out = append(out, dec("format", quoted(format)))
 	}
 	if truthy(param["deprecated"]) {
-		out += " @deprecated"
+		out = append(out, dec("deprecated"))
 	}
 	return out
 }
 
-func (im *importer) securityHeaders(op map[string]any, opName string) ([]importedHeader, []string) {
+func (im *importer) securityHeaders(op map[string]any, opName string) ([]onkschema.HeaderDecl, []string) {
 	requirements, ok := op["security"]
 	if !ok {
 		requirements = im.root["security"]
@@ -381,18 +382,18 @@ func (im *importer) securityHeaders(op map[string]any, opName string) ([]importe
 	}
 	sort.Strings(names)
 	schemes := asMap(asMap(im.root["components"])["securitySchemes"])
-	var headers []importedHeader
+	var headers []onkschema.HeaderDecl
 	var scopes []string
 	for _, name := range names {
 		scheme := im.deref(asMap(schemes[name]))
 		expressed := true
 		switch kind := text(scheme, "type"); {
 		case kind == "apiKey" && text(scheme, "in") == "header":
-			headers = appendHeader(headers, text(scheme, "name"), " @required @auth(\"api_key\") @auth_scheme_name(\""+name+"\")")
+			headers = appendHeader(headers, text(scheme, "name"), authDecorators("api_key", name))
 		case kind == "http" && strings.EqualFold(text(scheme, "scheme"), "bearer"):
-			headers = appendHeader(headers, "Authorization", " @required @auth(\"bearer\") @auth_scheme_name(\""+name+"\")")
+			headers = appendHeader(headers, "Authorization", authDecorators("bearer", name))
 		case kind == "http" && strings.EqualFold(text(scheme, "scheme"), "basic"):
-			headers = appendHeader(headers, "Authorization", " @required @auth(\"basic\") @auth_scheme_name(\""+name+"\")")
+			headers = appendHeader(headers, "Authorization", authDecorators("basic", name))
 		default:
 			expressed = false
 			im.warnf("%s: security scheme %q (%s) cannot be expressed as a header and was dropped", opName, name, kind)
@@ -411,7 +412,7 @@ func (im *importer) appendScopes(scopes []string, raw []any, opName string) []st
 			continue
 		}
 		if !validScope(scope) {
-			im.warnf("%s: security scope %q contains characters @requires does not allow and was dropped", opName, scope)
+			im.warnf("%s: security scope %q contains characters @Onkt.requires does not allow and was dropped", opName, scope)
 			continue
 		}
 		if !slices.Contains(scopes, scope) {
@@ -484,10 +485,12 @@ func (im *importer) responsePieces(opName, method string, responses map[string]a
 		switch {
 		case im.isDecl(ft.expr):
 			respName = ft.expr
-		case strings.HasSuffix(ft.expr, "[]") || strings.HasPrefix(ft.expr, "map[") ||
+		case strings.HasSuffix(ft.expr, "[]") || isMapExpr(ft.expr) ||
 			isScalarExpr(ft.expr):
 			im.declareReserved(respName)
-			im.messages[respName] = []string{"data: " + ft.expr + " @unwrap"}
+			data := composeField("data", ft, false)
+			data.Decorators = append(data.Decorators, dec("unwrap"))
+			im.messages[respName] = &importedMessage{fields: []*onkschema.FieldDecl{data}}
 		default:
 			// Inline object schema already registered itself under respName.
 		}
@@ -516,7 +519,7 @@ func (im *importer) responsePieces(opName, method string, responses map[string]a
 			errName = ft.expr
 		} else {
 			errName = im.registerMessage(errName)
-			im.messages[errName] = []string{"message: string"}
+			im.messages[errName] = &importedMessage{fields: []*onkschema.FieldDecl{composeField("message", fieldType{expr: scalarString}, false)}}
 		}
 		errName = im.errorWithStatus(errName, status)
 		seenStatus[status] = true
@@ -562,7 +565,7 @@ func errorStatus(code string) (int, bool) {
 func (im *importer) errorWithStatus(name string, status int) string {
 	if existing, ok := im.errorStatus[name]; ok && existing != status {
 		alias := im.registerMessage(name + strconv.Itoa(status))
-		im.messages[alias] = append([]string(nil), im.messages[name][1:]...)
+		im.messages[alias] = &importedMessage{fields: append([]*onkschema.FieldDecl(nil), im.messages[name].fields...)}
 		name = alias
 	}
 	if _, ok := im.errorStatus[name]; !ok {
@@ -574,7 +577,12 @@ func (im *importer) errorWithStatus(name string, status int) string {
 }
 
 func (im *importer) decorateStatus(name string, status int) {
-	im.messages[name] = append([]string{"@status(" + strconv.Itoa(status) + ")"}, im.messages[name]...)
+	m := im.messages[name]
+	if m == nil {
+		m = &importedMessage{}
+		im.messages[name] = m
+	}
+	m.decorators = append([]onkschema.Decorator{dec("status", num(strconv.Itoa(status)))}, m.decorators...)
 }
 
 func pickSuccess(responses map[string]any) string {
@@ -599,11 +607,11 @@ func (im *importer) parameterFieldType(raw any, suggested, opName, name string) 
 		}
 	}
 	if values := asSlice(schema["enum"]); len(values) > 0 && text(schema, "type") == scalarString {
-		quoted := make([]string, 0, len(values))
+		allowed := make([]onkschema.Arg, 0, len(values))
 		for _, value := range values {
-			quoted = append(quoted, strconv.Quote(textOf(value)))
+			allowed = append(allowed, quoted(textOf(value)))
 		}
-		return fieldType{expr: scalarString, suffix: " @in(" + strings.Join(quoted, ", ") + ")"}
+		return fieldType{expr: scalarString, decorators: []onkschema.Decorator{dec("in", allowed...)}}
 	}
 	ft, ok := im.schemaTypeExpr(schema, suggested, 1)
 	if !ok || ft.expr == "" {
@@ -645,12 +653,13 @@ func (im *importer) jsonSchema(content map[string]any) (map[string]any, bool) {
 
 // --- schema conversion -----------------------------------------------------
 
+// fieldType describes an imported field's type: expr is a scalar or
+// declaration name, "T[]" for a list, or "map<string, T>".
 type fieldType struct {
 	expr     string
 	nullable bool
-	// suffix carries validator/encoding decorators that trail the type and
-	// any optionality marker ("@email", " @encode(date)").
-	suffix string
+	// decorators are the validators and encodings the type carries.
+	decorators []onkschema.Decorator
 }
 
 func schemaTypeName(schema map[string]any) (string, bool) {
@@ -733,7 +742,8 @@ func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldT
 			return fieldType{}, false
 		}
 		if item.expr == scalarInt64 {
-			im.warnf("schema %q has int64 array items; onekit sends repeated int64 values as JSON strings", suggested)
+			// int64 items stay JSON numbers, as the document declares them.
+			return fieldType{expr: scalarInt64 + "[]", decorators: []onkschema.Decorator{dec("encode", quoted("number"))}}, true
 		}
 		return fieldType{expr: item.expr + "[]"}, true
 	case schemaObject:
@@ -745,10 +755,7 @@ func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldT
 			if !ok {
 				return fieldType{}, false
 			}
-			if value.expr == scalarInt64 {
-				im.warnf("schema %q has int64 map values; onekit sends them as JSON strings", suggested)
-			}
-			return fieldType{expr: "map[string, " + value.expr + "]"}, true
+			return fieldType{expr: "map<string, " + value.expr + ">"}, true
 		case len(props) == 0:
 			return fieldType{expr: scalarJSON}, true
 		}
@@ -757,7 +764,7 @@ func (im *importer) schemaTypeExpr(raw any, suggested string, depth int) (fieldT
 		return fieldType{expr: name}, true
 	case "integer":
 		if text(schema, "format") == "int64" {
-			return fieldType{expr: scalarInt64, suffix: " @encode(number)"}, true
+			return fieldType{expr: scalarInt64, decorators: []onkschema.Decorator{dec("encode", quoted("number"))}}, true
 		}
 		return fieldType{expr: "int32"}, true
 	case "number":
@@ -777,7 +784,7 @@ func (im *importer) stringFieldType(schema map[string]any, suggested string) fie
 	case "date-time":
 		return fieldType{expr: scalarTime}
 	case "date":
-		return fieldType{expr: scalarTime, suffix: " @encode(date)"}
+		return fieldType{expr: scalarTime, decorators: []onkschema.Decorator{dec("encode", quoted("date"))}}
 	}
 	if values := asSlice(schema["enum"]); len(values) > 0 {
 		// Enums live in their own registry: registering through the message
@@ -787,7 +794,7 @@ func (im *importer) stringFieldType(schema map[string]any, suggested string) fie
 			base += "Values"
 		}
 		name := im.uniqueName(base)
-		var lines []string
+		var members []onkschema.EnumValueDecl
 		seenMembers := map[string]bool{}
 		for _, v := range values {
 			raw := textOf(v)
@@ -802,39 +809,34 @@ func (im *importer) stringFieldType(schema map[string]any, suggested string) fie
 				member = base + "_" + strconv.Itoa(i)
 			}
 			seenMembers[member] = true
+			value := onkschema.EnumValueDecl{Name: member}
 			if member != raw {
-				lines = append(lines, member+" @json("+strconv.Quote(raw)+")")
-			} else {
-				lines = append(lines, member)
+				value.Decorators = []onkschema.Decorator{dec("json", quoted(raw))}
 			}
+			members = append(members, value)
 		}
-		if len(lines) == 0 {
+		if len(members) == 0 {
 			return fieldType{expr: "string"}
 		}
-		im.enums[name] = lines
+		im.enums[name] = members
 		im.orderEnum = append(im.orderEnum, name)
 		return fieldType{expr: name}
 	}
-	expr := scalarString
-	var suffix string
-	switch text(schema, "format") {
-	case "email":
-		suffix = " @email"
-	case "uuid":
-		suffix = " @uuid"
-	case "uri":
-		suffix = " @uri"
+	ft := fieldType{expr: scalarString}
+	switch format := text(schema, "format"); format {
+	case "email", "uuid", "uri":
+		ft.decorators = []onkschema.Decorator{dec(format)}
 	}
-	return fieldType{expr: expr, suffix: suffix}
+	return ft
 }
 
-func (im *importer) convertProperties(msgName string, props map[string]any, required map[string]bool, depth int) []string {
+func (im *importer) convertProperties(msgName string, props map[string]any, required map[string]bool, depth int) []*onkschema.FieldDecl {
 	names := make([]string, 0, len(props))
 	for name := range props {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	lines := make([]string, 0, len(names))
+	fields := make([]*onkschema.FieldDecl, 0, len(names))
 	final := map[string]string{}
 	claimed := map[string]bool{}
 	for _, pass := range []bool{true, false} {
@@ -861,14 +863,12 @@ func (im *importer) convertProperties(msgName string, props map[string]any, requ
 			im.warnf("%s.%q has no convertible schema; mapped to json", msgName, rawName)
 			ft = fieldType{expr: scalarJSON}
 		}
-		ft.suffix += im.constraintDecorators(im.derefSchema(asMap(props[rawName])), ft.expr)
-		line := composeFieldLine(field, ft, !required[rawName], msgName, rawName)
-		if doc := text(asMap(props[rawName]), "description"); doc != "" {
-			line = docLines(doc) + line
-		}
-		lines = append(lines, line)
+		ft.decorators = append(ft.decorators, im.constraintDecorators(im.derefSchema(asMap(props[rawName])), ft.expr)...)
+		decl := composeField(field, ft, !required[rawName])
+		decl.Doc = docText(text(asMap(props[rawName]), "description"))
+		fields = append(fields, decl)
 	}
-	return lines
+	return fields
 }
 
 func (im *importer) collectAllOfProperties(parts []any, props map[string]any, depth int) {
@@ -899,12 +899,16 @@ func (im *importer) derefSchema(schema map[string]any) map[string]any {
 	return schema
 }
 
-func docLines(doc string) string {
-	var b strings.Builder
-	for _, line := range strings.Split(strings.TrimSpace(doc), "\n") {
-		b.WriteString("/// " + strings.TrimSpace(line) + "\n  ")
+// docText trims every line of an OpenAPI description.
+func docText(doc string) string {
+	if strings.TrimSpace(doc) == "" {
+		return ""
 	}
-	return b.String()
+	lines := strings.Split(strings.TrimSpace(doc), "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimSpace(line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func pathTemplateNames(path string) []string {
@@ -939,7 +943,7 @@ func fieldKey(name string) string {
 	return out.String()
 }
 
-func (im *importer) constraintDecorators(schema map[string]any, expr string) string {
+func (im *importer) constraintDecorators(schema map[string]any, expr string) []onkschema.Decorator {
 	number := func(key string) (string, bool) {
 		var value float64
 		switch typed := schema[key].(type) {
@@ -961,7 +965,7 @@ func (im *importer) constraintDecorators(schema map[string]any, expr string) str
 		}
 		return strconv.FormatFloat(value, 'f', -1, 64), true
 	}
-	var out strings.Builder
+	var out []onkschema.Decorator
 	switch {
 	case expr == scalarString:
 		if pattern := text(schema, "pattern"); pattern != "" {
@@ -978,7 +982,7 @@ func (im *importer) constraintDecorators(schema map[string]any, expr string) str
 		switch {
 		case !hasMin && !hasMax:
 		case orderedBounds(minLength, maxLength):
-			out.WriteString(" @len(" + minLength + ", " + maxLength + ")")
+			out = append(out, dec("len", num(minLength), num(maxLength)))
 		default:
 			im.warnf("minLength %s is greater than maxLength %s; length constraint dropped", minLength, maxLength)
 		}
@@ -990,32 +994,32 @@ func (im *importer) constraintDecorators(schema map[string]any, expr string) str
 			break
 		}
 		if hasMin {
-			out.WriteString(" @min_items(" + minItems + ")")
+			out = append(out, dec("min_items", num(minItems)))
 		}
 		if hasMax {
-			out.WriteString(" @max_items(" + maxItems + ")")
+			out = append(out, dec("max_items", num(maxItems)))
 		}
 	case isScalarExpr(expr) && expr != "bool" && expr != scalarTime && expr != scalarJSON:
 		if value, ok := number("minimum"); ok {
 			if schema["exclusiveMinimum"] == true {
-				out.WriteString(" @gt(" + value + ")")
+				out = append(out, dec("gt", num(value)))
 			} else {
-				out.WriteString(" @gte(" + value + ")")
+				out = append(out, dec("gte", num(value)))
 			}
 		} else if value, ok := number("exclusiveMinimum"); ok {
-			out.WriteString(" @gt(" + value + ")")
+			out = append(out, dec("gt", num(value)))
 		}
 		if value, ok := number("maximum"); ok {
 			if schema["exclusiveMaximum"] == true {
-				out.WriteString(" @lt(" + value + ")")
+				out = append(out, dec("lt", num(value)))
 			} else {
-				out.WriteString(" @lte(" + value + ")")
+				out = append(out, dec("lte", num(value)))
 			}
 		} else if value, ok := number("exclusiveMaximum"); ok {
-			out.WriteString(" @lt(" + value + ")")
+			out = append(out, dec("lt", num(value)))
 		}
 	}
-	return out.String()
+	return out
 }
 
 // --- refs ------------------------------------------------------------------
@@ -1093,7 +1097,7 @@ func (im *importer) fillObject(name string, schema map[string]any, depth int) {
 	for _, r := range asSlice(schema["required"]) {
 		required[textOf(r)] = true
 	}
-	im.messages[name] = im.convertProperties(name, asMap(schema["properties"]), required, depth+1)
+	im.messages[name] = &importedMessage{fields: im.convertProperties(name, asMap(schema["properties"]), required, depth+1)}
 }
 
 // --- registry --------------------------------------------------------------
@@ -1131,72 +1135,62 @@ func (im *importer) isDecl(name string) bool {
 	return ok
 }
 
-// --- render ----------------------------------------------------------------
+// --- output ----------------------------------------------------------------
 
-func (im *importer) render(serviceLines []string) []byte {
-	var out strings.Builder
-	out.WriteString("// Code generated by onkt import; re-run import instead of editing.\n")
-	out.WriteString("package " + im.opts.Package + "\n\n")
+// importHeader marks a schema as generated by onkt import.
+const importHeader = "// Code generated by onkt import; re-run import instead of editing."
 
+// file assembles the declarations: plain messages, then enums, then error
+// messages, each group by name, then the service.
+func (im *importer) file(service *onkschema.ServiceDecl) *onkschema.File {
+	file := &onkschema.File{Package: im.opts.Package, LeadingComments: []string{importHeader}}
 	msgNames := sortUnique(im.orderMsg)
-	enumNames := sortUnique(im.orderEnum)
-
-	for _, name := range msgNames {
-		if im.errorMsgs[name] {
-			continue
+	message := func(name string) *onkschema.MessageDecl {
+		decl := &onkschema.MessageDecl{Name: name}
+		if m := im.messages[name]; m != nil {
+			decl.Fields = m.fields
+			decl.Decorators = m.decorators
 		}
-		writeMessage(&out, name, im.messages[name], false)
-	}
-	for _, name := range enumNames {
-		out.WriteString("enum " + name + " {\n")
-		for i, line := range im.enums[name] {
-			if i > 0 {
-				out.WriteString("\n")
-			}
-			out.WriteString("  " + line + "\n")
-		}
-		out.WriteString("}\n\n")
+		return decl
 	}
 	for _, name := range msgNames {
+		if !im.errorMsgs[name] {
+			file.Messages = append(file.Messages, message(name))
+		}
+	}
+	for _, name := range sortUnique(im.orderEnum) {
+		file.Enums = append(file.Enums, &onkschema.EnumDecl{Name: name, Values: im.enums[name]})
+	}
+	for _, name := range msgNames {
 		if im.errorMsgs[name] {
-			writeMessage(&out, name, im.messages[name], true)
+			file.Messages = append(file.Messages, message(name))
 		}
 	}
-
-	out.WriteString("service " + im.opts.Service + " {\n")
-	prevWasBasePath := false
-	rpcStarted := false
-	for _, line := range serviceLines {
-		if !strings.HasPrefix(line, "  ") {
-			line = "  " + line
+	file.Services = []*onkschema.ServiceDecl{service}
+	for _, m := range file.Messages {
+		if !im.errorMsgs[m.Name] {
+			file.Declarations = append(file.Declarations, m)
 		}
-		if strings.HasPrefix(strings.TrimSpace(line), "base_path:") {
-			prevWasBasePath = true
-		} else if rpcStarted || prevWasBasePath {
-			out.WriteString("\n") // canonical blanks: after base_path and between RPCs
-			prevWasBasePath = false
-		}
-		rpcStarted = true
-		out.WriteString(line + "\n")
 	}
-	out.WriteString("}\n")
-	return []byte(out.String())
+	for _, e := range file.Enums {
+		file.Declarations = append(file.Declarations, e)
+	}
+	for _, m := range file.Messages {
+		if im.errorMsgs[m.Name] {
+			file.Declarations = append(file.Declarations, m)
+		}
+	}
+	file.Declarations = append(file.Declarations, service)
+	return file
 }
 
-func writeMessage(out *strings.Builder, name string, fields []string, isError bool) {
-	statusPrefix := ""
-	if isError && len(fields) > 0 && strings.HasPrefix(fields[0], "@status(") {
-		statusPrefix = fields[0] + " "
-		fields = fields[1:]
+// render spells the declarations as TypeSpec.
+func render(file *onkschema.File) ([]byte, error) {
+	out, err := onkmigrate.Convert([]onkmigrate.Source{{Path: file.Package + ".tsp", AST: file}}, onkmigrate.Options{})
+	if err != nil {
+		return nil, fmt.Errorf("render the imported schema: %w", err)
 	}
-	out.WriteString("message " + name + " " + statusPrefix + "{\n")
-	for i, line := range fields {
-		if i > 0 {
-			out.WriteString("\n") // canonical layout blanks between members
-		}
-		out.WriteString("  " + line + "\n")
-	}
-	out.WriteString("}\n\n")
+	return []byte(out[0].Content), nil
 }
 
 func normalizeKeys(value any) any {

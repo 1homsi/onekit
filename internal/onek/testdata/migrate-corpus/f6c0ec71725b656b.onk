@@ -1,4 +1,0 @@
-
-package probe
-message Frame { text: string }
-service Live { chat(Frame) -> Frame @ws("/chat") }

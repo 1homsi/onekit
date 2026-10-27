@@ -21,7 +21,6 @@ import (
 	"github.com/1homsi/onekit/internal/onkcompat"
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkimport"
-	"github.com/1homsi/onekit/internal/onklang"
 	"github.com/1homsi/onekit/internal/onkmigrate"
 )
 
@@ -295,7 +294,7 @@ func runMock(args []string) error {
 	return server.Run(ctx, *addr, os.Stdout)
 }
 
-// runImport converts an OpenAPI 3.x document into .onk source, verifies it
+// runImport converts an OpenAPI 3.x document into TypeSpec source, verifies it
 // parses, writes it under --out, and reports conversion warnings.
 func runImport(args []string) error {
 	fs := flag.NewFlagSet("import", flag.ContinueOnError)
@@ -331,7 +330,7 @@ func runImport(args []string) error {
 		return fmt.Errorf("invalid generated package name %q", result.Package)
 	}
 	target := filepath.Join(*outDir, result.Package+".tsp")
-	schema, err := importedTypeSpec(result, target)
+	schema, err := importedTypeSpec(result)
 	if err != nil {
 		return err
 	}
@@ -362,22 +361,14 @@ func runImport(args []string) error {
 	return nil
 }
 
-// importedTypeSpec checks an imported schema and converts it to TypeSpec.
-// Never write output that does not compile - a broken import is worse than a
-// failed one.
-func importedTypeSpec(result *onkimport.Result, target string) (string, error) {
-	ast, err := onklang.Parse(string(result.Source))
-	if err != nil {
-		return "", fmt.Errorf("internal: imported schema does not parse: %w", err)
-	}
-	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: result.Package + ".onk", AST: ast}}); err != nil {
+// importedTypeSpec checks an imported schema before it is written. Never
+// write output that does not compile - a broken import is worse than a failed
+// one.
+func importedTypeSpec(result *onkimport.Result) (string, error) {
+	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: result.Package + ".tsp", AST: result.File}}); err != nil {
 		return "", fmt.Errorf("imported schema does not pass onkt check: %w", err)
 	}
-	out, err := onkmigrate.Convert([]onkmigrate.Source{{Path: target, AST: ast}}, onkmigrate.Options{})
-	if err != nil {
-		return "", fmt.Errorf("internal: imported schema does not convert to TypeSpec: %w", err)
-	}
-	return out[0].Content, nil
+	return string(result.Source), nil
 }
 
 func runCompat(args []string) error {

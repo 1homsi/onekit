@@ -9,65 +9,10 @@ import (
 	"github.com/1homsi/onekit/internal/gengo"
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const httpWireSchema = `
-package notes
-
-enum Visibility { PRIVATE PUBLIC_VIEW }
-message Meta { owner: string }
-message Note {
-  id: string
-  count: int32
-  big: int64
-  huge: uint64
-  ratio: float64
-  tags: string[]
-  data: bytes
-  hex: bytes @encode("hex")
-  at: timestamp
-  day: timestamp @encode("date")
-  secs: timestamp @encode("unix_seconds")
-  vis: Visibility
-  vis_num: Visibility @encode("number")
-  maybe: string?
-  meta: Meta
-  flat: Meta @flatten(prefix: "m_")
-  labels: map[string, string]
-  raw_json: json
-  body: oneof(discriminator: "kind") {
-    text: string @tag("text")
-    meta_ref: Meta @tag("meta")
-    n: int64 @tag("n")
-  }
-}
-message Wide {
-  nums: int64[]
-  ids: uint64[]
-  by_name: map[string, int64]
-  stamps: timestamp[]
-  blobs: bytes[]
-  levels: Visibility[]
-  metas: Meta[]
-  meta_map: map[string, Meta]
-  opt_num: int64?
-  flag: bool
-  opt_flag: bool?
-  small: int32
-  f32: float32
-  zero_str: string
-}
-message Fetch { id: string limit: int32? @query tags: string[] @query }
-message NotFound @status(404) { code: string }
-
-service Notes {
-  create(Note) -> Note @post("/notes")
-  echoWide(Wide) -> Wide @post("/wide")
-  fetch(Fetch) -> Note | NotFound @get("/notes/{id}")
-  watch(Fetch) -> Note | NotFound @get("/watch/{id}") @stream
-}
-`
+const httpWireSchema = "namespace notes;\n\nenum Visibility {\n  PRIVATE,\n  PUBLIC_VIEW,\n}\n\nmodel Meta {\n  owner: string;\n}\n\n@Onkt.discriminator(\"kind\")\nunion NoteBody {\n  @Onkt.tag(\"text\") text: string,\n  @Onkt.tag(\"meta\") meta_ref: Meta,\n  @Onkt.tag(\"n\") n: int64,\n}\n\nmodel Note {\n  id: string;\n  count: int32;\n  @encode(string)\n  big: int64;\n  @encode(string)\n  huge: uint64;\n  ratio: float64;\n  tags: string[];\n  data: bytes;\n  @Onkt.encode(\"hex\")\n  hex: bytes;\n  at: utcDateTime;\n  day: plainDate;\n  @encode(\"unixTimestamp\", int64)\n  secs: utcDateTime;\n  vis: Visibility;\n  @Onkt.encode(\"number\")\n  vis_num: Visibility;\n  maybe?: string;\n  meta: Meta;\n  @Onkt.flatten(\"m_\")\n  flat: Meta;\n  labels: Record<string>;\n  raw_json: unknown;\n  body: NoteBody;\n}\n\nmodel Wide {\n  @Onkt.encode(\"string\")\n  nums: int64[];\n  @Onkt.encode(\"string\")\n  ids: uint64[];\n  by_name: Record<int64>;\n  stamps: utcDateTime[];\n  blobs: bytes[];\n  levels: Visibility[];\n  metas: Meta[];\n  meta_map: Record<Meta>;\n  @encode(string)\n  opt_num?: int64;\n  `flag`: boolean;\n  opt_flag?: boolean;\n  small: int32;\n  f32: float32;\n  zero_str: string;\n}\n\nmodel Fetch {\n  id: string;\n  @query\n  limit?: int32;\n  @query\n  tags: string[];\n}\n\n@error\nmodel NotFound {\n  @statusCode _: 404;\n  code: string;\n}\n\ninterface Notes {\n  @post\n  @route(\"/notes\")\n  create(...Note): Note;\n\n  @post\n  @route(\"/wide\")\n  echoWide(...Wide): Wide;\n\n  @get\n  @route(\"/notes/{id}\")\n  fetch(...Fetch): Note | NotFound;\n\n  @get\n  @route(\"/watch/{id}\")\n  @Onkt.stream\n  watch(...Fetch): Note | NotFound;\n}\n"
 
 const goHTTPHarnessMain = `package main
 
@@ -220,11 +165,11 @@ Future<void> main(List<String> args) async {
 
 func compileHTTPWireSchema(t *testing.T) *onkir.File {
 	t.Helper()
-	ast, err := onklang.Parse(httpWireSchema)
+	ast, err := onktest.Parse(httpWireSchema)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "notes.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "notes.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

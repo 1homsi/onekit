@@ -21,22 +21,22 @@ out = "./gen/go"
 out = "./gen/ts"
 `
 
-const buildCacheSchema = `
-package api
+const buildCacheSchema = `namespace api;
 
-message Item {
-  id: string
-  name: string
+model Item {
+  id: string;
+  name: string;
 }
 
-message GetItemRequest {
-  id: string
+model GetItemRequest {
+  id: string;
 }
 
-service Items {
-  base_path: "/items/v1"
-
-  getItem(GetItemRequest) -> Item @get("/items/{id}")
+@route("/items/v1")
+interface Items {
+  @get
+  @route("/items/{id}")
+  getItem(...GetItemRequest): Item;
 }
 `
 
@@ -44,8 +44,8 @@ func cacheProject(t *testing.T) string {
 	t.Helper()
 	t.Setenv(cacheDirEnv, t.TempDir())
 	dir := canonicalTestDir(t)
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), buildCacheToml)
-	writeTestFile(t, filepath.Join(dir, "api", "items.onk"), buildCacheSchema)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), buildCacheToml)
+	writeTestFile(t, filepath.Join(dir, "api", "items.tsp"), buildCacheSchema)
 	return dir
 }
 
@@ -104,7 +104,7 @@ func TestBuildCacheSkipsGenerationWhenNothingChanged(t *testing.T) {
 func TestBuildCacheMissesWhenSchemaChanges(t *testing.T) {
 	dir := cacheProject(t)
 	buildSummary(t, dir)
-	writeTestFile(t, filepath.Join(dir, "api", "items.onk"), strings.Replace(buildCacheSchema, "name: string", "name: string\n  color: string", 1))
+	writeTestFile(t, filepath.Join(dir, "api", "items.tsp"), strings.Replace(buildCacheSchema, "name: string;", "name: string;\n  color: string;", 1))
 	if summary := buildSummary(t, dir); summary.Cached {
 		t.Fatal("schema change was served from the cache")
 	}
@@ -120,7 +120,7 @@ func TestBuildCacheMissesWhenSchemaChanges(t *testing.T) {
 func TestBuildCacheMissesWhenConfigChanges(t *testing.T) {
 	dir := cacheProject(t)
 	buildSummary(t, dir)
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), buildCacheToml+"\n[generate.openapi]\nout = \"./gen/openapi\"\n")
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), buildCacheToml+"\n[generate.openapi]\nout = \"./gen/openapi\"\n")
 	if summary := buildSummary(t, dir); summary.Cached {
 		t.Fatal("config change was served from the cache")
 	}

@@ -9,49 +9,60 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const rustTypesFixture = `
-package fixture
+const rustTypesFixture = `namespace fixture;
 
-message Address {
-  street: string
-  city: string
+model Address {
+  street: string;
+  city: string;
 }
 
-message EmailAuth {
-  email: string @email
+model EmailAuth {
+  @format("email")
+  email: string;
 }
 
-message TokenAuth {
-  token: string @len(10, 100)
+model TokenAuth {
+  @minLength(10)
+  @maxLength(100)
+  token: string;
 }
 
 enum Status {
-  UNSPECIFIED
-  ACTIVE @json("active")
+  UNSPECIFIED,
+  ACTIVE: "active",
 }
 
-message Tags {
-  values: string[] @unwrap
+model Tags {
+  @Onkt.unwrap
+  values: string[];
 }
 
-message Envelope {
-  id: int64
-  payload: bytes @encode("hex")
-  optional_payload: bytes?
-  chunks: bytes[]
-  blob_map: map[string, bytes]
-  callback_url: string @uri
-  status: Status
-  numeric_status: Status @encode("number")
-  tags: Tags
-  home: Address @flatten(prefix: "home_")
-  auth_method: oneof(discriminator: "auth_type") {
-    email: EmailAuth
-    token: TokenAuth
-  }
+@Onkt.discriminator("auth_type")
+union EnvelopeAuthMethod {
+  email: EmailAuth,
+  token: TokenAuth,
+}
+
+model Envelope {
+  @encode(string)
+  id: int64;
+  @Onkt.encode("hex")
+  payload: bytes;
+  optional_payload?: bytes;
+  chunks: bytes[];
+  blob_map: Record<bytes>;
+  @format("uri")
+  callback_url: string;
+  status: Status;
+  @Onkt.encode("number")
+  numeric_status: Status;
+  tags: Tags;
+  @Onkt.flatten("home_")
+  home: Address;
+  auth_method: EnvelopeAuthMethod;
 }
 `
 
@@ -120,11 +131,11 @@ func TestGeneratedRustTypesCompileAndRoundTrip(t *testing.T) {
 	if _, err := exec.LookPath("cargo"); err != nil {
 		t.Skip("cargo toolchain not available")
 	}
-	ast, err := onklang.Parse(rustTypesFixture)
+	ast, err := onktest.Parse(rustTypesFixture)
 	if err != nil {
 		t.Fatalf("parse fixture: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "fixture.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "fixture.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile fixture: %v", err)
 	}
@@ -155,29 +166,53 @@ func TestGeneratedRustTypesCompileAndRoundTrip(t *testing.T) {
 }
 
 func TestGenerateRustClientEncodesCustomBodyFields(t *testing.T) {
-	ast, err := onklang.Parse(`
-package bodyfixture
+	ast, err := onktest.Parse(`namespace bodyfixture;
 
 enum State {
-  UNKNOWN
-  READY
+  UNKNOWN,
+  READY,
 }
 
-message AmountRequest { amount: int64 }
-message PayloadRequest { payload: bytes @encode(hex) }
-message StateRequest { state: State @encode(number) }
-message Ack { ok: bool }
+model AmountRequest {
+  @body
+  @encode(string)
+  amount: int64;
+}
 
-service BodyService {
-  sendAmount(AmountRequest) -> Ack @post("/amount") @body("amount")
-  sendPayload(PayloadRequest) -> Ack @post("/payload") @body("payload")
-  sendState(StateRequest) -> Ack @post("/state") @body("state")
+model PayloadRequest {
+  @body
+  @Onkt.encode("hex")
+  payload: bytes;
+}
+
+model StateRequest {
+  @body
+  @Onkt.encode("number")
+  state: State;
+}
+
+model Ack {
+  ok: boolean;
+}
+
+interface BodyService {
+  @post
+  @route("/amount")
+  sendAmount(...AmountRequest): Ack;
+
+  @post
+  @route("/payload")
+  sendPayload(...PayloadRequest): Ack;
+
+  @post
+  @route("/state")
+  sendState(...StateRequest): Ack;
 }
 `)
 	if err != nil {
 		t.Fatalf("parse fixture: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "body.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "body.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile fixture: %v", err)
 	}
@@ -198,20 +233,27 @@ service BodyService {
 // the server must accept it via axum::routing::any with an in-handler method
 // guard, because MethodRouter cannot match custom methods.
 func TestGeneratedRustUsesLiteralQueryMethod(t *testing.T) {
-	ast, err := onklang.Parse(`
-package queryfixture
+	ast, err := onktest.Parse(`namespace queryfixture;
 
-message SearchRequest { term: string }
-message SearchResponse { total: int64 }
+model SearchRequest {
+  term: string;
+}
 
-service SearchService {
-  search(SearchRequest) -> SearchResponse @query("/search")
+model SearchResponse {
+  @encode(string)
+  total: int64;
+}
+
+interface SearchService {
+  @Onkt.method("QUERY")
+  @route("/search")
+  search(...SearchRequest): SearchResponse;
 }
 `)
 	if err != nil {
 		t.Fatalf("parse fixture: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "query.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "query.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile fixture: %v", err)
 	}

@@ -1,4 +1,0 @@
-
-package app
-message Frame { text: string }
-service Chat { join(Frame) -> Frame @ws("/chat") @deprecated }

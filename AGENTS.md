@@ -4,4 +4,4 @@
 - A project compiles from `main.tsp` at its schema root with the project's own TypeSpec toolchain. In this repository, run `make typespec` once (it installs the npm workspace and builds the `@onkt/typespec` emitter); `examples/simple-api` is the example project.
 - After changing a schema, validate it with `go run ./cmd/onkt check --json --dir <project>`. Diagnostics carry one-based lines and columns, from TypeSpec and from onekit's own checks alike.
 - Make schema changes in .tsp sources; regenerate their outputs with `go run ./cmd/onkt build --dir <project>` (`make check-generated` for the example).
-- `.onk` is the retired schema language. It survives only as the input of `onkt migrate` and as a compact fixture format in Go tests; do not add new `.onk` schemas outside tests.
+- `.onk` is the retired schema language. It survives only as the input of `onkt migrate` (and inline in the tests of the parser and the migration); do not add `.onk` schemas.

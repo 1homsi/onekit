@@ -11,19 +11,19 @@ func TestNullableFieldValidation(t *testing.T) {
 		field string
 		want  string
 	}{
-		{"optional string accepted", `note: string? @nullable`, ""},
-		{"optional message accepted", `item: Item? @nullable`, ""},
-		{"number-encoded int64 accepted", `n: int64? @nullable @encode("number")`, ""},
-		{"non-optional rejected", `note: string @nullable`, "requires the ? marker"},
-		{"repeated rejected", `notes: string[] @nullable`, "requires the ? marker"},
-		{"bytes rejected", `data: bytes? @nullable`, "bytes"},
-		{"string-encoded int64 rejected", `n: int64? @nullable`, "numeric 64-bit encoding"},
-		{"required rejected", `note: string? @nullable @required`, "@required"},
-		{"query rejected", `note: string? @nullable @query`, "@query"},
+		{"optional string accepted", `note?: string | null;`, ""},
+		{"optional message accepted", `item?: Item | null;`, ""},
+		{"number-encoded int64 accepted", `n?: int64 | null;`, ""},
+		{"non-optional rejected", `note: string | null;`, "requires the ? marker"},
+		{"repeated rejected", `notes: string[] | null;`, "requires the ? marker"},
+		{"bytes rejected", `data?: bytes | null;`, "bytes"},
+		{"string-encoded int64 rejected", `@Onkt.encode("string") n?: int64 | null;`, "numeric 64-bit encoding"},
+		{"required rejected", `@Onkt.required note?: string | null;`, "@required"},
+		{"query rejected", `@query note?: string | null;`, "@query"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := compileRules(t, "package api\nmessage Item { name: string }\nmessage Patch {\n  "+tc.field+"\n}\n")
+			err := compileRules(t, "namespace api;\nmodel Item { name: string; }\nmodel Patch {\n  "+tc.field+"\n}\n")
 			if tc.want == "" {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)

@@ -13,7 +13,7 @@ func buildGoSchema(t *testing.T, schema, testSource string) {
 		t.Skip("go toolchain not available")
 	}
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), `
 module = "example.com/check/api"
 
 [generate.go-server]
@@ -22,13 +22,13 @@ out = "./api"
 [generate.go-client]
 out = "./api"
 `)
-	writeTestFile(t, filepath.Join(dir, "api.onk"), schema)
+	writeTestFile(t, filepath.Join(dir, "api.tsp"), schema)
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build error: %v", err)
 	}
 	apiDir := filepath.Join(dir, "api")
 	goMod := "module example.com/check/api\n\ngo 1.26\n"
-	if strings.Contains(schema, "@ws(") {
+	if strings.Contains(schema, "@Onkt.ws") {
 		goMod += "\nrequire github.com/coder/websocket v1.8.15\n"
 	}
 	writeTestFile(t, filepath.Join(apiDir, "go.mod"), goMod)
@@ -37,7 +37,7 @@ out = "./api"
 		writeTestFile(t, filepath.Join(apiDir, "schema_test.go"), testSource)
 		args = []string{"test", "./..."}
 	}
-	if strings.Contains(schema, "@ws(") {
+	if strings.Contains(schema, "@Onkt.ws") {
 		tidy := exec.Command("go", "mod", "tidy")
 		tidy.Dir = apiDir
 		if out, err := tidy.CombinedOutput(); err != nil {
@@ -52,18 +52,19 @@ out = "./api"
 }
 
 func TestGoFlattenTwoFieldsCompilesAndRoundTrips(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Address {
-  city: string
-  zip: string
+model Address {
+  city: string;
+  zip: string;
 }
 
-message Order {
-  id: string
-  billing: Address @flatten(prefix: "billing_")
-  shipping: Address @flatten(prefix: "shipping_")
+model Order {
+  id: string;
+  @Onkt.flatten("billing_")
+  billing: Address;
+  @Onkt.flatten("shipping_")
+  shipping: Address;
 }
 `, `package api
 
@@ -94,16 +95,28 @@ func TestGoBuildSanitizesHyphenatedPackageDirectories(t *testing.T) {
 		t.Skip("go toolchain not available")
 	}
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), `
 module = "example.com/hy/gen"
 
 [generate.go-server]
 out = "./gen"
 `)
-	writeTestFile(t, filepath.Join(dir, "shared-types", "models.onk"), "message Addr { city: string }\n")
-	writeTestFile(t, filepath.Join(dir, "user-service", "api.onk"), `import "../shared-types/models.onk"
-message U { id: string  addr: Addr }
-service Users { get(U) -> U @put("/u/{id}") }
+	writeTestFile(t, filepath.Join(dir, "shared-types", "models.tsp"), `
+model Addr {
+  city: string;
+}
+`)
+	writeTestFile(t, filepath.Join(dir, "user-service", "api.tsp"), `
+model U {
+  id: string;
+  addr: Addr;
+}
+
+interface Users {
+  @put
+  @route("/u/{id}")
+  get(...U): U;
+}
 `)
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build error: %v", err)

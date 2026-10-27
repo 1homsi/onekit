@@ -23,10 +23,31 @@ func TestCompatibilityAgainstGitRef(t *testing.T) {
 	}
 	git("init", "-q")
 	project := filepath.Join(repo, "api")
-	writeTestFile(t, filepath.Join(project, "api.onk"), "message R { id: string  name: string }\nservice S { get(R) -> R @put(\"/r/{id}\") }\n")
+	writeTestFile(t, filepath.Join(project, "api.tsp"), `
+model R {
+  id: string;
+  name: string;
+}
+
+interface S {
+  @put
+  @route("/r/{id}")
+  get(...R): R;
+}
+`)
 	git("add", "-A")
 	git("commit", "-q", "-m", "baseline")
-	writeTestFile(t, filepath.Join(project, "api.onk"), "message R { id: string }\nservice S { get(R) -> R @put(\"/r/{id}\") }\n")
+	writeTestFile(t, filepath.Join(project, "api.tsp"), `
+model R {
+  id: string;
+}
+
+interface S {
+  @put
+  @route("/r/{id}")
+  get(...R): R;
+}
+`)
 	findings, err := CompatibilityAgainstRef("HEAD", project)
 	if err != nil {
 		t.Fatal(err)

@@ -1,8 +1,0 @@
-
-package app
-message Req { id: string }
-message Res { id: string }
-
-service Items {
-  remove(Req) -> Res @post("/remove")
-}

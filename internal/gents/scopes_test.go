@@ -7,16 +7,30 @@ import (
 	"testing"
 )
 
-const scopesSchema = `
-package app
+const scopesSchema = `namespace app;
 
-message Item { id: string }
-message GetItem { id: string }
+model Item {
+  id: string;
+}
 
-service Items {
-  get(GetItem) -> Item @get("/items/{id}") @requires("items:read")
-  remove(GetItem) -> Item @delete("/items/{id}") @requires("items:read", "items:write")
-  ping(GetItem) -> Item @get("/ping/{id}")
+model GetItem {
+  id: string;
+}
+
+interface Items {
+  @get
+  @route("/items/{id}")
+  @Onkt.requires("items:read")
+  get(...GetItem): Item;
+
+  @delete
+  @route("/items/{id}")
+  @Onkt.requires("items:read", "items:write")
+  remove(...GetItem): Item;
+
+  @get
+  @route("/ping/{id}")
+  ping(...GetItem): Item;
 }
 `
 

@@ -3,11 +3,15 @@ package onek
 import "testing"
 
 func TestGoTimestampOneofVariantCompiles(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Mark {
-  v: oneof { at: timestamp  label: string }
+union MarkV {
+  at: utcDateTime,
+  label: string,
+}
+
+model Mark {
+  v: MarkV;
 }
 `, "")
 }

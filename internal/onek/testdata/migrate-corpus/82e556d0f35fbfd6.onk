@@ -1,6 +1,0 @@
-package readme
-message HostCall {
-  id: string @ws_id
-  method: string
-  timeout_ms: int64 @ws_timeout
-}

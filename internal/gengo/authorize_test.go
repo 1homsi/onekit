@@ -8,35 +8,50 @@ import (
 	"testing"
 )
 
-const authorizeGoSchema = `package app
+const authorizeGoSchema = `namespace app;
 
-message Principal @principal {
-  user_id: string
-  roles: string[]
-  org: string
+@Onkt.principal
+model Principal {
+  user_id: string;
+  roles: string[];
+  org: string;
 }
 
-message DeleteDoc {
-  id: string
-  owner_org: string
+model DeleteDoc {
+  id: string;
+  owner_org: string;
 }
 
-message WatchDocs {
-  org: string
+model WatchDocs {
+  org: string;
 }
 
-message Doc { id: string }
-message Ack { ok: bool }
+model Doc {
+  id: string;
+}
 
-service Docs {
-  base_path: "/v1"
-  delete(DeleteDoc) -> Ack @post("/docs/delete")
-    @requires("docs:write")
-    @authorize("'admin' in auth.roles || auth.org == req.owner_org", "not allowed to delete this document")
-    @authorize("size(auth.user_id) > 0", "sign in first")
-  open(DeleteDoc) -> Ack @post("/docs/open")
-  watch(WatchDocs) -> Doc @get("/docs/watch") @stream
-    @authorize("auth.org == req.org", "not your organization")
+model Ack {
+  ok: boolean;
+}
+
+@route("/v1")
+interface Docs {
+  @post
+  @route("/docs/delete")
+  @Onkt.requires("docs:write")
+  @Onkt.authorize("'admin' in auth.roles || auth.org == req.owner_org", "not allowed to delete this document")
+  @Onkt.authorize("size(auth.user_id) > 0", "sign in first")
+  delete(...DeleteDoc): Ack;
+
+  @post
+  @route("/docs/open")
+  open(...DeleteDoc): Ack;
+
+  @get
+  @route("/docs/watch")
+  @Onkt.stream
+  @Onkt.authorize("auth.org == req.org", "not your organization")
+  watch(...WatchDocs): Doc;
 }
 `
 

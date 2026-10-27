@@ -6,24 +6,33 @@ import (
 )
 
 func TestDartOutputCarriesDocsAndDeprecations(t *testing.T) {
-	file := compileDartSchema(t, `package app
-/// A stored note.
-///
-/// Notes are immutable.
-message Note {
-  /// Unique identifier.
-  id: string
-  title: string @deprecated("use heading")
+	file := compileDartSchema(t, `namespace app;
+
+/**
+ * A stored note.
+ *
+ * Notes are immutable.
+ */
+model Note {
+  /** Unique identifier. */
+  id: string;
+  #deprecated "use heading"
+  title: string;
 }
-/// Visibility of a note.
+
+/** Visibility of a note. */
 enum Visibility {
-  /// Only the author.
-  PRIVATE
+  /** Only the author. */
+  PRIVATE,
 }
-/// Manages notes.
-service Notes {
-  /// Fetch one note.
-  get(Note) -> Note @get("/notes/{id}") @deprecated
+
+/** Manages notes. */
+interface Notes {
+  /** Fetch one note. */
+  #deprecated ""
+  @get
+  @route("/notes/{id}")
+  get(...Note): Note;
 }
 `)
 	models, client := string(GenerateTypes(file)), string(GenerateClient(file))

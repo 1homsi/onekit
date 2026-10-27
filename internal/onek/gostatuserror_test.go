@@ -3,12 +3,17 @@ package onek
 import "testing"
 
 func TestGoClientReturnsUnexpectedStatusError(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message R { id: string }
+model R {
+  id: string;
+}
 
-service Items { get(R) -> R @get("/items/{id}") }
+interface Items {
+  @get
+  @route("/items/{id}")
+  get(...R): R;
+}
 `, `package api
 
 import (

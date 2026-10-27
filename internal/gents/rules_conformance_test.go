@@ -55,32 +55,34 @@ func TestGeneratedTSRulesMatchTheReferenceEvaluator(t *testing.T) {
 }
 
 func TestTSRulesFollowTheTypeScriptValueShapes(t *testing.T) {
-	runTSSchema(t, `
-package app
+	runTSSchema(t, `namespace app;
 
 enum Status {
-  UNSPECIFIED
-  ACTIVE @json("active")
+  UNSPECIFIED,
+  ACTIVE: "active",
 }
 
-message Address {
-  street: string
-  city: string
+model Address {
+  street: string;
+  city: string;
 }
 
-message Order
-  @rule("self.billing.city == 'Paris' && size(self.billing.street) > 0", "bill a Paris address")
-  @rule("self.amount > 5", "amount must exceed five")
-  @rule("self.state == 'ACTIVE' && self.state_num == 'ACTIVE'", "both states must be active")
-{
-  billing: Address @flatten(prefix: "billing_")
-  amount: int64 @encode(number)
-  state: Status
-  state_num: Status @encode(number)
+@Onkt.rule("self.billing.city == 'Paris' && size(self.billing.street) > 0", "bill a Paris address")
+@Onkt.rule("self.amount > 5", "amount must exceed five")
+@Onkt.rule("self.state == 'ACTIVE' && self.state_num == 'ACTIVE'", "both states must be active")
+model Order {
+  @Onkt.flatten("billing_")
+  billing: Address;
+  amount: int64;
+  state: Status;
+  @Onkt.encode("number")
+  state_num: Status;
 }
 
-message IdList @rule("size(self.ids) <= 2", "at most two ids") {
-  ids: string[] @unwrap
+@Onkt.rule("size(self.ids) <= 2", "at most two ids")
+model IdList {
+  @Onkt.unwrap
+  ids: string[];
 }
 `, `
 import { validateOrder, validateIdList } from "./types.ts";

@@ -3,10 +3,17 @@ package gents
 import "testing"
 
 func TestTSNodeAdapterRejectsMalformedHost(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Note { text: string }
-service Notes { create(Note) -> Note @post("/notes") }
+	runTSSchema(t, `namespace app;
+
+model Note {
+  text: string;
+}
+
+interface Notes {
+  @post
+  @route("/notes")
+  create(...Note): Note;
+}
 `, `
 import { createServer } from "node:http";
 import { connect } from "node:net";

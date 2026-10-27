@@ -3,14 +3,24 @@ package genpy
 import "testing"
 
 func TestPythonKeepAliveNeverResendsAPostTheServerMayHaveHandled(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message Req { msg: string }
-message Res { msg: string }
+	runPythonSchema(t, `namespace app;
 
-service Echo {
-  echo(Req) -> Res @post("/echo")
-  look(Req) -> Res @get("/look")
+model Req {
+  msg: string;
+}
+
+model Res {
+  msg: string;
+}
+
+interface Echo {
+  @post
+  @route("/echo")
+  echo(...Req): Res;
+
+  @get
+  @route("/look")
+  look(...Req): Res;
 }
 `, `
 import http.client, json, socket, threading, time

@@ -8,12 +8,13 @@ import (
 	"testing"
 )
 
-const jsonObjectSchema = `package app
+const jsonObjectSchema = `namespace app;
 
-message Doc {
-  id: string
-  settings: json @object
-  any: json
+model Doc {
+  id: string;
+  @Onkt.object
+  settings: unknown;
+  any: unknown;
 }
 `
 

@@ -2,17 +2,40 @@ package onkcompat
 
 import "testing"
 
-const directionBase = `package app
-message Req { id: string }
-message User { name: string }
-service API { get(Req) -> User @post("/users") }
+const directionBase = `namespace app;
+
+model Req {
+  id: string;
+}
+
+model User {
+  name: string;
+}
+
+interface API {
+  @post
+  @route("/users")
+  get(...Req): User;
+}
 `
 
 func TestCompareAllowsNewRequiredResponseField(t *testing.T) {
-	after := `package app
-message Req { id: string }
-message User { name: string email: string }
-service API { get(Req) -> User @post("/users") }
+	after := `namespace app;
+
+model Req {
+  id: string;
+}
+
+model User {
+  name: string;
+  email: string;
+}
+
+interface API {
+  @post
+  @route("/users")
+  get(...Req): User;
+}
 `
 	if findings := compareSchemas(t, directionBase, after); len(findings) != 0 {
 		t.Fatalf("adding a response field is compatible, got %+v", findings)
@@ -20,10 +43,22 @@ service API { get(Req) -> User @post("/users") }
 }
 
 func TestCompareFlagsNewRequiredRequestField(t *testing.T) {
-	after := `package app
-message Req { id: string tenant: string }
-message User { name: string }
-service API { get(Req) -> User @post("/users") }
+	after := `namespace app;
+
+model Req {
+  id: string;
+  tenant: string;
+}
+
+model User {
+  name: string;
+}
+
+interface API {
+  @post
+  @route("/users")
+  get(...Req): User;
+}
 `
 	findings := compareSchemas(t, directionBase, after)
 	if len(findings) != 1 || findings[0].Message != "required field was added" {
@@ -32,10 +67,21 @@ service API { get(Req) -> User @post("/users") }
 }
 
 func TestCompareReportsOptionalityOncePerDirection(t *testing.T) {
-	after := `package app
-message Req { id: string? }
-message User { name: string? }
-service API { get(Req) -> User @post("/users") }
+	after := `namespace app;
+
+model Req {
+  id?: string;
+}
+
+model User {
+  name?: string;
+}
+
+interface API {
+  @post
+  @route("/users")
+  get(...Req): User;
+}
 `
 	findings := compareSchemas(t, directionBase, after)
 	if len(findings) != 1 || findings[0].Path != "app.User.name" || findings[0].Message != "field became optional in a response" {

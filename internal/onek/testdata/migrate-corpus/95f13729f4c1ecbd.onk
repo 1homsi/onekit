@@ -1,7 +1,0 @@
-package app
-message Req { slug: string }
-message Out { ok: bool }
-message Empty {}
-service API {
-  up(Req) -> Empty @post("/apps/{slug}/up") @http
-}

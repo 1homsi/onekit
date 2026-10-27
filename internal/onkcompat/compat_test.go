@@ -5,25 +5,46 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func compile(t *testing.T, src string) *onkcompile.Source {
-	ast, err := onklang.Parse(src)
+	ast, err := onktest.Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &onkcompile.Source{Path: "api.onk", AST: ast}
+	return &onkcompile.Source{Path: "api.tsp", AST: ast}
 }
 func TestCompareFindsBreakingChanges(t *testing.T) {
-	old := compile(t, `package app
-message Request { id: string optional: string? }
-message Response {}
-service API { get(Request) -> Response @get("/items/{id}") }`)
-	newer := compile(t, `package app
-message Request { optional: string }
-message Response {}
-service API { get(Request) -> Response @get("/things") }`)
+	old := compile(t, `namespace app;
+
+model Request {
+  id: string;
+  optional?: string;
+}
+
+model Response {}
+
+interface API {
+  @get
+  @route("/items/{id}")
+  get(...Request): app.Response;
+}
+`)
+	newer := compile(t, `namespace app;
+
+model Request {
+  optional: string;
+}
+
+model Response {}
+
+interface API {
+  @get
+  @route("/things")
+  get(...Request): app.Response;
+}
+`)
 	oldPkg, err := onkcompile.Compile([]onkcompile.Source{*old})
 	if err != nil {
 		t.Fatal(err)
@@ -51,30 +72,60 @@ service API { get(Request) -> Response @get("/things") }`)
 // overwrite each other's snapshot entry, which previously made detection
 // depend on file iteration order.
 func TestCompareDetectsBreakingChangeDespiteCollidingEffectiveRoutes(t *testing.T) {
-	old := compile(t, `package api
-message R1 { id: string }
-message R2 { id: string }
-message R3 { id: string }
+	old := compile(t, `namespace api;
 
-service Alpha { base_path: "/fin"
-  list(R1) -> R3 @get("/users")
+model R1 {
+  id: string;
 }
 
-service Beta {
-  list(R2) -> R2 @get("/users")
-}`)
-	newer := compile(t, `package api
-message R1 { id: string }
-message R2 { id: string }
-message R3 { id: string }
-
-service Alpha { base_path: "/fin"
-  list(R2) -> R2 @get("/users")
+model R2 {
+  id: string;
 }
 
-service Beta {
-  list(R2) -> R2 @get("/users")
-}`)
+model R3 {
+  id: string;
+}
+
+@route("/fin")
+interface Alpha {
+  @get
+  @route("/users")
+  list(...R1): R3;
+}
+
+interface Beta {
+  @get
+  @route("/users")
+  list(...R2): R2;
+}
+`)
+	newer := compile(t, `namespace api;
+
+model R1 {
+  id: string;
+}
+
+model R2 {
+  id: string;
+}
+
+model R3 {
+  id: string;
+}
+
+@route("/fin")
+interface Alpha {
+  @get
+  @route("/users")
+  list(...R2): R2;
+}
+
+interface Beta {
+  @get
+  @route("/users")
+  list(...R2): R2;
+}
+`)
 	oldPkg, err := onkcompile.Compile([]onkcompile.Source{*old})
 	if err != nil {
 		t.Fatal(err)
@@ -95,18 +146,26 @@ service Beta {
 }
 
 func TestCompareDetectsOneofVariantMappingChanges(t *testing.T) {
-	old := compile(t, `package app
-message Envelope {
-  payload: oneof {
-    text: string @tag("text") @json("old_text")
-  }
-}`)
-	newer := compile(t, `package app
-message Envelope {
-  payload: oneof {
-    text: string @tag("text") @json("new_text")
-  }
-}`)
+	old := compile(t, `namespace app;
+
+union EnvelopePayload {
+  @Onkt.tag("text") @Onkt.json("old_text") text: string,
+}
+
+model Envelope {
+  payload: EnvelopePayload;
+}
+`)
+	newer := compile(t, `namespace app;
+
+union EnvelopePayload {
+  @Onkt.tag("text") @Onkt.json("new_text") text: string,
+}
+
+model Envelope {
+  payload: EnvelopePayload;
+}
+`)
 	oldPkg, err := onkcompile.Compile([]onkcompile.Source{*old})
 	if err != nil {
 		t.Fatal(err)

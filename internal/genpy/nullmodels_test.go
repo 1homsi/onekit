@@ -3,21 +3,25 @@ package genpy
 import "testing"
 
 func TestPythonModelsTolerateNullAndRejectNonFinite(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message Probe {
-  f: float64
-  arr: string[]
-  m: map[string, string]
-  big: int64
-  s: string
-  n: int32
-  tags: Probe[]
-  pat: string @pattern("^[a-z]+$")
+	runPythonSchema(t, `namespace app;
+
+model Probe {
+  f: float64;
+  arr: string[];
+  m: Record<string>;
+  @encode(string)
+  big: int64;
+  s: string;
+  n: int32;
+  tags: Probe[];
+  @pattern("^[a-z]+$")
+  pat: string;
 }
 
-service Echo {
-  echo(Probe) -> Probe @post("/echo")
+interface Echo {
+  @post
+  @route("/echo")
+  echo(...Probe): Probe;
 }
 `, `
 from models import Probe

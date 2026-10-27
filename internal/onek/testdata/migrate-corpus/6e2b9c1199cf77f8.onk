@@ -1,3 +1,0 @@
-package app
-message Ids { v: int64[] @unwrap }
-message Plain { a: string b: string }

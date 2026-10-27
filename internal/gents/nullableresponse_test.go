@@ -5,39 +5,55 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const nullableResponseSchema = `package app
+const nullableResponseSchema = `namespace app;
 
-message App { id: int64 @encode("number") }
-message Folder {
-  id: int64 @encode("number")
-  parent_id: int64? @nullable @encode("number")
-  app: App? @nullable
-  note: string?
+model App {
+  id: int64;
 }
-message FolderList { folders: Folder[] }
-message Shared {
-  id: int64 @encode("number")
-  parent_id: int64? @nullable @encode("number")
-}
-message Empty {}
 
-service Folders {
-  base_path: "/v1"
-  list(Empty) -> FolderList @get("/folders")
-  get(Shared) -> Shared @get("/shared/{id}")
-  save(Shared) -> Shared @post("/shared")
+model Folder {
+  id: int64;
+  parent_id?: int64 | null;
+  app?: App | null;
+  note?: string;
+}
+
+model FolderList {
+  folders: Folder[];
+}
+
+model Shared {
+  id: int64;
+  parent_id?: int64 | null;
+}
+
+model Empty {}
+
+@route("/v1")
+interface Folders {
+  @get
+  @route("/folders")
+  list(...Empty): FolderList;
+
+  @get
+  @route("/shared/{id}")
+  get(...Shared): Shared;
+
+  @post
+  @route("/shared")
+  save(...Shared): Shared;
 }
 `
 
 func TestTSNullableFieldsOnResponseOnlyMessagesAreRequired(t *testing.T) {
-	ast, err := onklang.Parse(nullableResponseSchema)
+	ast, err := onktest.Parse(nullableResponseSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}

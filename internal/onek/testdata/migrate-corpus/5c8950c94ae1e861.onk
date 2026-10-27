@@ -1,7 +1,0 @@
-
-package check
-
-message ScoreRequest { id: string }
-message Score { value: float64 }
-
-service Scores { get(ScoreRequest) -> Score @get("/scores/{id}") }

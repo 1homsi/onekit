@@ -5,27 +5,34 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const wildcardSchema = `package app
+const wildcardSchema = `namespace app;
 
-message FileRef { path: string }
-message Content { path: string }
+model FileRef {
+  path: string;
+}
 
-service Files {
-  base_path: "/files"
-  read(FileRef) -> Content @get("/{path...}")
+model Content {
+  path: string;
+}
+
+@route("/files")
+interface Files {
+  @get
+  @route("/{+path}")
+  read(...FileRef): Content;
 }
 `
 
 func compileWildcard(t *testing.T) []byte {
 	t.Helper()
-	ast, err := onklang.Parse(wildcardSchema)
+	ast, err := onktest.Parse(wildcardSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}

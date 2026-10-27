@@ -1,9 +1,0 @@
-package fe
-
-message Req { folder_id: string }
-message Res { is_default: bool }
-
-service Svc {
-  base_path: "/v1"
-  getThing(Req) -> Res @get("/things/{folder_id}")
-}

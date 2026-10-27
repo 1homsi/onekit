@@ -7,13 +7,24 @@ import (
 	"testing"
 )
 
-const sseFramesSchema = `package app
+const sseFramesSchema = `namespace app;
 
-message Req { room: string }
-message Tick { n: int32  doc: json  big: string  note: string }
+model Req {
+  room: string;
+}
 
-service Feed {
-  watch(Req) -> Tick @get("/watch") @stream
+model Tick {
+  n: int32;
+  doc: unknown;
+  big: string;
+  note: string;
+}
+
+interface Feed {
+  @get
+  @route("/watch")
+  @Onkt.stream
+  watch(...Req): Tick;
 }
 `
 

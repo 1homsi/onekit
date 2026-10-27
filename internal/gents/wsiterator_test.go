@@ -3,10 +3,17 @@ package gents
 import "testing"
 
 func TestTSSocketIteratesUntilNormalClose(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Msg { text: string }
-service Chat { chat(Msg) -> Msg @ws("/chat") }
+	runTSSchema(t, `namespace app;
+
+model Msg {
+  text: string;
+}
+
+interface Chat {
+  @Onkt.ws
+  @route("/chat")
+  chat(...Msg): Msg;
+}
 `, `
 import { ChatSocket } from "./client.ts";
 

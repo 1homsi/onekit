@@ -1,6 +1,0 @@
-package app
-message M {
-  s: string @in("a", "b") @pattern("^[a-z]+$") @len(1, 5)
-}
-message E {}
-service S { op(M) -> E @post("/m") }

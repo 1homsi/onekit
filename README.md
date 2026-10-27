@@ -57,9 +57,10 @@ Two things onekit is built around:
 | TypeSpec | onekit |
 | --- | --- |
 | `model` | message; spread a model into an operation (`op f(...M)`) and `M` is the request message |
-| `interface` with `@route` | service with that base path; each operation is an RPC |
+| `interface` | a service; each operation is an RPC. Its `@route` (after its namespaces') is the base path; without one the base path comes from the source directory, `hr/time_entry/v1` serving under `/hr/time-entry/v1`, and `@route("/")` serves it at the root |
 | `A \| B` return type with `@error` models | the response and the typed errors |
 | `{ @statusCode _: 201; @body body: T }` | a `201` success status |
+| `@body` on one request field | that field is the whole body; a sibling that is not a path, `@query` or `@header` parameter needs `@bodyIgnore` and does not cross the wire |
 | `@header` on an operation parameter | a header contract; one spread into every operation (`...ApiKey`) belongs to the whole service |
 | `@useAuth(BearerAuth)`, `BasicAuth`, `ApiKeyAuth<ApiKeyLocation.header, "X-Key">`, OAuth2 | a required credential header (`Authorization` or the key's header); on the service when every operation shares it, otherwise on each operation, so `@useAuth(NoAuth)` makes one public |
 | a named `union` of models | a oneof written `{"type": "<variant>", "<variant>": {...}}`; `@Onkt.discriminator("kind")` renames the key |
@@ -190,7 +191,8 @@ servers = ["https://api.example.com"]
 ```
 
 TypeSpec compiles from `main.tsp` at the schema root, and every other `.tsp`
-file is reached through its imports. The directory a declaration's source
+file is reached through its imports. Without a `main.tsp`, onkt compiles every
+`.tsp` file under the schema root together. The directory a declaration's source
 file sits in decides its generated package, so a project with several
 services keeps each in its own directory.
 
@@ -756,7 +758,7 @@ interface Files {
 
 `GET /files/dir/sub/b.txt` delivers `dir/sub/b.txt` to `FileRef.path`, percent-decoded. Generated clients escape each segment separately and keep the slashes. OpenAPI documents the route as `/files/{path}` and marks the parameter with `x-onekit-wildcard: true`.
 
-`@get("")` (any verb) is allowed when the service sets `base_path`, and serves exactly the base path. An exact route wins over a wildcard route that could also match. The Go, TypeScript and mock servers match `/files/` with an empty `path`; the Rust server (axum) requires at least one character.
+`@get("")` (any verb) is allowed when the service has a base path, and serves exactly the base path. An exact route wins over a wildcard route that could also match. The Go, TypeScript and mock servers match `/files/` with an empty `path`; the Rust server (axum) requires at least one character.
 
 ### Route metadata with `@Onkt.meta`
 
@@ -1353,7 +1355,7 @@ Each client method takes one request object holding every field, path parameters
 
 `defaultHeaders` is a record or a function (sync or async) that runs before every request, so a token that changes is read fresh; headers passed per call win over it. `onResponse(res, { method, url })` sees every response before the body is read, and `onUnauthorized(res, { method, url })` runs on a 401 before the `ApiError` is thrown, which is where an app redirects to its sign-in page. A custom `fetch` is only needed for transport changes now.
 
-The client builds every URL as `baseUrl` plus the route path, and the route path already includes the service's `base_path`. So `baseUrl` is the origin the server answers on (`https://api.example.com`, or an empty string for same-origin calls), never the origin plus a prefix. If a service has `base_path: "/api/environments"` and the app is configured with `VITE_API_BASE_URL=/api`, pass `""`, or move the prefix into the schema's `base_path`; passing `/api` would call `/api/api/environments`.
+The client builds every URL as `baseUrl` plus the route path, and the route path already includes the service's base path. So `baseUrl` is the origin the server answers on (`https://api.example.com`, or an empty string for same-origin calls), never the origin plus a prefix. If a service has `@route("/api/environments")` and the app is configured with `VITE_API_BASE_URL=/api`, pass `""`, or move the prefix into the interface's `@route`; passing `/api` would call `/api/api/environments`.
 
 ## Validation rules
 

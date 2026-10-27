@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onkschema"
 )
 
 const (
@@ -16,7 +16,7 @@ const (
 	principalDecorator = "principal"
 )
 
-func validateRequires(path string, rpc *onklang.RPCDecl, decorator onklang.Decorator) error {
+func validateRequires(path string, rpc *onkschema.RPCDecl, decorator onkschema.Decorator) error {
 	if len(decorator.Args) == 0 {
 		return &Error{Path: path, Line: rpc.Line, Msg: "@requires needs at least one scope"}
 	}
@@ -57,7 +57,7 @@ func validScopeName(value string) bool {
 	return true
 }
 
-func validateAuthorization(path string, rpc *onklang.RPCDecl, decorator onklang.Decorator) error {
+func validateAuthorization(path string, rpc *onkschema.RPCDecl, decorator onkschema.Decorator) error {
 	switch decorator.Name {
 	case requiresDecorator:
 		return validateRequires(path, rpc, decorator)
@@ -72,7 +72,7 @@ func validateAuthorization(path string, rpc *onklang.RPCDecl, decorator onklang.
 	return nil
 }
 
-func rejectAuthorizationOnWS(path string, rpc *onklang.RPCDecl) error {
+func rejectAuthorizationOnWS(path string, rpc *onkschema.RPCDecl) error {
 	for _, name := range []string{requiresDecorator, authorizeDecorator, metaDecorator, guardDecorator} {
 		if hasDecorator(rpc.Decorators, name) {
 			return &Error{Path: path, Line: rpc.Line, Msg: fmt.Sprintf("@%s is not supported on @ws methods yet; authorize the upgrade request in middleware", name)}
@@ -86,7 +86,7 @@ const (
 	maxMetaValueBytes = 200
 )
 
-func validateMeta(path string, rpc *onklang.RPCDecl, decorator onklang.Decorator) error {
+func validateMeta(path string, rpc *onkschema.RPCDecl, decorator onkschema.Decorator) error {
 	line, col := decorator.Line, decorator.Col
 	if line == 0 {
 		line, col = rpc.Line, rpc.Col
@@ -128,7 +128,7 @@ func validMetaKey(key string) bool {
 
 const maxGuardBytes = 200
 
-func validateGuard(path string, rpc *onklang.RPCDecl, decorator onklang.Decorator) error {
+func validateGuard(path string, rpc *onkschema.RPCDecl, decorator onkschema.Decorator) error {
 	line, col := decorator.Line, decorator.Col
 	if line == 0 {
 		line, col = rpc.Line, rpc.Col
@@ -162,7 +162,7 @@ func validateGuard(path string, rpc *onklang.RPCDecl, decorator onklang.Decorato
 	return nil
 }
 
-func rpcRoute(rpc *onklang.RPCDecl) string {
+func rpcRoute(rpc *onkschema.RPCDecl) string {
 	for _, decorator := range rpc.Decorators {
 		if isHTTPVerb(decorator.Name) && len(decorator.Args) == 1 {
 			return decorator.Args[0].Value
@@ -173,7 +173,7 @@ func rpcRoute(rpc *onklang.RPCDecl) string {
 
 const successDecorator = "success"
 
-func validateSuccess(path string, rpc *onklang.RPCDecl, decorator onklang.Decorator) error {
+func validateSuccess(path string, rpc *onkschema.RPCDecl, decorator onkschema.Decorator) error {
 	if len(decorator.Args) != 1 {
 		return &Error{Path: path, Line: rpc.Line, Msg: "@success takes one status, as in @success(204)"}
 	}

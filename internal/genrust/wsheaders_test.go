@@ -2,10 +2,17 @@ package genrust
 
 import "testing"
 
-const rustWSHeadersFixture = `
-package app
-message M { text: string }
-service S { chat(M) -> M @ws("/chat") }
+const rustWSHeadersFixture = `namespace app;
+
+model M {
+  text: string;
+}
+
+interface S {
+  @Onkt.ws
+  @route("/chat")
+  chat(...M): M;
+}
 `
 
 const rustWSHeadersMain = `

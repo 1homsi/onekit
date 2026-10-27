@@ -1,7 +1,0 @@
-package p
-message Req { room: string }
-message Tick { id: string }
-service S {
-  base_path: "/v1"
-  watch(Req) -> Tick @get("/events/{room}") @stream
-}

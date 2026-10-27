@@ -8,22 +8,22 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const marshalStreamSchema = `package app
+const marshalStreamSchema = `namespace app;
 
-message Row {
-  id: string
-  name: string
-  score: int32
-  tag: string
+model Row {
+  id: string;
+  name: string;
+  score: int32;
+  tag: string;
 }
 
-message List {
-  rows: Row[]
-  labels: map[string, string]
-  note: string
+model List {
+  rows: Row[];
+  labels: Record<string>;
+  note: string;
 }
 `
 
@@ -101,11 +101,11 @@ func TestStreamingMarshalMatchesPlainAndLegacyBytes(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	ast, err := onklang.Parse(marshalStreamSchema)
+	ast, err := onktest.Parse(marshalStreamSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.onk", AST: ast}}, onkcompile.CompileOptions{EmitZeroValues: true})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.tsp", AST: ast}}, onkcompile.CompileOptions{EmitZeroValues: true})
 	if err != nil {
 		t.Fatal(err)
 	}

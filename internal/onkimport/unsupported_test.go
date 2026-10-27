@@ -3,9 +3,6 @@ package onkimport
 import (
 	"strings"
 	"testing"
-
-	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
 )
 
 func TestImportMapsEventStreamsAndWarnsOnDroppedConstructs(t *testing.T) {
@@ -27,14 +24,8 @@ func TestImportMapsEventStreamsAndWarnsOnDroppedConstructs(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(result.Source)
-	ast, err := onklang.Parse(src)
-	if err != nil {
-		t.Fatalf("%v\n%s", err, src)
-	}
-	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: "feed.onk", AST: ast}}); err != nil {
-		t.Fatalf("import does not compile: %v\n%s", err, src)
-	}
-	for _, want := range []string{`Watch(WatchRequest) -> Event @get("/events") @stream`, `Items(ItemsRequest) -> Event @get("/items") @stream`} {
+	requireFaithfulTypeSpec(t, result)
+	for _, want := range []string{"  @get\n  @route(\"/events\")\n  @Onkt.stream\n  Watch(...WatchRequest): Event;\n", "  @get\n  @route(\"/items\")\n  @Onkt.stream\n  Items(...ItemsRequest): Event;\n"} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("missing %q:\n%s", want, src)
 		}

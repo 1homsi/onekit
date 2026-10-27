@@ -3,17 +3,28 @@ package genpy
 import "testing"
 
 func TestPythonOneofsAreTypedVariants(t *testing.T) {
-	runPythonSchema(t, `
-package app
-enum Level { LOW HIGH }
-message Email { address: string @email }
-message Payload {
-  value: oneof(discriminator: "kind") {
-    email: Email @tag("email")
-    blob: bytes @tag("blob")
-    count: int64 @tag("count")
-    level: Level @tag("level")
-  }
+	runPythonSchema(t, `namespace app;
+
+enum Level {
+  LOW,
+  HIGH,
+}
+
+model Email {
+  @format("email")
+  address: string;
+}
+
+@Onkt.discriminator("kind")
+union PayloadValue {
+  @Onkt.tag("email") email: Email,
+  @Onkt.tag("blob") blob: bytes,
+  @Onkt.tag("count") count: int64,
+  @Onkt.tag("level") level: Level,
+}
+
+model Payload {
+  value: PayloadValue;
 }
 `, `
 from models import Email, Level, Payload, PayloadValueBlob, PayloadValueCount, PayloadValueEmail, PayloadValueLevel

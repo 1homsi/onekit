@@ -6,42 +6,17 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const emitZeroSchema = `package app
-
-enum Level { LOW HIGH }
-
-message Inner { v: string }
-
-message Item {
-  name: string
-  flag: bool
-  count: int32
-  big: int64
-  huge: uint64
-  ratio: float64
-  level: Level
-  num_level: Level @encode("number")
-  tags: string[]
-  ids: int64[]
-  items: Inner[]
-  by_name: map[string, string]
-  data: bytes
-  hex: bytes @encode("hex")
-  maybe: string?
-  maybe_n: int32?
-  inner: Inner
-}
-`
+const emitZeroSchema = "namespace app;\n\nenum Level {\n  LOW,\n  HIGH,\n}\n\nmodel Inner {\n  v: string;\n}\n\nmodel Item {\n  name: string;\n  `flag`: boolean;\n  count: int32;\n  @encode(string)\n  big: int64;\n  @encode(string)\n  huge: uint64;\n  ratio: float64;\n  level: Level;\n  @Onkt.encode(\"number\")\n  num_level: Level;\n  tags: string[];\n  @Onkt.encode(\"string\")\n  ids: int64[];\n  items: Inner[];\n  by_name: Record<string>;\n  data: bytes;\n  @Onkt.encode(\"hex\")\n  hex: bytes;\n  maybe?: string;\n  maybe_n?: int32;\n  inner: Inner;\n}\n"
 
 func TestDartEmitZeroValuesWritesEveryNonOptionalField(t *testing.T) {
-	ast, err := onklang.Parse(emitZeroSchema)
+	ast, err := onktest.Parse(emitZeroSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.onk", AST: ast}}, onkcompile.CompileOptions{EmitZeroValues: true})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.tsp", AST: ast}}, onkcompile.CompileOptions{EmitZeroValues: true})
 	if err != nil {
 		t.Fatal(err)
 	}

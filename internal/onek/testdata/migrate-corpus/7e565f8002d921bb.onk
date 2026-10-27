@@ -1,3 +1,0 @@
-package app
-message R { id: string }
-service S { get(R) -> R @get("/x/{id}") @meta("a", "1") @meta("b", "2") }

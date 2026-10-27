@@ -3,9 +3,6 @@ package onkimport
 import (
 	"strings"
 	"testing"
-
-	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
 )
 
 func TestImportCarriesConstraintsAndDescriptions(t *testing.T) {
@@ -20,16 +17,10 @@ func TestImportCarriesConstraintsAndDescriptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(result.Source)
-	for _, want := range []string{"/// Display name.\n  name: string @len(1, 40)", "age: int32? @gte(0) @lte(30)", "weight: float64? @gt(0)", "tags: string[] @min_items(1) @max_items(5)"} {
+	for _, want := range []string{"/** Display name. */\n  @minLength(1)\n  @maxLength(40)\n  name: string;", "  @minValue(0)\n  @maxValue(30)\n  age?: int32;", "  @minValueExclusive(0)\n  weight?: float64;", "  @minItems(1)\n  @maxItems(5)\n  tags: string[];"} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("missing %q:\n%s", want, src)
 		}
 	}
-	ast, err := onklang.Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: "pets.onk", AST: ast}}); err != nil {
-		t.Fatalf("import does not compile: %v\n%s", err, src)
-	}
+	requireFaithfulTypeSpec(t, result)
 }

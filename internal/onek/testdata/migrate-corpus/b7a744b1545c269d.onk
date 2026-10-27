@@ -1,8 +1,0 @@
-
-package check
-
-message WatchRequest { room: string }
-message Tick { n: int32 }
-message Gone @status(410) { reason: string }
-
-service Rooms { watch(WatchRequest) -> Tick | Gone @get("/rooms/{room}/events") @stream }

@@ -6,24 +6,25 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onkschema"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func compileRules(t *testing.T, src string) error {
 	t.Helper()
-	_, err := Compile([]Source{{Path: "api.onk", AST: parseOrFatal(t, src)}})
+	_, err := Compile([]Source{{Path: "api.tsp", AST: parseOrFatal(t, src)}})
 	return err
 }
 
 func TestRulesAcceptedOnMessagesAndFields(t *testing.T) {
-	err := compileRules(t, `
-package api
-message Span
-  @rule("self.low <= self.high", "low must not exceed high")
-  @rule("self.high - self.low <= 100", "range too wide")
-{
-  low: int32 @rule("value >= 0", "low must be non-negative")
-  high: int32
+	err := compileRules(t, `namespace api;
+
+@Onkt.rule("self.low <= self.high", "low must not exceed high")
+@Onkt.rule("self.high - self.low <= 100", "range too wide")
+model Span {
+  @Onkt.rule("value >= 0", "low must be non-negative")
+  low: int32;
+  high: int32;
 }
 `)
 	if err != nil {
@@ -32,13 +33,16 @@ message Span
 }
 
 func TestRulesOnNestedMessages(t *testing.T) {
-	err := compileRules(t, `
-package api
-message Outer {
-  inner: Inner
-  message Inner @rule("size(self.name) > 0", "name required") {
-    name: string
-  }
+	err := compileRules(t, `namespace api;
+
+model Outer {
+  inner: Inner;
+}
+
+@Onkt.rule("size(self.name) > 0", "name required")
+@Onkt.parent(Outer)
+model Inner {
+  name: string;
 }
 `)
 	if err != nil {
@@ -46,6 +50,8 @@ message Outer {
 	}
 }
 
+// A message rule reports the line of its @Onkt.rule decorator, a field rule
+// the line of its field.
 func TestRuleDiagnosticsCarryPositions(t *testing.T) {
 	cases := []struct {
 		name string
@@ -53,12 +59,53 @@ func TestRuleDiagnosticsCarryPositions(t *testing.T) {
 		line int
 		msg  string
 	}{
-		{"unknown field", "package api\nmessage M @rule(\"self.nope > 1\", \"m\") {\n  a: int32\n}\n", 2, `no field "nope"`},
-		{"type mismatch", "package api\nmessage M {\n  a: int32 @rule(\"value == 'x'\", \"m\")\n}\n", 3, "one type"},
-		{"not a bool", "package api\nmessage M {\n  a: int32\n}\nmessage N @rule(\"self.a\", \"m\") {\n  a: int32\n}\n", 5, "must evaluate to bool"},
-		{"value outside a field rule", "package api\nmessage M @rule(\"value > 1\", \"m\") {\n  a: int32\n}\n", 2, `unknown name "value"`},
-		{"unportable pattern", "package api\nmessage M {\n  a: string @rule(\"value.matches('a.c')\", \"m\")\n}\n", 3, "not portable"},
-		{"unsupported field type", "package api\nmessage M {\n  a: uint64 @rule(\"value > 1\", \"m\")\n}\n", 3, "uint64"},
+		{"unknown field", `namespace api;
+
+@Onkt.rule("self.nope > 1", "m")
+model M {
+  a: int32;
+}
+`, 3, `no field "nope"`},
+		{"type mismatch", `namespace api;
+
+model M {
+  @Onkt.rule("value == 'x'", "m")
+  a: int32;
+}
+`, 5, "one type"},
+		{"not a bool", `namespace api;
+
+model M {
+  a: int32;
+}
+
+@Onkt.rule("self.a", "m")
+model N {
+  a: int32;
+}
+`, 7, "must evaluate to bool"},
+		{"value outside a field rule", `namespace api;
+
+@Onkt.rule("value > 1", "m")
+model M {
+  a: int32;
+}
+`, 3, `unknown name "value"`},
+		{"unportable pattern", `namespace api;
+
+model M {
+  @Onkt.rule("value.matches('a.c')", "m")
+  a: string;
+}
+`, 5, "not portable"},
+		{"unsupported field type", `namespace api;
+
+model M {
+  @Onkt.rule("value > 1", "m")
+  @encode(string)
+  a: uint64;
+}
+`, 6, "uint64"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -80,41 +127,59 @@ func TestRuleDiagnosticsCarryPositions(t *testing.T) {
 	}
 }
 
+// TypeSpec's signature for @Onkt.rule already requires exactly an
+// expression and a message; documents from any frontend are checked too.
 func TestRuleDecoratorArguments(t *testing.T) {
-	for name, src := range map[string]string{
-		"missing message": "package api\nmessage M @rule(\"true\") {\n  a: int32\n}\n",
-		"extra argument":  "package api\nmessage M @rule(\"true\", \"m\", \"x\") {\n  a: int32\n}\n",
-		"no arguments":    "package api\nmessage M {\n  a: int32 @rule\n}\n",
-		"long message":    "package api\nmessage M @rule(\"true\", \"" + strings.Repeat("x", 201) + "\") {\n  a: int32\n}\n",
+	q, dec, field := onktest.Q, onktest.Dec, onktest.Field
+	for name, file := range map[string]*onkschema.File{
+		"missing message": onktest.File("api", onktest.Message("M", field("a", "int32"), dec("rule", q("true")))),
+		"extra argument":  onktest.File("api", onktest.Message("M", field("a", "int32"), dec("rule", q("true"), q("m"), q("x")))),
+		"no arguments":    onktest.File("api", onktest.Message("M", field("a", "int32", dec("rule")))),
 	} {
-		if err := compileRules(t, src); err == nil {
+		if _, err := Compile([]Source{{Path: "api.tsp", AST: file}}); err == nil {
 			t.Errorf("%s: should be rejected", name)
 		}
+	}
+	long := "namespace api;\n@Onkt.rule(\"true\", \"" + strings.Repeat("x", 201) + "\")\nmodel M {\n  a: int32;\n}\n"
+	if err := compileRules(t, long); err == nil {
+		t.Error("long message: should be rejected")
 	}
 }
 
 func TestOtherDecoratorsStillRejectDuplicates(t *testing.T) {
-	err := compileRules(t, "package api\nmessage M {\n  a: int32 @gte(1) @gte(2)\n}\n")
+	err := compileRules(t, `namespace api;
+
+model M {
+  @minValue(1)
+  @minValue(2)
+  a: int32;
+}
+`)
 	if err == nil || !strings.Contains(err.Error(), "duplicate decorator") {
 		t.Fatalf("duplicate @gte should still be rejected, got %v", err)
 	}
 }
 
 func TestInt64EncodingOptionMarksEveryInt64Field(t *testing.T) {
-	src := `package api
-message M {
-  id: int64
-  big: uint64
-  ids: int64[]
-  maybe: int64?
-  text: string
-  small: int32
-  keep: int64 @encode("number")
-  by_name: map[string, int64]
+	src := `namespace api;
+
+model M {
+  @encode(string)
+  id: int64;
+  @encode(string)
+  big: uint64;
+  @Onkt.encode("string")
+  ids: int64[];
+  @encode(string)
+  maybe?: int64;
+  text: string;
+  small: int32;
+  keep: int64;
+  by_name: Record<int64>;
 }
 `
 	compile := func(encoding string) map[string]bool {
-		pkg, err := CompileWithOptions([]Source{{Path: "api.onk", AST: parseOrFatal(t, src)}}, CompileOptions{Int64Encoding: encoding})
+		pkg, err := CompileWithOptions([]Source{{Path: "api.tsp", AST: parseOrFatal(t, src)}}, CompileOptions{Int64Encoding: encoding})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -145,27 +210,40 @@ message M {
 }
 
 func TestEmitZeroValuesOptionMarksOnlyFieldsThatAlwaysAppear(t *testing.T) {
-	src := `package api
-enum Level { LOW HIGH }
-message Inner { v: string }
-message M {
-  s: string
-  b: bool
-  n: int32
-  l: Level
-  tags: string[]
-  by: map[string, string]
-  data: bytes
-  items: Inner[]
-  when: timestamp
-  free: json
-  maybe: string?
-  inner: Inner
-  pick: oneof { x: string y: int32 }
+	src := `namespace api;
+
+enum Level {
+  LOW,
+  HIGH,
+}
+
+model Inner {
+  v: string;
+}
+
+union MPick {
+  x: string,
+  y: int32,
+}
+
+model M {
+  s: string;
+  b: boolean;
+  n: int32;
+  l: Level;
+  tags: string[];
+  by: Record<string>;
+  data: bytes;
+  items: Inner[];
+  when: utcDateTime;
+  free: unknown;
+  maybe?: string;
+  inner: Inner;
+  pick: MPick;
 }
 `
 	compile := func(on bool) map[string]bool {
-		pkg, err := CompileWithOptions([]Source{{Path: "api.onk", AST: parseOrFatal(t, src)}}, CompileOptions{EmitZeroValues: on})
+		pkg, err := CompileWithOptions([]Source{{Path: "api.tsp", AST: parseOrFatal(t, src)}}, CompileOptions{EmitZeroValues: on})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -194,20 +272,18 @@ message M {
 }
 
 func TestMetaDecoratorValidation(t *testing.T) {
-	const base = "package api\nmessage R { id: string }\nservice S {\n  get(R) -> R @get(\"/r/{id}\") %s\n}\n"
+	const base = "namespace api;\nmodel R { id: string; }\ninterface S {\n  @get @route(\"/r/{id}\") %s get(...R): R;\n}\n"
 	ok := func(decorators string) error { return compileRules(t, fmt.Sprintf(base, decorators)) }
-	if err := ok(`@meta("guard", "app/edit/:slug") @meta("audit.event", "app.update")`); err != nil {
+	if err := ok(`@Onkt.meta("guard", "app/edit/:slug") @Onkt.meta("audit.event", "app.update")`); err != nil {
 		t.Fatalf("valid metadata rejected: %v", err)
 	}
 	for name, decorators := range map[string]string{
-		"one argument":     `@meta("guard")`,
-		"three arguments":  `@meta("a", "b", "c")`,
-		"upper case key":   `@meta("Guard", "x")`,
-		"key with a space": `@meta("my key", "x")`,
-		"digit first":      `@meta("1x", "x")`,
-		"empty value":      `@meta("guard", "")`,
-		"long value":       `@meta("guard", "` + strings.Repeat("x", 201) + `")`,
-		"duplicate key":    `@meta("guard", "a") @meta("guard", "b")`,
+		"upper case key":   `@Onkt.meta("Guard", "x")`,
+		"key with a space": `@Onkt.meta("my key", "x")`,
+		"digit first":      `@Onkt.meta("1x", "x")`,
+		"empty value":      `@Onkt.meta("guard", "")`,
+		"long value":       `@Onkt.meta("guard", "` + strings.Repeat("x", 201) + `")`,
+		"duplicate key":    `@Onkt.meta("guard", "a") @Onkt.meta("guard", "b")`,
 	} {
 		err := ok(decorators)
 		var compileErr *Error
@@ -215,24 +291,53 @@ func TestMetaDecoratorValidation(t *testing.T) {
 			t.Errorf("%s: want an invalid_meta error, got %v", name, err)
 		}
 	}
-	ws := "package api\nmessage R { id: string }\nservice S {\n  stream(R) -> R @ws(\"/ws\") @meta(\"a\", \"b\")\n}\n"
+	// TypeSpec's signature already requires a key and a value; documents
+	// with another count are refused too.
+	q, dec := onktest.Q, onktest.Dec
+	for name, meta := range map[string]onkschema.Decorator{
+		"one argument":    dec("meta", q("guard")),
+		"three arguments": dec("meta", q("a"), q("b"), q("c")),
+	} {
+		file := onktest.File("api", onktest.Message("R", onktest.Field("id", "string")),
+			onktest.Service("S", "", onktest.RPC("get", "R", "R", dec("get", q("/r/{id}")), meta)))
+		_, err := Compile([]Source{{Path: "api.tsp", AST: file}})
+		var compileErr *Error
+		if !errors.As(err, &compileErr) || compileErr.Code != "invalid_meta" {
+			t.Errorf("%s: want an invalid_meta error, got %v", name, err)
+		}
+	}
+	ws := `namespace api;
+
+model R {
+  id: string;
+}
+
+interface S {
+  @Onkt.ws
+  @route("/ws")
+  @Onkt.meta("a", "b")
+  stream(...R): R;
+}
+`
 	if err := compileRules(t, ws); err == nil || !strings.Contains(err.Error(), "@meta") {
 		t.Errorf("@meta on a WebSocket method should be rejected, got %v", err)
 	}
 }
 
 func TestRepeatedInt64CanBeEncodedAsNumbers(t *testing.T) {
-	src := `package api
-message M {
-  ids: int64[] @encode("number")
-  keys: uint64[]
+	src := `namespace api;
+
+model M {
+  ids: int64[];
+  @Onkt.encode("string")
+  keys: uint64[];
 }
 `
-	ast, err := onklang.Parse(src)
+	ast, err := onktest.Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := Compile([]Source{{Path: "/p/api.onk", AST: ast}})
+	pkg, err := Compile([]Source{{Path: "/p/api.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,5 +1,0 @@
-package app
-message A { s: string }
-service S {
-  op(A) -> A @get("/a/{s}") @guard("a/b/:s") @guard("c/d/:s")
-}

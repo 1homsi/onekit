@@ -2,13 +2,21 @@ package genrust
 
 import "testing"
 
-const rustNumericInFixture = `
-package app
-message Page {
-  size: int32 @in(10, 25, 50)
-  version: int64? @in(1, 2)
+const rustNumericInFixture = `namespace app;
+
+model Page {
+  @Onkt.values(10, 25, 50)
+  size: int32;
+  @Onkt.values(1, 2)
+  @encode(string)
+  version?: int64;
 }
-service S { list(Page) -> Page @post("/pages") }
+
+interface S {
+  @post
+  @route("/pages")
+  list(...Page): Page;
+}
 `
 
 const rustNumericInMain = `mod generated;

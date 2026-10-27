@@ -5,30 +5,53 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func TestOpenAPIDocumentsWebSocketMethods(t *testing.T) {
-	ast, err := onklang.Parse(`
-package rt
-message Call { id: string @ws_id
-method: string }
-message Result { id: string @ws_id
-output: string @raw }
-message Cancel { id: string @ws_id }
-message Frame { payload: oneof(discriminator: "type") { call: Call @tag("call")
-result: Result @tag("result")
-cancel: Cancel @tag("cancel") @ws_cancel } }
-service Runtime {
-  base_path: "/v1"
-  /// Runs code interactively.
-  execute(Frame) -> Frame @ws("/execute")
+	ast, err := onktest.Parse(`namespace rt;
+
+model Call {
+  @Onkt.wsId
+  id: string;
+  method: string;
+}
+
+model Result {
+  @Onkt.wsId
+  id: string;
+  @Onkt.raw
+  output: string;
+}
+
+model Cancel {
+  @Onkt.wsId
+  id: string;
+}
+
+@Onkt.discriminator("type")
+union FramePayload {
+  @Onkt.tag("call") call: Call,
+  @Onkt.tag("result") result: Result,
+  @Onkt.tag("cancel") @Onkt.wsCancel cancel: Cancel,
+}
+
+model Frame {
+  payload: FramePayload;
+}
+
+@route("/v1")
+interface Runtime {
+  /** Runs code interactively. */
+  @Onkt.ws
+  @route("/execute")
+  execute(...Frame): Frame;
 }
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "rt.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "rt.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}

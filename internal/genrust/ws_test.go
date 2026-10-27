@@ -9,28 +9,35 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const rustWSFixture = `
-package rwf
+const rustWSFixture = `namespace rwf;
 
-message ChatMessage { room: string text: string }
-message ChatEvent { seq: int64 }
+model ChatMessage {
+  room: string;
+  text: string;
+}
 
-service ChatService {
-  base_path: "/v1"
+model ChatEvent {
+  @encode(string)
+  seq: int64;
+}
 
-  chat(ChatMessage) -> ChatEvent @ws("/rooms/{room}")
+@route("/v1")
+interface ChatService {
+  @Onkt.ws
+  @route("/rooms/{room}")
+  chat(...ChatMessage): ChatEvent;
 }
 `
 
 func TestGenerateRustWS(t *testing.T) {
-	ast, err := onklang.Parse(rustWSFixture)
+	ast, err := onktest.Parse(rustWSFixture)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "ws.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "ws.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -63,50 +70,74 @@ func TestGenerateRustWS(t *testing.T) {
 	}
 }
 
-const rustWSCorrelatedFixture = `
-package rwc
+const rustWSCorrelatedFixture = `namespace rwc;
 
-message RunRequest { code: string @raw }
-message Chunk {
-  index: int32
-  data: bytes @raw
-}
-message RunResult {
-  exit_code: int32
-  result_json: string @raw
-  chunks: Chunk[]
-}
-message HostCall { id: string @ws_id
-method: string
-timeout_ms: int64 @ws_timeout }
-message HostResult { id: string @ws_id
-value: string }
-message Cancel { id: string @ws_id }
-
-message Frame {
-  payload: oneof(discriminator: "type") {
-    run: RunRequest @tag("run")
-    host_call: HostCall @tag("host_call")
-    host_result: HostResult @tag("host_result")
-    run_result: RunResult @tag("run_result")
-    cancel: Cancel @tag("cancel") @ws_cancel
-  }
+model RunRequest {
+  @Onkt.raw
+  code: string;
 }
 
-service Runtime {
-  base_path: "/v1"
+model Chunk {
+  index: int32;
+  @Onkt.raw
+  data: bytes;
+}
 
-  execute(Frame) -> Frame @ws("/execute")
+model RunResult {
+  exit_code: int32;
+  @Onkt.raw
+  result_json: string;
+  chunks: Chunk[];
+}
+
+model HostCall {
+  @Onkt.wsId
+  id: string;
+  method: string;
+  @Onkt.wsTimeout
+  @encode(string)
+  timeout_ms: int64;
+}
+
+model HostResult {
+  @Onkt.wsId
+  id: string;
+  value: string;
+}
+
+model Cancel {
+  @Onkt.wsId
+  id: string;
+}
+
+@Onkt.discriminator("type")
+union FramePayload {
+  @Onkt.tag("run") run: RunRequest,
+  @Onkt.tag("host_call") host_call: HostCall,
+  @Onkt.tag("host_result") host_result: HostResult,
+  @Onkt.tag("run_result") run_result: RunResult,
+  @Onkt.tag("cancel") @Onkt.wsCancel cancel: Cancel,
+}
+
+model Frame {
+  payload: FramePayload;
+}
+
+@route("/v1")
+interface Runtime {
+  @Onkt.ws
+  @route("/execute")
+  execute(...Frame): Frame;
 }
 `
 
 func compileRustWSCorrelatedFile(t *testing.T) *onkir.Package {
 	t.Helper()
-	ast, err := onklang.Parse(rustWSCorrelatedFixture)
+	ast, err := onktest.Parse(rustWSCorrelatedFixture)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "wsc.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "wsc.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -511,11 +542,11 @@ func runRustWSCrate(t *testing.T, src, crateName, mainRS string, run bool) {
 	if _, err := exec.LookPath("cargo"); err != nil {
 		t.Skip("cargo toolchain not available")
 	}
-	ast, err := onklang.Parse(src)
+	ast, err := onktest.Parse(src)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "ws.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "ws.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

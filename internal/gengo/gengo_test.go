@@ -9,70 +9,85 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const fixtureSrc = `
-package main
+const fixtureSrc = `namespace main;
 
-message User {
-  id: string
-  name: string @len(2, 100)
-  email: string @email
+model User {
+  id: string;
+  @minLength(2)
+  @maxLength(100)
+  name: string;
+  @format("email")
+  email: string;
 }
 
-message CreateUserRequest {
-  name: string @len(2, 100)
-  email: string @email
+model CreateUserRequest {
+  @minLength(2)
+  @maxLength(100)
+  name: string;
+  @format("email")
+  email: string;
 }
 
-message GetUserRequest {
-  id: string
+model GetUserRequest {
+  id: string;
 }
 
-message NotFoundError @status(404) {
-  resource_type: string
-  resource_id: string
+@error
+model NotFoundError {
+  @statusCode _: 404;
+  resource_type: string;
+  resource_id: string;
 }
 
-message TextPayload {
-  body: string
+model TextPayload {
+  body: string;
 }
 
-message ImagePayload {
-  url: string
+model ImagePayload {
+  url: string;
 }
 
-message SendMessageRequest {
-  channel: string
-  payload: oneof(discriminator: "type") {
-    text: TextPayload
-    image: ImagePayload
-  }
+@Onkt.discriminator("type")
+union SendMessageRequestPayload {
+  text: TextPayload,
+  image: ImagePayload,
 }
 
-message SendMessageResponse {
-  message_id: string
+model SendMessageRequest {
+  channel: string;
+  payload: SendMessageRequestPayload;
 }
 
-service UserService {
-  base_path: "/api/v1"
+model SendMessageResponse {
+  message_id: string;
+}
 
-  createUser(CreateUserRequest) -> User @post("/users")
+@route("/api/v1")
+interface UserService {
+  @post
+  @route("/users")
+  createUser(...CreateUserRequest): User;
 
-  getUser(GetUserRequest) -> User | NotFoundError @get("/users/{id}")
+  @get
+  @route("/users/{id}")
+  getUser(...GetUserRequest): User | NotFoundError;
 
-  sendMessage(SendMessageRequest) -> SendMessageResponse @post("/messages")
+  @post
+  @route("/messages")
+  sendMessage(...SendMessageRequest): SendMessageResponse;
 }
 `
 
 func compileFixture(t *testing.T) *onkir.File {
 	t.Helper()
-	ast, err := onklang.Parse(fixtureSrc)
+	ast, err := onktest.Parse(fixtureSrc)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile error: %v", err)
 	}
@@ -91,18 +106,17 @@ func TestGenerateTypesFormatsCleanly(t *testing.T) {
 }
 
 func TestGenerateJSONScalarUsesNativeWireTypes(t *testing.T) {
-	ast, err := onklang.Parse(`
-package jsonfixture
+	ast, err := onktest.Parse(`namespace jsonfixture;
 
-message Envelope {
-  payload: json
-  values: json[]
+model Envelope {
+  payload: unknown;
+  values: unknown[];
 }
 `)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "json.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "json.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile error: %v", err)
 	}
@@ -175,29 +189,53 @@ func TestGenerateClientFormatsCleanly(t *testing.T) {
 }
 
 func TestGenerateClientEncodesCustomBodyFields(t *testing.T) {
-	ast, err := onklang.Parse(`
-package bodyfixture
+	ast, err := onktest.Parse(`namespace bodyfixture;
 
 enum State {
-  UNKNOWN
-  READY
+  UNKNOWN,
+  READY,
 }
 
-message AmountRequest { amount: int64 }
-message PayloadRequest { payload: bytes @encode(hex) }
-message StateRequest { state: State @encode(number) }
-message Ack { ok: bool }
+model AmountRequest {
+  @body
+  @encode(string)
+  amount: int64;
+}
 
-service BodyService {
-  sendAmount(AmountRequest) -> Ack @post("/amount") @body("amount")
-  sendPayload(PayloadRequest) -> Ack @post("/payload") @body("payload")
-  sendState(StateRequest) -> Ack @post("/state") @body("state")
+model PayloadRequest {
+  @body
+  @Onkt.encode("hex")
+  payload: bytes;
+}
+
+model StateRequest {
+  @body
+  @Onkt.encode("number")
+  state: State;
+}
+
+model Ack {
+  ok: boolean;
+}
+
+interface BodyService {
+  @post
+  @route("/amount")
+  sendAmount(...AmountRequest): Ack;
+
+  @post
+  @route("/payload")
+  sendPayload(...PayloadRequest): Ack;
+
+  @post
+  @route("/state")
+  sendState(...StateRequest): Ack;
 }
 `)
 	if err != nil {
 		t.Fatalf("parse fixture: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "body.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "body.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile fixture: %v", err)
 	}
@@ -445,16 +483,29 @@ func TestGeneratedServerRejectsInvalidScalarBindings(t *testing.T) {
 		t.Skip("go toolchain not available")
 	}
 
-	ast, err := onklang.Parse(`
-package main
-message Request { id: int64 page: int32 @query }
-message Response { ok: bool }
-service API { get(Request) -> Response @get("/items/{id}") }
+	ast, err := onktest.Parse(`namespace main;
+
+model Request {
+  @encode(string)
+  id: int64;
+  @query
+  page: int32;
+}
+
+model Response {
+  ok: boolean;
+}
+
+interface API {
+  @get
+  @route("/items/{id}")
+  get(...Request): main.Response;
+}
 `)
 	if err != nil {
 		t.Fatalf("parse fixture: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile fixture: %v", err)
 	}

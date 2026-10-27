@@ -3,9 +3,13 @@ package gents
 import "testing"
 
 func TestTSLenCountsCharacters(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Name { value: string @len(1, 2) }
+	runTSSchema(t, `namespace app;
+
+model Name {
+  @minLength(1)
+  @maxLength(2)
+  value: string;
+}
 `, `
 import { validateName } from "./types.ts";
 

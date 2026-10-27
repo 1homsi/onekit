@@ -1,2 +1,0 @@
-message Q { note: string @required }
-service API { a(Q) -> Q @post("/x") }

@@ -9,7 +9,7 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 // rustNonRawIdentifiers pins the four keywords Rust refuses to spell with the
@@ -24,43 +24,15 @@ var rustNonRawIdentifiers = []string{"self", "Self", "super", "crate"}
 // keywordFixture exercises every name shape that reaches the Rust identifier
 // helpers: schema field names (snake_case path), declaration and enum value
 // names (PascalCase path), and RPC method names.
-const keywordFixture = `
-package kwfix
-
-message Flags {
-  self: bool
-  super: bool
-  crate: bool
-  type: bool
-  ok: bool
-}
-
-message Upper {
-  Self: bool
-}
-
-enum Mode {
-  self
-  super
-  crate
-  normal
-}
-
-message Req { v: bool }
-message Res { w: bool }
-
-service Svc {
-  ok(Req) -> Res @post("/b")
-}
-`
+const keywordFixture = "namespace kwfix;\n\nmodel Flags {\n  `self`: boolean;\n  `super`: boolean;\n  crate: boolean;\n  type: boolean;\n  ok: boolean;\n}\n\nmodel Upper {\n  Self: boolean;\n}\n\nenum Mode {\n  `self`,\n  `super`,\n  crate,\n  normal,\n}\n\nmodel Req {\n  v: boolean;\n}\n\nmodel Res {\n  w: boolean;\n}\n\ninterface Svc {\n  @post\n  @route(\"/b\")\n  ok(...Req): Res;\n}\n"
 
 func compileKeywordFixture(t *testing.T) *onkir.Package {
 	t.Helper()
-	ast, err := onklang.Parse(keywordFixture)
+	ast, err := onktest.Parse(keywordFixture)
 	if err != nil {
 		t.Fatalf("parse keyword fixture: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "kwfix.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "kwfix.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile keyword fixture: %v", err)
 	}
@@ -226,14 +198,14 @@ func TestGeneratedRustClientMungesNonRawKeywords(t *testing.T) {
 // check already rejects the only inputs whose mangled forms could clash.
 func TestNonRawKeywordSuffixDoesNotCollide(t *testing.T) {
 	for _, src := range []string{
-		"package collide\nmessage M { self: bool  self_: bool }",
-		"package collide\nenum E { self  self_ }",
+		"namespace collide;\n\nmodel M {\n  `self`: boolean;\n  self_: boolean;\n}\n",
+		"namespace collide;\n\nenum E {\n  `self`,\n  self_,\n}\n",
 	} {
-		ast, err := onklang.Parse(src)
+		ast, err := onktest.Parse(src)
 		if err != nil {
 			t.Fatalf("parse %q: %v", src, err)
 		}
-		if _, err := onkcompile.Compile([]onkcompile.Source{{Path: "collide.onk", AST: ast}}); err == nil {
+		if _, err := onkcompile.Compile([]onkcompile.Source{{Path: "collide.tsp", AST: ast}}); err == nil {
 			t.Errorf("expected %q to be rejected as a generated-name collision", src)
 		} else if !strings.Contains(err.Error(), "collides with") {
 			t.Errorf("expected a name-collision error for %q, got: %v", src, err)

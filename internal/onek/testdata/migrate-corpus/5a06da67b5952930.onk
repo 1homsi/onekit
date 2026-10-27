@@ -1,6 +1,0 @@
-package app
-message Outer {
-  message Inner { note: string }
-  child: Inner
-}
-message Plain { a: string }

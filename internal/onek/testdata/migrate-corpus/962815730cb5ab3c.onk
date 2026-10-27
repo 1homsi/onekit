@@ -1,4 +1,0 @@
-package app
-message Request { id: string optional: string? }
-message Response {}
-service API { get(Request) -> Response @get("/items/{id}") }

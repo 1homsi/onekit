@@ -1,7 +1,0 @@
-package extra.v1
-
-message Extra {
-  id: string
-
-  n: int64
-}

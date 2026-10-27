@@ -3,23 +3,37 @@ package onek
 import "testing"
 
 func TestGoWebSocketPackageWithEmptyMessagesCompiles(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message PingRequest {}
-message StatsRequest {}
-message Stats { active: int32 }
-message Frame {
-  payload: oneof {
-    ping: PingRequest @tag("ping")
-    stats: Stats @tag("stats")
-  }
+model PingRequest {}
+
+model StatsRequest {}
+
+model Stats {
+  active: int32;
 }
 
-service Live {
-  stream(Frame) -> Frame @ws("/live")
-  ping(PingRequest) -> PingRequest @ws("/ping")
-  stats(StatsRequest) -> Stats @get("/stats")
+union FramePayload {
+  @Onkt.tag("ping") ping: PingRequest,
+  @Onkt.tag("stats") stats: Stats,
+}
+
+model Frame {
+  payload: FramePayload;
+}
+
+interface Live {
+  @Onkt.ws
+  @route("/live")
+  stream(...Frame): Frame;
+
+  @Onkt.ws
+  @route("/ping")
+  ping(...PingRequest): PingRequest;
+
+  @get
+  @route("/stats")
+  stats(...StatsRequest): Stats;
 }
 `, `package api
 

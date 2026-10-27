@@ -1,3 +1,0 @@
-
-message Addr { city: string }
-message Order { bill: Addr @flatten(prefix: "bill_")  ship: Addr @flatten(prefix: "ship_") }

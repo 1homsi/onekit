@@ -1,4 +1,0 @@
-
-package app
-message Note { title: string @deprecated }
-service Notes { get(Note) -> Note @get("/notes") @deprecated("use fetch") }

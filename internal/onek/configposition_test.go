@@ -17,7 +17,7 @@ func TestConfigDiagnosticsCarryPositions(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeTestFile(t, filepath.Join(dir, "onekit.toml"), tc.config)
+			writeTestFile(t, filepath.Join(dir, "onkt.toml"), tc.config)
 			_, err := LoadConfig(dir)
 			diagnostics := Diagnostics(err)
 			if len(diagnostics) != 1 || diagnostics[0].Code != "config_error" {

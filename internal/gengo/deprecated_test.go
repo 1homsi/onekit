@@ -5,29 +5,39 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const deprecatedFixture = `package app
-message Note {
-  id: string
-  /// Legacy title.
-  title: string @deprecated("use heading")
-  body: string @deprecated
+const deprecatedFixture = `namespace app;
+
+model Note {
+  id: string;
+  /** Legacy title. */
+  #deprecated "use heading"
+  title: string;
+  #deprecated ""
+  body: string;
 }
-service Notes {
-  /// Fetch one note.
-  get(Note) -> Note @get("/notes/{id}") @deprecated("use fetch")
-  fetch(Note) -> Note @get("/v2/notes/{id}")
+
+interface Notes {
+  /** Fetch one note. */
+  #deprecated "use fetch"
+  @get
+  @route("/notes/{id}")
+  get(...Note): Note;
+
+  @get
+  @route("/v2/notes/{id}")
+  fetch(...Note): Note;
 }
 `
 
 func TestGoMarksDeprecatedFieldsAndMethods(t *testing.T) {
-	ast, err := onklang.Parse(deprecatedFixture)
+	ast, err := onktest.Parse(deprecatedFixture)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,0 @@
-
-package check
-
-message Mark {
-  v: oneof { at: timestamp  label: string }
-}

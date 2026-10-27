@@ -1,7 +1,0 @@
-
-package check
-
-message Trip {
-  start: timestamp @encode(date)
-  end: timestamp @encode(date)
-}

@@ -2,18 +2,25 @@ package genrust
 
 import "testing"
 
-const rustErrorSchema = `
-package app
+const rustErrorSchema = `namespace app;
 
-message Draft {
-  id: int64
-  name: string @len(2, 10)
+model Draft {
+  @encode(string)
+  id: int64;
+  @minLength(2)
+  @maxLength(10)
+  name: string;
 }
-message Done { ok: bool }
 
-service Things {
-  base_path: "/v1"
-  save(Draft) -> Done @post("/things/save")
+model Done {
+  ok: boolean;
+}
+
+@route("/v1")
+interface Things {
+  @post
+  @route("/things/save")
+  save(...Draft): Done;
 }
 `
 

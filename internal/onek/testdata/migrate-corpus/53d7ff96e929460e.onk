@@ -1,9 +1,0 @@
-
-package check
-
-enum Status { UNKNOWN  ACTIVE }
-
-message Item {
-  status: Status @encode(number)
-  maybe: Status? @encode(number)
-}

@@ -1,1 +1,0 @@
-message M { size: int32 @in(1, 2) }

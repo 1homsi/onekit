@@ -1,3 +1,0 @@
-
-message Addr { city: string }
-message M { city: string  home: Addr @flatten(prefix: "home_") }

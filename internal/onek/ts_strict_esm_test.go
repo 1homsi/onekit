@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-const strictESMOnekitToml = `
+const strictESMToml = `
 module = "example.com/strict/gen/go"
 
 [generate.ts-client]
@@ -19,57 +19,98 @@ msw = true
 out = "./gen/server"
 `
 
-const strictESMRuntimeOnk = `
-package rt
+const strictESMRuntimeTypeSpec = `namespace rt;
 
-message HostCall { id: string @ws_id
-method: string }
-message HostResult { id: string @ws_id
-value: string? }
-message Cancel { id: string @ws_id }
-
-message Frame {
-  payload: oneof(discriminator: "type") {
-    host_call: HostCall @tag("host_call")
-    host_result: HostResult @tag("host_result")
-    cancel: Cancel @tag("cancel") @ws_cancel
-  }
+model HostCall {
+  @Onkt.wsId
+  id: string;
+  method: string;
 }
 
-message Tree {
-  name: string
-  children: Tree[]
-  meta: Meta
+model HostResult {
+  @Onkt.wsId
+  id: string;
+  value?: string;
 }
 
-message Meta { note: string }
+model Cancel {
+  @Onkt.wsId
+  id: string;
+}
 
-service Runtime {
-  base_path: "/v1"
+@Onkt.discriminator("type")
+union FramePayload {
+  @Onkt.tag("host_call") host_call: HostCall,
+  @Onkt.tag("host_result") host_result: HostResult,
+  @Onkt.tag("cancel") @Onkt.wsCancel cancel: Cancel,
+}
 
-  execute(Frame) -> Frame @ws("/execute")
-  tree(Meta) -> Tree @get("/tree")
+model Frame {
+  payload: FramePayload;
+}
+
+model Tree {
+  name: string;
+  children: Tree[];
+  meta: Meta;
+}
+
+model Meta {
+  note: string;
+}
+
+@route("/v1")
+interface Runtime {
+  @Onkt.ws
+  @route("/execute")
+  execute(...Frame): Frame;
+
+  @get
+  @route("/tree")
+  tree(...Meta): Tree;
 }
 `
 
-const strictESMSharedOnk = `
-package common
+const strictESMSharedTypeSpec = `namespace common;
 
-message Lookup { id: string }
-message Tick { id: string at: timestamp }
-message NotFound @status(404) { code: string }
+model Lookup {
+  id: string;
+}
+
+model Tick {
+  id: string;
+  at: utcDateTime;
+}
+
+@error
+model NotFound {
+  @statusCode _: 404;
+  code: string;
+}
 `
 
-const strictESMCatalogOnk = `
-package hub.catalog
+const strictESMCatalogTypeSpec = `using common;
 
-service CatalogService {
-  base_path: "/catalog/v1"
+namespace hub.catalog;
 
-  getPrice(Lookup) -> Money | NotFound @get("/prices/{id}")
-  setPrice(Money) -> Money | NotFound @post("/prices")
-  watchPrice(Lookup) -> Tick | NotFound @get("/prices/{id}/watch") @stream
-  live(Lookup) -> Tick @ws("/live")
+@route("/catalog/v1")
+interface CatalogService {
+  @get
+  @route("/prices/{id}")
+  getPrice(...Lookup): Money | NotFound;
+
+  @post
+  @route("/prices")
+  setPrice(...Money): Money | NotFound;
+
+  @get
+  @route("/prices/{id}/watch")
+  @Onkt.stream
+  watchPrice(...Lookup): Tick | NotFound;
+
+  @Onkt.ws
+  @route("/live")
+  live(...Lookup): Tick;
 }
 `
 
@@ -105,19 +146,20 @@ func TestBuildTSCompilesUnderStrictNodeESM(t *testing.T) {
 		}
 	}
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), strictESMOnekitToml)
-	for _, name := range []string{"models.onk", "service.onk"} {
-		src, err := os.ReadFile(filepath.Join("testdata", "simple-api-onk", name))
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), strictESMToml)
+	// The example's own schema, under api/ beside the other packages.
+	for name, target := range map[string]string{"models.tsp": "models.tsp", "main.tsp": "service.tsp"} {
+		src, err := os.ReadFile(filepath.Join("..", "..", "examples", "simple-api", name))
 		if err != nil {
 			t.Fatalf("read example schema: %v", err)
 		}
-		writeTestFile(t, filepath.Join(dir, "api", name), string(src))
+		writeTestFile(t, filepath.Join(dir, "api", target), string(src))
 	}
-	writeTestFile(t, filepath.Join(dir, "common", "money.onk"), commonMoneyOnk)
-	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.onk"), businessServiceOnk)
-	writeTestFile(t, filepath.Join(dir, "rt", "runtime.onk"), strictESMRuntimeOnk)
-	writeTestFile(t, filepath.Join(dir, "common", "shared.onk"), strictESMSharedOnk)
-	writeTestFile(t, filepath.Join(dir, "hub", "catalog", "v1", "service.onk"), strictESMCatalogOnk)
+	writeTestFile(t, filepath.Join(dir, "common", "money.tsp"), commonMoneyTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.tsp"), businessServiceTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "rt", "runtime.tsp"), strictESMRuntimeTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "common", "shared.tsp"), strictESMSharedTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "hub", "catalog", "v1", "service.tsp"), strictESMCatalogTypeSpec)
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build error: %v", err)
 	}

@@ -108,14 +108,21 @@ func TestTypeSpecDiagnosticsReachTheCaller(t *testing.T) {
 	}
 }
 
-func TestTypeSpecProjectNeedsMainTsp(t *testing.T) {
+// TestRealTypeSpecCompilerBuildsProjectsWithoutMain runs the project's own
+// tsp, as the CLI does, on a project that has no main.tsp.
+func TestRealTypeSpecCompilerBuildsProjectsWithoutMain(t *testing.T) {
+	compileTypeSpecProject = runTypeSpecProject
+	t.Cleanup(func() { compileTypeSpecProject = compileWithTestServer })
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "models.tsp"), []byte("model User {}\n"), 0o644); err != nil {
+	linkTypeSpec(t, dir)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/nomain\"\n\n[generate.go-server]\nout = \"gen\"\n")
+	writeTestFile(t, filepath.Join(dir, "users", "models.tsp"), "import \"@onkt/typespec\";\nnamespace users;\nmodel User { id: string; }\n")
+	writeTestFile(t, filepath.Join(dir, "users", "api.tsp"), "import \"@typespec/http\";\nimport \"@onkt/typespec\";\nusing TypeSpec.Http;\nnamespace users;\n@route(\"/users\") interface Users { @get get(...User): User; }\n")
+	if err := Build(dir); err != nil {
 		t.Fatal(err)
 	}
-	err := Check(dir)
-	if err == nil || !strings.Contains(err.Error(), "main.tsp") {
-		t.Fatalf("err = %v, want a hint about main.tsp", err)
+	if server := read(t, filepath.Join(dir, "gen", "users", "server.gen.go")); !strings.Contains(server, "UsersServer") {
+		t.Fatal("the service in users/api.tsp was not generated")
 	}
 }
 

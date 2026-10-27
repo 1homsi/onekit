@@ -3,13 +3,21 @@ package onek
 import "testing"
 
 func TestGoServerReturns500WhenResponseCannotEncode(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message ScoreRequest { id: string }
-message Score { value: float64 }
+model ScoreRequest {
+  id: string;
+}
 
-service Scores { get(ScoreRequest) -> Score @get("/scores/{id}") }
+model Score {
+  value: float64;
+}
+
+interface Scores {
+  @get
+  @route("/scores/{id}")
+  get(...ScoreRequest): Score;
+}
 `, `package api
 
 import (

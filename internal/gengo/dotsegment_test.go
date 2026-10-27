@@ -13,16 +13,33 @@ func TestGoClientRejectsDotSegmentPathParameters(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	file := compileFixtureSource(t, `package app
+	file := compileFixtureSource(t, `namespace app;
 
-message Req { id: string }
-message Res { id: string }
-message Count { n: int32 }
+model Req {
+  id: string;
+}
 
-service Items {
-  get(Req) -> Res @get("/items/{id}")
-  watch(Req) -> Res @get("/watch/{id}") @stream
-  total(Count) -> Res @get("/total/{n}")
+model Res {
+  id: string;
+}
+
+model Count {
+  n: int32;
+}
+
+interface Items {
+  @get
+  @route("/items/{id}")
+  get(...Req): Res;
+
+  @get
+  @route("/watch/{id}")
+  @Onkt.stream
+  watch(...Req): Res;
+
+  @get
+  @route("/total/{n}")
+  total(...Count): Res;
 }
 `)
 	types, err := GenerateTypes(file)

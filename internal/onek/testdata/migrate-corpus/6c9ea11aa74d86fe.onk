@@ -1,7 +1,0 @@
-
-package jsonfixture
-
-message Envelope {
-  payload: json
-  values: json[]
-}

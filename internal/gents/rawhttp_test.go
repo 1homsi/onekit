@@ -7,19 +7,35 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const rawHTTPSchema = `package app
+const rawHTTPSchema = `namespace app;
 
-message Empty {}
-message Bundle { slug: string  v: int32 @query }
-message Upload { slug: string  key: string }
+model Empty {}
 
-service Apps {
-  base_path: "/apps"
-  bundle(Bundle) -> Empty @get("/{slug}/bundle.js") @http("application/javascript")
-  put_object(Upload) -> Empty @put("/{slug}/objects/{key...}") @http
+model Bundle {
+  slug: string;
+  @query
+  v: int32;
+}
+
+model Upload {
+  slug: string;
+  key: string;
+}
+
+@route("/apps")
+interface Apps {
+  @get
+  @route("/{slug}/bundle.js")
+  @Onkt.http(#{ contentType: "application/javascript" })
+  bundle(...Bundle): Empty;
+
+  @put
+  @route("/{slug}/objects/{+key}")
+  @Onkt.http
+  put_object(...Upload): Empty;
 }
 `
 
@@ -27,11 +43,11 @@ func TestTSRawHTTPClientReturnsTheResponse(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not available")
 	}
-	ast, err := onklang.Parse(rawHTTPSchema)
+	ast, err := onktest.Parse(rawHTTPSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "api.onk", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"ts-client"}})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "api.tsp", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"ts-client"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,25 +97,79 @@ console.log("OK");
 	}
 }
 
-const rawRoutesSchema = `package app
+const rawRoutesSchema = `namespace app;
 
-message Empty {}
-message Slug { slug: string }
-message DraftBody { source: string  minify: bool }
-message DraftRequest { slug: string  draft: DraftBody }
-message Policy { allowed: bool  reason: string }
-message UploadResult { name: string  size: int32 }
-message ProxyRequest { slug: string  resource: string  path: string  trace: string @query }
+model Empty {}
 
-service Apps {
-  base_path: "/apps"
-  bundle(Slug) -> Empty @get("/{slug}/bundle.js") @http("application/javascript")
-  draft(DraftRequest) -> Empty @post("/{slug}/bundle-draft.js") @http("application/javascript", request: "json") @body("draft")
-  policy(Slug) -> Policy @get("/{slug}/local-execution") @http(response: "json")
-  run(Slug) -> Empty @get("/{slug}/local-execution/run") @http(response: "websocket")
-  oauth(Slug) -> Empty @get("/{slug}/oauth") @http(response: "redirect")
-  upload(Slug) -> UploadResult @post("/{slug}/uploads") @http(request: "multipart", response: "json")
-  proxy(ProxyRequest) -> Empty @any("/{slug}/proxy/{resource}/{path...}") @http
+model Slug {
+  slug: string;
+}
+
+model DraftBody {
+  source: string;
+  minify: boolean;
+}
+
+model DraftRequest {
+  slug: string;
+  @body
+  draft: DraftBody;
+}
+
+model Policy {
+  allowed: boolean;
+  reason: string;
+}
+
+model UploadResult {
+  name: string;
+  size: int32;
+}
+
+model ProxyRequest {
+  slug: string;
+  resource: string;
+  path: string;
+  @query
+  trace: string;
+}
+
+@route("/apps")
+interface Apps {
+  @get
+  @route("/{slug}/bundle.js")
+  @Onkt.http(#{ contentType: "application/javascript" })
+  bundle(...Slug): Empty;
+
+  @post
+  @route("/{slug}/bundle-draft.js")
+  @Onkt.http(#{ contentType: "application/javascript", request: "json" })
+  draft(...DraftRequest): Empty;
+
+  @get
+  @route("/{slug}/local-execution")
+  @Onkt.http(#{ response: "json" })
+  policy(...Slug): Policy;
+
+  @get
+  @route("/{slug}/local-execution/run")
+  @Onkt.http(#{ response: "websocket" })
+  run(...Slug): Empty;
+
+  @get
+  @route("/{slug}/oauth")
+  @Onkt.http(#{ response: "redirect" })
+  oauth(...Slug): Empty;
+
+  @post
+  @route("/{slug}/uploads")
+  @Onkt.http(#{ request: "multipart", response: "json" })
+  upload(...Slug): UploadResult;
+
+  @Onkt.method("ANY")
+  @route("/{slug}/proxy/{resource}/{+path}")
+  @Onkt.http
+  proxy(...ProxyRequest): Empty;
 }
 `
 
@@ -107,11 +177,11 @@ func TestTSRawRoutesByKind(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not available")
 	}
-	ast, err := onklang.Parse(rawRoutesSchema)
+	ast, err := onktest.Parse(rawRoutesSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "api.onk", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"ts-client"}})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "api.tsp", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"ts-client"}})
 	if err != nil {
 		t.Fatal(err)
 	}

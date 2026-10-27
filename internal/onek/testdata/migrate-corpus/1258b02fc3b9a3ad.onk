@@ -1,8 +1,0 @@
-package app
-message Item {
-  id: int64
-  ids: int64[]
-  maybe: int64?
-}
-message Get { id: int64 }
-service S { get(Get) -> Item @get("/items/{id}") }

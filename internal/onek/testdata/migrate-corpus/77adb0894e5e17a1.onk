@@ -1,6 +1,0 @@
-package app
-message R { id: string }
-service S {
-  get(R) -> R @get("/r/{id}") @meta("guard", "app/use/:slug") @meta("audit.event", "app.read")
-  plain(R) -> R @get("/p/{id}")
-}

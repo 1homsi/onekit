@@ -6,12 +6,15 @@ import (
 )
 
 func TestOpenAPIBytesEncodingsUseStandardNames(t *testing.T) {
-	doc := openAPIForSchema(t, `
-package app
-message Blob {
-  a: bytes @encode(hex)
-  b: bytes @encode(base64_raw)
-  c: bytes @encode(base64url_raw)
+	doc := openAPIForSchema(t, `namespace app;
+
+model Blob {
+  @Onkt.encode("hex")
+  a: bytes;
+  @Onkt.encode("base64_raw")
+  b: bytes;
+  @Onkt.encode("base64url_raw")
+  c: bytes;
 }
 `)
 	flat := strings.Join(strings.Fields(doc), " ")

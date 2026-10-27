@@ -6,14 +6,21 @@ import (
 )
 
 func TestTSMarksDeprecatedFieldsAndMethods(t *testing.T) {
-	file := compileTSSchema(t, `package app
-message Note {
-  /// Legacy title.
-  title: string @deprecated("use heading")
-  body: string @deprecated
+	file := compileTSSchema(t, `namespace app;
+
+model Note {
+  /** Legacy title. */
+  #deprecated "use heading"
+  title: string;
+  #deprecated ""
+  body: string;
 }
-service Notes {
-  get(Note) -> Note @get("/notes") @deprecated("use fetch")
+
+interface Notes {
+  #deprecated "use fetch"
+  @get
+  @route("/notes")
+  get(...Note): Note;
 }
 `)
 	types, client := string(GenerateTypes(file)), string(GenerateClient(file))

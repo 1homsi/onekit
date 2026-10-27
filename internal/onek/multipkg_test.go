@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const multiPkgOnekitToml = `
+const multiPkgToml = `
 module = "example.com/voxie/gen/go"
 
 [generate.ts-client]
@@ -19,9 +19,9 @@ out = "./gen/py"
 
 func TestBuildResolvesCrossPackageTypesForTSAndPython(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), multiPkgOnekitToml)
-	writeTestFile(t, filepath.Join(dir, "common", "money.onk"), commonMoneyOnk)
-	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.onk"), businessServiceOnk)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), multiPkgToml)
+	writeTestFile(t, filepath.Join(dir, "common", "money.tsp"), commonMoneyTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.tsp"), businessServiceTypeSpec)
 
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build error: %v", err)

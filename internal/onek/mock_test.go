@@ -9,31 +9,50 @@ import (
 	"testing"
 )
 
-const mockSchema = `
-package probe
+const mockSchema = `namespace probe;
 
-message Req { id: string @uuid }
-message Res {
-  ok: bool
-  who: string @email
-  big: int64
-  when_ts: timestamp @encode(unix_seconds)
+model Req {
+  @format("uuid")
+  id: string;
 }
-message Missing @status(404) { message: string }
 
-service Svc {
-  base_path: "/v1"
+model Res {
+  ok: boolean;
+  @format("email")
+  who: string;
+  @encode(string)
+  big: int64;
+  @encode("unixTimestamp", int64)
+  when_ts: utcDateTime;
+}
 
-  getThing(Req) -> Res | Missing @get("/things/{id}")
-  findThing(Req) -> Res @query("/things")
-  streamThings(Req) -> Res @get("/things/stream") @stream
+@error
+model Missing {
+  @statusCode _: 404;
+  message: string;
+}
+
+@route("/v1")
+interface Svc {
+  @get
+  @route("/things/{id}")
+  getThing(...Req): Res | Missing;
+
+  @Onkt.method("QUERY")
+  @route("/things")
+  findThing(...Req): Res;
+
+  @get
+  @route("/things/stream")
+  @Onkt.stream
+  streamThings(...Req): Res;
 }
 `
 
 func newMockTestServer(t *testing.T, opts MockOptions) *httptest.Server {
 	t.Helper()
 	dir := t.TempDir()
-	writeTestFile(t, dir+"/svc.onk", mockSchema)
+	writeTestFile(t, dir+"/svc.tsp", mockSchema)
 	server, err := NewMockServer(dir, opts)
 	if err != nil {
 		t.Fatalf("NewMockServer: %v", err)
@@ -135,7 +154,7 @@ func TestMockServerSupportsQueryVerbAndStreams(t *testing.T) {
 
 func TestMockServerRejectsBadErrorRate(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, dir+"/svc.onk", mockSchema)
+	writeTestFile(t, dir+"/svc.tsp", mockSchema)
 	if _, err := NewMockServer(dir, MockOptions{ErrorRate: 1.5}); err == nil {
 		t.Fatal("expected error-rate validation failure")
 	}

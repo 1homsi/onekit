@@ -3,10 +3,20 @@ package gents
 import "testing"
 
 func TestTSRequiredOneof(t *testing.T) {
-	runTSSchema(t, `
-package app
-message A { v: string }
-message M { p: oneof { a: A } @required }
+	runTSSchema(t, `namespace app;
+
+model A {
+  v: string;
+}
+
+union MP {
+  a: A,
+}
+
+model M {
+  @Onkt.required
+  p: MP;
+}
 `, `
 import { validateM } from "./types.ts";
 

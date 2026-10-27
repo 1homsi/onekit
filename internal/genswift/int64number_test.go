@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func TestSwiftInt64NumberEncodingIsOnTheWire(t *testing.T) {
@@ -18,20 +18,25 @@ func TestSwiftInt64NumberEncodingIsOnTheWire(t *testing.T) {
 	if _, err := exec.LookPath("swiftc"); err != nil {
 		t.Skip("swiftc not available")
 	}
-	ast, err := onklang.Parse(`package app
-message Item {
-  id: int64
-  big: uint64
-  ids: int64[]
-  maybe: int64?
-  by_name: map[string, int64]
-  keep: int64 @encode("number")
+	ast, err := onktest.Parse(`namespace app;
+
+model Item {
+  @encode(string)
+  id: int64;
+  @encode(string)
+  big: uint64;
+  @Onkt.encode("string")
+  ids: int64[];
+  @encode(string)
+  maybe?: int64;
+  by_name: Record<int64>;
+  keep: int64;
 }
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.onk", AST: ast}}, onkcompile.CompileOptions{Int64Encoding: "number"})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.tsp", AST: ast}}, onkcompile.CompileOptions{Int64Encoding: "number"})
 	if err != nil {
 		t.Fatal(err)
 	}

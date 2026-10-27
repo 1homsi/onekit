@@ -13,7 +13,7 @@ import (
 
 func TestMockReloadPicksUpSchemaChangesAndSurvivesBrokenEdits(t *testing.T) {
 	dir := t.TempDir()
-	schema := filepath.Join(dir, "api.onk")
+	schema := filepath.Join(dir, "api.tsp")
 	write := func(src string) {
 		t.Helper()
 		writeTestFile(t, schema, src)
@@ -22,9 +22,18 @@ func TestMockReloadPicksUpSchemaChangesAndSurvivesBrokenEdits(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write(`message Req {}
-message Res { id: string }
-service S { get(Req) -> Res @get("/a") }
+	write(`
+model Req {}
+
+model Res {
+  id: string;
+}
+
+interface S {
+  @get
+  @route("/a")
+  get(...Req): Res;
+}
 `)
 	reloader, routes, err := newMockReloader(dir, MockOptions{})
 	if err != nil || routes != 1 {
@@ -39,11 +48,21 @@ service S { get(Req) -> Res @get("/a") }
 		t.Fatal("initial routes wrong")
 	}
 	var out bytes.Buffer
-	write(`message Req {}
-message Res { id: string }
-service S {
-  get(Req) -> Res @get("/a")
-  other(Req) -> Res @get("/b")
+	write(`
+model Req {}
+
+model Res {
+  id: string;
+}
+
+interface S {
+  @get
+  @route("/a")
+  get(...Req): Res;
+
+  @get
+  @route("/b")
+  other(...Req): Res;
 }
 `)
 	reloader.reload(&out)
@@ -51,7 +70,7 @@ service S {
 		t.Fatalf("reload missed the new route: %s", out.String())
 	}
 	out.Reset()
-	write("message Broken {\n")
+	write("model Broken {\n")
 	reloader.reload(&out)
 	if status("/b") != http.StatusOK || !strings.Contains(out.String(), "still serving the previous schema") {
 		t.Fatalf("broken schema replaced the mock: %s", out.String())

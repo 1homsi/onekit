@@ -3,10 +3,17 @@ package gents
 import "testing"
 
 func TestTSClientTimesOutSlowRequests(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Note { id: string }
-service Notes { get(Note) -> Note @get("/notes/{id}") }
+	runTSSchema(t, `namespace app;
+
+model Note {
+  id: string;
+}
+
+interface Notes {
+  @get
+  @route("/notes/{id}")
+  get(...Note): Note;
+}
 `, `
 import { NotesClient } from "./client.ts";
 

@@ -10,7 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onkschema"
 )
 
 const (
@@ -114,7 +114,7 @@ var (
 	variantDecorators   = map[string]decoratorRule{"tag": {minArgs: 1, maxArgs: 1}, "json": {minArgs: 1, maxArgs: 1}, wsCancelDecorator: {}}
 )
 
-func validateMessageDecl(path string, message *onklang.MessageDecl, options CompileOptions) error {
+func validateMessageDecl(path string, message *onkschema.MessageDecl, options CompileOptions) error {
 	if err := validateDeclarationName(path, message.Line, message.Name, options); err != nil {
 		return err
 	}
@@ -170,7 +170,7 @@ func validateMessageDecl(path string, message *onklang.MessageDecl, options Comp
 	return nil
 }
 
-func validateFieldDecl(path string, field *onklang.FieldDecl, options CompileOptions) error {
+func validateFieldDecl(path string, field *onkschema.FieldDecl, options CompileOptions) error {
 	if err := validateDecorators(path, field.Line, field.Decorators, fieldDecorators); err != nil {
 		return err
 	}
@@ -214,7 +214,7 @@ func validateFieldDecl(path string, field *onklang.FieldDecl, options CompileOpt
 	return nil
 }
 
-func oneofDiscriminator(args []onklang.Arg) string {
+func oneofDiscriminator(args []onkschema.Arg) string {
 	for _, arg := range args {
 		if arg.Name == oneofDiscriminatorArg {
 			return arg.Value
@@ -223,7 +223,7 @@ func oneofDiscriminator(args []onklang.Arg) string {
 	return "type"
 }
 
-func validateEnumDecl(path string, enum *onklang.EnumDecl, options CompileOptions) error {
+func validateEnumDecl(path string, enum *onkschema.EnumDecl, options CompileOptions) error {
 	if err := validateDeclarationName(path, enum.Line, enum.Name, options); err != nil {
 		return err
 	}
@@ -262,7 +262,7 @@ func validateEnumDecl(path string, enum *onklang.EnumDecl, options CompileOption
 	return nil
 }
 
-func validateNamedMember(path string, line int, name string, decorators []onklang.Decorator, rules map[string]decoratorRule, seen map[string]string, kind string, options CompileOptions) error {
+func validateNamedMember(path string, line int, name string, decorators []onkschema.Decorator, rules map[string]decoratorRule, seen map[string]string, kind string, options CompileOptions) error {
 	if err := validateMemberName(path, line, name, options); err != nil {
 		return err
 	}
@@ -279,7 +279,7 @@ func validateNamedMember(path string, line int, name string, decorators []onklan
 	return nil
 }
 
-func validateOneofArgs(path string, line int, args []onklang.Arg) error {
+func validateOneofArgs(path string, line int, args []onkschema.Arg) error {
 	seen := map[string]bool{}
 	for _, arg := range args {
 		if arg.Name != oneofDiscriminatorArg && arg.Name != flattenDecorator {
@@ -302,7 +302,7 @@ func validateOneofArgs(path string, line int, args []onklang.Arg) error {
 	return nil
 }
 
-func validateFieldDecoratorType(filePath string, field *onklang.FieldDecl, name string) error {
+func validateFieldDecoratorType(filePath string, field *onkschema.FieldDecl, name string) error {
 	switch name {
 	case "in":
 		if !acceptsIn(field) {
@@ -362,7 +362,7 @@ func validateFieldDecoratorType(filePath string, field *onklang.FieldDecl, name 
 // repeatedInt64Number reports a repeated 64-bit integer field marked
 // @encode("number"): its items cross the wire as JSON numbers, as every
 // 64-bit integer does under int64_encoding = "number".
-func repeatedInt64Number(field *onklang.FieldDecl) bool {
+func repeatedInt64Number(field *onkschema.FieldDecl) bool {
 	if !field.Repeated || field.Type == nil || field.Type.IsMap || (field.Type.Name != "int64" && field.Type.Name != "uint64") {
 		return false
 	}
@@ -370,7 +370,7 @@ func repeatedInt64Number(field *onklang.FieldDecl) bool {
 	return ok && len(encode.Args) == 1 && encode.Args[0].Value == Int64EncodingNumber
 }
 
-func acceptsIn(field *onklang.FieldDecl) bool {
+func acceptsIn(field *onkschema.FieldDecl) bool {
 	if field.Type.IsMap || field.Repeated {
 		return false
 	}
@@ -378,7 +378,7 @@ func acceptsIn(field *onklang.FieldDecl) bool {
 	return integer || isScalarNamed(field.Type, "string")
 }
 
-func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl, options CompileOptions) error {
+func validateFieldDecoratorSemantics(filePath string, field *onkschema.FieldDecl, options CompileOptions) error {
 	if field.Type == nil {
 		return nil
 	}
@@ -406,7 +406,7 @@ func validateFieldDecoratorSemantics(filePath string, field *onklang.FieldDecl, 
 	return nil
 }
 
-func validateDecoratorValue(filePath string, line int, decorator onklang.Decorator) error {
+func validateDecoratorValue(filePath string, line int, decorator onkschema.Decorator) error {
 	value := func(index int) string { return decorator.Args[index].Value }
 	numeric := func(index int) error {
 		if _, err := strconv.ParseFloat(value(index), 64); err != nil {
@@ -478,7 +478,7 @@ func hasNestedRegexpRepeat(expr *syntax.Regexp, insideRepeat bool) bool {
 	return false
 }
 
-func isScalarNamed(typ *onklang.TypeRef, name string) bool {
+func isScalarNamed(typ *onkschema.TypeRef, name string) bool {
 	return typ != nil && !typ.IsMap && typ.Name == name
 }
 
@@ -490,14 +490,14 @@ var scalarTypeRefNames = map[string]bool{
 	"json": true,
 }
 
-func isScalarTypeRef(typ *onklang.TypeRef) bool {
+func isScalarTypeRef(typ *onkschema.TypeRef) bool {
 	if typ == nil || typ.IsMap {
 		return false
 	}
 	return scalarTypeRefNames[typ.Name]
 }
 
-func isHTTPParameterTypeRef(typ *onklang.TypeRef) bool {
+func isHTTPParameterTypeRef(typ *onkschema.TypeRef) bool {
 	if typ == nil || typ.IsMap {
 		return false
 	}
@@ -524,7 +524,7 @@ var numericTypeRefNames = map[string]bool{
 	"int32": true, "int64": true, "uint32": true, "uint64": true, "float32": true, "float64": true,
 }
 
-func isNumericTypeRef(typ *onklang.TypeRef) bool {
+func isNumericTypeRef(typ *onkschema.TypeRef) bool {
 	if typ == nil || typ.IsMap {
 		return false
 	}
@@ -537,14 +537,14 @@ var wsIDTypeRefNames = map[string]bool{
 	"string": true, "int32": true, "int64": true, "uint32": true, "uint64": true,
 }
 
-func isWSIDTypeRef(typ *onklang.TypeRef) bool {
+func isWSIDTypeRef(typ *onkschema.TypeRef) bool {
 	if typ == nil || typ.IsMap {
 		return false
 	}
 	return wsIDTypeRefNames[typ.Name]
 }
 
-func validateDecorators(path string, line int, decorators []onklang.Decorator, rules map[string]decoratorRule) error {
+func validateDecorators(path string, line int, decorators []onkschema.Decorator, rules map[string]decoratorRule) error {
 	seen := map[string]bool{}
 	for _, decorator := range decorators {
 		line, col := line, 0
@@ -665,18 +665,18 @@ func validateMemberName(path string, line int, name string, options CompileOptio
 	return nil
 }
 
-func hasDecorator(decorators []onklang.Decorator, name string) bool {
+func hasDecorator(decorators []onkschema.Decorator, name string) bool {
 	_, ok := findDecorator(decorators, name)
 	return ok
 }
 
-func findDecorator(decorators []onklang.Decorator, name string) (onklang.Decorator, bool) {
+func findDecorator(decorators []onkschema.Decorator, name string) (onkschema.Decorator, bool) {
 	for _, decorator := range decorators {
 		if decorator.Name == name {
 			return decorator, true
 		}
 	}
-	return onklang.Decorator{}, false
+	return onkschema.Decorator{}, false
 }
 
 func argCount(minimum, maximum int) string {
@@ -689,7 +689,7 @@ func argCount(minimum, maximum int) string {
 	return strconv.Itoa(minimum) + " to " + strconv.Itoa(maximum) + " argument(s)"
 }
 
-func isIntegerTypeRef(typ *onklang.TypeRef) bool {
+func isIntegerTypeRef(typ *onkschema.TypeRef) bool {
 	for _, name := range []string{"int32", "int64", "uint32", "uint64"} {
 		if isScalarNamed(typ, name) {
 			return true

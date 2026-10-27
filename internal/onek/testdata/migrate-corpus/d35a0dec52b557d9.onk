@@ -1,9 +1,0 @@
-package app
-
-message Blob { data: string }
-message Done { ok: bool }
-
-service Uploads {
-  small(Blob) -> Done @post("/small")
-  big(Blob) -> Done @post("/big") @max_body("1MiB")
-}

@@ -1,4 +1,0 @@
-package small
-message M @rule("self.xs.all(x, x > 0)", "positive") {
-  xs: int32[]
-}

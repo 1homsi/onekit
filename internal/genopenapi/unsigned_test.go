@@ -5,16 +5,16 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func openAPIForSchema(t *testing.T, schema string) string {
 	t.Helper()
-	ast, err := onklang.Parse(schema)
+	ast, err := onktest.Parse(schema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,13 +26,15 @@ func openAPIForSchema(t *testing.T, schema string) string {
 }
 
 func TestOpenAPIDescribesUnsignedAndStringIntegers(t *testing.T) {
-	doc := openAPIForSchema(t, `
-package app
-message Counters {
-  small: uint32
-  big: uint64
-  signed: int64
-  plain: uint64 @encode(number)
+	doc := openAPIForSchema(t, `namespace app;
+
+model Counters {
+  small: uint32;
+  @encode(string)
+  big: uint64;
+  @encode(string)
+  signed: int64;
+  plain: uint64;
 }
 `)
 	flat := strings.Join(strings.Fields(doc), " ")

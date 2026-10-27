@@ -6,29 +6,33 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const sseFixtureSrc = `
-package main
+const sseFixtureSrc = `namespace main;
 
-message StreamEventsRequest {
-  channel: string @query("channel")
+model StreamEventsRequest {
+  @query("channel")
+  channel: string;
 }
 
-message Event {
-  id: string
-  payload: string
+model Event {
+  id: string;
+  payload: string;
 }
 
-message StreamError @status(400) {
-  reason: string
+@error
+model StreamError {
+  @statusCode _: 400;
+  reason: string;
 }
 
-service SSEService {
-  base_path: "/api/v1"
-
-  streamEvents(StreamEventsRequest) -> Event | StreamError @get("/events") @stream
+@route("/api/v1")
+interface SSEService {
+  @get
+  @route("/events")
+  @Onkt.stream
+  streamEvents(...StreamEventsRequest): Event | StreamError;
 }
 `
 
@@ -135,11 +139,11 @@ func TestSSEStreamingEndToEnd(t *testing.T) {
 		t.Skip("go toolchain not available")
 	}
 
-	ast, err := onklang.Parse(sseFixtureSrc)
+	ast, err := onktest.Parse(sseFixtureSrc)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile error: %v", err)
 	}

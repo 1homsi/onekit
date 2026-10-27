@@ -8,24 +8,37 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const alwaysSentSchema = `package app
+const alwaysSentSchema = `namespace app;
 
-message Inner { label: string }
-message Node { name: string  next: Node }
-message Env {
-  id: string
-  created_at: timestamp
-  inner: Inner
-  node: Node
-  spare: Inner?
+model Inner {
+  label: string;
 }
-message Get { id: string }
-service Envs {
-  base_path: "/v1"
-  get(Get) -> Env @get("/envs/{id}")
+
+model Node {
+  name: string;
+  next: Node;
+}
+
+model Env {
+  id: string;
+  created_at: utcDateTime;
+  inner: Inner;
+  node: Node;
+  spare?: Inner;
+}
+
+model Get {
+  id: string;
+}
+
+@route("/v1")
+interface Envs {
+  @get
+  @route("/envs/{id}")
+  get(...Get): Env;
 }
 `
 
@@ -33,11 +46,11 @@ func TestGoWritesUnsetResponseMessageFieldsAsZeroMessages(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	ast, err := onklang.Parse(alwaysSentSchema)
+	ast, err := onktest.Parse(alwaysSentSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.onk", AST: ast}}, onkcompile.CompileOptions{EmitZeroValues: true})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.tsp", AST: ast}}, onkcompile.CompileOptions{EmitZeroValues: true})
 	if err != nil {
 		t.Fatal(err)
 	}

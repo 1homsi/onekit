@@ -2,11 +2,22 @@ package genrust
 
 import "testing"
 
-const rustSSEFixture = `
-package app
-message WatchRequest { id: string }
-message Tick { text: string }
-service Feed { watch(WatchRequest) -> Tick @get("/w/{id}") @stream }
+const rustSSEFixture = `namespace app;
+
+model WatchRequest {
+  id: string;
+}
+
+model Tick {
+  text: string;
+}
+
+interface Feed {
+  @get
+  @route("/w/{id}")
+  @Onkt.stream
+  watch(...WatchRequest): Tick;
+}
 `
 
 const rustSSEClientMain = `

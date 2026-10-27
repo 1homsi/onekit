@@ -7,11 +7,10 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
-	"strings"
 	"testing"
 )
 
-func discoverOnkFilesSerial(dir string) ([]string, error) {
+func discoverSchemaFilesSerial(dir string) ([]string, error) {
 	root, err := canonicalProjectDir(dir)
 	if err != nil {
 		return nil, err
@@ -28,12 +27,12 @@ func discoverOnkFilesSerial(dir string) ([]string, error) {
 			return nil
 		}
 		if d.Type()&os.ModeSymlink != 0 {
-			if strings.HasSuffix(path, ".onk") {
+			if hasSchemaExtension(path, defaultSchemaExtensions()) {
 				return fmt.Errorf("refusing symlinked schema file: %s", path)
 			}
 			return nil
 		}
-		if strings.HasSuffix(path, ".onk") {
+		if hasSchemaExtension(path, defaultSchemaExtensions()) {
 			info, infoErr := d.Info()
 			if infoErr != nil {
 				return infoErr
@@ -77,7 +76,9 @@ func touchFiles(t *testing.T, dir string, names ...string) {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, []byte("message M {}\n"), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(`
+model M {}
+`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -85,8 +86,8 @@ func touchFiles(t *testing.T, dir string, names ...string) {
 
 func assertDiscoverMatchesSerial(t *testing.T, dir string) []string {
 	t.Helper()
-	want, wantErr := discoverOnkFilesSerial(dir)
-	got, gotErr := discoverOnkFiles(dir)
+	want, wantErr := discoverSchemaFilesSerial(dir)
+	got, gotErr := discoverProjectSchemaFiles(dir)
 	if fmt.Sprint(wantErr) != fmt.Sprint(gotErr) {
 		t.Fatalf("error mismatch:\n serial:   %v\n parallel: %v", wantErr, gotErr)
 	}
@@ -96,12 +97,12 @@ func assertDiscoverMatchesSerial(t *testing.T, dir string) []string {
 	return got
 }
 
-func TestDiscoverOnkFilesMatchesSerialWalk(t *testing.T) {
+func TestDiscoverSchemaFilesMatchesSerialWalk(t *testing.T) {
 	dir := discoverTempDir(t)
 	touchFiles(t, dir,
-		"a.onk", "z.onk", "b/c/d.onk", "b/c/e.onk", "b/f.onk", "a2/x.onk",
-		"b/notes.txt", "node_modules/pkg/skip.onk", ".hidden/skip.onk", "vendor/skip.onk",
-		"build/skip.onk", "deep/1/2/3/4/5/6/leaf.onk", "deep/1/other.onk", "dir.onk/inner.onk",
+		"a.tsp", "z.tsp", "b/c/d.tsp", "b/c/e.tsp", "b/f.tsp", "a2/x.tsp",
+		"b/notes.txt", "node_modules/pkg/skip.tsp", ".hidden/skip.tsp", "vendor/skip.tsp",
+		"build/skip.tsp", "deep/1/2/3/4/5/6/leaf.tsp", "deep/1/other.tsp", "dir.tsp/inner.tsp",
 	)
 	if err := os.Symlink(filepath.Join(dir, "b"), filepath.Join(dir, "linked-dir")); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
@@ -115,29 +116,29 @@ func TestDiscoverOnkFilesMatchesSerialWalk(t *testing.T) {
 	}
 }
 
-func TestDiscoverOnkFilesReportsTheSameFirstErrorAsSerialWalk(t *testing.T) {
+func TestDiscoverSchemaFilesReportsTheSameFirstErrorAsSerialWalk(t *testing.T) {
 	cases := map[string]func(t *testing.T, dir string){
 		"symlinked schema": func(t *testing.T, dir string) {
-			touchFiles(t, dir, "real.onk", "zz/other.onk")
-			if err := os.Symlink(filepath.Join(dir, "real.onk"), filepath.Join(dir, "zz", "link.onk")); err != nil {
+			touchFiles(t, dir, "real.tsp", "zz/other.tsp")
+			if err := os.Symlink(filepath.Join(dir, "real.tsp"), filepath.Join(dir, "zz", "link.tsp")); err != nil {
 				t.Skipf("symlinks unavailable: %v", err)
 			}
 		},
 		"unsafe name": func(t *testing.T, dir string) {
-			touchFiles(t, dir, "ok.onk", "sub/bad name.onk")
+			touchFiles(t, dir, "ok.tsp", "sub/bad name.tsp")
 		},
 		"oversized": func(t *testing.T, dir string) {
-			touchFiles(t, dir, "ok.onk", "big/huge.onk")
-			if err := os.Truncate(filepath.Join(dir, "big", "huge.onk"), maxInputFileBytes+1); err != nil {
+			touchFiles(t, dir, "ok.tsp", "big/huge.tsp")
+			if err := os.Truncate(filepath.Join(dir, "big", "huge.tsp"), maxInputFileBytes+1); err != nil {
 				t.Fatal(err)
 			}
 		},
 		"two violations, first wins": func(t *testing.T, dir string) {
-			touchFiles(t, dir, "a/bad name.onk", "m/worse name.onk", "z/ok.onk")
+			touchFiles(t, dir, "a/bad name.tsp", "m/worse name.tsp", "z/ok.tsp")
 		},
 		"too many": func(t *testing.T, dir string) {
 			for i := 0; i <= maxInputFileCount; i++ {
-				touchFiles(t, dir, fmt.Sprintf("d%02d/f%d.onk", i%40, i))
+				touchFiles(t, dir, fmt.Sprintf("d%02d/f%d.tsp", i%40, i))
 			}
 		},
 	}
@@ -145,7 +146,7 @@ func TestDiscoverOnkFilesReportsTheSameFirstErrorAsSerialWalk(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := discoverTempDir(t)
 			setup(t, dir)
-			_, err := discoverOnkFiles(dir)
+			_, err := discoverProjectSchemaFiles(dir)
 			if err == nil {
 				t.Fatal("expected an error")
 			}
@@ -154,10 +155,10 @@ func TestDiscoverOnkFilesReportsTheSameFirstErrorAsSerialWalk(t *testing.T) {
 	}
 }
 
-func TestDiscoverOnkFilesMissingDirectoryErrorsLikeSerialWalk(t *testing.T) {
+func TestDiscoverSchemaFilesMissingDirectoryErrorsLikeSerialWalk(t *testing.T) {
 	dir := filepath.Join(discoverTempDir(t), "missing")
-	_, wantErr := discoverOnkFilesSerial(dir)
-	_, gotErr := discoverOnkFiles(dir)
+	_, wantErr := discoverSchemaFilesSerial(dir)
+	_, gotErr := discoverProjectSchemaFiles(dir)
 	if wantErr == nil || gotErr == nil || wantErr.Error() != gotErr.Error() {
 		t.Fatalf("serial=%v parallel=%v", wantErr, gotErr)
 	}

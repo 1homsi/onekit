@@ -5,25 +5,31 @@ import (
 	"testing"
 )
 
-const rustDocFixture = `
-package app
-/// A stored note.
-///
-/// Notes are immutable.
-message Note {
-  /// Unique identifier.
-  id: string
+const rustDocFixture = `namespace app;
+
+/**
+ * A stored note.
+ *
+ * Notes are immutable.
+ */
+model Note {
+  /** Unique identifier. */
+  id: string;
 }
-/// Visibility of a note.
+
+/** Visibility of a note. */
 enum Visibility {
-  /// Only the author.
-  PRIVATE
-  PUBLIC
+  /** Only the author. */
+  PRIVATE,
+  PUBLIC,
 }
-/// Manages notes.
-service Notes {
-  /// Fetch one note.
-  get(Note) -> Note @get("/notes/{id}")
+
+/** Manages notes. */
+interface Notes {
+  /** Fetch one note. */
+  @get
+  @route("/notes/{id}")
+  get(...Note): Note;
 }
 `
 

@@ -8,21 +8,44 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const rawHTTPSchema = `package app
+const rawHTTPSchema = `namespace app;
 
-message Empty {}
-message Bundle { slug: string }
-message Upload { slug: string  key: string }
-message Info { ok: bool }
+model Empty {}
 
-service Apps {
-  base_path: "/apps"
-  bundle(Bundle) -> Empty @get("/{slug}/bundle.js") @http("application/javascript") @guard("apps/read/:slug") @meta("audit.event", "bundle")
-  put_object(Upload) -> Empty @put("/{slug}/objects/{key...}") @http @max_body("1KiB")
-  info(Bundle) -> Info @get("/{slug}/info")
+model Bundle {
+  slug: string;
+}
+
+model Upload {
+  slug: string;
+  key: string;
+}
+
+model Info {
+  ok: boolean;
+}
+
+@route("/apps")
+interface Apps {
+  @get
+  @route("/{slug}/bundle.js")
+  @Onkt.http(#{ contentType: "application/javascript" })
+  @Onkt.guard("apps/read/:slug")
+  @Onkt.meta("audit.event", "bundle")
+  bundle(...Bundle): Empty;
+
+  @put
+  @route("/{slug}/objects/{+key}")
+  @Onkt.http
+  @Onkt.maxBody("1KiB")
+  put_object(...Upload): Empty;
+
+  @get
+  @route("/{slug}/info")
+  info(...Bundle): Info;
 }
 `
 
@@ -135,11 +158,11 @@ func TestGoRawHTTPRoutes(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	ast, err := onklang.Parse(rawHTTPSchema)
+	ast, err := onktest.Parse(rawHTTPSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.onk", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"go-server", "go-client", "ts-client", "openapi"}})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.tsp", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"go-server", "go-client", "ts-client", "openapi"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,26 +207,75 @@ func TestRawHTTPContractRules(t *testing.T) {
 		opts         onkcompile.CompileOptions
 		want         string
 	}{
-		{"unbound field", `message R { a: string  b: string }
-message E {}
-service S { x(R) -> E @put("/x/{a}") @http }`, onkcompile.CompileOptions{Targets: []string{"go-server"}}, `field "b"`},
-		{"python target leaves the route out", `message R { a: string }
-message E {}
-service S { x(R) -> E @get("/x/{a}") @http }`, onkcompile.CompileOptions{Targets: []string{"go-server", "python-client", "ts-server"}}, ""},
-		{"with stream", `message R { a: string }
-message E {}
-service S { x(R) -> E @get("/x/{a}") @http @stream }`, onkcompile.CompileOptions{Targets: []string{"go-server"}}, "cannot be combined"},
-		{"ok", `message R { a: string  q: string @query }
-message E {}
-service S { x(R) -> E @get("/x/{a}") @http("text/plain") }`, onkcompile.CompileOptions{Targets: []string{"go-server", "ts-client", "go-client", "openapi"}}, ""},
+		{"unbound field", `
+model R {
+  a: string;
+  b: string;
+}
+
+model E {}
+
+interface S {
+  @put
+  @route("/x/{a}")
+  @Onkt.http
+  x(...R): E;
+}
+`, onkcompile.CompileOptions{Targets: []string{"go-server"}}, `field "b"`},
+		{"python target leaves the route out", `
+model R {
+  a: string;
+}
+
+model E {}
+
+interface S {
+  @get
+  @route("/x/{a}")
+  @Onkt.http
+  x(...R): E;
+}
+`, onkcompile.CompileOptions{Targets: []string{"go-server", "python-client", "ts-server"}}, ""},
+		{"with stream", `
+model R {
+  a: string;
+}
+
+model E {}
+
+interface S {
+  @get
+  @route("/x/{a}")
+  @Onkt.http
+  @Onkt.stream
+  x(...R): E;
+}
+`, onkcompile.CompileOptions{Targets: []string{"go-server"}}, "cannot be combined"},
+		{"ok", `
+model R {
+  a: string;
+  @query
+  q: string;
+}
+
+model E {}
+
+interface S {
+  @get
+  @route("/x/{a}")
+  @Onkt.http(#{ contentType: "text/plain" })
+  x(...R): E;
+}
+`, onkcompile.CompileOptions{Targets: []string{"go-server", "ts-client", "go-client", "openapi"}}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ast, err := onklang.Parse("package app\n" + tc.schema + "\n")
+			ast, err := onktest.Parse(`namespace app;
+` + tc.schema + "\n")
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "a.onk", AST: ast}}, tc.opts)
+			_, err = onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "a.tsp", AST: ast}}, tc.opts)
 			if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
 				t.Fatalf("got %v want %q", err, tc.want)
 			}
@@ -215,11 +287,11 @@ func TestGoRawHTTPClient(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	ast, err := onklang.Parse(rawHTTPSchema)
+	ast, err := onktest.Parse(rawHTTPSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.onk", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"go-server", "go-client"}})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.tsp", AST: ast}}, onkcompile.CompileOptions{Targets: []string{"go-server", "go-client"}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,17 +3,7 @@ package gents
 import "testing"
 
 func TestTSCodecsTolerateJSONNull(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Sub { x: string }
-message Probe {
-  subs: Sub[]
-  sub: Sub
-  by: map[string, Sub]
-  s: string
-}
-service S { op(Probe) -> Probe @post("/p") }
-`, `
+	runTSSchema(t, "namespace app;\n\nmodel Sub {\n  x: string;\n}\n\nmodel Probe {\n  subs: Sub[];\n  `sub`: Sub;\n  by: Record<Sub>;\n  s: string;\n}\n\ninterface S {\n  @post\n  @route(\"/p\")\n  `op`(...Probe): Probe;\n}\n", `
 import { decodeProbe, encodeProbe, validateProbe } from "./types.ts";
 
 const check = (ok: boolean, message: string) => { if (!ok) throw new Error(message); };

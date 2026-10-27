@@ -11,11 +11,23 @@ func TestPythonBuildWritesImportableHyphenatedPackages(t *testing.T) {
 		t.Skip("python3 not available")
 	}
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"x\"\n\n[generate.python-client]\nout = \"./py\"\n")
-	writeTestFile(t, filepath.Join(dir, "shared-types", "models.onk"), "message Addr { city: string }\n")
-	writeTestFile(t, filepath.Join(dir, "user-service", "api.onk"), `import "../shared-types/models.onk"
-message U { id: string  addr: Addr }
-service Users { get(U) -> U @put("/u/{id}") }
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"x\"\n\n[generate.python-client]\nout = \"./py\"\n")
+	writeTestFile(t, filepath.Join(dir, "shared-types", "models.tsp"), `
+model Addr {
+  city: string;
+}
+`)
+	writeTestFile(t, filepath.Join(dir, "user-service", "api.tsp"), `
+model U {
+  id: string;
+  addr: Addr;
+}
+
+interface Users {
+  @put
+  @route("/u/{id}")
+  get(...U): U;
+}
 `)
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build error: %v", err)

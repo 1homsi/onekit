@@ -1,8 +1,0 @@
-
-package app
-message Counters {
-  small: uint32
-  big: uint64
-  signed: int64
-  plain: uint64 @encode(number)
-}

@@ -6,14 +6,17 @@ import (
 	"testing"
 )
 
-const nullableSchema = `package app
+const nullableSchema = `namespace app;
 
-message Item { name: string }
-message Patch {
-  id: int32
-  folder_id: int64? @nullable @encode("number")
-  note: string? @nullable
-  item: Item? @nullable
+model Item {
+  name: string;
+}
+
+model Patch {
+  id: int32;
+  folder_id?: int64 | null;
+  note?: string | null;
+  item?: Item | null;
 }
 `
 

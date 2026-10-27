@@ -3,13 +3,22 @@ package onek
 import "testing"
 
 func TestGoSSESenderReportsDisconnectsAndSerializesSends(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message WatchRequest { id: string }
-message Tick { n: int32 }
+model WatchRequest {
+  id: string;
+}
 
-service Feed { watch(WatchRequest) -> Tick @get("/feed/{id}") @stream }
+model Tick {
+  n: int32;
+}
+
+interface Feed {
+  @get
+  @route("/feed/{id}")
+  @Onkt.stream
+  watch(...WatchRequest): Tick;
+}
 `, `package api
 
 import (

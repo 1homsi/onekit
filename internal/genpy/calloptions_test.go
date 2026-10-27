@@ -3,10 +3,17 @@ package genpy
 import "testing"
 
 func TestPythonClientPerCallHeadersAndTimeout(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message Note { id: string }
-service Notes { get(Note) -> Note @get("/notes/{id}") }
+	runPythonSchema(t, `namespace app;
+
+model Note {
+  id: string;
+}
+
+interface Notes {
+  @get
+  @route("/notes/{id}")
+  get(...Note): Note;
+}
 `, `
 import json, threading, http.server
 from client import NotesClient

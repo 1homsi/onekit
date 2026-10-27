@@ -1,7 +1,0 @@
-
-package common
-
-message Money {
-  amount_cents: int64
-  currency: string
-}

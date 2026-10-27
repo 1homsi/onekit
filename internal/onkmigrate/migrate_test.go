@@ -71,3 +71,56 @@ func TestConvertQualifiesOnlyAmbiguousNames(t *testing.T) {
 		t.Errorf("unexpected operation:\n%s", service)
 	}
 }
+
+func TestConvertKeepsTheTypeOfANonStringIn(t *testing.T) {
+	file := &onkschema.File{Package: "app", Messages: []*onkschema.MessageDecl{{Name: "M", Fields: []*onkschema.FieldDecl{
+		{Name: "ratio", Type: &onkschema.TypeRef{Name: "float64"}, Decorators: []onkschema.Decorator{{Name: "in", Args: []onkschema.Arg{{Value: "1"}}}}},
+		{Name: "tags", Repeated: true, Type: &onkschema.TypeRef{Name: "string"}, Decorators: []onkschema.Decorator{{Name: "in", Args: []onkschema.Arg{{Value: "a", Quoted: true}}}}},
+	}}}}
+	out, err := Convert([]Source{{Path: "/p/a.onk", AST: file}}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"@Onkt.values(1)\n  ratio: float64;", `@Onkt.values("a")` + "\n  tags: string[];"} {
+		if !strings.Contains(out[0].Content, want) {
+			t.Errorf("missing %q in:\n%s", want, out[0].Content)
+		}
+	}
+}
+
+func TestConvertSpellsEdgeCasesTheEmitterReadsBack(t *testing.T) {
+	q := func(v string) onkschema.Arg { return onkschema.Arg{Value: v, Quoted: true} }
+	file := &onkschema.File{Package: "app",
+		Messages: []*onkschema.MessageDecl{
+			{Name: "B", Fields: []*onkschema.FieldDecl{{Name: "v", Type: &onkschema.TypeRef{Name: "string"}}}},
+			{Name: "Req", Fields: []*onkschema.FieldDecl{
+				{Name: "b", Type: &onkschema.TypeRef{Name: "B"}},
+				{Name: "note", Type: &onkschema.TypeRef{Name: "string"}},
+				{Name: "ids", Repeated: true, Type: &onkschema.TypeRef{Name: "int64"}, Decorators: []onkschema.Decorator{{Name: "encode", Args: []onkschema.Arg{q("number")}}}},
+				{Name: "keys", Repeated: true, Type: &onkschema.TypeRef{Name: "uint64"}},
+			}},
+		},
+		Services: []*onkschema.ServiceDecl{{Name: "S", BasePath: "/", RPCs: []*onkschema.RPCDecl{{
+			Name: "a", RequestType: "Req", ResponseType: "B",
+			Decorators: []onkschema.Decorator{{Name: "post", Args: []onkschema.Arg{q("/a")}}, {Name: "body", Args: []onkschema.Arg{q("b")}}, {Name: "max_body", Args: []onkschema.Arg{q("1KiB")}}},
+		}}}},
+	}
+	out, err := Convert([]Source{{Path: "/p/sub/a.onk", AST: file}}, Options{BasePath: func(string) string { return "/sub" }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		// An explicit root base path stays the root, not the directory.
+		"@route(\"/\")\ninterface S {",
+		// Beside the @body field, a plain field does not cross the wire.
+		"  @body\n  b: B;",
+		"  @bodyIgnore\n  note: string;",
+		// Repeated 64-bit integers: numbers stay plain, the default is spelled out.
+		"  ids: int64[];",
+		"  @Onkt.encode(\"string\")\n  keys: uint64[];",
+	} {
+		if !strings.Contains(out[0].Content, want) {
+			t.Errorf("missing %q in:\n%s", want, out[0].Content)
+		}
+	}
+}

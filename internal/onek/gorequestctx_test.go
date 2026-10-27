@@ -3,14 +3,21 @@ package onek
 import "testing"
 
 func TestGoHandlersCanReadTheHTTPRequest(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message Ping { id: string }
+model Ping {
+  id: string;
+}
 
-service Pings {
-  headers: { "X-Request-Id": string @required }
-  get(Ping) -> Ping @get("/pings/{id}")
+/** Headers every Pings operation takes. */
+alias PingsHeaders = {
+  @header("X-Request-Id") header_x_request_id: string;
+};
+
+interface Pings {
+  @get
+  @route("/pings/{id}")
+  get(...PingsHeaders, ...Ping): Ping;
 }
 `, `package api
 

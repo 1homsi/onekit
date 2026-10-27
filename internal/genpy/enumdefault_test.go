@@ -3,16 +3,27 @@ package genpy
 import "testing"
 
 func TestPythonRequiredEnumDefaultsToFirstValue(t *testing.T) {
-	runPythonSchema(t, `
-package app
-enum Status { UNKNOWN  ACTIVE }
-message M {
-  status: Status
-  maybe: Status?
-  message Inner {
-    kind: Kind
-    enum Kind { A  B }
-  }
+	runPythonSchema(t, `namespace app;
+
+enum Status {
+  UNKNOWN,
+  ACTIVE,
+}
+
+model M {
+  status: Status;
+  maybe?: Status;
+}
+
+@Onkt.parent(M)
+model Inner {
+  kind: Kind;
+}
+
+@Onkt.parent(Inner)
+enum Kind {
+  A,
+  B,
 }
 `, `
 from models import Inner, Kind, M, Status

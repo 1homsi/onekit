@@ -5,16 +5,16 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func compile(t *testing.T, src string) *onkir.File {
 	t.Helper()
-	ast, err := onklang.Parse(src)
+	ast, err := onktest.Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "a.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "a.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,11 +31,13 @@ func field(m *onkir.Message, name string) *onkir.Field {
 }
 
 func TestNeedsInt64StringEncoding(t *testing.T) {
-	file := compile(t, `package app
-message M {
-  plain: int64
-  numbered: int64 @encode("number")
-  text: string
+	file := compile(t, `namespace app;
+
+model M {
+  @encode(string)
+  plain: int64;
+  numbered: int64;
+  text: string;
 }
 `)
 	m := file.Messages[0]
@@ -60,12 +62,18 @@ message M {
 }
 
 func TestNeedsEnumNumberEncoding(t *testing.T) {
-	file := compile(t, `package app
-enum Status { ON OFF }
-message M {
-  plain: Status
-  numbered: Status @encode("number")
-  many: Status[]
+	file := compile(t, `namespace app;
+
+enum Status {
+  ON,
+  OFF,
+}
+
+model M {
+  plain: Status;
+  @Onkt.encode("number")
+  numbered: Status;
+  many: Status[];
 }
 `)
 	m := file.Messages[0]
@@ -81,12 +89,18 @@ message M {
 }
 
 func TestFlattenPrefixAndEmptyBehavior(t *testing.T) {
-	file := compile(t, `package app
-message Inner { note: string }
-message M {
-  flat: Inner @flatten(prefix: "f_")
-  plain: Inner
-  omitted: Inner @empty("omit")
+	file := compile(t, `namespace app;
+
+model Inner {
+  note: string;
+}
+
+model M {
+  @Onkt.flatten("f_")
+  flat: Inner;
+  plain: Inner;
+  @Onkt.empty("omit")
+  omitted: Inner;
 }
 `)
 	m := file.Messages[1]
@@ -106,9 +120,18 @@ message M {
 }
 
 func TestRootUnwrapField(t *testing.T) {
-	file := compile(t, `package app
-message Ids { v: int64[] @unwrap }
-message Plain { a: string b: string }
+	file := compile(t, `namespace app;
+
+model Ids {
+  @Onkt.unwrap
+  @Onkt.encode("string")
+  v: int64[];
+}
+
+model Plain {
+  a: string;
+  b: string;
+}
 `)
 	if f := RootUnwrapField(file.Messages[0]); f == nil || f.Name != "v" {
 		t.Fatalf("RootUnwrapField(Ids) = %v", f)
@@ -119,11 +142,24 @@ message Plain { a: string b: string }
 }
 
 func TestOneofDiscriminator(t *testing.T) {
-	file := compile(t, `package app
-message A { v: string }
-message M {
-  default_disc: oneof { a: A @tag("a") }
-  custom_disc: oneof(discriminator: "kind") { b: A @tag("b") }
+	file := compile(t, `namespace app;
+
+model A {
+  v: string;
+}
+
+union MDefaultDisc {
+  @Onkt.tag("a") a: A,
+}
+
+@Onkt.discriminator("kind")
+union MCustomDisc {
+  @Onkt.tag("b") b: A,
+}
+
+model M {
+  default_disc: MDefaultDisc;
+  custom_disc: MCustomDisc;
 }
 `)
 	m := file.Messages[1]
@@ -136,12 +172,20 @@ message M {
 }
 
 func TestFileMessagesDeep(t *testing.T) {
-	file := compile(t, `package app
-message Outer {
-  message Inner { note: string }
-  child: Inner
+	file := compile(t, `namespace app;
+
+model Outer {
+  child: Inner;
 }
-message Plain { a: string }
+
+@Onkt.parent(Outer)
+model Inner {
+  note: string;
+}
+
+model Plain {
+  a: string;
+}
 `)
 	var names []string
 	for _, m := range FileMessagesDeep(file) {

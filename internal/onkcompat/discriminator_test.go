@@ -20,19 +20,57 @@ func compareSchemas(t *testing.T, before, after string) []Finding {
 }
 
 func TestCompareTreatsExplicitDefaultDiscriminatorAsUnchanged(t *testing.T) {
-	findings := compareSchemas(t, `package app
-message A {}
-message M { v: oneof { a: A } }`, `package app
-message A {}
-message M { v: oneof(discriminator: "type") { a: A } }`)
+	findings := compareSchemas(t, `namespace app;
+
+model A {}
+
+union MV {
+  a: A,
+}
+
+model M {
+  v: MV;
+}
+`, `namespace app;
+
+model A {}
+
+@Onkt.discriminator("type")
+union MV {
+  a: A,
+}
+
+model M {
+  v: MV;
+}
+`)
 	if len(findings) != 0 {
 		t.Fatalf("explicit default discriminator reported as breaking: %+v", findings)
 	}
-	if findings := compareSchemas(t, `package app
-message A {}
-message M { v: oneof { a: A } }`, `package app
-message A {}
-message M { v: oneof(discriminator: "kind") { a: A } }`); len(findings) == 0 {
+	if findings := compareSchemas(t, `namespace app;
+
+model A {}
+
+union MV {
+  a: A,
+}
+
+model M {
+  v: MV;
+}
+`, `namespace app;
+
+model A {}
+
+@Onkt.discriminator("kind")
+union MV {
+  a: A,
+}
+
+model M {
+  v: MV;
+}
+`); len(findings) == 0 {
 		t.Fatal("changed discriminator not reported")
 	}
 }

@@ -2,10 +2,17 @@ package genrust
 
 import "testing"
 
-const rustMapValidateFixture = `
-package app
-message Item { name: string @len(1, 5) }
-message Catalog { items: map[string, Item] }
+const rustMapValidateFixture = `namespace app;
+
+model Item {
+  @minLength(1)
+  @maxLength(5)
+  name: string;
+}
+
+model Catalog {
+  items: Record<Item>;
+}
 `
 
 const rustMapValidateMain = `

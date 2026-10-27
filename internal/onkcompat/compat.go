@@ -1,4 +1,4 @@
-// Package onkcompat compares compiled .onk contracts for breaking changes.
+// Package onkcompat compares compiled schema contracts for breaking changes.
 package onkcompat
 
 import (

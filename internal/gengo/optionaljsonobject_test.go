@@ -13,17 +13,7 @@ func TestOptionalJSONObjectFieldCompilesAndValidates(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	file := compileFixtureSource(t, `package app
-
-message M {
-  cfg: json? @object
-  plain: json @object
-}
-
-service S {
-  op(M) -> M @post("/m")
-}
-`)
+	file := compileFixtureSource(t, "namespace app;\n\nmodel M {\n  @Onkt.object\n  cfg?: unknown;\n  @Onkt.object\n  plain: unknown;\n}\n\ninterface S {\n  @post\n  @route(\"/m\")\n  `op`(...M): M;\n}\n")
 	types, err := GenerateTypes(file)
 	if err != nil {
 		t.Fatal(err)

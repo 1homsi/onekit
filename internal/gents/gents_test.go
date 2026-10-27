@@ -9,78 +9,91 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const fixtureSrc = `
-package app
+const fixtureSrc = `namespace app;
 
-message Address {
-  street: string
-  city: string
+model Address {
+  street: string;
+  city: string;
 }
 
-message User {
-  id: string
-  name: string @len(2, 100)
-  email: string @email
-  bio: string?
-  tags: string[]
-  labels: map[string, string]
-  home_address: Address
+model User {
+  id: string;
+  @minLength(2)
+  @maxLength(100)
+  name: string;
+  @format("email")
+  email: string;
+  bio?: string;
+  tags: string[];
+  labels: Record<string>;
+  home_address: Address;
 }
 
 enum Status {
-  UNSPECIFIED
-  ACTIVE @json("active")
+  UNSPECIFIED,
+  ACTIVE: "active",
 }
 
-message Event {
-  id: string
-  payload: oneof(discriminator: "type", flatten: true) {
-    text: TextPayload @tag("text")
-    image: ImagePayload @tag("image")
-  }
+@discriminated(#{ discriminatorPropertyName: "type", envelope: "none" })
+union EventPayload {
+  @Onkt.tag("text") text: TextPayload,
+  @Onkt.tag("image") image: ImagePayload,
 }
 
-message TextPayload {
-  body: string
+model Event {
+  id: string;
+  payload: EventPayload;
 }
 
-message ImagePayload {
-  url: string
+model TextPayload {
+  body: string;
 }
 
-message CreateUserRequest {
-  name: string @len(2, 100)
-  email: string @email
+model ImagePayload {
+  url: string;
 }
 
-message GetUserRequest {
-  id: string
+model CreateUserRequest {
+  @minLength(2)
+  @maxLength(100)
+  name: string;
+  @format("email")
+  email: string;
 }
 
-message NotFoundError @status(404) {
-  resource_type: string
-  resource_id: string
+model GetUserRequest {
+  id: string;
 }
 
-service UserService {
-  base_path: "/api/v1"
+@error
+model NotFoundError {
+  @statusCode _: 404;
+  resource_type: string;
+  resource_id: string;
+}
 
-  createUser(CreateUserRequest) -> User @post("/users")
+@route("/api/v1")
+interface UserService {
+  @post
+  @route("/users")
+  createUser(...CreateUserRequest): User;
 
-  getUser(GetUserRequest) -> User | NotFoundError @get("/users/{id}")
+  @get
+  @route("/users/{id}")
+  getUser(...GetUserRequest): User | NotFoundError;
 }
 `
 
 func compileFixture(t *testing.T) *onkir.File {
 	t.Helper()
-	ast, err := onklang.Parse(fixtureSrc)
+	ast, err := onktest.Parse(fixtureSrc)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile error: %v", err)
 	}
@@ -148,19 +161,24 @@ func TestGeneratedTypeScriptNumericValidationTypeChecks(t *testing.T) {
 		t.Skip("tsc not available")
 	}
 
-	ast, err := onklang.Parse(`
-package app
-message Request {
-  id: int64 @required @gt(0)
-  count: int32? @gte(0)
-  label: string @required
+	ast, err := onktest.Parse(`namespace app;
+
+model Request {
+  @Onkt.required
+  @minValueExclusive(0)
+  @encode(string)
+  id: int64;
+  @minValue(0)
+  count?: int32;
+  @Onkt.required
+  label: string;
 }
 `)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
 	pkg, err := onkcompile.CompileWithOptions(
-		[]onkcompile.Source{{Path: "app.onk", AST: ast}},
+		[]onkcompile.Source{{Path: "app.tsp", AST: ast}},
 		onkcompile.CompileOptions{AllowLegacyContracts: true},
 	)
 	if err != nil {
@@ -193,21 +211,23 @@ func TestGeneratedRootUnwrapRPCTypeChecks(t *testing.T) {
 	if _, err := exec.LookPath("tsc"); err != nil {
 		t.Skip("tsc not available")
 	}
-	ast, err := onklang.Parse(`
-package app
+	ast, err := onktest.Parse(`namespace app;
 
-message RootValues {
-  values: string[] @unwrap
+model RootValues {
+  @Onkt.unwrap
+  values: string[];
 }
 
-service RootService {
-  send(RootValues) -> RootValues @post("/values")
+interface RootService {
+  @post
+  @route("/values")
+  send(...RootValues): RootValues;
 }
 `)
 	if err != nil {
 		t.Fatalf("parse fixture: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "root.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "root.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile fixture: %v", err)
 	}

@@ -7,51 +7,50 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const tsCommonErrorsSrc = `
-package common
+const tsCommonErrorsSrc = `namespace common;
 
-message NotFound @status(404) {
-  code: string
+@error
+model NotFound {
+  @statusCode _: 404;
+  code: string;
 }
 
-message Money {
-  amount_cents: int64
-  currency: string
+model Money {
+  @encode(string)
+  amount_cents: int64;
+  currency: string;
 }
 `
 
-const tsCatalogSrc = `
-package catalog
+const tsCatalogSrc = `using common;
 
-message GetItemRequest {
-  id: string
+
+namespace catalog;
+
+model GetItemRequest {
+  id: string;
 }
 
-service CatalogService {
-  base_path: "/catalog/v1"
-
-  getItem(GetItemRequest) -> Money | NotFound @get("/items/{id}")
+@route("/catalog/v1")
+interface CatalogService {
+  @get
+  @route("/items/{id}")
+  getItem(...GetItemRequest): Money | NotFound;
 }
 `
 
 // A response or error type declared in another package must be decoded through
 // that package's alias; a bare decode<Name> call does not compile.
 func TestCrossPackageClientCodecsUseAlias(t *testing.T) {
-	commonAST, err := onklang.Parse(tsCommonErrorsSrc)
-	if err != nil {
-		t.Fatalf("parse common: %v", err)
+	// The files compile together, as one TypeSpec project.
+	var sources []onkcompile.Source
+	for _, file := range onktest.Files(t, map[string]string{"common/errors.tsp": tsCommonErrorsSrc, "catalog/v1/service.tsp": tsCatalogSrc}) {
+		sources = append(sources, onkcompile.Source{Path: file.Path, AST: &file.File})
 	}
-	catalogAST, err := onklang.Parse(tsCatalogSrc)
-	if err != nil {
-		t.Fatalf("parse catalog: %v", err)
-	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{
-		{Path: "common/errors.onk", AST: commonAST},
-		{Path: "catalog/v1/service.onk", AST: catalogAST},
-	})
+	pkg, err := onkcompile.Compile(sources)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

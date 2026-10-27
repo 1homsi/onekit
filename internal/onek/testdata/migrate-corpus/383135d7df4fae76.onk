@@ -1,6 +1,0 @@
-package app
-message Req { id: string @query }
-message Res {}
-message Other {}
-message NotFound @status(404) {}
-service API { get(Req) -> Other | NotFound @get("/items") }

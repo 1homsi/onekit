@@ -1,4 +1,0 @@
-
-package app
-message M { text: string }
-service S { chat(M) -> M @ws("/chat") }

@@ -3,25 +3,48 @@ package onek
 import "testing"
 
 func TestGoStreamWithPathParamCompiles(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message WatchRequest { room: string }
-message Tick { n: int32 }
+model WatchRequest {
+  room: string;
+}
 
-service Rooms { watch(WatchRequest) -> Tick @get("/rooms/{room}/events") @stream }
+model Tick {
+  n: int32;
+}
+
+interface Rooms {
+  @get
+  @route("/rooms/{room}/events")
+  @Onkt.stream
+  watch(...WatchRequest): Tick;
+}
 `, "")
 }
 
 func TestGoStreamSendsWrappedTypedErrors(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message WatchRequest { room: string }
-message Tick { n: int32 }
-message Gone @status(410) { reason: string }
+model WatchRequest {
+  room: string;
+}
 
-service Rooms { watch(WatchRequest) -> Tick | Gone @get("/rooms/{room}/events") @stream }
+model Tick {
+  n: int32;
+}
+
+@error
+model Gone {
+  @statusCode _: 410;
+  reason: string;
+}
+
+interface Rooms {
+  @get
+  @route("/rooms/{room}/events")
+  @Onkt.stream
+  watch(...WatchRequest): Tick | Gone;
+}
 `, `package api
 
 import (

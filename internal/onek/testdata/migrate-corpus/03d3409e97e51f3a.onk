@@ -1,7 +1,0 @@
-
-package app
-message Event {
-  at: timestamp
-  on: timestamp @encode(date)
-  maybe: timestamp?
-}

@@ -3,10 +3,17 @@ package gents
 import "testing"
 
 func TestTSNodeAdapterAbortsRequestWhenClientLeaves(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Job { id: string }
-service Jobs { wait(Job) -> Job @get("/jobs/{id}") }
+	runTSSchema(t, `namespace app;
+
+model Job {
+  id: string;
+}
+
+interface Jobs {
+  @get
+  @route("/jobs/{id}")
+  wait(...Job): Job;
+}
 `, `
 import { createServer, request } from "node:http";
 import { attachJobsNodeHandlers } from "./server.ts";

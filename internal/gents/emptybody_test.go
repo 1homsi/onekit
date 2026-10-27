@@ -5,16 +5,21 @@ import (
 	"testing"
 )
 
-const emptyBodyFixture = `
-package ebfix
+const emptyBodyFixture = `namespace ebfix;
 
-message DeleteThingRequest { id: string }
-message DeleteThingResponse { message: string }
+model DeleteThingRequest {
+  id: string;
+}
 
-service ThingService {
-  base_path: "/v1"
+model DeleteThingResponse {
+  message: string;
+}
 
-  deleteThing(DeleteThingRequest) -> DeleteThingResponse @delete("/things/{id}")
+@route("/v1")
+interface ThingService {
+  @delete
+  @route("/things/{id}")
+  deleteThing(...DeleteThingRequest): DeleteThingResponse;
 }
 `
 

@@ -8,26 +8,53 @@ import (
 	"testing"
 )
 
-const errorWriterSchema = `package app
+const errorWriterSchema = `namespace app;
 
-message ErrorBody { code: string message: string request_id: string }
-message ApiFailure @status(409) { error: ErrorBody }
-
-message Thing {
-  id: int64
-  page: int32 @query
+model ErrorBody {
+  code: string;
+  message: string;
+  request_id: string;
 }
-message Draft {
-  id: int64
-  name: string @len(2, 10)
-}
-message Done { ok: bool }
 
-service Things {
-  base_path: "/v1"
-  headers: { "X-Tenant": string @required }
-  get(Thing) -> Done | ApiFailure @get("/things/{id}")
-  save(Draft) -> Done @post("/things/save")
+@error
+model ApiFailure {
+  @statusCode _: 409;
+  error: ErrorBody;
+}
+
+model Thing {
+  @encode(string)
+  id: int64;
+  @query
+  page: int32;
+}
+
+model Draft {
+  @encode(string)
+  id: int64;
+  @minLength(2)
+  @maxLength(10)
+  name: string;
+}
+
+model Done {
+  ok: boolean;
+}
+
+/** Headers every Things operation takes. */
+alias ThingsHeaders = {
+  @header("X-Tenant") header_x_tenant: string;
+};
+
+@route("/v1")
+interface Things {
+  @get
+  @route("/things/{id}")
+  get(...ThingsHeaders, ...Thing): Done | ApiFailure;
+
+  @post
+  @route("/things/save")
+  save(...ThingsHeaders, ...Draft): Done;
 }
 `
 

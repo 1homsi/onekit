@@ -10,16 +10,29 @@ import (
 
 func TestMockNumbersRespectValidators(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "api.onk"), `
-message Req { id: string }
-message Res {
-  page: int32 @range(1, 10)
-  count: uint32 @gt(100)
-  ratio: float64 @lt(1)
-  total: int64 @lte(99)
-  plain: int32
+	writeTestFile(t, filepath.Join(dir, "api.tsp"), `
+model Req {
+  id: string;
 }
-service Svc { get(Req) -> Res @get("/r/{id}") }
+
+model Res {
+  @Onkt.range(1, 10)
+  page: int32;
+  @minValueExclusive(100)
+  count: uint32;
+  @maxValueExclusive(1)
+  ratio: float64;
+  @maxValue(99)
+  @encode(string)
+  total: int64;
+  plain: int32;
+}
+
+interface Svc {
+  @get
+  @route("/r/{id}")
+  get(...Req): Res;
+}
 `)
 	server, err := NewMockServer(dir, MockOptions{Seed: 1})
 	if err != nil {

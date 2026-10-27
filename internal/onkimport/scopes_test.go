@@ -3,9 +3,6 @@ package onkimport
 import (
 	"strings"
 	"testing"
-
-	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
 )
 
 func TestImportTurnsOperationScopesIntoRequires(t *testing.T) {
@@ -23,19 +20,13 @@ func TestImportTurnsOperationScopesIntoRequires(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(result.Source)
-	ast, err := onklang.Parse(src)
-	if err != nil {
-		t.Fatalf("%v\n%s", err, src)
-	}
-	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: "pets.onk", AST: ast}}); err != nil {
-		t.Fatalf("import does not compile: %v\n%s", err, src)
-	}
-	for _, want := range []string{`@requires("pets:read")`, `@requires("pets:read", "pets:write")`} {
+	requireFaithfulTypeSpec(t, result)
+	for _, want := range []string{"@Onkt.requires(\"pets:read\")\n", "@Onkt.requires(\"pets:read\", \"pets:write\")\n"} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("missing %q:\n%s", want, src)
 		}
 	}
-	if strings.Count(src, "@requires") != 2 {
+	if strings.Count(src, "@Onkt.requires") != 2 {
 		t.Fatalf("an empty scope list must not add @requires:\n%s", src)
 	}
 	warned := false

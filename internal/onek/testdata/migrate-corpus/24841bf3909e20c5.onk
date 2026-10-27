@@ -1,4 +1,0 @@
-package api
-message Req { id: string }
-message Res { ok: bool }
-service S { get(Req) -> Res @get("/x/{id}") @guard("obj/read/:id", "audit") }

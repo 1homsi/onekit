@@ -8,22 +8,50 @@ import (
 	"github.com/1homsi/onekit/internal/onkir"
 )
 
-const strictUnusedSchema = `package app
+const strictUnusedSchema = `namespace app;
 
-message Empty {}
-message PingRequest {}
-message EnvironmentRef { id: int64 @encode("number") }
-message Environment { id: int64 @encode("number")  name: string }
-message CreateEnvironment { name: string }
-message Pong { ok: bool }
+model Empty {}
 
-service Environments {
-  base_path: "/v1"
-  ping(PingRequest) -> Pong @get("/ping")
-  list(Empty) -> Environment @get("/environments")
-  get(EnvironmentRef) -> Environment @get("/environments/{id}")
-  remove(EnvironmentRef) -> Empty @delete("/environments/{id}")
-  create(CreateEnvironment) -> Environment @post("/environments")
+model PingRequest {}
+
+model EnvironmentRef {
+  id: int64;
+}
+
+model Environment {
+  id: int64;
+  name: string;
+}
+
+model CreateEnvironment {
+  name: string;
+}
+
+model Pong {
+  ok: boolean;
+}
+
+@route("/v1")
+interface Environments {
+  @get
+  @route("/ping")
+  ping(...PingRequest): Pong;
+
+  @get
+  @route("/environments")
+  list(...Empty): Environment;
+
+  @get
+  @route("/environments/{id}")
+  get(...EnvironmentRef): Environment;
+
+  @delete
+  @route("/environments/{id}")
+  remove(...EnvironmentRef): Empty;
+
+  @post
+  @route("/environments")
+  create(...CreateEnvironment): Environment;
 }
 `
 
@@ -70,64 +98,125 @@ func tscStrictUnused(t *testing.T, name string, file *onkir.File, opts Options) 
 
 var strictUnusedVariants = map[string]string{
 	"unary and path only": strictUnusedSchema,
-	"stream only": `package app
+	"stream only": `namespace app;
 
-message Watch { id: string }
-message Tick { n: int32 }
+model Watch {
+  id: string;
+}
 
-service Feed {
-  events(Watch) -> Tick @get("/events") @stream
+model Tick {
+  n: int32;
+}
+
+interface Feed {
+  @get
+  @route("/events")
+  @Onkt.stream
+  events(...Watch): Tick;
 }
 `,
-	"post stream with body": `package app
+	"post stream with body": `namespace app;
 
-message Turn { prompt: string }
-message Event { text: string }
+model Turn {
+  prompt: string;
+}
 
-service Agent {
-  turn(Turn) -> Event @post("/turn") @stream
+model Event {
+  text: string;
+}
+
+interface Agent {
+  @post
+  @route("/turn")
+  @Onkt.stream
+  turn(...Turn): Event;
 }
 `,
-	"typed errors headers and query": `package app
+	"typed errors headers and query": `namespace app;
 
-message Req { id: string  limit: int32 @query("limit")  tags: string[] @query("tag") }
-message Res { id: string }
-message NotFound @status(404) { message: string }
-message Empty {}
+model Req {
+  id: string;
+  @query("limit")
+  limit: int32;
+  @query("tag")
+  tags: string[];
+}
 
-service Things {
-  base_path: "/v1"
-  headers: { "X-Request": string @required @format("uuid") }
-  get(Req) -> Res | NotFound @get("/things/{id}")
-  search(Req) -> Res @get("/things")
-  purge(Empty) -> Empty @delete("/things")
+model Res {
+  id: string;
+}
+
+@error
+model NotFound {
+  @statusCode _: 404;
+  message: string;
+}
+
+model Empty {}
+
+/** Headers every Things operation takes. */
+alias ThingsHeaders = {
+  @header("X-Request") @format("uuid") header_x_request: string;
+};
+
+@route("/v1")
+interface Things {
+  @get
+  @route("/things/{id}")
+  get(...ThingsHeaders, ...Req): Res | NotFound;
+
+  @get
+  @route("/things")
+  search(...ThingsHeaders, ...Req): Res;
+
+  @delete
+  @route("/things")
+  purge(...ThingsHeaders, ...Empty): Empty;
 }
 `,
-	"websocket": `package app
+	"websocket": `namespace app;
 
-message Frame { id: string @ws_id  text: string }
+model Frame {
+  @Onkt.wsId
+  id: string;
+  text: string;
+}
 
-service Chat {
-  base_path: "/v1"
-  talk(Frame) -> Frame @ws("/talk")
+@route("/v1")
+interface Chat {
+  @Onkt.ws
+  @route("/talk")
+  talk(...Frame): Frame;
 }
 `,
-	"no parameters at all": `package app
+	"no parameters at all": `namespace app;
 
-message Empty {}
-message Pong { ok: bool }
+model Empty {}
 
-service Health {
-  ping(Empty) -> Pong @get("/ping")
+model Pong {
+  ok: boolean;
+}
+
+interface Health {
+  @get
+  @route("/ping")
+  ping(...Empty): Pong;
 }
 `,
-	"body only": `package app
+	"body only": `namespace app;
 
-message Make { name: string }
-message Made { id: string }
+model Make {
+  name: string;
+}
 
-service Makers {
-  make(Make) -> Made @post("/make")
+model Made {
+  id: string;
+}
+
+interface Makers {
+  @post
+  @route("/make")
+  make(...Make): Made;
 }
 `,
 }

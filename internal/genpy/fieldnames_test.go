@@ -3,14 +3,14 @@ package genpy
 import "testing"
 
 func TestPythonFieldsNamedLikeDataclassHelpers(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message Violation {
-  field: string
-  list: string
-  dict: string
-  tags: string[]
-  labels: map[string, string]
+	runPythonSchema(t, `namespace app;
+
+model Violation {
+  field: string;
+  list: string;
+  dict: string;
+  tags: string[];
+  labels: Record<string>;
 }
 `, `
 from models import Violation

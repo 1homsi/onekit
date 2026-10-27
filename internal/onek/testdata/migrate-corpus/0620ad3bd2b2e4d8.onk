@@ -1,6 +1,0 @@
-package app
-message ErrorBody { code: string message: string request_id: string }
-message ApiFailure @status(500) { error: ErrorBody }
-message Ping { validate: string }
-message Pong { ok: bool }
-service S { ping(Ping) -> Pong | ApiFailure @get("/ping") }

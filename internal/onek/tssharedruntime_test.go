@@ -11,23 +11,31 @@ import (
 func writeTSSharedProject(t *testing.T, tsTarget string) string {
 	t.Helper()
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/app\"\n\n[generate.ts-client]\nout = \"web/api\"\n"+tsTarget)
-	writeTestFile(t, filepath.Join(dir, "orders", "orders.onk"), `package orders
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/app\"\n\n[generate.ts-client]\nout = \"web/api\"\n"+tsTarget)
+	writeTestFile(t, filepath.Join(dir, "orders", "orders.tsp"), `namespace orders;
 
-message Order { id: string }
+model Order {
+  id: string;
+}
 
-service Orders {
-  base_path: "/v1"
-  get(Order) -> Order @get("/orders/{id}")
+@route("/v1")
+interface Orders {
+  @get
+  @route("/orders/{id}")
+  get(...Order): Order;
 }
 `)
-	writeTestFile(t, filepath.Join(dir, "billing", "invoices", "invoices.onk"), `package invoices
+	writeTestFile(t, filepath.Join(dir, "billing", "invoices", "invoices.tsp"), `namespace invoices;
 
-message Invoice { id: string }
+model Invoice {
+  id: string;
+}
 
-service Invoices {
-  base_path: "/v1"
-  get(Invoice) -> Invoice @get("/invoices/{id}")
+@route("/v1")
+interface Invoices {
+  @get
+  @route("/invoices/{id}")
+  get(...Invoice): Invoice;
 }
 `)
 	return dir
@@ -77,7 +85,7 @@ func TestTSSharedRuntimeHonorsRuntimeDirAndCleansUpWhenSwitchedBack(t *testing.T
 	if !strings.Contains(string(client), `from "../core/rt/runtime.js"`) {
 		t.Errorf("the client should import from the configured directory:\n%.300s", client)
 	}
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/app\"\n\n[generate.ts-client]\nout = \"web/api\"\n")
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/app\"\n\n[generate.ts-client]\nout = \"web/api\"\n")
 	if err := Build(dir); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}

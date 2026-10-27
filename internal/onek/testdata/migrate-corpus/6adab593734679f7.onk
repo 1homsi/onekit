@@ -1,3 +1,0 @@
-
-package app
-message Node { name: string parent: Node? children: Node[] }

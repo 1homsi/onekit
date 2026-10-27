@@ -3,12 +3,21 @@ package gents
 import "testing"
 
 func TestTSClientPerCallOptions(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Note { id: string  text: string }
-service Notes {
-  get(Note) -> Note @get("/notes/{id}")
-  create(Note) -> Note @post("/notes")
+	runTSSchema(t, `namespace app;
+
+model Note {
+  id: string;
+  text: string;
+}
+
+interface Notes {
+  @get
+  @route("/notes/{id}")
+  get(...Note): Note;
+
+  @post
+  @route("/notes")
+  create(...Note): Note;
 }
 `, `
 import { NotesClient } from "./client.ts";
@@ -33,12 +42,21 @@ console.log("OK");
 }
 
 func TestTSClientDynamicHeadersAndResponseHooks(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Note { id: string  text: string }
-service Notes {
-  get(Note) -> Note @get("/notes/{id}")
-  create(Note) -> Note @post("/notes")
+	runTSSchema(t, `namespace app;
+
+model Note {
+  id: string;
+  text: string;
+}
+
+interface Notes {
+  @get
+  @route("/notes/{id}")
+  get(...Note): Note;
+
+  @post
+  @route("/notes")
+  create(...Note): Note;
 }
 `, `
 import { NotesClient } from "./client.ts";
@@ -77,10 +95,20 @@ console.log("OK");
 }
 
 func TestTSJSONObjectIsARecordAndValidated(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Doc { id: string  settings: json @object  any: json }
-service Docs { put(Doc) -> Doc @put("/docs") }
+	runTSSchema(t, `namespace app;
+
+model Doc {
+  id: string;
+  @Onkt.object
+  settings: unknown;
+  any: unknown;
+}
+
+interface Docs {
+  @put
+  @route("/docs")
+  put(...Doc): Doc;
+}
 `, `
 import type { Doc } from "./types.ts";
 import { validateDoc } from "./types.ts";

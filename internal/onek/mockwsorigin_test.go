@@ -12,17 +12,24 @@ import (
 )
 
 func TestMockWebSocketAcceptsCrossOriginUnlessCORSIsOff(t *testing.T) {
-	schema := `
-package probe
-message Frame { text: string }
-service Live { chat(Frame) -> Frame @ws("/chat") }
+	schema := `namespace probe;
+
+model Frame {
+  text: string;
+}
+
+interface Live {
+  @Onkt.ws
+  @route("/chat")
+  chat(...Frame): Frame;
+}
 `
 	for _, tc := range []struct {
 		noCORS bool
 		ok     bool
 	}{{false, true}, {true, false}} {
 		dir := t.TempDir()
-		writeTestFile(t, dir+"/live.onk", schema)
+		writeTestFile(t, dir+"/live.tsp", schema)
 		server, err := NewMockServer(dir, MockOptions{NoCORS: tc.noCORS})
 		if err != nil {
 			t.Fatal(err)

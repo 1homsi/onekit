@@ -8,13 +8,21 @@ import (
 	"testing"
 )
 
-const streamErrorSchema = `package app
+const streamErrorSchema = `namespace app;
 
-message Req { id: string }
-message Tick { n: int32 }
+model Req {
+  id: string;
+}
 
-service Feed {
-  watch(Req) -> Tick @get("/watch") @stream
+model Tick {
+  n: int32;
+}
+
+interface Feed {
+  @get
+  @route("/watch")
+  @Onkt.stream
+  watch(...Req): Tick;
 }
 `
 

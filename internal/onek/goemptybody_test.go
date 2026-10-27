@@ -3,13 +3,19 @@ package onek
 import "testing"
 
 func TestGoClientAcceptsEmptySuccessBody(t *testing.T) {
-	buildGoSchema(t, `
-package check
+	buildGoSchema(t, `namespace check;
 
-message DeleteRequest { id: string }
-message DeleteResponse {}
+model DeleteRequest {
+  id: string;
+}
 
-service Items { remove(DeleteRequest) -> DeleteResponse @delete("/items/{id}") }
+model DeleteResponse {}
+
+interface Items {
+  @delete
+  @route("/items/{id}")
+  remove(...DeleteRequest): DeleteResponse;
+}
 `, `package api
 
 import (

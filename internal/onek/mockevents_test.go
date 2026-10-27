@@ -8,26 +8,41 @@ import (
 	"testing"
 )
 
-const mockEventsSchema = `package app
+const mockEventsSchema = `namespace app;
 
-message Text { text: string }
-message Done { reason: string }
-message Turn {
-  payload: oneof(discriminator: "type") {
-    text: Text @tag("text")
-    done: Done @tag("done")
-  }
+model Text {
+  text: string;
 }
-message TurnRequest { prompt: string }
 
-service Agent {
-  turn(TurnRequest) -> Turn @post("/turn") @stream
+model Done {
+  reason: string;
+}
+
+@Onkt.discriminator("type")
+union TurnPayload {
+  @Onkt.tag("text") text: Text,
+  @Onkt.tag("done") done: Done,
+}
+
+model Turn {
+  payload: TurnPayload;
+}
+
+model TurnRequest {
+  prompt: string;
+}
+
+interface Agent {
+  @post
+  @route("/turn")
+  @Onkt.stream
+  turn(...TurnRequest): Turn;
 }
 `
 
 func TestMockStreamNamesFramesAfterTheOneofVariant(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, dir+"/svc.onk", mockEventsSchema)
+	writeTestFile(t, dir+"/svc.tsp", mockEventsSchema)
 	server, err := NewMockServer(dir, MockOptions{Seed: 1})
 	if err != nil {
 		t.Fatal(err)

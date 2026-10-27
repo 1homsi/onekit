@@ -2,12 +2,12 @@ package genrust
 
 import "testing"
 
-const rustTimestampFixture = `
-package app
-message Event {
-  at: timestamp
-  on: timestamp @encode(date)
-  maybe: timestamp?
+const rustTimestampFixture = `namespace app;
+
+model Event {
+  at: utcDateTime;
+  on: plainDate;
+  maybe?: utcDateTime;
 }
 `
 

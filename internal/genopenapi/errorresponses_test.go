@@ -6,15 +6,35 @@ import (
 )
 
 func TestOpenAPIDocumentsGeneratedErrorResponses(t *testing.T) {
-	doc := openAPIForSchema(t, `
-package app
-message GetUser { id: string }
-message User { id: string }
-message Invalid @status(400) { field: string }
-service Users {
-  headers: { "Authorization": string @required @auth("bearer") }
-  get(GetUser) -> User @get("/users/{id}")
-  check(GetUser) -> User | Invalid @post("/users/check")
+	doc := openAPIForSchema(t, `namespace app;
+
+model GetUser {
+  id: string;
+}
+
+model User {
+  id: string;
+}
+
+@error
+model Invalid {
+  @statusCode _: 400;
+  field: string;
+}
+
+/** Headers every Users operation takes. */
+alias UsersHeaders = {
+  @header("Authorization") @Onkt.auth("bearer") header_authorization: string;
+};
+
+interface Users {
+  @get
+  @route("/users/{id}")
+  get(...UsersHeaders, ...GetUser): User;
+
+  @post
+  @route("/users/check")
+  check(...UsersHeaders, ...GetUser): User | Invalid;
 }
 `)
 	flat := strings.Join(strings.Fields(doc), " ")

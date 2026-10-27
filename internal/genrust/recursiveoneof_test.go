@@ -2,18 +2,35 @@ package genrust
 
 import "testing"
 
-const rustRecursiveOneofFixture = `
-package app
-message Num { value: int32 }
-message Expr {
-  node: oneof {
-    num: Num @tag("num")
-    negate: Expr @tag("not")
-    group: Group @tag("group")
-  }
+const rustRecursiveOneofFixture = `namespace app;
+
+model Num {
+  value: int32;
 }
-message Group { inner: oneof { expr: Expr @tag("expr") } }
-service Calc { eval(Expr) -> Num @post("/eval") }
+
+union ExprNode {
+  @Onkt.tag("num") num: Num,
+  @Onkt.tag("not") negate: Expr,
+  @Onkt.tag("group") group: Group,
+}
+
+model Expr {
+  node: ExprNode;
+}
+
+union GroupInner {
+  @Onkt.tag("expr") expr: Expr,
+}
+
+model Group {
+  inner: GroupInner;
+}
+
+interface Calc {
+  @post
+  @route("/eval")
+  eval(...Expr): Num;
+}
 `
 
 const rustRecursiveOneofMain = `mod generated;

@@ -6,14 +6,29 @@ import (
 )
 
 func TestOpenAPIBodyLeavesOutPathParameters(t *testing.T) {
-	doc := openAPIForSchema(t, `
-package app
-message UpdateUser { id: string name: string }
-message Touch { id: string }
-message User { id: string }
-service Users {
-  update(UpdateUser) -> User @put("/users/{id}")
-  touch(Touch) -> User @post("/users/{id}/touch")
+	doc := openAPIForSchema(t, `namespace app;
+
+model UpdateUser {
+  id: string;
+  name: string;
+}
+
+model Touch {
+  id: string;
+}
+
+model User {
+  id: string;
+}
+
+interface Users {
+  @put
+  @route("/users/{id}")
+  update(...UpdateUser): User;
+
+  @post
+  @route("/users/{id}/touch")
+  touch(...Touch): User;
 }
 `)
 	flat := strings.Join(strings.Fields(doc), " ")

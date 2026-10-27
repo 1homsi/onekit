@@ -1,3 +1,0 @@
-package app
-enum Level { UNSET  LOW  HIGH }
-message M { level: Level }

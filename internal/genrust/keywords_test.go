@@ -2,19 +2,7 @@ package genrust
 
 import "testing"
 
-const rustKeywordFixture = `
-package app
-enum Scope { SELF  OTHER }
-message Flags {
-  final: bool
-  override: string
-  self: string
-  super: string
-  crate: string
-  gen: int32
-  scope: Scope
-}
-`
+const rustKeywordFixture = "namespace app;\n\nenum Scope {\n  SELF,\n  OTHER,\n}\n\nmodel Flags {\n  final: boolean;\n  override: string;\n  `self`: string;\n  `super`: string;\n  crate: string;\n  gen: int32;\n  scope: Scope;\n}\n"
 
 const rustKeywordMain = `
 mod generated;

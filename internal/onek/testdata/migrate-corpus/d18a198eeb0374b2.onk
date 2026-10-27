@@ -1,7 +1,0 @@
-
-package app
-message List {
-  page: int32 @query
-  cursor: string @query @required
-}
-service S { list(List) -> List @get("/items") }

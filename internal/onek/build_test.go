@@ -9,39 +9,50 @@ import (
 	"testing"
 )
 
-const modelsOnk = `
-package app.models
+const modelsTypeSpec = `namespace app.models;
 
-message User {
-  id: string
-  name: string @len(2, 100)
-  email: string @email
+model User {
+  id: string;
+  @minLength(2)
+  @maxLength(100)
+  name: string;
+  @format("email")
+  email: string;
 }
 
-message CreateUserRequest {
-  name: string @len(2, 100)
-  email: string @email
+model CreateUserRequest {
+  @minLength(2)
+  @maxLength(100)
+  name: string;
+  @format("email")
+  email: string;
 }
 
-message GetUserRequest {
-  id: string
+model GetUserRequest {
+  id: string;
 }
 
-message NotFoundError @status(404) {
-  resource_type: string
-  resource_id: string
+@error
+model NotFoundError {
+  @statusCode _: 404;
+  resource_type: string;
+  resource_id: string;
 }
 `
 
-const serviceOnk = `
-package app.services
+const serviceTypeSpec = `using app.models;
 
-service UserService {
-  base_path: "/api/v1"
+namespace app.services;
 
-  createUser(CreateUserRequest) -> User @post("/users")
+@route("/api/v1")
+interface UserService {
+  @post
+  @route("/users")
+  createUser(...CreateUserRequest): User;
 
-  getUser(GetUserRequest) -> User | NotFoundError @get("/users/{id}")
+  @get
+  @route("/users/{id}")
+  getUser(...GetUserRequest): User | NotFoundError;
 }
 `
 
@@ -72,8 +83,8 @@ func writeTestFile(t *testing.T, path, content string) {
 
 func TestCheckSucceedsOnValidProject(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "models.onk"), modelsOnk)
-	writeTestFile(t, filepath.Join(dir, "service.onk"), serviceOnk)
+	writeTestFile(t, filepath.Join(dir, "models.tsp"), modelsTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "service.tsp"), serviceTypeSpec)
 
 	if err := Check(dir); err != nil {
 		t.Fatalf("Check error: %v", err)
@@ -82,7 +93,11 @@ func TestCheckSucceedsOnValidProject(t *testing.T) {
 
 func TestCheckFailsOnUnresolvedType(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "bad.onk"), "message M {\n  x: Missing\n}\n")
+	writeTestFile(t, filepath.Join(dir, "bad.tsp"), `
+model M {
+  x: Missing;
+}
+`)
 
 	if err := Check(dir); err == nil {
 		t.Fatalf("expected Check error, got nil")
@@ -94,7 +109,7 @@ func TestLoadConfigValidatesRoutePrefix(t *testing.T) {
 		t.Run(prefix, func(t *testing.T) {
 			dir := t.TempDir()
 			config := "module = \"example.com/api\"\nroute_prefix = \"" + prefix + "\"\n"
-			writeTestFile(t, filepath.Join(dir, "onekit.toml"), config)
+			writeTestFile(t, filepath.Join(dir, "onkt.toml"), config)
 			if _, err := LoadConfig(dir); err == nil {
 				t.Fatalf("LoadConfig unexpectedly accepted route_prefix %q", prefix)
 			}
@@ -103,7 +118,7 @@ func TestLoadConfigValidatesRoutePrefix(t *testing.T) {
 
 	dir := t.TempDir()
 	config := "module = \"example.com/api\"\nroute_prefix = \"/api/internal\"\n"
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), config)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), config)
 	cfg, err := LoadConfig(dir)
 	if err != nil {
 		t.Fatalf("LoadConfig rejected valid route_prefix: %v", err)
@@ -115,8 +130,8 @@ func TestLoadConfigValidatesRoutePrefix(t *testing.T) {
 
 func TestCheckValidatesRoutePrefixWhenConfigExists(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/api\"\nroute_prefix = \"api\"\n")
-	writeTestFile(t, filepath.Join(dir, "models.onk"), modelsOnk)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/api\"\nroute_prefix = \"api\"\n")
+	writeTestFile(t, filepath.Join(dir, "models.tsp"), modelsTypeSpec)
 
 	if err := Check(dir); err == nil {
 		t.Fatal("Check unexpectedly accepted invalid route_prefix")
@@ -125,11 +140,13 @@ func TestCheckValidatesRoutePrefixWhenConfigExists(t *testing.T) {
 
 func TestCheckAllowsLegacyContractsWhenConfigured(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/api\"\nallow_legacy_contracts = true\n")
-	writeTestFile(t, filepath.Join(dir, "models.onk"), `
-message LegacyRequest {
-  id: int64 @required
-  from: string
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/api\"\nallow_legacy_contracts = true\n")
+	writeTestFile(t, filepath.Join(dir, "models.tsp"), `
+model LegacyRequest {
+  @Onkt.required
+  @encode(string)
+  id: int64;
+  from: string;
 }
 `)
 
@@ -159,7 +176,7 @@ func TestLoadConfigRejectsUnknownAndInvalidConfiguration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeTestFile(t, filepath.Join(dir, "onekit.toml"), tt.config)
+			writeTestFile(t, filepath.Join(dir, "onkt.toml"), tt.config)
 			_, err := LoadConfig(dir)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("expected %q, got %v", tt.want, err)
@@ -174,9 +191,9 @@ func TestBuildGeneratesWorkingGoCode(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), onekitToml)
-	writeTestFile(t, filepath.Join(dir, "models.onk"), modelsOnk)
-	writeTestFile(t, filepath.Join(dir, "service.onk"), serviceOnk)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), onekitToml)
+	writeTestFile(t, filepath.Join(dir, "models.tsp"), modelsTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "service.tsp"), serviceTypeSpec)
 
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build error: %v", err)
@@ -203,7 +220,7 @@ func TestBuildGeneratesWorkingGoCode(t *testing.T) {
 
 func TestLoadConfigRejectsSplitGoOutputs(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), `
 module = "example.com/api"
 [generate.go-server]
 out = "./server"
@@ -218,15 +235,21 @@ out = "./client"
 
 func TestBuildRemovesStaleGeneratedGroupsButPreservesUserFiles(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), `
 module = "example.com/api"
 [generate.go-server]
 out = "./api"
 `)
-	writeTestFile(t, filepath.Join(dir, "old", "service.onk"), `
-message Request {}
-message Response {}
-service API { get(Request) -> Response @get("/items") }
+	writeTestFile(t, filepath.Join(dir, "old", "service.tsp"), `
+model Request {}
+
+model Response {}
+
+interface API {
+  @get
+  @route("/items")
+  get(...Request): global.Response;
+}
 `)
 	if err := Build(dir); err != nil {
 		t.Fatalf("first Build error: %v", err)
@@ -237,10 +260,14 @@ service API { get(Request) -> Response @get("/items") }
 	}
 	userFile := filepath.Join(dir, "api", "old", "custom.go")
 	writeTestFile(t, userFile, "package old\n")
-	if err := os.Remove(filepath.Join(dir, "old", "service.onk")); err != nil {
+	if err := os.Remove(filepath.Join(dir, "old", "service.tsp")); err != nil {
 		t.Fatalf("remove schema: %v", err)
 	}
-	writeTestFile(t, filepath.Join(dir, "current.onk"), "message Current { id: string }\n")
+	writeTestFile(t, filepath.Join(dir, "current.tsp"), `
+model Current {
+  id: string;
+}
+`)
 	if err := Build(dir); err != nil {
 		t.Fatalf("second Build error: %v", err)
 	}
@@ -254,15 +281,21 @@ service API { get(Request) -> Response @get("/items") }
 
 func TestBuildKeepsAHandWrittenFileAtAFormerlyGeneratedPath(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), `
 module = "example.com/api"
 [generate.go-server]
 out = "./api"
 `)
-	writeTestFile(t, filepath.Join(dir, "old", "service.onk"), `
-message Request {}
-message Response {}
-service API { get(Request) -> Response @get("/items") }
+	writeTestFile(t, filepath.Join(dir, "old", "service.tsp"), `
+model Request {}
+
+model Response {}
+
+interface API {
+  @get
+  @route("/items")
+  get(...Request): global.Response;
+}
 `)
 	if err := Build(dir); err != nil {
 		t.Fatalf("first Build error: %v", err)
@@ -270,10 +303,14 @@ service API { get(Request) -> Response @get("/items") }
 	generated := filepath.Join(dir, "api", "old", "server.gen.go")
 	handWritten := filepath.Join(dir, "api", "old", "types.gen.go")
 	writeTestFile(t, handWritten, "// my own file, kept at the old generated path\npackage old\n")
-	if err := os.Remove(filepath.Join(dir, "old", "service.onk")); err != nil {
+	if err := os.Remove(filepath.Join(dir, "old", "service.tsp")); err != nil {
 		t.Fatalf("remove schema: %v", err)
 	}
-	writeTestFile(t, filepath.Join(dir, "current.onk"), "message Current { id: string }\n")
+	writeTestFile(t, filepath.Join(dir, "current.tsp"), `
+model Current {
+  id: string;
+}
+`)
 	if err := Build(dir); err != nil {
 		t.Fatalf("second Build error: %v", err)
 	}
@@ -288,17 +325,23 @@ service API { get(Request) -> Response @get("/items") }
 
 func TestBuildPreservesGeneratedFilesUnderNestedTargetRoots(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), `
 module = "example.com/api"
 [generate.go-server]
 out = "./gen"
 [generate.rust-client]
 out = "./gen/rust"
 `)
-	writeTestFile(t, filepath.Join(dir, "service.onk"), `
-message Request {}
-message Response {}
-service API { get(Request) -> Response @get("/items") }
+	writeTestFile(t, filepath.Join(dir, "service.tsp"), `
+model Request {}
+
+model Response {}
+
+interface API {
+  @get
+  @route("/items")
+  get(...Request): global.Response;
+}
 `)
 
 	if err := Build(dir); err != nil {
@@ -319,14 +362,21 @@ service API { get(Request) -> Response @get("/items") }
 // malformed "GET //route" that makes net/http's ServeMux panic at startup.
 func TestBuildNormalizesRootBasePath(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/rootprobe\"\n\n[generate.go-server]\nout = \"./gen\"\n")
-	writeTestFile(t, filepath.Join(dir, "svc.onk"), `package probe
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/rootprobe\"\n\n[generate.go-server]\nout = \"./gen\"\n")
+	writeTestFile(t, filepath.Join(dir, "svc.tsp"), `namespace probe;
 
-message Req { id: string }
-message Res { ok: bool }
+model Req {
+  id: string;
+}
 
-service Svc {
-  list(Req) -> Res @get("/things")
+model Res {
+  ok: boolean;
+}
+
+interface Svc {
+  @get
+  @route("/things")
+  list(...Req): Res;
 }
 `)
 	if err := Build(dir); err != nil {
@@ -344,25 +394,32 @@ service Svc {
 	}
 }
 
-// TestBuildHonorsSchemaRoot pins the voxie-style layout: onekit.toml at the
+// TestBuildHonorsSchemaRoot pins the voxie-style layout: onkt.toml at the
 // project root, schemas under schema_root ("api"), generator outputs anchored
 // at the project root. Base-path inference must follow the schema tree while
 // output containment keeps being checked against the project dir.
 func TestBuildHonorsSchemaRoot(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `module = "example.com/voxie/gen/go"
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), `module = "example.com/voxie/gen/go"
 schema_root = "api"
 
 [generate.go-server]
 out = "gen/go"
 `)
-	writeTestFile(t, filepath.Join(dir, "api", "svc.onk"), `package probe
+	writeTestFile(t, filepath.Join(dir, "api", "svc.tsp"), `namespace probe;
 
-message Req { id: string }
-message Res { ok: bool }
+model Req {
+  id: string;
+}
 
-service Svc {
-  list(Req) -> Res @get("/things")
+model Res {
+  ok: boolean;
+}
+
+interface Svc {
+  @get
+  @route("/things")
+  list(...Req): Res;
 }
 `)
 	if err := Build(dir); err != nil {
@@ -383,7 +440,7 @@ service Svc {
 	if err := json.Unmarshal(manifestData, &manifest); err != nil {
 		t.Fatalf("decode manifest: %v", err)
 	}
-	if len(manifest.SchemaFiles) != 1 || manifest.SchemaFiles[0] != "svc.onk" {
+	if len(manifest.SchemaFiles) != 1 || manifest.SchemaFiles[0] != "svc.tsp" {
 		t.Fatalf("SchemaFiles should be relative to the schema root, got %+v", manifest.SchemaFiles)
 	}
 	if err := Check(dir); err != nil {
@@ -398,13 +455,13 @@ func TestCompatibilityHonorsSchemaRoot(t *testing.T) {
 schema_root = "api"
 `
 	schemaFor := func(fieldType string) string {
-		return "package probe\n\nmessage R { id: " + fieldType + " }\nmessage Res { ok: bool }\n\nservice Svc {\n  list(R) -> Res @get(\"/things\")\n}\n"
+		return "namespace probe;\n\nmodel R { id: " + fieldType + "; }\nmodel Res { ok: boolean; }\n\ninterface Svc {\n  @get @route(\"/things\") list(...R): Res;\n}\n"
 	}
 	oldDir, newDir := t.TempDir(), t.TempDir()
-	writeTestFile(t, filepath.Join(oldDir, "onekit.toml"), configFor)
-	writeTestFile(t, filepath.Join(oldDir, "api", "svc.onk"), schemaFor("string"))
-	writeTestFile(t, filepath.Join(newDir, "onekit.toml"), configFor)
-	writeTestFile(t, filepath.Join(newDir, "api", "svc.onk"), schemaFor("int64"))
+	writeTestFile(t, filepath.Join(oldDir, "onkt.toml"), configFor)
+	writeTestFile(t, filepath.Join(oldDir, "api", "svc.tsp"), schemaFor("string"))
+	writeTestFile(t, filepath.Join(newDir, "onkt.toml"), configFor)
+	writeTestFile(t, filepath.Join(newDir, "api", "svc.tsp"), schemaFor("int64"))
 
 	findings, err := Compatibility(oldDir, newDir)
 	if err != nil {
@@ -425,20 +482,27 @@ schema_root = "api"
 // their presence in the drift manifest.
 func TestBuildTSEmitsFrontendExtras(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), `module = "example.com/fe"
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), `module = "example.com/fe"
 
 [generate.ts-client]
 out = "web/client"
 msw = true
 `)
-	writeTestFile(t, filepath.Join(dir, "svc.onk"), `package fe
+	writeTestFile(t, filepath.Join(dir, "svc.tsp"), `namespace fe;
 
-message Req { id: string }
-message Res { ok: bool }
+model Req {
+  id: string;
+}
 
-service Svc {
-  base_path: "/v1"
-  getThing(Req) -> Res @get("/things/{id}")
+model Res {
+  ok: boolean;
+}
+
+@route("/v1")
+interface Svc {
+  @get
+  @route("/things/{id}")
+  getThing(...Req): Res;
 }
 `)
 	if err := Build(dir); err != nil {
@@ -472,11 +536,15 @@ service Svc {
 	}
 }
 
-func TestDiscoverOnkFilesSkipsToolingDirsAndForeignSymlinks(t *testing.T) {
+func TestDiscoverSchemaFilesSkipsToolingDirsAndForeignSymlinks(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "api.onk"), "message A { id: string }\n")
-	writeTestFile(t, filepath.Join(dir, "node_modules", "pkg", "x.onk"), "message Broken {\n")
-	writeTestFile(t, filepath.Join(dir, ".git", "x.onk"), "message Broken {\n")
+	writeTestFile(t, filepath.Join(dir, "api.tsp"), `
+model A {
+  id: string;
+}
+`)
+	writeTestFile(t, filepath.Join(dir, "node_modules", "pkg", "x.tsp"), "model Broken {\n")
+	writeTestFile(t, filepath.Join(dir, ".git", "x.tsp"), "model Broken {\n")
 	writeTestFile(t, filepath.Join(dir, "node_modules", "typescript", "bin", "tsc"), "#!/bin/sh\n")
 	if err := os.MkdirAll(filepath.Join(dir, "tools"), 0o755); err != nil {
 		t.Fatal(err)
@@ -484,17 +552,17 @@ func TestDiscoverOnkFilesSkipsToolingDirsAndForeignSymlinks(t *testing.T) {
 	if err := os.Symlink(filepath.Join(dir, "node_modules", "typescript", "bin", "tsc"), filepath.Join(dir, "tools", "tsc")); err != nil {
 		t.Skip("symlinks unavailable:", err)
 	}
-	files, err := discoverOnkFiles(dir)
+	files, err := discoverProjectSchemaFiles(dir)
 	if err != nil {
-		t.Fatalf("discoverOnkFiles: %v", err)
+		t.Fatalf("discoverProjectSchemaFiles: %v", err)
 	}
-	if len(files) != 1 || filepath.Base(files[0]) != "api.onk" {
+	if len(files) != 1 || filepath.Base(files[0]) != "api.tsp" {
 		t.Fatalf("want only api.onk, got %v", files)
 	}
-	if err := os.Symlink(filepath.Join(dir, "api.onk"), filepath.Join(dir, "linked.onk")); err != nil {
+	if err := os.Symlink(filepath.Join(dir, "api.tsp"), filepath.Join(dir, "linked.tsp")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := discoverOnkFiles(dir); err == nil || !strings.Contains(err.Error(), "symlinked schema file") {
+	if _, err := discoverProjectSchemaFiles(dir); err == nil || !strings.Contains(err.Error(), "symlinked schema file") {
 		t.Fatalf("want a symlinked schema file error, got %v", err)
 	}
 }

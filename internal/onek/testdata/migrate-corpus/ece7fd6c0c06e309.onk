@@ -1,5 +1,0 @@
-package a
-
-message Item {
-  id: string
-}

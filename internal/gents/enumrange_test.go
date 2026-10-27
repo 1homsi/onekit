@@ -3,10 +3,18 @@ package gents
 import "testing"
 
 func TestTSNumberEnumRejectsUndeclaredValues(t *testing.T) {
-	runTSSchema(t, `
-package app
-enum Level { LOW  MID  HIGH }
-message M { level: Level @encode(number) }
+	runTSSchema(t, `namespace app;
+
+enum Level {
+  LOW,
+  MID,
+  HIGH,
+}
+
+model M {
+  @Onkt.encode("number")
+  level: Level;
+}
 `, `
 import { validateM } from "./types.ts";
 

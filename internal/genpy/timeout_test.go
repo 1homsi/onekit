@@ -3,10 +3,17 @@ package genpy
 import "testing"
 
 func TestPythonClientTimesOutStalledServer(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message R { id: string }
-service S { get(R) -> R @get("/r/{id}") }
+	runPythonSchema(t, `namespace app;
+
+model R {
+  id: string;
+}
+
+interface S {
+  @get
+  @route("/r/{id}")
+  get(...R): R;
+}
 `, `
 import socket, threading
 from client import SClient

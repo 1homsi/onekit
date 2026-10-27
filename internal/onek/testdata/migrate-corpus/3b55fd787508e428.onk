@@ -1,2 +1,0 @@
-package common
-message Shared { value: string }

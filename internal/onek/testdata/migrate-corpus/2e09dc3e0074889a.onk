@@ -1,9 +1,0 @@
-
-message R {}
-service API {
-  headers: {
-    "authorization": string @required @auth("basic")
-    "X-Key": string @required @auth("api_key")
-  }
-  a(R) -> R @get("/x")
-}

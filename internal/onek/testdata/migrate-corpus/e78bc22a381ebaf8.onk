@@ -1,6 +1,0 @@
-
-/// Line one.
-/// Line two.
-message M {
-  x: string
-}

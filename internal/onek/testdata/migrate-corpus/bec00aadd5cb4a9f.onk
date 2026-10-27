@@ -1,5 +1,0 @@
-package app
-message Principal @principal { org: string roles: string[] }
-message Req { org: string }
-message Resp { ok: bool }
-service S { get(Req) -> Resp @get("/x")  }

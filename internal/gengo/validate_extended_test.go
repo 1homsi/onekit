@@ -6,25 +6,34 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const validateExtendedFixture = `
-package main
+const validateExtendedFixture = `namespace main;
 
-message CreateProductRequest {
-  name: string @required
-  price: float64 @gte(0)
-  lead_time_days: int32 @gt(0) @lte(1000)
-  redirect_uri: string @required @uri
-  launch_date: string @pattern("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
-  tags: string[] @min_items(1) @max_items(5)
+model CreateProductRequest {
+  @Onkt.required
+  name: string;
+  @minValue(0)
+  price: float64;
+  @minValueExclusive(0)
+  @maxValue(1000)
+  lead_time_days: int32;
+  @Onkt.required
+  @format("uri")
+  redirect_uri: string;
+  @pattern("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+  launch_date: string;
+  @minItems(1)
+  @maxItems(5)
+  tags: string[];
 }
 
-message ScheduleEventRequest {
+model ScheduleEventRequest {
   // Same field name as CreateProductRequest.launch_date but a DIFFERENT
   // pattern - proves pattern vars are scoped per-message, not just per-field.
-  launch_date: string @pattern("^[0-9]{2}/[0-9]{2}/[0-9]{4}$")
+  @pattern("^[0-9]{2}/[0-9]{2}/[0-9]{4}$")
+  launch_date: string;
 }
 `
 
@@ -119,11 +128,11 @@ func TestExtendedValidationDecorators(t *testing.T) {
 		t.Skip("go toolchain not available")
 	}
 
-	ast, err := onklang.Parse(validateExtendedFixture)
+	ast, err := onktest.Parse(validateExtendedFixture)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile error: %v", err)
 	}

@@ -3,14 +3,26 @@ package gents
 import "testing"
 
 func TestTSServerAnswersTheDeclaredSuccessStatus(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Item { id: string }
-message Empty {}
-service Items {
-  create(Item) -> Item @post("/items") @success(201)
-  remove(Item) -> Empty @delete("/items/{id}") @success(204)
-  get(Item) -> Item @get("/items/{id}")
+	runTSSchema(t, `namespace app;
+
+model Item {
+  id: string;
+}
+
+model Empty {}
+
+interface Items {
+  @post
+  @route("/items")
+  create(...Item): { @statusCode _: 201; @body body: Item };
+
+  @delete
+  @route("/items/{id}")
+  remove(...Item): { @statusCode _: 204; @body body: Empty };
+
+  @get
+  @route("/items/{id}")
+  get(...Item): Item;
 }
 `, `
 import { createItemsFetchHandler } from "./server.ts";

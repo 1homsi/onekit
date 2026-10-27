@@ -8,15 +8,24 @@ import (
 	"testing"
 )
 
-const mountSchema = `package app
+const mountSchema = `namespace app;
 
-message Empty {}
-message Ping { ok: bool }
+model Empty {}
 
-service Things {
-  base_path: "/v1"
-  ping(Empty) -> Ping @get("/ping") @meta("audit.event", "ping")
-  boom(Empty) -> Ping @get("/boom")
+model Ping {
+  ok: boolean;
+}
+
+@route("/v1")
+interface Things {
+  @get
+  @route("/ping")
+  @Onkt.meta("audit.event", "ping")
+  ping(...Empty): Ping;
+
+  @get
+  @route("/boom")
+  boom(...Empty): Ping;
 }
 `
 

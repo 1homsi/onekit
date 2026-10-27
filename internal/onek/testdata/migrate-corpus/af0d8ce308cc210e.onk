@@ -1,5 +1,0 @@
-package w
-message Call { id: string @ws_id
-t: int64 @ws_timeout }
-message Frame { payload: oneof(discriminator: "type") { call: Call } }
-service S { f(Frame) -> Frame @ws("/y") }

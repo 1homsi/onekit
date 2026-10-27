@@ -5,12 +5,24 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onkschema"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-func parseOrFatal(t *testing.T, src string) *onklang.File {
+// compileSources compiles TypeSpec files together and returns them as
+// compiler sources, in path order.
+func compileSources(t *testing.T, files map[string]string) []Source {
 	t.Helper()
-	f, err := onklang.Parse(src)
+	var sources []Source
+	for _, file := range onktest.Files(t, files) {
+		sources = append(sources, Source{Path: file.Path, AST: &file.File})
+	}
+	return sources
+}
+
+func parseOrFatal(t *testing.T, src string) *onkschema.File {
+	t.Helper()
+	f, err := onktest.Parse(src)
 	if err != nil {
 		t.Fatalf("unexpected parse error: %v", err)
 	}
@@ -18,11 +30,13 @@ func parseOrFatal(t *testing.T, src string) *onklang.File {
 }
 
 func TestCompileAllowsLegacyContractFieldsWhenEnabled(t *testing.T) {
-	source := Source{Path: "api.onk", AST: parseOrFatal(t, `
-message LegacyRequest {
-  id: int64 @required
-  from: string
-  nickname: string? @nullable
+	source := Source{Path: "api.tsp", AST: parseOrFatal(t, `
+model LegacyRequest {
+  @Onkt.required
+  @encode(string)
+  id: int64;
+  from: string;
+  nickname?: string | null;
 }
 `)}
 
@@ -35,9 +49,9 @@ message LegacyRequest {
 }
 
 func TestCompileAllowsEmptyStringInSet(t *testing.T) {
-	source := Source{Path: "api.onk", AST: parseOrFatal(t, `
-message Request {
-  provider: string @in("", "google")
+	source := Source{Path: "api.tsp", AST: parseOrFatal(t, `
+model Request {
+  provider: "" | "google";
 }
 `)}
 
@@ -48,17 +62,29 @@ message Request {
 
 func TestCompileScopesDefaultRoutesByPackage(t *testing.T) {
 	sources := []Source{
-		{Path: "booking/dashboard/service.onk", AST: parseOrFatal(t, `
-package booking.dashboard.v1
-message Request {}
-message Response {}
-service Dashboard { get(Request) -> Response @get("/dashboard") }
+		{Path: "booking/dashboard/service.tsp", AST: parseOrFatal(t, `namespace booking.dashboard.v1;
+
+model Request {}
+
+model Response {}
+
+interface Dashboard {
+  @get
+  @route("/dashboard")
+  get(...Request): booking.dashboard.v1.Response;
+}
 `)},
-		{Path: "crm/dashboard/service.onk", AST: parseOrFatal(t, `
-package crm.dashboard.v1
-message Request {}
-message Response {}
-service Dashboard { get(Request) -> Response @get("/dashboard") }
+		{Path: "crm/dashboard/service.tsp", AST: parseOrFatal(t, `namespace crm.dashboard.v1;
+
+model Request {}
+
+model Response {}
+
+interface Dashboard {
+  @get
+  @route("/dashboard")
+  get(...Request): crm.dashboard.v1.Response;
+}
 `)},
 	}
 
@@ -67,88 +93,97 @@ service Dashboard { get(Request) -> Response @get("/dashboard") }
 	}
 }
 
-const modelsSrc = `
-package examples.simpleapi.models
+const modelsSrc = `namespace examples.simpleapi.models;
 
-message Address {
-  street: string
-  city: string
+model Address {
+  street: string;
+  city: string;
 }
 
-message User {
-  id: string
-  name: string @len(2, 100)
-  bio: string?
-  tags: string[]
-  labels: map[string, string]
-  home_address: Address @flatten(prefix: "home_")
+model User {
+  id: string;
+  @minLength(2)
+  @maxLength(100)
+  name: string;
+  bio?: string;
+  tags: string[];
+  labels: Record<string>;
+  @Onkt.flatten("home_")
+  home_address: Address;
 }
 
 enum Status {
-  UNSPECIFIED
-  ACTIVE @json("active")
+  UNSPECIFIED,
+  ACTIVE: "active",
 }
 
-message Event {
-  id: string
-  payload: oneof(discriminator: "type", flatten: true) {
-    text: TextPayload @tag("text")
-    image: ImagePayload @tag("image")
-  }
+@discriminated(#{ discriminatorPropertyName: "type", envelope: "none" })
+union EventPayload {
+  @Onkt.tag("text") text: TextPayload,
+  @Onkt.tag("image") image: ImagePayload,
 }
 
-message TextPayload {
-  body: string
+model Event {
+  id: string;
+  payload: EventPayload;
 }
 
-message ImagePayload {
-  url: string
+model TextPayload {
+  body: string;
 }
 
-message NotFoundError @status(404) {
-  resource_type: string
+model ImagePayload {
+  url: string;
 }
 
-message ValidationError {
-  field: string
+@error
+model NotFoundError {
+  @statusCode _: 404;
+  resource_type: string;
 }
 
-message CreateUserRequest {
-  name: string
+@error
+model ValidationError {
+  field: string;
 }
 
-message GetUserRequest {
-  id: string
+model CreateUserRequest {
+  name: string;
+}
+
+model GetUserRequest {
+  id: string;
 }
 `
 
-const serviceSrc = `
-package examples.simpleapi.services
+const serviceSrc = `using examples.simpleapi.models;
 
-import "./models.onk"
+namespace examples.simpleapi.services;
 
-service UserService {
-  base_path: "/api/v1"
-  headers: {
-    "X-API-Key": string @required @format("uuid") @auth("api_key")
-  }
+/** Headers every UserService operation takes. */
+alias UserServiceHeaders = {
+  @header("X-API-Key") @format("uuid") @Onkt.auth("api_key") header_x_api_key: string;
+};
 
-  createUser(CreateUserRequest) -> User @post("/users")
+@route("/api/v1")
+interface UserService {
+  @post
+  @route("/users")
+  createUser(...UserServiceHeaders, ...CreateUserRequest): User;
 
-  getUser(GetUserRequest) -> User | NotFoundError | ValidationError @get("/users/{id}") {
-    headers: {
-      "X-Request-Id": string @required
-    }
-  }
+  @get
+  @route("/users/{id}")
+  getUser(
+    ...UserServiceHeaders,
+    @header("X-Request-Id") header_x_request_id: string,
+    ...GetUserRequest,
+  ): User | NotFoundError | ValidationError;
 }
 `
 
 func compileFixture(t *testing.T) *onkir.Package {
 	t.Helper()
-	sources := []Source{
-		{Path: "models.onk", AST: parseOrFatal(t, modelsSrc)},
-		{Path: "user_service.onk", AST: parseOrFatal(t, serviceSrc)},
-	}
+	sources := compileSources(t, map[string]string{"models.tsp": modelsSrc, "user_service.tsp": serviceSrc})
 	pkg, err := Compile(sources)
 	if err != nil {
 		t.Fatalf("unexpected compile error: %v", err)
@@ -197,16 +232,15 @@ func TestCompileResolvesFieldTypes(t *testing.T) {
 }
 
 func TestCompileSupportsJSONScalar(t *testing.T) {
-	ast := parseOrFatal(t, `
-package examples.json
+	ast := parseOrFatal(t, `namespace examples.json;
 
-message Envelope {
-  payload: json
-  attributes: map[string, json]
-  items: json[]
+model Envelope {
+  payload: unknown;
+  attributes: Record<unknown>;
+  items: unknown[];
 }
 `)
-	pkg, err := Compile([]Source{{Path: "json.onk", AST: ast}})
+	pkg, err := Compile([]Source{{Path: "json.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("unexpected compile error: %v", err)
 	}
@@ -317,7 +351,13 @@ func TestCompileServiceAndMethods(t *testing.T) {
 	}
 }
 
+// Documents the compiler must reject whatever frontend wrote them; TypeSpec
+// stops most of these itself, so they are built directly.
 func TestCompileErrors(t *testing.T) {
+	q, dec := onktest.Q, onktest.Dec
+	field, message, file := onktest.Field, onktest.Message, onktest.File
+	post := dec("post", q("/x"))
+	user := message("User", field("id", "string"))
 	cases := []struct {
 		name    string
 		sources []Source
@@ -326,91 +366,56 @@ func TestCompileErrors(t *testing.T) {
 		{
 			name: "duplicate message name",
 			sources: []Source{
-				{Path: "a.onk", AST: parseOrFatal(t, "message User {\n  id: string\n}\n")},
-				{Path: "b.onk", AST: parseOrFatal(t, "message User {\n  id: string\n}\n")},
+				{Path: "a.tsp", AST: file("", message("User", field("id", "string")))},
+				{Path: "b.tsp", AST: file("", message("User", field("id", "string")))},
 			},
 			wantErr: "duplicate message name",
 		},
 		{
-			name: "unresolved field type",
-			sources: []Source{
-				{Path: "a.onk", AST: parseOrFatal(t, "message User {\n  addr: Address\n}\n")},
-			},
+			name:    "unresolved field type",
+			sources: []Source{{Path: "a.tsp", AST: file("", message("User", field("addr", "Address")))}},
 			wantErr: "unresolved type",
 		},
 		{
-			name: "unresolved rpc request type",
-			sources: []Source{
-				{
-					Path: "a.onk",
-					AST: parseOrFatal(
-						t,
-						"message User {\n  id: string\n}\nservice S {\n  create(Missing) -> User @post(\"/x\")\n}\n",
-					),
-				},
-			},
+			name:    "unresolved rpc request type",
+			sources: []Source{{Path: "a.tsp", AST: file("", user, onktest.Service("S", "", onktest.RPC("create", "Missing", "User", post)))}},
 			wantErr: "unresolved request type",
 		},
 		{
-			name: "unresolved rpc response type",
-			sources: []Source{
-				{
-					Path: "a.onk",
-					AST: parseOrFatal(
-						t,
-						"message User {\n  id: string\n}\nservice S {\n  create(User) -> Missing @post(\"/x\")\n}\n",
-					),
-				},
-			},
+			name:    "unresolved rpc response type",
+			sources: []Source{{Path: "a.tsp", AST: file("", user, onktest.Service("S", "", onktest.RPC("create", "User", "Missing", post)))}},
 			wantErr: "unresolved response type",
 		},
 		{
-			name: "unresolved rpc error type",
-			sources: []Source{
-				{
-					Path: "a.onk",
-					AST: parseOrFatal(
-						t,
-						"message User {\n  id: string\n}\nservice S {\n  create(User) -> User | Missing @post(\"/x\")\n}\n",
-					),
-				},
-			},
+			name:    "unresolved rpc error type",
+			sources: []Source{{Path: "a.tsp", AST: file("", user, onktest.Service("S", "", onktest.RPC("create", "User", "User|Missing", post)))}},
 			wantErr: "unresolved error type",
 		},
 		{
 			name: "invalid header type",
-			sources: []Source{
-				{
-					Path: "a.onk",
-					AST: parseOrFatal(
-						t,
-						"message User {\n  id: string\n}\nservice S {\n  headers: {\n    \"X-A\": weirdtype\n  }\n  create(User) -> User @post(\"/x\")\n}\n",
-					),
-				},
-			},
+			sources: []Source{{Path: "a.tsp", AST: func() *onkschema.File {
+				service := onktest.Service("S", "", onktest.RPC("create", "User", "User", post))
+				service.Headers = []onkschema.HeaderDecl{{Name: "X-A", Type: "weirdtype"}}
+				return file("", user, service)
+			}()}},
 			wantErr: "invalid header type",
 		},
 		{
-			name: "message and enum name collision",
-			sources: []Source{
-				{Path: "a.onk", AST: parseOrFatal(t, "message User {\n  id: string\n}\nenum User {\n  A\n}\n")},
-			},
+			name:    "message and enum name collision",
+			sources: []Source{{Path: "a.tsp", AST: file("", message("User", field("id", "string")), onktest.Enum("User", "A"))}},
 			wantErr: "already used",
 		},
 		{
-			name: "invalid map key type",
-			sources: []Source{
-				{Path: "a.onk", AST: parseOrFatal(t, "message User {\n  m: map[Weird, string]\n}\n")},
-			},
+			name:    "invalid map key type",
+			sources: []Source{{Path: "a.tsp", AST: file("", message("User", field("m", "map<Weird, string>")))}},
 			wantErr: "invalid map key type",
 		},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Compile(tc.sources)
 			if err == nil {
-				t.Fatalf("expected error, got nil")
+				t.Fatalf("expected an error containing %q, got nil", tc.wantErr)
 			}
 			if !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("expected error to contain %q, got %q", tc.wantErr, err.Error())
@@ -420,17 +425,10 @@ func TestCompileErrors(t *testing.T) {
 }
 
 func TestCompileAllowsSameMessageNameInDifferentDirectories(t *testing.T) {
-	sources := []Source{
-		{
-			Path: "booking/dashboard/v1/models.onk",
-			AST:  parseOrFatal(t, "message GetDashboardRequest {\n  id: string\n}\n"),
-		},
-		{
-			Path: "crm/dashboard/v1/models.onk",
-			AST:  parseOrFatal(t, "message GetDashboardRequest {\n  name: string\n}\n"),
-		},
-	}
-	pkg, err := Compile(sources)
+	pkg, err := Compile(compileSources(t, map[string]string{
+		"booking/dashboard/v1/models.tsp": "namespace booking.dashboard.v1;\nmodel GetDashboardRequest { id: string; }\n",
+		"crm/dashboard/v1/models.tsp":     "namespace crm.dashboard.v1;\nmodel GetDashboardRequest { name: string; }\n",
+	}))
 	if err != nil {
 		t.Fatalf("expected same-named messages in different directories to compile, got: %v", err)
 	}
@@ -447,15 +445,14 @@ func TestCompileAllowsSameMessageNameInDifferentDirectories(t *testing.T) {
 	}
 }
 
+// A document may name a type declared in another directory without its
+// package (TypeSpec always qualifies); it resolves when the name is unique.
 func TestCompileResolvesUniqueCrossDirectoryReferenceByName(t *testing.T) {
-	sources := []Source{
-		{Path: "common/pagination/v1/models.onk", AST: parseOrFatal(t, "message PageInfo {\n  next: string\n}\n")},
-		{
-			Path: "hub/business/v1/models.onk",
-			AST:  parseOrFatal(t, "message ListBusinessesResponse {\n  page: PageInfo\n}\n"),
-		},
-	}
-	pkg, err := Compile(sources)
+	field, message, file := onktest.Field, onktest.Message, onktest.File
+	pkg, err := Compile([]Source{
+		{Path: "common/pagination/v1/models.tsp", AST: file("", message("PageInfo", field("next", "string")))},
+		{Path: "hub/business/v1/models.tsp", AST: file("", message("ListBusinessesResponse", field("page", "PageInfo")))},
+	})
 	if err != nil {
 		t.Fatalf("unexpected compile error resolving cross-directory reference: %v", err)
 	}
@@ -465,20 +462,17 @@ func TestCompileResolvesUniqueCrossDirectoryReferenceByName(t *testing.T) {
 	}
 	pageField := resp.Fields[0]
 	if pageField.Type.Kind != onkir.KindMessage || pageField.Type.Message.Name != "PageInfo" {
-		t.Fatalf(
-			"expected page field to resolve to the PageInfo message from a different directory, got: %+v",
-			pageField.Type,
-		)
+		t.Fatalf("expected page field to resolve to the PageInfo message from a different directory, got: %+v", pageField.Type)
 	}
 }
 
 func TestCompileErrorsOnAmbiguousCrossDirectoryReference(t *testing.T) {
-	sources := []Source{
-		{Path: "crm/settings/v1/models.onk", AST: parseOrFatal(t, "message Settings {\n  a: string\n}\n")},
-		{Path: "support/settings/v1/models.onk", AST: parseOrFatal(t, "message Settings {\n  b: string\n}\n")},
-		{Path: "erp/warehouse/v1/models.onk", AST: parseOrFatal(t, "message Warehouse {\n  settings: Settings\n}\n")},
-	}
-	_, err := Compile(sources)
+	field, message, file := onktest.Field, onktest.Message, onktest.File
+	_, err := Compile([]Source{
+		{Path: "crm/settings/v1/models.tsp", AST: file("", message("Settings", field("a", "string")))},
+		{Path: "support/settings/v1/models.tsp", AST: file("", message("Settings", field("b", "string")))},
+		{Path: "erp/warehouse/v1/models.tsp", AST: file("", message("Warehouse", field("settings", "Settings")))},
+	})
 	if err == nil {
 		t.Fatalf("expected an ambiguous type error, got nil")
 	}
@@ -488,25 +482,15 @@ func TestCompileErrorsOnAmbiguousCrossDirectoryReference(t *testing.T) {
 }
 
 func TestCompileResolvesPackageQualifiedReferenceDespiteAmbiguity(t *testing.T) {
-	sources := []Source{
-		{
-			Path: "crm/settings/v1/models.onk",
-			AST:  parseOrFatal(t, "package crm.settings.v1\n\nmessage Settings {\n  a: string\n}\n"),
-		},
-		{
-			Path: "support/settings/v1/models.onk",
-			AST:  parseOrFatal(t, "package support.settings.v1\n\nmessage Settings {\n  b: string\n}\n"),
-		},
-		{
-			Path: "erp/warehouse/v1/models.onk",
-			AST:  parseOrFatal(t, "message Warehouse {\n  settings: support.settings.v1.Settings\n}\n"),
-		},
-	}
-	pkg, err := Compile(sources)
+	pkg, err := Compile(compileSources(t, map[string]string{
+		"crm/settings/v1/models.tsp":     "namespace crm.settings.v1;\nmodel Settings { a: string; }\n",
+		"support/settings/v1/models.tsp": "namespace support.settings.v1;\nmodel Settings { b: string; }\n",
+		"erp/warehouse/v1/models.tsp":    "namespace erp.warehouse.v1;\nmodel Warehouse { settings: support.settings.v1.Settings; }\n",
+	}))
 	if err != nil {
 		t.Fatalf("expected a package-qualified reference to resolve despite the ambiguous plain name, got: %v", err)
 	}
-	warehouse := findMessage(pkg.Files[2], "Warehouse")
+	warehouse := findMessage(pkg.Files[1], "Warehouse")
 	if warehouse == nil {
 		t.Fatalf("Warehouse message not found")
 	}
@@ -515,34 +499,32 @@ func TestCompileResolvesPackageQualifiedReferenceDespiteAmbiguity(t *testing.T) 
 		t.Fatalf("unexpected settings field type: %+v", settingsField.Type)
 	}
 	if len(settingsField.Type.Message.Fields) != 1 || settingsField.Type.Message.Fields[0].Name != "b" {
-		t.Fatalf(
-			"expected the qualified reference to resolve to support.settings.v1's Settings (field %q), got: %+v",
-			"b",
-			settingsField.Type.Message.Fields,
-		)
+		t.Fatalf("expected the qualified reference to resolve to support.settings.v1's Settings (field %q), got: %+v", "b", settingsField.Type.Message.Fields)
 	}
 }
 
+// Import scopes come from documents that list their imports (TypeSpec
+// resolves every reference itself and lists none).
 func TestCompileValidatesLocalImports(t *testing.T) {
-	_, err := Compile([]Source{
-		{Path: "api/service.onk", AST: parseOrFatal(t, `import "../missing.onk"
-service API {}`)},
-	})
-	if err == nil || !strings.Contains(err.Error(), "does not match a discovered .onk file") {
+	api := onktest.File("", onktest.Service("API", ""))
+	api.Imports = []string{"../missing.tsp"}
+	_, err := Compile([]Source{{Path: "api/service.tsp", AST: api}})
+	if err == nil || !strings.Contains(err.Error(), "does not match a discovered schema file") {
 		t.Fatalf("expected missing import error, got %v", err)
 	}
 }
 
 func TestCompileResolvesOnlyImportedDirectoriesWhenImportsAreDeclared(t *testing.T) {
+	q, dec, field, message, file := onktest.Q, onktest.Dec, onktest.Field, onktest.Message, onktest.File
+	api := file("api",
+		message("Request", field("value", "string", dec("query"))),
+		onktest.Service("API", "", onktest.RPC("get", "Request", "Shared", dec("get", q("/shared")))),
+	)
+	api.Imports = []string{"../common/models.tsp"}
 	pkg, err := Compile([]Source{
-		{Path: "common/models.onk", AST: parseOrFatal(t, `package common
-message Shared { value: string }`)},
-		{Path: "other/models.onk", AST: parseOrFatal(t, `package other
-message Shared { other: string }`)},
-		{Path: "api/service.onk", AST: parseOrFatal(t, `package api
-import "../common/models.onk"
-message Request { value: string @query }
-service API { get(Request) -> Shared @get("/shared") }`)},
+		{Path: "common/models.tsp", AST: file("common", message("Shared", field("value", "string")))},
+		{Path: "other/models.tsp", AST: file("other", message("Shared", field("other", "string")))},
+		{Path: "api/service.tsp", AST: api},
 	})
 	if err != nil {
 		t.Fatalf("expected imported type to resolve: %v", err)
@@ -554,83 +536,39 @@ service API { get(Request) -> Shared @get("/shared") }`)},
 }
 
 func TestCompileRejectsImportCycles(t *testing.T) {
-	_, err := Compile([]Source{
-		{Path: "a.onk", AST: parseOrFatal(t, `import "b.onk"
-message A {}`)},
-		{Path: "b.onk", AST: parseOrFatal(t, `import "a.onk"
-message B {}`)},
-	})
+	a := onktest.File("", onktest.Message("A"))
+	a.Imports = []string{"b.tsp"}
+	b := onktest.File("", onktest.Message("B"))
+	b.Imports = []string{"a.tsp"}
+	_, err := Compile([]Source{{Path: "a.tsp", AST: a}, {Path: "b.tsp", AST: b}})
 	if err == nil || !strings.Contains(err.Error(), "cyclic schema import") {
 		t.Fatalf("expected import cycle error, got %v", err)
 	}
 }
 
 func TestCompileRejectsInvalidSchemaSemantics(t *testing.T) {
+	q, n, dec, field, message, file := onktest.Q, onktest.N, onktest.Dec, onktest.Field, onktest.Message, onktest.File
+	api := func(rpcs ...*onkschema.RPCDecl) *onkschema.File {
+		return file("", message("Request"), message("Response"), onktest.Service("API", "", rpcs...))
+	}
 	tests := []struct {
 		name    string
-		sources []Source
+		file    *onkschema.File
 		wantErr string
 	}{
+		{"unknown field decorator", file("", message("Request", field("id", "string", dec("requred")))), "unknown decorator @requred"},
+		{"invalid decorator argument count", file("", message("Request", field("name", "string", dec("len", n("1"))))), "@len expects 2 argument(s)"},
+		{"missing HTTP verb", api(onktest.RPC("get", "Request", "Response")), "RPC must declare exactly one HTTP verb"},
 		{
-			name: "unknown field decorator",
-			sources: []Source{{Path: "api.onk", AST: parseOrFatal(t, `
-message Request { id: string @requred }
-`)}},
-			wantErr: "unknown decorator @requred",
+			"duplicate HTTP route",
+			api(onktest.RPC("first", "Request", "Response", dec("get", q("/items"))), onktest.RPC("second", "Request", "Response", dec("get", q("/items")))),
+			"duplicate HTTP route GET /items",
 		},
-		{
-			name: "invalid decorator argument count",
-			sources: []Source{{Path: "api.onk", AST: parseOrFatal(t, `
-message Request { name: string @len(1) }
-`)}},
-			wantErr: "@len expects 2 argument(s)",
-		},
-		{
-			name: "missing HTTP verb",
-			sources: []Source{{Path: "api.onk", AST: parseOrFatal(t, `
-message Request {}
-message Response {}
-service API { get(Request) -> Response }
-`)}},
-			wantErr: "RPC must declare exactly one HTTP verb",
-		},
-		{
-			name: "duplicate HTTP route",
-			sources: []Source{{Path: "api.onk", AST: parseOrFatal(t, `
-message Request {}
-message Response {}
-service API {
-  first(Request) -> Response @get("/items")
-  second(Request) -> Response @get("/items")
-}
-
-`)}},
-			wantErr: "duplicate HTTP route GET /items",
-		},
-		{
-			name: "multiple HTTP verbs",
-			sources: []Source{{Path: "api.onk", AST: parseOrFatal(t, `
-message Request {}
-message Response {}
-service API { get(Request) -> Response @get("/items") @post("/items") }
-`)}},
-			wantErr: "RPC must declare exactly one HTTP verb",
-		},
-		{
-			name: "flatten combined with empty",
-			sources: []Source{{Path: "api.onk", AST: parseOrFatal(t, `
-message Meta { street: string }
-message Request { meta: Meta @flatten(prefix: "m_") @empty(null) }
-message Response { ok: bool }
-service API { create(Request) -> Response @post("/x") }
-`)}},
-			wantErr: "@flatten cannot be combined with @empty",
-		},
+		{"multiple HTTP verbs", api(onktest.RPC("get", "Request", "Response", dec("get", q("/items")), dec("post", q("/items")))), "RPC must declare exactly one HTTP verb"},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := Compile(tt.sources)
+			_, err := Compile([]Source{{Path: "api.tsp", AST: tt.file}})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
 			}
@@ -638,14 +576,27 @@ service API { create(Request) -> Response @post("/x") }
 	}
 }
 
-func TestCompileRejectsMapValueUnwrap(t *testing.T) {
-	_, err := Compile([]Source{{Path: "api.onk", AST: parseOrFatal(t, `
-message Entry {
-  value: string @unwrap
+func TestCompileRejectsFlattenCombinedWithEmpty(t *testing.T) {
+	_, err := Compile([]Source{{Path: "api.tsp", AST: parseOrFatal(t, `
+model Meta { street: string; }
+model Request { @Onkt.flatten("m_") @Onkt.empty("null") meta: Meta; }
+model Result { ok: boolean; }
+interface API { @post @route("/x") create(...Request): Result; }
+`)}})
+	if err == nil || !strings.Contains(err.Error(), "@flatten cannot be combined with @empty") {
+		t.Fatalf("expected the combination to be rejected, got %v", err)
+	}
 }
 
-message Catalog {
-  entries: map[string, Entry]
+func TestCompileRejectsMapValueUnwrap(t *testing.T) {
+	_, err := Compile([]Source{{Path: "api.tsp", AST: parseOrFatal(t, `
+model Entry {
+  @Onkt.unwrap
+  value: string;
+}
+
+model Catalog {
+  entries: Record<Entry>;
 }
 `)}})
 	if err == nil || !strings.Contains(err.Error(), "@unwrap is not supported on map value message") {
@@ -655,22 +606,25 @@ message Catalog {
 
 func TestCompileNestedMessagesAndEnums(t *testing.T) {
 	src := `
-message Outer {
-  id: string
-  message Inner {
-    value: string
-  }
-  enum Kind {
-    A
-    B
-  }
-  inner: Inner
-  kind: Kind
+model Outer {
+  id: string;
+  inner: Inner;
+  kind: Kind;
 }
 
+@Onkt.parent(Outer)
+model Inner {
+  value: string;
+}
+
+@Onkt.parent(Outer)
+enum Kind {
+  A,
+  B,
+}
 `
 	f := parseOrFatal(t, src)
-	pkg, err := Compile([]Source{{Path: "a.onk", AST: f}})
+	pkg, err := Compile([]Source{{Path: "a.tsp", AST: f}})
 	if err != nil {
 		t.Fatalf("unexpected compile error: %v", err)
 	}
@@ -704,21 +658,20 @@ message Outer {
 }
 
 func TestCompileResolvesPackageQualifiedRPCReferencesAndMarksErrors(t *testing.T) {
-	sources := []Source{
-		{Path: "models.onk", AST: parseOrFatal(t, `
-package app.models
-message Request { id: string }
-message Response { id: string }
-message Failure @status(422) { message: string }
-`)},
-		{Path: "service.onk", AST: parseOrFatal(t, `
-package app.service
-service API {
-  fetch(app.models.Request) -> app.models.Response | app.models.Failure @get("/items/{id}")
+	pkg, err := Compile(compileSources(t, map[string]string{
+		"models.tsp": `namespace app.models;
+model Request { id: string; }
+model Result { id: string; }
+@error model Failure { @statusCode _: 422; message: string; }
+`,
+		"service.tsp": `using app.models;
+
+namespace app.service;
+interface API {
+  @get @route("/items/{id}") fetch(...app.models.Request): app.models.Result | app.models.Failure;
 }
-`)},
-	}
-	pkg, err := Compile(sources)
+`,
+	}))
 	if err != nil {
 		t.Fatalf("Compile error: %v", err)
 	}
@@ -726,7 +679,7 @@ service API {
 	if got := method.Request.FullName(); got != "app.models.Request" {
 		t.Fatalf("request full name = %q", got)
 	}
-	if got := method.Response.FullName(); got != "app.models.Response" {
+	if got := method.Response.FullName(); got != "app.models.Result" {
 		t.Fatalf("response full name = %q", got)
 	}
 	if len(method.ErrorTypes) != 1 || method.ErrorTypes[0].FullName() != "app.models.Failure" || !method.ErrorTypes[0].IsError() {
@@ -738,39 +691,61 @@ func TestCompileRejectsCrossTargetContractHazards(t *testing.T) {
 	tests := []struct {
 		name, schema, want string
 	}{
-		{"non-string map key", `message M { values: map[float64, string] }`, "map keys must be string, int32"},
-		{"missing path field", `
-message Req {}
-message Resp {}
-service API { get(Req) -> Resp @get("/items/{id}") }
-`, `path parameter "id" on RPC get requires one non-repeated scalar request field`},
-		{"body on get", `
-message Req { value: string }
-message Resp {}
-service API { get(Req) -> Resp @get("/items") @body("value") }
-`, "@body requires a body-bearing HTTP verb"},
+		{"non-string map key", `model M { @Onkt.mapKey("int64") values: Record<string>; }`, ""},
 		{"duplicate error status", `
-message Req {}
-message Resp {}
-message A @status(409) {}
-message B @status(409) {}
-service API { get(Req) -> Resp | A | B @get("/items") }
+model Req {}
+model Resp {}
+@error model A { @statusCode _: 409; }
+@error model B { @statusCode _: 409; }
+interface API { @get @route("/items") get(...Req): Resp | A | B; }
 `, "use the same HTTP status 409"},
-		{"invalid auth kind", `
-message Req {}
-message Resp {}
-service API {
-  headers: { "Authorization": string @required @auth("oauth") }
-  get(Req) -> Resp @get("/items")
-}
-`, "@auth must be api_key, bearer, or basic"},
-		{"backtracking pattern", `
-message M { value: string @pattern("^(a+)+$") }
-`, "nested repetition that is unsafe"},
+		{"backtracking pattern", `model M { @pattern("^(a+)+$") value: string; }`, "nested repetition that is unsafe"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := Compile([]Source{{Path: "api.onk", AST: parseOrFatal(t, tt.schema)}})
+			_, err := Compile([]Source{{Path: "api.tsp", AST: parseOrFatal(t, tt.schema)}})
+			if tt.want == "" {
+				if err != nil {
+					t.Fatalf("integer map keys must compile: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected %q, got %v", tt.want, err)
+			}
+		})
+	}
+}
+
+// Hazards TypeSpec cannot write: a float map key, @body on a GET (TypeSpec
+// reads a lone @body as the request), an unknown @auth kind, and a route
+// parameter no request field fills (TypeSpec's HTTP library rejects it).
+func TestCompileRejectsCrossTargetContractHazardsInDocuments(t *testing.T) {
+	q, dec, field, message, file := onktest.Q, onktest.Dec, onktest.Field, onktest.Message, onktest.File
+	authService := onktest.Service("API", "", onktest.RPC("get", "Req", "Resp", dec("get", q("/items"))))
+	authService.Headers = []onkschema.HeaderDecl{onktest.Header("Authorization", dec("required"), dec("auth", q("oauth")))}
+	tests := []struct {
+		name string
+		file *onkschema.File
+		want string
+	}{
+		{"non-string map key", file("", message("M", field("values", "map<float64, string>"))), "map keys must be string, int32"},
+		{
+			"body on get",
+			file("", message("Req", field("value", "string")), message("Resp"),
+				onktest.Service("API", "", onktest.RPC("get", "Req", "Resp", dec("get", q("/items")), dec("body", q("value"))))),
+			"@body requires a body-bearing HTTP verb",
+		},
+		{"invalid auth kind", file("", message("Req"), message("Resp"), authService), "@auth must be api_key, bearer, or basic"},
+		{
+			"missing path field",
+			file("", message("Req"), message("Resp"), onktest.Service("API", "", onktest.RPC("get", "Req", "Resp", dec("get", q("/items/{id}"))))),
+			`path parameter "id" on RPC get requires one non-repeated scalar request field`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Compile([]Source{{Path: "api.tsp", AST: tt.file}})
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("expected %q, got %v", tt.want, err)
 			}
@@ -782,19 +757,17 @@ message M { value: string @pattern("^(a+)+$") }
 // import scopes, so it must not double as the recursion memo: sharing the two
 // handed the second and later importers a nil scope.
 func TestCompileResolvesSharedImportForEveryImporter(t *testing.T) {
+	q, dec, field, message, file := onktest.Q, onktest.Dec, onktest.Field, onktest.Message, onktest.File
+	a := file("a", message("AReq", field("id", "string")), message("Invoice", field("total", "Money")),
+		onktest.Service("AService", "", onktest.RPC("get", "AReq", "Invoice", dec("post", q("/get")))))
+	a.Imports = []string{"../common/money.tsp"}
+	b := file("b", message("BReq", field("id", "string")), message("Receipt", field("paid", "Money")),
+		onktest.Service("BService", "", onktest.RPC("get", "BReq", "Receipt", dec("post", q("/get")))))
+	b.Imports = []string{"../common/money.tsp"}
 	pkg, err := Compile([]Source{
-		{Path: "common/money.onk", AST: parseOrFatal(t, `package common
-message Money { amount: int64 }`)},
-		{Path: "a/service.onk", AST: parseOrFatal(t, `package a
-import "../common/money.onk"
-message AReq { id: string }
-message Invoice { total: Money }
-service AService { get(AReq) -> Invoice @post("/get") }`)},
-		{Path: "b/service.onk", AST: parseOrFatal(t, `package b
-import "../common/money.onk"
-message BReq { id: string }
-message Receipt { paid: Money }
-service BService { get(BReq) -> Receipt @post("/get") }`)},
+		{Path: "common/money.tsp", AST: file("common", message("Money", field("amount", "int64")))},
+		{Path: "a/service.tsp", AST: a},
+		{Path: "b/service.tsp", AST: b},
 	})
 	if err != nil {
 		t.Fatalf("every importer of an import-free schema must resolve it: %v", err)

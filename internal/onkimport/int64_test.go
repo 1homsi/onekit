@@ -12,14 +12,20 @@ func TestImportKeepsInt64AsJSONNumbers(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(result.Source)
-	if !strings.Contains(src, "amount: int64? @encode(number)") && !strings.Contains(src, "amount: int64 @encode(number)") {
-		t.Fatalf("int64 not number-encoded:\n%s", src)
+	// TypeSpec int64 values and lists are JSON numbers; only an explicit
+	// string encoding would change that.
+	for _, want := range []string{"  amount?: int64;\n", "  ids: int64[];\n"} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("missing %q:\n%s", want, src)
+		}
 	}
-	found := false
+	if strings.Contains(src, "@encode(string)") || strings.Contains(src, `@Onkt.encode("string")`) {
+		t.Fatalf("int64 imported as a string:\n%s", src)
+	}
 	for _, warning := range result.Warnings {
-		found = found || strings.Contains(warning, "int64 array items")
+		if strings.Contains(warning, "int64") {
+			t.Fatalf("a faithful int64 import needs no warning: %v", result.Warnings)
+		}
 	}
-	if !found {
-		t.Fatalf("missing int64 array warning: %v", result.Warnings)
-	}
+	requireFaithfulTypeSpec(t, result)
 }

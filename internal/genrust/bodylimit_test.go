@@ -2,10 +2,17 @@ package genrust
 
 import "testing"
 
-const rustBodyLimitFixture = `
-package app
-message Note { text: string }
-service Notes { create(Note) -> Note @post("/notes") }
+const rustBodyLimitFixture = `namespace app;
+
+model Note {
+  text: string;
+}
+
+interface Notes {
+  @post
+  @route("/notes")
+  create(...Note): Note;
+}
 `
 
 const rustBodyLimitMain = `

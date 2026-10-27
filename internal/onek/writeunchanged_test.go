@@ -68,8 +68,16 @@ func TestWriteFileReplacesChangedContentAndWrongMode(t *testing.T) {
 
 func TestBuildSummaryCountsUnchangedFiles(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/api\"\n[generate.go-server]\nout = \"./api\"\n")
-	writeTestFile(t, filepath.Join(dir, "a.onk"), "message R {}\nservice S { get(R) -> R @get(\"/r\") }\n")
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/api\"\n[generate.go-server]\nout = \"./api\"\n")
+	writeTestFile(t, filepath.Join(dir, "a.tsp"), `
+model R {}
+
+interface S {
+  @get
+  @route("/r")
+  get(...R): R;
+}
+`)
 	first, err := BuildWithSummary(dir)
 	if err != nil {
 		t.Fatal(err)

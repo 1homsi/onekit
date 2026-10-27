@@ -81,11 +81,12 @@ func TestExpressionLimits(t *testing.T) {
 }
 
 func TestRejectedFieldTypes(t *testing.T) {
-	for _, field := range []string{"u: uint64", "ts: timestamp", "j: json"} {
-		file := "package p\nmessage M @rule(\"true\", \"ok\") {\n  " + field + " @rule(\"true\", \"ok\")\n}\n"
+	for _, field := range []string{"u: uint64;", "ts: utcDateTime;", "j: unknown;"} {
+		file := "namespace p;\n@Onkt.rule(\"true\", \"ok\")\nmodel M {\n  @Onkt.rule(\"true\", \"ok\") " + field + "\n}\n"
 		_, err := compileSource(file)
-		if err == nil {
-			t.Errorf("%s: a field rule on this type should be rejected", field)
+		// The schema itself is valid TypeSpec; only the field rule is wrong.
+		if err == nil || !strings.Contains(err.Error(), "@rule") {
+			t.Errorf("%s: a field rule on this type should be rejected, got %v", field, err)
 		}
 	}
 }

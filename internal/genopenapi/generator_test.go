@@ -10,65 +10,77 @@ import (
 
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
-const fixtureSrc = `
-package app
+const fixtureSrc = `namespace app;
 
-message Address {
-  street: string
-  city: string
+model Address {
+  street: string;
+  city: string;
 }
 
-message User {
-  id: string
-  name: string @len(2, 100)
-  email: string @email
-  bio: string?
-  tags: string[]
-  labels: map[string, string]
-  home_address: Address
+model User {
+  id: string;
+  @minLength(2)
+  @maxLength(100)
+  name: string;
+  @format("email")
+  email: string;
+  bio?: string;
+  tags: string[];
+  labels: Record<string>;
+  home_address: Address;
 }
 
 enum Status {
-  UNSPECIFIED
-  ACTIVE @json("active")
+  UNSPECIFIED,
+  ACTIVE: "active",
 }
 
-message CreateUserRequest {
-  name: string @len(2, 100)
-  email: string @email
+model CreateUserRequest {
+  @minLength(2)
+  @maxLength(100)
+  name: string;
+  @format("email")
+  email: string;
 }
 
-message GetUserRequest {
-  id: string
+model GetUserRequest {
+  id: string;
 }
 
-message NotFoundError @status(404) {
-  resource_type: string
-  resource_id: string
+@error
+model NotFoundError {
+  @statusCode _: 404;
+  resource_type: string;
+  resource_id: string;
 }
 
-service UserService {
-  base_path: "/api/v1"
-  headers: {
-    "X-API-Key": string @required @format("uuid")
-  }
+/** Headers every UserService operation takes. */
+alias UserServiceHeaders = {
+  @header("X-API-Key") @format("uuid") header_x_api_key: string;
+};
 
-  createUser(CreateUserRequest) -> User @post("/users")
+@route("/api/v1")
+interface UserService {
+  @post
+  @route("/users")
+  createUser(...UserServiceHeaders, ...CreateUserRequest): User;
 
-  getUser(GetUserRequest) -> User | NotFoundError @get("/users/{id}")
+  @get
+  @route("/users/{id}")
+  getUser(...UserServiceHeaders, ...GetUserRequest): User | NotFoundError;
 }
 `
 
 func compileFixture(t *testing.T) *onkir.File {
 	t.Helper()
-	ast, err := onklang.Parse(fixtureSrc)
+	ast, err := onktest.Parse(fixtureSrc)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile error: %v", err)
 	}
@@ -151,24 +163,27 @@ func TestGenerateProducesValidOpenAPIDocument(t *testing.T) {
 }
 
 func TestGenerateRepeatedQueryParametersAsFormArrays(t *testing.T) {
-	ast, err := onklang.Parse(`
-package queryfixture
+	ast, err := onktest.Parse(`namespace queryfixture;
 
-message Request {
-  status: int32 @query
-  tags: string[] @query("tag")
+model Request {
+  @query
+  status: int32;
+  @query("tag")
+  tags: string[];
 }
 
-message Response {}
+model Response {}
 
-service QueryService {
-  list(Request) -> Response @get("/items")
+interface QueryService {
+  @get
+  @route("/items")
+  list(...Request): queryfixture.Response;
 }
 `)
 	if err != nil {
 		t.Fatalf("parse fixture: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "query.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "query.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile fixture: %v", err)
 	}
@@ -240,21 +255,41 @@ func TestJSONFromYAMLMatchesGenerateJSON(t *testing.T) {
 }
 
 func TestGenerateCarriesContractSemantics(t *testing.T) {
-	src := `
-package app
-message Payload { name: string @required @len(2, 20) @pattern("^[a-z]+$") }
-message Request { payload: Payload }
-message Response { ok: bool }
-service API {
-  headers: { "Authorization": string @required @auth("bearer") @auth_scheme_name("UserAuth") }
-  create(Request) -> Response @post("/items") @body("payload")
+	src := `namespace app;
+
+model Payload {
+  @Onkt.required
+  @minLength(2)
+  @maxLength(20)
+  @pattern("^[a-z]+$")
+  name: string;
+}
+
+model Request {
+  @body
+  payload: Payload;
+}
+
+model Response {
+  ok: boolean;
+}
+
+/** Headers every API operation takes. */
+alias APIHeaders = {
+  @header("Authorization") @Onkt.auth("bearer", "UserAuth") header_authorization: string;
+};
+
+interface API {
+  @post
+  @route("/items")
+  create(...APIHeaders, ...Request): app.Response;
 }
 `
-	ast, err := onklang.Parse(src)
+	ast, err := onktest.Parse(src)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -322,29 +357,30 @@ func TestSchemaRequiredFollowsOptionalMarker(t *testing.T) {
 }
 
 func TestSchemaRequiredHonoursLegacyRequiredDecorator(t *testing.T) {
-	const src = `
-package legacy
+	const src = `namespace legacy;
 
-message Doc {
-  slug: string? @required
-  note: string?
+model Doc {
+  @Onkt.required
+  slug?: string;
+  note?: string;
 }
 
-message Req {
-  id: string
+model Req {
+  id: string;
 }
 
-service DocService {
-  base_path: "/v1"
-
-  get(Req) -> Doc @post("/docs")
+@route("/v1")
+interface DocService {
+  @post
+  @route("/docs")
+  get(...Req): Doc;
 }
 `
-	ast, err := onklang.Parse(src)
+	ast, err := onktest.Parse(src)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "legacy.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "legacy.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile error: %v", err)
 	}
@@ -363,21 +399,34 @@ service DocService {
 }
 
 func TestInt64NumberEncodingChangesTheSchema(t *testing.T) {
-	src := `package app
-message Item {
-  id: int64
-  ids: int64[]
-  maybe: int64?
+	src := `namespace app;
+
+model Item {
+  @encode(string)
+  id: int64;
+  @Onkt.encode("string")
+  ids: int64[];
+  @encode(string)
+  maybe?: int64;
 }
-message Get { id: int64 }
-service S { get(Get) -> Item @get("/items/{id}") }
+
+model Get {
+  @encode(string)
+  id: int64;
+}
+
+interface S {
+  @get
+  @route("/items/{id}")
+  get(...Get): Item;
+}
 `
 	generate := func(encoding string) map[string]any {
-		ast, err := onklang.Parse(src)
+		ast, err := onktest.Parse(src)
 		if err != nil {
 			t.Fatal(err)
 		}
-		pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.onk", AST: ast}}, onkcompile.CompileOptions{Int64Encoding: encoding})
+		pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.tsp", AST: ast}}, onkcompile.CompileOptions{Int64Encoding: encoding})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -411,17 +460,28 @@ service S { get(Get) -> Item @get("/items/{id}") }
 }
 
 func TestRouteMetadataIsListedOnTheOperation(t *testing.T) {
-	ast, err := onklang.Parse(`package app
-message R { id: string }
-service S {
-  get(R) -> R @get("/r/{id}") @meta("guard", "app/use/:slug") @meta("audit.event", "app.read")
-  plain(R) -> R @get("/p/{id}")
+	ast, err := onktest.Parse(`namespace app;
+
+model R {
+  id: string;
+}
+
+interface S {
+  @get
+  @route("/r/{id}")
+  @Onkt.meta("guard", "app/use/:slug")
+  @Onkt.meta("audit.event", "app.read")
+  get(...R): R;
+
+  @get
+  @route("/p/{id}")
+  plain(...R): R;
 }
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}

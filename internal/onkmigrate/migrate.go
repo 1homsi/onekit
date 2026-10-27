@@ -43,6 +43,9 @@ const EntryFile = "main.tsp"
 // Convert translates every source into a .tsp file next to it, and returns
 // them in path order. Type references are resolved the way the .onk compiler
 // resolves them and written fully qualified across namespaces.
+// scalarString is the string scalar, spelled the same in both languages.
+const scalarString = "string"
+
 func Convert(sources []Source, options Options) ([]Output, error) {
 	c := newConverter(sources, options)
 	c.prepare()
@@ -573,8 +576,6 @@ func (c *converter) message(fc *fileContext, m *onkschema.MessageDecl, parent *o
 
 const deprecatedDecorator = "deprecated"
 
-var integerScalars = map[string]bool{"int32": true, "int64": true, "uint32": true, "uint64": true}
-
 func (c *converter) field(fc *fileContext, owner *onkschema.MessageDecl, f *onkschema.FieldDecl) error {
 	w := fc.w
 	w.comments(f.LeadingComments)
@@ -608,10 +609,16 @@ func (c *converter) field(fc *fileContext, owner *onkschema.MessageDecl, f *onks
 		case "pattern":
 			decorators = append(decorators, fmt.Sprintf("@pattern(%s)", quote(arg(0))))
 		case "in":
-			if f.Type != nil && integerScalars[f.Type.Name] {
+			// Only a string field becomes a union of string literals; any
+			// other type keeps its type and lists the values.
+			if f.Type == nil || f.Type.IsMap || f.Type.Name != scalarString || f.Repeated {
 				values := make([]string, len(d.Args))
-				for i := range d.Args {
-					values[i] = number(arg(i))
+				for i, a := range d.Args {
+					if a.Quoted {
+						values[i] = quote(a.Value)
+					} else {
+						values[i] = number(a.Value)
+					}
 				}
 				decorators = append(decorators, fmt.Sprintf("@Onkt.values(%s)", strings.Join(values, ", ")))
 				continue
@@ -668,8 +675,8 @@ func (c *converter) field(fc *fileContext, owner *onkschema.MessageDecl, f *onks
 		case !c.pathParams[owner][f.Name] && !hasDecoratorNamed(f.Decorators, "query"):
 			// Beside a @body field a request field that is neither a path
 			// nor a query parameter does not cross the wire; TypeSpec
-			// would read it as a second body.
-			decorators = append(decorators, "@visibility(Lifecycle.Read)")
+			// would otherwise read it as a second body.
+			decorators = append(decorators, "@bodyIgnore")
 		}
 	}
 
@@ -708,7 +715,7 @@ func (c *converter) fieldType(fc *fileContext, f *onkschema.FieldDecl, encode st
 	t := f.Type
 	var decorators []string
 	if t.IsMap {
-		if t.MapKey != "string" {
+		if t.MapKey != scalarString {
 			decorators = append(decorators, fmt.Sprintf("@Onkt.mapKey(%s)", quote(t.MapKey)))
 		}
 		value, err := c.typeExpr(fc, t.MapVal)
@@ -729,8 +736,11 @@ func (c *converter) fieldType(fc *fileContext, f *onkschema.FieldDecl, encode st
 	}
 	switch {
 	case (t.Name == "int64" || t.Name == "uint64") && f.Repeated:
-		// TypeSpec's int64[] is numbers; .onk's follows int64_encoding.
-		decorators = append(decorators, `@Onkt.encode("string")`)
+		// TypeSpec's int64[] is numbers; .onk's follows int64_encoding
+		// unless it says @encode("number").
+		if encode != "number" {
+			decorators = append(decorators, `@Onkt.encode("string")`)
+		}
 	case (t.Name == "int64" || t.Name == "uint64") && !f.Repeated:
 		switch encode {
 		case "number":
@@ -767,7 +777,7 @@ func (c *converter) typeExpr(fc *fileContext, t *onkschema.TypeRef) (string, err
 		if err != nil {
 			return "", err
 		}
-		if t.MapKey != "string" {
+		if t.MapKey != scalarString {
 			return "", fmt.Errorf("a nested map with %s keys has no TypeSpec form", t.MapKey)
 		}
 		return "Record<" + value + ">", nil
@@ -864,9 +874,13 @@ func (c *converter) enum(fc *fileContext, e *onkschema.EnumDecl, parent *onksche
 
 func (c *converter) service(fc *fileContext, s *onkschema.ServiceDecl) error {
 	w := fc.w
+	// An explicit base path is written as @route, "/" included; an inferred
+	// one only when it is not the root, which TypeSpec infers the same way.
 	basePath := s.BasePath
 	if basePath == "" && c.options.BasePath != nil {
-		basePath = c.options.BasePath(fc.src.Path)
+		if inferred := c.options.BasePath(fc.src.Path); inferred != "/" {
+			basePath = inferred
+		}
 	}
 
 	headersAlias := ""
@@ -895,7 +909,7 @@ func (c *converter) service(fc *fileContext, s *onkschema.ServiceDecl) error {
 	w.comments(s.LeadingComments)
 	w.doc(s.Doc)
 	w.comments(s.BasePathComments)
-	if basePath != "" && basePath != "/" {
+	if basePath != "" {
 		w.linef("@route(%s)", quote(basePath))
 	}
 	w.linef("interface %s {", ident(s.Name))

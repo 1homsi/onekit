@@ -3,12 +3,21 @@ package gents
 import "testing"
 
 func TestTSServerAnswersHeadOnGetRoutes(t *testing.T) {
-	runTSSchema(t, `
-package app
-message Note { id: string  text: string }
-service Notes {
-  get(Note) -> Note @get("/notes/{id}")
-  create(Note) -> Note @post("/notes")
+	runTSSchema(t, `namespace app;
+
+model Note {
+  id: string;
+  text: string;
+}
+
+interface Notes {
+  @get
+  @route("/notes/{id}")
+  get(...Note): Note;
+
+  @post
+  @route("/notes")
+  create(...Note): Note;
 }
 `, `
 import http from "node:http";

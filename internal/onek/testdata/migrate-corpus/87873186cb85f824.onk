@@ -1,6 +1,0 @@
-
-/// Real doc.
-// plain comment between doc and declaration
-message M {
-  x: string
-}

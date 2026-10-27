@@ -3,11 +3,14 @@ package genpy
 import "testing"
 
 func TestPythonIntegerInValidation(t *testing.T) {
-	runPythonSchema(t, `
-package app
-message Page {
-  size: int32 @in(10, 25, 50)
-  version: int64? @in(1, 2)
+	runPythonSchema(t, `namespace app;
+
+model Page {
+  @Onkt.values(10, 25, 50)
+  size: int32;
+  @Onkt.values(1, 2)
+  @encode(string)
+  version?: int64;
 }
 `, `
 from models import Page

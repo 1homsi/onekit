@@ -13,12 +13,12 @@ func TestBuildDartClientAnalyzesCleanAcrossPackages(t *testing.T) {
 		t.Skip("dart not available")
 	}
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onekit.toml"), "module = \"example.com/app\"\n\n[generate.dart-client]\nout = \"./app/lib/api\"\n")
-	writeTestFile(t, filepath.Join(dir, "common", "money.onk"), commonMoneyOnk)
-	writeTestFile(t, filepath.Join(dir, "common", "shared.onk"), strictESMSharedOnk)
-	writeTestFile(t, filepath.Join(dir, "hub", "catalog", "v1", "service.onk"), strictESMCatalogOnk)
-	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.onk"), businessServiceOnk)
-	writeTestFile(t, filepath.Join(dir, "rt", "runtime.onk"), strictESMRuntimeOnk)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/app\"\n\n[generate.dart-client]\nout = \"./app/lib/api\"\n")
+	writeTestFile(t, filepath.Join(dir, "common", "money.tsp"), commonMoneyTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "common", "shared.tsp"), strictESMSharedTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "hub", "catalog", "v1", "service.tsp"), strictESMCatalogTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "hub", "business", "v1", "service.tsp"), businessServiceTypeSpec)
+	writeTestFile(t, filepath.Join(dir, "rt", "runtime.tsp"), strictESMRuntimeTypeSpec)
 	if err := Build(dir); err != nil {
 		t.Fatalf("Build error: %v", err)
 	}

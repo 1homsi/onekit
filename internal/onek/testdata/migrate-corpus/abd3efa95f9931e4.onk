@@ -1,5 +1,0 @@
-package app
-message A { s: string }
-service S {
-  op(A) -> A @get("/a/{s}") @meta("k", "1") @meta("j", "2")
-}

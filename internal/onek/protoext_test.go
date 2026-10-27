@@ -31,8 +31,6 @@ func protoProject(t *testing.T, config string) string {
 }
 
 func TestLegacyProtoSchemasArePointedAtMigrate(t *testing.T) {
-	onkSchemasAccepted = false
-	t.Cleanup(func() { onkSchemasAccepted = true })
 	dir := protoProject(t, "schema_extensions = [\".onk\", \".proto\"]\n")
 	err := Check(dir)
 	if err == nil || !strings.Contains(err.Error(), "items.proto") || !strings.Contains(err.Error(), "onkt migrate") {

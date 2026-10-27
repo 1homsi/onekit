@@ -10,14 +10,37 @@ import (
 
 func TestMockOneofFixturesMatchTheWireShape(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "api.onk"), `
-message Req { id: string }
-message EmailAuth { email: string @email }
-message Res {
-  nested: oneof(discriminator: "kind") { email: EmailAuth  code: string }
-  flat: oneof(flatten: true) { mail: EmailAuth }
+	writeTestFile(t, filepath.Join(dir, "api.tsp"), `
+model Req {
+  id: string;
 }
-service Svc { get(Req) -> Res @get("/r/{id}") }
+
+model EmailAuth {
+  @format("email")
+  email: string;
+}
+
+@Onkt.discriminator("kind")
+union ResNested {
+  email: EmailAuth,
+  code: string,
+}
+
+@discriminated(#{ discriminatorPropertyName: "type", envelope: "none" })
+union ResFlat {
+  mail: EmailAuth,
+}
+
+model Res {
+  nested: ResNested;
+  flat: ResFlat;
+}
+
+interface Svc {
+  @get
+  @route("/r/{id}")
+  get(...Req): Res;
+}
 `)
 	server, err := NewMockServer(dir, MockOptions{Seed: 1})
 	if err != nil {

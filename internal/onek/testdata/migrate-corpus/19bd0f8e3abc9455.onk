@@ -1,5 +1,0 @@
-package a
-
-message FromEditor {
-  id: string
-}

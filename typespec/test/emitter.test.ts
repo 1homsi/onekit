@@ -47,7 +47,11 @@ describe("@onkt/typespec emitter", () => {
     assert.equal(get.request, "app.GetUser");
     assert.equal(get.headers, undefined);
     assert.deepEqual(me.headers?.map((h) => [h.name, h.decorators?.map((d) => d.name) ?? []]), [["X-Trace", []]]);
-    assert.deepEqual(get.decorators?.[0], { name: "get", args: [{ value: "/users/{id}", quoted: true }], line: get.line, col: get.col });
+    const verb = get.decorators![0];
+    assert.deepEqual([verb.name, verb.args], ["get", [{ value: "/users/{id}", quoted: true }]]);
+    // The verb reports where @get is written, ahead of the operation name.
+    assert.equal(verb.line, get.line);
+    assert.ok(verb.col! < get.col!);
   });
 
   it("keeps constraint decorators in source order and maps @minLength/@maxLength to len", async () => {

@@ -6,23 +6,41 @@ import (
 	"testing"
 )
 
-const tsErrorSchema = `package app
+const tsErrorSchema = `namespace app;
 
-message Thing {
-  id: int64
-  page: int32 @query
+model Thing {
+  @encode(string)
+  id: int64;
+  @query
+  page: int32;
 }
-message Draft {
-  id: int64
-  name: string @len(2, 10)
-}
-message Done { ok: bool }
 
-service Things {
-  base_path: "/v1"
-  headers: { "X-Tenant": string @required }
-  get(Thing) -> Done @get("/things/{id}")
-  save(Draft) -> Done @post("/things/save")
+model Draft {
+  @encode(string)
+  id: int64;
+  @minLength(2)
+  @maxLength(10)
+  name: string;
+}
+
+model Done {
+  ok: boolean;
+}
+
+/** Headers every Things operation takes. */
+alias ThingsHeaders = {
+  @header("X-Tenant") header_x_tenant: string;
+};
+
+@route("/v1")
+interface Things {
+  @get
+  @route("/things/{id}")
+  get(...ThingsHeaders, ...Thing): Done;
+
+  @post
+  @route("/things/save")
+  save(...ThingsHeaders, ...Draft): Done;
 }
 `
 

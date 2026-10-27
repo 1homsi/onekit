@@ -1,7 +1,0 @@
-package app
-message Req { slug: string }
-message Out { ok: bool }
-message Empty {}
-service API {
-  bundle(Req) -> Empty @get("/apps/{slug}/bundle.js") @http("application/javascript") @guard("app/edit/:slug")
-}

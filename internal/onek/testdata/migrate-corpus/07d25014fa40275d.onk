@@ -1,4 +1,0 @@
-
-package app
-message R { id: string @len(1, 10) }
-service S { get(R) -> R @get("/r/{id}") }

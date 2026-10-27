@@ -6,9 +6,13 @@ import (
 	"github.com/1homsi/onekit/internal/onkcompile"
 )
 
-const requiresBase = `package app
-message Req { id: string }
-message Res {}
+const requiresBase = `namespace app;
+
+model Req {
+  id: string;
+}
+
+model Res {}
 `
 
 func compilePackage(t *testing.T, src string) *onkcompile.Source {
@@ -31,8 +35,22 @@ func requiresFindings(t *testing.T, oldService, newService string) []Finding {
 
 func TestCompareReportsChangedRequiredScopes(t *testing.T) {
 	findings := requiresFindings(t,
-		`service API { get(Req) -> Res @get("/items/{id}") @requires("items:read") }`,
-		`service API { get(Req) -> Res @get("/items/{id}") @requires("items:read", "items:write") }`)
+		`
+interface API {
+  @get
+  @route("/items/{id}")
+  @Onkt.requires("items:read")
+  get(...Req): Res;
+}
+`,
+		`
+interface API {
+  @get
+  @route("/items/{id}")
+  @Onkt.requires("items:read", "items:write")
+  get(...Req): Res;
+}
+`)
 	if len(findings) != 1 || findings[0].Message != "required scopes changed" ||
 		findings[0].Before != "items:read" || findings[0].After != "items:read, items:write" {
 		t.Fatalf("findings = %+v", findings)
@@ -41,15 +59,35 @@ func TestCompareReportsChangedRequiredScopes(t *testing.T) {
 
 func TestCompareReportsNewRequirementOnAnOpenRoute(t *testing.T) {
 	findings := requiresFindings(t,
-		`service API { get(Req) -> Res @get("/items/{id}") }`,
-		`service API { get(Req) -> Res @get("/items/{id}") @requires("items:read") }`)
+		`
+interface API {
+  @get
+  @route("/items/{id}")
+  get(...Req): Res;
+}
+`,
+		`
+interface API {
+  @get
+  @route("/items/{id}")
+  @Onkt.requires("items:read")
+  get(...Req): Res;
+}
+`)
 	if len(findings) != 1 || findings[0].Message != "required scopes changed" || findings[0].Before != "" || findings[0].After != "items:read" {
 		t.Fatalf("findings = %+v", findings)
 	}
 }
 
 func TestCompareIgnoresUnchangedRequiredScopes(t *testing.T) {
-	service := `service API { get(Req) -> Res @get("/items/{id}") @requires("items:read") }`
+	service := `
+interface API {
+  @get
+  @route("/items/{id}")
+  @Onkt.requires("items:read")
+  get(...Req): Res;
+}
+`
 	if findings := requiresFindings(t, service, service); len(findings) != 0 {
 		t.Fatalf("findings = %+v", findings)
 	}

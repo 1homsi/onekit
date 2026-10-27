@@ -21,7 +21,7 @@ const (
 
 func defaultSchemaExtensions() []string { return []string{onkExtension, tspExtension} }
 
-func discoverOnkFiles(dir string) ([]string, error) {
+func discoverProjectSchemaFiles(dir string) ([]string, error) {
 	return discoverSchemaFiles(dir, nil)
 }
 

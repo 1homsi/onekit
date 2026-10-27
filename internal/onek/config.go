@@ -118,8 +118,8 @@ type Config struct {
 	RepeatedStyle    string   `toml:"repeated_style"`
 	SchemaExtensions []string `toml:"schema_extensions"`
 	Module           string   `toml:"module"`
-	// SchemaRoot points at the directory holding the .onk schema tree,
-	// relative to the project directory (the one containing onekit.toml).
+	// SchemaRoot points at the directory holding the schema tree,
+	// relative to the project directory (the one containing onkt.toml).
 	// It lets repositories keep schemas in a subdirectory while generator
 	// outputs stay anchored elsewhere. Defaults to "." - i.e. the schema
 	// tree and the project directory are the same. Base-path inference and
@@ -137,7 +137,7 @@ type Config struct {
 }
 
 // ProjectDir returns the absolute canonical directory containing
-// onekit.toml. Generator outputs and the drift manifest anchor here.
+// onkt.toml. Generator outputs and the drift manifest anchor here.
 func (c *Config) ProjectDir() string { return c.dir }
 
 func (c *Config) EnabledTargets() []string {
@@ -164,7 +164,7 @@ func (c *Config) EnabledTargets() []string {
 	return targets
 }
 
-// SchemaDir returns the absolute canonical root of the .onk schema tree.
+// SchemaDir returns the absolute canonical root of the schema tree.
 // It defaults to ProjectDir when schema_root is not configured.
 func (c *Config) SchemaDir() string {
 	if c.schemaDir == "" {

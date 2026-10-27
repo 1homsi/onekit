@@ -8,18 +8,26 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func TestGoIntegerMapKeysRoundTripAndRejectNonNumericKeys(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	ast, err := onklang.Parse("package app\nmessage R { by_id: map[int64, string]  by_n: map[uint32, string] }\n")
+	ast, err := onktest.Parse(`namespace app;
+
+model R {
+  @Onkt.mapKey("int64")
+  by_id: Record<string>;
+  @Onkt.mapKey("uint32")
+  by_n: Record<string>;
+}
+`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.onk", AST: ast}}, onkcompile.CompileOptions{})
+	pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{{Path: "app.tsp", AST: ast}}, onkcompile.CompileOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

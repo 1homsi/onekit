@@ -1,5 +1,0 @@
-package b
-
-message Other {
-  name: string
-}

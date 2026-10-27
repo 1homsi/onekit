@@ -5,18 +5,27 @@ import (
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 func TestPythonClientWarnsOnDeprecatedMethods(t *testing.T) {
-	ast, err := onklang.Parse(`package app
-message Note { id: string }
-service Notes { get(Note) -> Note @get("/notes/{id}") @deprecated("use fetch") }
+	ast, err := onktest.Parse(`namespace app;
+
+model Note {
+  id: string;
+}
+
+interface Notes {
+  #deprecated "use fetch"
+  @get
+  @route("/notes/{id}")
+  get(...Note): Note;
+}
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatal(err)
 	}

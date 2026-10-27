@@ -1,6 +1,0 @@
-
-package check
-
-message Ids { v: int64[] @unwrap }
-message Total { v: uint64 @unwrap }
-message Count { v: int64 @unwrap @encode("number") }

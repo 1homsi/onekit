@@ -7,16 +7,23 @@ import (
 	"testing"
 )
 
-const wsFixture = `
-package wsf
+const wsFixture = `namespace wsf;
 
-message ChatMessage { room: string text: string }
-message ChatEvent { seq: int64 }
+model ChatMessage {
+  room: string;
+  text: string;
+}
 
-service ChatService {
-  base_path: "/v1"
+model ChatEvent {
+  @encode(string)
+  seq: int64;
+}
 
-  chat(ChatMessage) -> ChatEvent @ws("/rooms/{room}")
+@route("/v1")
+interface ChatService {
+  @Onkt.ws
+  @route("/rooms/{room}")
+  chat(...ChatMessage): ChatEvent;
 }
 `
 
@@ -75,32 +82,54 @@ func TestGenerateTSWSClient(t *testing.T) {
 	}
 }
 
-const wsCorrelatedFixture = `
-package wsc
+const wsCorrelatedFixture = `namespace wsc;
 
-message RunRequest { code: string }
-message RunResult { exit_code: int32 }
-message HostCall { id: string @ws_id
-method: string
-timeout_ms: int64 @ws_timeout }
-message HostResult { id: string @ws_id
-value: string }
-message Cancel { id: string @ws_id }
-
-message Frame {
-  payload: oneof(discriminator: "type") {
-    run: RunRequest @tag("run")
-    host_call: HostCall @tag("host_call")
-    host_result: HostResult @tag("host_result")
-    run_result: RunResult @tag("run_result")
-    cancel: Cancel @tag("cancel") @ws_cancel
-  }
+model RunRequest {
+  code: string;
 }
 
-service Runtime {
-  base_path: "/v1"
+model RunResult {
+  exit_code: int32;
+}
 
-  execute(Frame) -> Frame @ws("/execute")
+model HostCall {
+  @Onkt.wsId
+  id: string;
+  method: string;
+  @Onkt.wsTimeout
+  @encode(string)
+  timeout_ms: int64;
+}
+
+model HostResult {
+  @Onkt.wsId
+  id: string;
+  value: string;
+}
+
+model Cancel {
+  @Onkt.wsId
+  id: string;
+}
+
+@Onkt.discriminator("type")
+union FramePayload {
+  @Onkt.tag("run") run: RunRequest,
+  @Onkt.tag("host_call") host_call: HostCall,
+  @Onkt.tag("host_result") host_result: HostResult,
+  @Onkt.tag("run_result") run_result: RunResult,
+  @Onkt.tag("cancel") @Onkt.wsCancel cancel: Cancel,
+}
+
+model Frame {
+  payload: FramePayload;
+}
+
+@route("/v1")
+interface Runtime {
+  @Onkt.ws
+  @route("/execute")
+  execute(...Frame): Frame;
 }
 `
 
@@ -690,19 +719,30 @@ func runNodeHarness(t *testing.T, dir, harness string) {
 	}
 }
 
-const nodeHTTPFixture = `
-package nodehttp
+const nodeHTTPFixture = `namespace nodehttp;
 
-message GetReq { id: string }
-message Item { id: string
-name: string }
-message CreateReq { name: string }
+model GetReq {
+  id: string;
+}
 
-service Items {
-  base_path: "/v1"
+model Item {
+  id: string;
+  name: string;
+}
 
-  get(GetReq) -> Item @get("/items/{id}")
-  create(CreateReq) -> Item @post("/items")
+model CreateReq {
+  name: string;
+}
+
+@route("/v1")
+interface Items {
+  @get
+  @route("/items/{id}")
+  get(...GetReq): Item;
+
+  @post
+  @route("/items")
+  create(...CreateReq): Item;
 }
 `
 

@@ -7,6 +7,122 @@ import (
 	"testing"
 )
 
+// The .onk schema examples/simple-api was written in before TypeSpec.
+const (
+	simpleAPIModelsOnk = `package examples.onksimpleapi.models
+
+/// A system user.
+message User {
+  id: string @uuid
+
+  name: string @len(1, 100)
+
+  email: string @email
+
+  created_at: int64
+}
+
+message CreateUserRequest {
+  name: string @len(2, 100)
+
+  email: string @email
+}
+
+message GetUserRequest {
+  id: string @uuid
+}
+
+message EmailAuth {
+  email: string @email
+
+  password: string @len(8, 72)
+
+  use_two_factor: bool
+
+  two_factor_code: string
+}
+
+message TokenAuth {
+  token: string @len(10, 256)
+
+  token_type: string
+
+  issued_at: int64
+}
+
+message SocialAuth {
+  provider: string @in("google", "github", "facebook", "apple")
+
+  access_token: string @len(20, 512)
+
+  redirect_uri: string
+
+  state: string
+
+  permissions: string[]
+}
+
+message LoginRequest {
+  device_id: string
+
+  ip_address: string
+
+  retry_count: int32
+
+  user_agent: string
+
+  auth_method: oneof(discriminator: "auth_type") {
+    email: EmailAuth
+
+    token: TokenAuth
+
+    social: SocialAuth
+  }
+
+  remember_me: bool
+
+  session_id: string
+
+  timestamp: int64
+
+  scopes: string[]
+}
+
+message LoginResponse {
+  access_token: string
+
+  refresh_token: string
+
+  expires_in: int64
+
+  user: User
+}
+`
+	simpleAPIServiceOnk = `package examples.onksimpleapi.services
+
+/// UserService manages users in the system.
+service UserService {
+  base_path: "/api/v1"
+  headers: {
+    "X-API-Key": string @required @format("uuid")
+  }
+
+  /// Create a new user.
+  createUser(CreateUserRequest) -> User @post("/users")
+
+  /// Get a user by ID.
+  getUser(GetUserRequest) -> User @post("/users/get")
+
+  /// Login with different authentication methods.
+  login(LoginRequest) -> LoginResponse @post("/auth/login") {
+    headers: {
+      "X-Request-Id": string @required @format("uuid")
+    }
+  }
+}
+`
+)
+
 // TestMigrateExample migrates the .onk schema examples/simple-api was
 // written in and requires the result to build to the example's checked-in
 // output.
@@ -18,7 +134,8 @@ func TestMigrateExample(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	copyTree(t, filepath.Join("testdata", "simple-api-onk"), dir)
+	writeTestFile(t, filepath.Join(dir, "models.onk"), simpleAPIModelsOnk)
+	writeTestFile(t, filepath.Join(dir, "service.onk"), simpleAPIServiceOnk)
 	// The example predates onkt.toml in this test's story.
 	if err := os.Rename(filepath.Join(dir, configFileName), filepath.Join(dir, legacyConfigFileName)); err != nil {
 		t.Fatal(err)
@@ -82,8 +199,6 @@ func TestMigrateKeepsSchemasOnRequest(t *testing.T) {
 }
 
 func TestBuildPointsOnkProjectsAtMigrate(t *testing.T) {
-	onkSchemasAccepted = false
-	t.Cleanup(func() { onkSchemasAccepted = true })
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "api.onk"), "package app\nmessage M {}\n")
 	err := Check(dir)

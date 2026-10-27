@@ -1,8 +1,0 @@
-
-package app
-enum Kind { A B }
-message Money { cents: int64 }
-message Order { total: Money kind: Kind history: Money[] by_kind: map[string, Money] }
-message Get { id: string }
-message NotFound @status(404) { id: string }
-service Orders { get(Get) -> Order | NotFound @get("/orders/{id}") }

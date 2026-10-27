@@ -1,8 +1,0 @@
-package app
-
-message Empty {}
-message Pong { ok: bool }
-
-service Health {
-  ping(Empty) -> Pong @get("/ping")
-}

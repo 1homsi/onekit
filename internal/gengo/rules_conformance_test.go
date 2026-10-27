@@ -10,7 +10,7 @@ import (
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkexpr/conformance"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onktest"
 )
 
 const goRulesHarness = `package main
@@ -103,9 +103,28 @@ func TestGeneratedGoRulesCompileWithoutOptionalFeatures(t *testing.T) {
 		t.Skip("go toolchain not available")
 	}
 	for name, schema := range map[string]string{
-		"field rule only":   "package small\nmessage M {\n  n: int32 @rule(\"value >= 0\", \"n must not be negative\")\n}\n",
-		"message rule only": "package small\nmessage M @rule(\"self.a < self.b\", \"a before b\") {\n  a: int32\n  b: int32\n}\n",
-		"macro":             "package small\nmessage M @rule(\"self.xs.all(x, x > 0)\", \"positive\") {\n  xs: int32[]\n}\n",
+		"field rule only": `namespace small;
+
+model M {
+  @Onkt.rule("value >= 0", "n must not be negative")
+  n: int32;
+}
+`,
+		"message rule only": `namespace small;
+
+@Onkt.rule("self.a < self.b", "a before b")
+model M {
+  a: int32;
+  b: int32;
+}
+`,
+		"macro": `namespace small;
+
+@Onkt.rule("self.xs.all(x, x > 0)", "positive")
+model M {
+  xs: int32[];
+}
+`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			file := compileFixtureSource(t, schema)
@@ -132,11 +151,11 @@ func TestGeneratedGoRulesCompileWithoutOptionalFeatures(t *testing.T) {
 
 func compileFixtureSource(t *testing.T, src string) *onkir.File {
 	t.Helper()
-	ast, err := onklang.Parse(src)
+	ast, err := onktest.Parse(src)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.onk", AST: ast}})
+	pkg, err := onkcompile.Compile([]onkcompile.Source{{Path: "app.tsp", AST: ast}})
 	if err != nil {
 		t.Fatalf("compile error: %v", err)
 	}

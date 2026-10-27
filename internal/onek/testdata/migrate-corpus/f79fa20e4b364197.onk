@@ -1,8 +1,0 @@
-package app
-
-message Req { room: string }
-message Tick { n: int32  doc: json  big: string  note: string }
-
-service Feed {
-  watch(Req) -> Tick @get("/watch") @stream
-}

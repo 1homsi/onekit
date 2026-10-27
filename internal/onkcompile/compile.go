@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
+	"github.com/1homsi/onekit/internal/onkschema"
 )
 
 type Error struct {
@@ -28,7 +28,7 @@ func (e *Error) Error() string {
 
 type Source struct {
 	Path string
-	AST  *onklang.File
+	AST  *onkschema.File
 }
 
 // CompileOptions controls compatibility behavior for existing contracts.
@@ -124,7 +124,7 @@ func buildImportGraph(sources []Source, byPath map[string]Source) (map[string][]
 			}
 			target := filepath.Clean(filepath.Join(filepath.Dir(path), filepath.FromSlash(importPath)))
 			if _, exists := byPath[target]; !exists {
-				return nil, &Error{Path: source.Path, Msg: fmt.Sprintf("import %q does not match a discovered .onk file", importPath)}
+				return nil, &Error{Path: source.Path, Msg: fmt.Sprintf("import %q does not match a discovered schema file", importPath)}
 			}
 			if seen[target] {
 				return nil, &Error{Path: source.Path, Msg: fmt.Sprintf("duplicate import %q", importPath)}
@@ -222,9 +222,9 @@ type compiler struct {
 	msgAllByName  map[string][]dirMsg
 	enumAllByName map[string][]dirEnum
 	declByDir     map[string]map[string]string
-	msgNode       map[*onklang.MessageDecl]*onkir.Message
-	rpcNode       map[*onklang.RPCDecl]*onkir.Method
-	enumNode      map[*onklang.EnumDecl]*onkir.Enum
+	msgNode       map[*onkschema.MessageDecl]*onkir.Message
+	rpcNode       map[*onkschema.RPCDecl]*onkir.Method
+	enumNode      map[*onkschema.EnumDecl]*onkir.Enum
 	importScopes  map[string]map[string]bool
 	options       CompileOptions
 }
@@ -252,9 +252,9 @@ func CompileWithOptions(sources []Source, options CompileOptions) (*onkir.Packag
 		msgAllByName:  map[string][]dirMsg{},
 		enumAllByName: map[string][]dirEnum{},
 		declByDir:     map[string]map[string]string{},
-		msgNode:       map[*onklang.MessageDecl]*onkir.Message{},
-		rpcNode:       map[*onklang.RPCDecl]*onkir.Method{},
-		enumNode:      map[*onklang.EnumDecl]*onkir.Enum{},
+		msgNode:       map[*onkschema.MessageDecl]*onkir.Message{},
+		rpcNode:       map[*onkschema.RPCDecl]*onkir.Method{},
+		enumNode:      map[*onkschema.EnumDecl]*onkir.Enum{},
 		importScopes:  importScopes,
 		options:       options,
 	}
@@ -317,7 +317,7 @@ func CompileWithOptions(sources []Source, options CompileOptions) (*onkir.Packag
 }
 
 func (c *compiler) declareMessage(
-	md *onklang.MessageDecl,
+	md *onkschema.MessageDecl,
 	f *onkir.File,
 	parent *onkir.Message,
 	path string,
@@ -369,7 +369,7 @@ func (c *compiler) declareMessage(
 }
 
 func (c *compiler) declareEnum(
-	ed *onklang.EnumDecl,
+	ed *onkschema.EnumDecl,
 	f *onkir.File,
 	parent *onkir.Message,
 	path string,
@@ -424,7 +424,7 @@ func declarationFullName(packageName string, parent *onkir.Message, name string)
 	return name
 }
 
-func (c *compiler) fillMessage(md *onklang.MessageDecl, path string) error {
+func (c *compiler) fillMessage(md *onkschema.MessageDecl, path string) error {
 	m := c.msgNode[md]
 	for _, fd := range md.Fields {
 		field, err := c.buildField(fd, m, path)
@@ -441,7 +441,7 @@ func (c *compiler) fillMessage(md *onklang.MessageDecl, path string) error {
 	return nil
 }
 
-func (c *compiler) buildField(fd *onklang.FieldDecl, owner *onkir.Message, path string) (*onkir.Field, error) {
+func (c *compiler) buildField(fd *onkschema.FieldDecl, owner *onkir.Message, path string) (*onkir.Field, error) {
 	field := &onkir.Field{
 		Name:       fd.Name,
 		Line:       fd.Line,
@@ -523,7 +523,7 @@ func nullableIneligibleReason(f *onkir.Field) string {
 	return ""
 }
 
-func (c *compiler) buildOneof(od *onklang.OneofDecl, field *onkir.Field, path string) (*onkir.Oneof, error) {
+func (c *compiler) buildOneof(od *onkschema.OneofDecl, field *onkir.Field, path string) (*onkir.Oneof, error) {
 	oneof := &onkir.Oneof{Field: field, Args: convertArgs(od.Args)}
 	for _, vd := range od.Variants {
 		typ, err := c.resolveType(vd.Type, path, vd.Line, vd.Col)
@@ -701,14 +701,14 @@ func (c *compiler) lookupQualifiedEnumForSource(path, name string) (*onkir.Enum,
 	return enum, true
 }
 
-func spanPosition(span onklang.Span, line, column int) (int, int) {
+func spanPosition(span onkschema.Span, line, column int) (int, int) {
 	if span.Line > 0 {
 		return span.Line, span.Col
 	}
 	return line, column
 }
 
-func (c *compiler) resolveType(t *onklang.TypeRef, path string, line, column int) (*onkir.Type, error) {
+func (c *compiler) resolveType(t *onkschema.TypeRef, path string, line, column int) (*onkir.Type, error) {
 	line, column = spanPosition(t.Span, line, column)
 	if t.IsMap {
 		keyKind, ok := onkir.ParseScalarKind(t.MapKey)
@@ -764,7 +764,7 @@ func (c *compiler) resolveMessageReference(path, name string) (*onkir.Message, b
 	return c.lookupMessageForSource(path, name)
 }
 
-func (c *compiler) buildService(sd *onklang.ServiceDecl, f *onkir.File, path string) (*onkir.Service, error) {
+func (c *compiler) buildService(sd *onkschema.ServiceDecl, f *onkir.File, path string) (*onkir.Service, error) {
 	s := &onkir.Service{Name: sd.Name, Doc: sd.Doc, BasePath: sd.BasePath, File: f}
 	headers, err := c.buildHeaders(sd.Headers, path)
 	if err != nil {
@@ -782,7 +782,7 @@ func (c *compiler) buildService(sd *onklang.ServiceDecl, f *onkir.File, path str
 	return s, nil
 }
 
-func (c *compiler) buildMethod(rd *onklang.RPCDecl, s *onkir.Service, path string) (*onkir.Method, error) {
+func (c *compiler) buildMethod(rd *onkschema.RPCDecl, s *onkir.Service, path string) (*onkir.Method, error) {
 	req, found, err := c.resolveMessageReference(path, rd.RequestType)
 	if err != nil {
 		return nil, &Error{Path: path, Line: rd.Line, Column: rd.Col, Msg: err.Error()}
@@ -847,7 +847,7 @@ func (c *compiler) buildMethod(rd *onklang.RPCDecl, s *onkir.Service, path strin
 	return method, nil
 }
 
-func (c *compiler) buildHeaders(headers []onklang.HeaderDecl, path string) ([]*onkir.Header, error) {
+func (c *compiler) buildHeaders(headers []onkschema.HeaderDecl, path string) ([]*onkir.Header, error) {
 	var out []*onkir.Header
 	for _, h := range headers {
 		kind, ok := onkir.ParseScalarKind(h.Type)
@@ -867,7 +867,7 @@ func (c *compiler) buildHeaders(headers []onklang.HeaderDecl, path string) ([]*o
 	return out, nil
 }
 
-func convertDecorators(decorators []onklang.Decorator) []onkir.Decorator {
+func convertDecorators(decorators []onkschema.Decorator) []onkir.Decorator {
 	var out []onkir.Decorator
 	for _, d := range decorators {
 		args := convertArgs(d.Args)
@@ -889,7 +889,7 @@ var numericDecorators = map[string]bool{
 	"len": true, "min_items": true, "max_items": true, "gt": true, "gte": true, "lt": true, "lte": true, "range": true, "in": true,
 }
 
-func convertArgs(args []onklang.Arg) []onkir.Arg {
+func convertArgs(args []onkschema.Arg) []onkir.Arg {
 	var out []onkir.Arg
 	for _, a := range args {
 		out = append(out, onkir.Arg{Name: a.Name, Value: a.Value, Quoted: a.Quoted})

@@ -1,5 +1,0 @@
-
-package app
-message StreamRequest { channel: string @query }
-message Event { value: string }
-service Events { streamEvents(StreamRequest) -> Event @get("/events") @stream }

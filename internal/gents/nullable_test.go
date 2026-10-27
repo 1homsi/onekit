@@ -2,18 +2,23 @@ package gents
 
 import "testing"
 
-const tsNullableSchema = `package app
+const tsNullableSchema = `namespace app;
 
-message Item { name: string }
-message Patch {
-  id: int32
-  folder_id: int64? @nullable @encode("number")
-  note: string? @nullable
-  item: Item? @nullable
+model Item {
+  name: string;
 }
 
-service Patches {
-  patch(Patch) -> Patch @patch("/patch")
+model Patch {
+  id: int32;
+  folder_id?: int64 | null;
+  note?: string | null;
+  item?: Item | null;
+}
+
+interface Patches {
+  @patch
+  @route("/patch")
+  patch(...Patch): Patch;
 }
 `
 

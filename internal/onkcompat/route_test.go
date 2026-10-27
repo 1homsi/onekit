@@ -7,14 +7,36 @@ import (
 )
 
 func TestCompareReportsWhichRoutePartChanged(t *testing.T) {
-	base := `package app
-message Req { id: string @query }
-message Res {}
-message Other {}
-message NotFound @status(404) {}
+	base := `namespace app;
+
+model Req {
+  @query
+  id: string;
+}
+
+model Res {}
+
+model Other {}
+
+@error
+model NotFound {
+  @statusCode _: 404;
+}
 `
-	old := compile(t, base+`service API { get(Req) -> Res @get("/items") }`)
-	newer := compile(t, base+`service API { get(Req) -> Other | NotFound @get("/items") }`)
+	old := compile(t, base+`
+interface API {
+  @get
+  @route("/items")
+  get(...Req): Res;
+}
+`)
+	newer := compile(t, base+`
+interface API {
+  @get
+  @route("/items")
+  get(...Req): Other | NotFound;
+}
+`)
 	oldPkg, err := onkcompile.Compile([]onkcompile.Source{*old})
 	if err != nil {
 		t.Fatal(err)
