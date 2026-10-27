@@ -120,6 +120,8 @@ func TestGeneratedTSRulesTypeCheckStrictly(t *testing.T) {
     "moduleResolution": "bundler",
     "strict": true,
     "noUnusedLocals": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
     "noEmit": true,
     "lib": ["ES2022", "DOM"]
   }

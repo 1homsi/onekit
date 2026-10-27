@@ -1324,7 +1324,7 @@ With `"wire"`, `is_default` stays `is_default` in the types, requests, responses
 
 A TypeScript field is optional (`id?: number | undefined`) unless it is `@Onkt.required`, because a server may omit a field that holds its zero value. With `emit_zero_values = true` every non-optional scalar, enum, repeated and map field is always sent, so the types say so: in a message that some method returns (a response, a stream event or a declared error, directly or nested) and that no method accepts as a request, those fields are required (`id: number`, `is_default: boolean`). Timestamps and singular message fields are required there too: the Go server always writes a timestamp, and writes a message field that the handler left unset as an empty message. A message field whose type can lead back to itself (a tree node's `parent`) is not given this treatment and stays optional, as do `?` fields and `json`. Request messages keep optional fields so callers can send partial objects, and a message used as both a request and a response stays optional. Without `emit_zero_values` nothing changes.
 
-Generated TypeScript compiles under `"strict": true` with `noUnusedLocals` and `noUnusedParameters`: imports, private helpers and parameters that a given schema never uses are not emitted, so the output can sit inside a project that type-checks it.
+Generated TypeScript compiles under `"strict": true` with `noUnusedLocals`, `noUnusedParameters`, `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`: imports, private helpers and parameters that a given schema never uses are not emitted, so the output can sit inside a project that type-checks it.
 
 ### One runtime for every TypeScript client
 

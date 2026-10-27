@@ -436,12 +436,12 @@ class Onk {
 
   static at<T>(items: T[], index: bigint): T {
     if (index < 0n || index >= BigInt(items.length)) Onk.fail();
-    return items[Number(index)];
+    return items[Number(index)] as T;
   }
 
   static get<T>(items: Record<string, T>, key: string): T {
     if (!Object.prototype.hasOwnProperty.call(items, key)) Onk.fail();
-    return items[key];
+    return items[key] as T;
   }
 
   static has(items: Record<string, unknown>, key: string): boolean {

@@ -135,6 +135,8 @@ func TestGeneratedTSAuthorizeTypeChecksStrictly(t *testing.T) {
     "module": "ES2022",
     "moduleResolution": "bundler",
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
     "noEmit": true,
     "lib": ["ES2022", "DOM"],
     "types": []
