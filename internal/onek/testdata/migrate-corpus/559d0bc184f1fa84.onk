@@ -1,0 +1,4 @@
+
+package app
+message R { id: string }
+service S { get(R) -> R @get("/r/{id}") }

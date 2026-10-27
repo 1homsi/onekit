@@ -1,0 +1,6 @@
+package app
+enum Status { active inactive archived }
+enum Filter { active inactive archived }
+message Req { filter: Filter }
+message Res { status: Status }
+service API { get(Req) -> Res @post("/items") }

@@ -1,0 +1,8 @@
+
+package app
+message R { live: bool }
+message E { v: string }
+service S {
+  watch(R) -> E @get("/w/{live}") @stream
+  chat(R) -> E @ws("/c/{live}")
+}

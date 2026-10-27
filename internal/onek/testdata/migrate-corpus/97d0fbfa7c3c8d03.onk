@@ -1,0 +1,17 @@
+
+package legacy
+
+message Doc {
+  slug: string? @required
+  note: string?
+}
+
+message Req {
+  id: string
+}
+
+service DocService {
+  base_path: "/v1"
+
+  get(Req) -> Doc @post("/docs")
+}

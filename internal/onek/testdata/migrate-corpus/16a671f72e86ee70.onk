@@ -1,0 +1,3 @@
+
+package app
+message Name { value: string @len(1, 2) }

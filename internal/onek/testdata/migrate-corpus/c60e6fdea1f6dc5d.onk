@@ -1,0 +1,4 @@
+package app
+message Request { optional: string }
+message Response {}
+service API { get(Request) -> Response @get("/things") }

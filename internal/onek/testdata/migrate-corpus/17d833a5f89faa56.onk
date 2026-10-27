@@ -1,0 +1,7 @@
+
+package app
+message Blob {
+  a: bytes @encode(hex)
+  b: bytes @encode(base64_raw)
+  c: bytes @encode(base64url_raw)
+}

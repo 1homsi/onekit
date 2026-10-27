@@ -40,6 +40,7 @@ func usage(w io.Writer) {
   onek import [--out DIR] [--package NAME] [--service NAME] [--force] [--stdout] OPENAPI-OR-PROTO-FILE
   onek compat [--json] PREVIOUS-DIR CURRENT-DIR
   onek compat [--json] --against GIT-REF [CURRENT-DIR]
+  onek migrate [--keep] [--force] [--dir DIR]
   onek mcp [--dir DIR]
   onek lsp [--dir DIR]
   onek version`)
@@ -104,6 +105,8 @@ func run(args []string) error {
 		return runImport(args[1:])
 	case "compat":
 		return runCompat(args[1:])
+	case "migrate":
+		return runMigrate(args[1:])
 	default:
 		if strings.HasPrefix(args[0], "-") {
 			usage(os.Stderr)
@@ -251,6 +254,26 @@ func runInit(args []string) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "onek: created onekit.toml and api.onk (%s template); edit api.onk, then run: onek build --dir %s\n", *template, dir)
+	return nil
+}
+
+func runMigrate(args []string) error {
+	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	dir := fs.String("dir", ".", "schema project directory")
+	keep := fs.Bool("keep", false, "keep the .onk files after writing the .tsp files")
+	force := fs.Bool("force", false, "overwrite existing .tsp files")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New("migrate does not accept positional arguments; use --dir")
+	}
+	result, err := onek.Migrate(*dir, onek.MigrateOptions{KeepSchemas: *keep, Force: *force})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, "onek:", onek.DescribeMigration(result))
 	return nil
 }
 
@@ -485,7 +508,7 @@ func runLanguageServer(command string, args []string) error {
 	return server.Run(ctx, &mcp.StdioTransport{})
 }
 
-var commandNames = []string{"build", "check", "generate", "fmt", "watch", "mock", "init", "import", "compat", "mcp", "lsp", "version", "help"}
+var commandNames = []string{"build", "check", "generate", "fmt", "watch", "mock", "init", "import", "compat", "migrate", "mcp", "lsp", "version", "help"}
 
 var commandAliases = map[string]string{"format": "fmt", "lint": "check", "validate": "check", "gen": "generate", "serve": "mock", "new": "init"}
 

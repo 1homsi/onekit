@@ -1,0 +1,3 @@
+
+package app
+message M { data: json }

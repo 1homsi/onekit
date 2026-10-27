@@ -1,0 +1,3 @@
+message
+User { id: string }
+message Box { /* 😀 */ user: User }

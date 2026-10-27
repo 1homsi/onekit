@@ -1,0 +1,6 @@
+
+package check
+
+message Item { id: string  name: string }
+
+service Items { create(Item) -> Item @post("/items") }

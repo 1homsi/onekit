@@ -1,5 +1,6 @@
 import {
   type EmitContext,
+  type Interface,
   type Enum,
   type Model,
   type ModelProperty,
@@ -38,7 +39,7 @@ import {
 } from "@typespec/compiler";
 import {
   type HttpOperation,
-  getAllHttpServices,
+  getHttpOperation,
   getHeaderFieldName,
   getRoutePath,
   isBody,
@@ -48,7 +49,7 @@ import {
   isStatusCode,
   getStatusCodes,
 } from "@typespec/http";
-import { type OnktArg, findOnktDecorator, getOnktDecorators } from "./decorators.js";
+import { type OnktArg, findOnktDecorator, getAppliedOnktDecorators, getOnktDecorators, getOnktParent } from "./decorators.js";
 import { type OnktEmitterOptions, reportDiagnostic } from "./lib.js";
 import type * as S from "./schema.js";
 
@@ -80,6 +81,7 @@ class DocumentBuilder {
   private readonly files = new Map<string, S.SourceFile>();
   private readonly messageNames = new Map<Model, string>();
   private readonly enumNames = new Map<Enum, string>();
+  private readonly messageDecls = new Map<Model, S.MessageDecl>();
   private readonly pending: Array<() => void> = [];
   /** Source offset of each declaration's anchor, so declarations keep source order. */
   private readonly offsets = new WeakMap<object, number>();
@@ -87,6 +89,8 @@ class DocumentBuilder {
   constructor(private readonly program: Program) {}
 
   build(): S.Document {
+    const operations: Operation[] = [];
+    const interfaces: Interface[] = [];
     navigateProgram(
       this.program,
       {
@@ -98,16 +102,26 @@ class DocumentBuilder {
         enum: (en) => {
           if (this.isProjectDeclaration(en)) this.enumRef(en);
         },
+        operation: (op) => {
+          if (this.isProjectOperation(op)) operations.push(op);
+        },
+        interface: (iface) => {
+          if (!iface.templateMapper && !isTemplateDeclaration(iface) && getLocationContext(this.program, iface).type === "project") {
+            interfaces.push(iface);
+          }
+        },
       },
       { includeTemplateDeclaration: false },
     );
-    this.emitServices();
+    this.emitServices(operations, interfaces);
     while (this.pending.length > 0) this.pending.shift()!();
     const files = [...this.files.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-    for (const file of files) {
-      file.messages?.sort((a, b) => this.order(a) - this.order(b));
-      file.enums?.sort((a, b) => this.order(a) - this.order(b));
-    }
+    const sortDecls = (messages?: S.MessageDecl[], enums?: S.EnumDecl[]) => {
+      messages?.sort((a, b) => this.order(a) - this.order(b));
+      enums?.sort((a, b) => this.order(a) - this.order(b));
+      for (const m of messages ?? []) sortDecls(m.messages, m.enums);
+    };
+    for (const file of files) sortDecls(file.messages, file.enums);
     return { version: 1, files };
   }
 
@@ -117,6 +131,12 @@ class DocumentBuilder {
     if ("templateNode" in type && type.templateNode && isTemplateDeclaration(type as Model)) return false;
     if (type.kind === "Model" && type.templateMapper) return false;
     return getLocationContext(this.program, type).type === "project";
+  }
+
+  private isProjectOperation(op: Operation): boolean {
+    if (op.templateMapper || (op.node && isTemplateDeclaration(op))) return false;
+    if (op.interface && (op.interface.templateMapper || isTemplateDeclaration(op.interface))) return false;
+    return getLocationContext(this.program, op).type === "project";
   }
 
   private namespaceOf(type: { namespace?: Namespace }): string {
@@ -197,11 +217,25 @@ class DocumentBuilder {
     const qualified = this.qualify(pkg, name);
     this.messageNames.set(model, qualified);
 
-    const file = this.fileFor(anchor, pkg);
     const decl: S.MessageDecl = this.place({ name, ...this.position(model) }, anchor);
-    (file.messages ??= []).push(decl);
+    this.messageDecls.set(model, decl);
+    const parent = this.parentDecl(model);
+    if (parent) {
+      (parent.messages ??= []).push(decl);
+    } else {
+      const file = this.fileFor(anchor, pkg);
+      (file.messages ??= []).push(decl);
+    }
     this.pending.push(() => this.fillMessage(model, decl, pkg, anchor));
     return qualified;
+  }
+
+  /** The declaration of the model `@Onkt.parent` nests a type inside. */
+  private parentDecl(type: Model | Enum): S.MessageDecl | undefined {
+    const parent = getOnktParent(this.program, type);
+    if (!parent || parent.kind !== "Model") return undefined;
+    this.messageRef(parent, undefined);
+    return this.messageDecls.get(parent);
   }
 
   private fillMessage(model: Model, decl: S.MessageDecl, pkg: string, anchor: Type): void {
@@ -248,11 +282,12 @@ class DocumentBuilder {
       decorators.push({ name: decoratorName, ...(args.length > 0 ? { args } : {}), ...position });
 
     let type = prop.type;
+    let nullable = false;
     if (type.kind === "Union") {
       const nonNull = [...type.variants.values()].filter((v) => !isNullType(v.type));
       if (nonNull.length === 1 && nonNull.length < type.variants.size) {
         type = nonNull[0].type;
-        add("nullable");
+        nullable = true;
       }
     }
 
@@ -265,64 +300,123 @@ class DocumentBuilder {
       field.type = this.typeRef(type, prop, `${ownerName}${pascal(prop.name)}`, pkg, anchor);
     }
 
-    if (findOnktDecorator(this.program, prop, "required")) add("required");
-    if (getLocationContext(this.program, prop).type === "project" || prop.sourceProperty) {
-      this.constraints(prop, type, field, add);
-    }
+    this.appliedDecorators(prop, type, field, add);
     if (prop.type.kind === "Union" && this.isLiteralUnion(prop.type)) {
       add("in", [...prop.type.variants.values()].map((v) => literalArg(v.type)));
     }
-    const query = getQueryParamName(this.program, prop);
-    if (query !== undefined) add("query", query === prop.name ? [] : [str(query)]);
     const deprecated = getDeprecationDetails(this.program, prop);
     if (deprecated) add("deprecated", deprecated.message ? [str(deprecated.message)] : []);
-    for (const d of getOnktDecorators(this.program, prop)) {
-      if (d.name !== "required") decorators.push({ ...d, ...position });
-    }
+    if (nullable) add("nullable");
     if (decorators.length > 0) field.decorators = decorators;
     return field;
   }
 
-  private constraints(prop: ModelProperty, type: Type, field: S.FieldDecl, add: (name: string, args?: OnktArg[]) => void): void {
-    const p = this.program;
+  /**
+   * Translates a property's decorators in the order they are written, since
+   * generated validation checks follow that order. `@minLength` and
+   * `@maxLength` written next to each other become one `len`.
+   */
+  private appliedDecorators(prop: ModelProperty, type: Type, field: S.FieldDecl, add: (name: string, args?: OnktArg[]) => void): void {
     const scalar = type.kind === "Scalar" ? stdScalar(type) : undefined;
-
-    const minLength = getMinLength(p, prop) ?? (type.kind === "Scalar" ? getMinLength(p, type) : undefined);
-    const maxLength = getMaxLength(p, prop) ?? (type.kind === "Scalar" ? getMaxLength(p, type) : undefined);
-    if (minLength !== undefined || maxLength !== undefined) {
-      add("len", [num(minLength ?? 0), num(maxLength ?? Number.MAX_SAFE_INTEGER)]);
+    // TypeSpec lists decorators in the order it applied them, bottom-up.
+    const apps = [...prop.decorators].reverse();
+    const nameOf = (i: number) => apps[i]?.definition?.name;
+    const arg = (i: number, j = 0) => numericArg(apps[i].args[j]?.jsValue);
+    let sawLength = false;
+    let sawPattern = false;
+    let sawFormat = false;
+    let sawEncode = false;
+    for (let i = 0; i < apps.length; i++) {
+      const app = apps[i];
+      if (app.definition?.namespace?.name === "Onkt") {
+        for (const d of getAppliedOnktDecorators(app.node, prop)) {
+          if (d.name === "map_key") {
+            if (field.type?.map) field.type.mapKey = d.args[0].value;
+            continue;
+          }
+          if (d.name === "encode") sawEncode = true;
+          add(d.name, d.args);
+        }
+        continue;
+      }
+      switch (nameOf(i)) {
+        case "@minLength":
+          sawLength = true;
+          if (nameOf(i + 1) === "@maxLength") add("len", [arg(i), arg(++i)]);
+          else add("len", [arg(i), num(Number.MAX_SAFE_INTEGER)]);
+          break;
+        case "@maxLength":
+          sawLength = true;
+          if (nameOf(i + 1) === "@minLength") add("len", [arg(i + 1), arg(i++)]);
+          else add("len", [num(0), arg(i)]);
+          break;
+        case "@minValue":
+          add("gte", [arg(i)]);
+          break;
+        case "@maxValue":
+          add("lte", [arg(i)]);
+          break;
+        case "@minValueExclusive":
+          add("gt", [arg(i)]);
+          break;
+        case "@maxValueExclusive":
+          add("lt", [arg(i)]);
+          break;
+        case "@minItems":
+          add("min_items", [arg(i)]);
+          break;
+        case "@maxItems":
+          add("max_items", [arg(i)]);
+          break;
+        case "@pattern":
+          sawPattern = true;
+          add("pattern", [str(String(app.args[0]?.jsValue))]);
+          break;
+        case "@format": {
+          sawFormat = true;
+          const format = String(app.args[0]?.jsValue);
+          if (format === "email" || format === "uuid" || format === "uri") add(format);
+          else if (format === "url") add("uri");
+          break;
+        }
+        case "@query": {
+          const query = getQueryParamName(this.program, prop);
+          add("query", query === undefined || query === prop.name ? [] : [str(query)]);
+          break;
+        }
+        case "@encode": {
+          sawEncode = true;
+          const encode = this.encoding(prop, scalar, field);
+          if (encode) add("encode", [str(encode)]);
+          break;
+        }
+      }
     }
-    const minValue = getMinValue(p, prop) ?? (type.kind === "Scalar" ? getMinValue(p, type) : undefined);
-    const maxValue = getMaxValue(p, prop) ?? (type.kind === "Scalar" ? getMaxValue(p, type) : undefined);
-    if (minValue !== undefined && maxValue !== undefined) {
-      add("range", [num(minValue), num(maxValue)]);
-    } else {
-      if (minValue !== undefined) add("gte", [num(minValue)]);
-      if (maxValue !== undefined) add("lte", [num(maxValue)]);
+
+    // Constraints declared on a custom scalar apply to every property of it.
+    if (type.kind === "Scalar") {
+      const p = this.program;
+      const minLength = getMinLength(p, type);
+      const maxLength = getMaxLength(p, type);
+      if (!sawLength && (minLength !== undefined || maxLength !== undefined)) {
+        add("len", [num(minLength ?? 0), num(maxLength ?? Number.MAX_SAFE_INTEGER)]);
+      }
+      const pattern = getPattern(p, type);
+      if (!sawPattern && pattern !== undefined) add("pattern", [str(pattern)]);
+      const format = getFormat(p, type);
+      if (!sawFormat && (format === "email" || format === "uuid" || format === "uri")) add(format);
     }
-    const gt = getMinValueExclusive(p, prop);
-    if (gt !== undefined) add("gt", [num(gt)]);
-    const lt = getMaxValueExclusive(p, prop);
-    if (lt !== undefined) add("lt", [num(lt)]);
-    const minItems = getMinItems(p, prop);
-    if (minItems !== undefined) add("min_items", [num(minItems)]);
-    const maxItems = getMaxItems(p, prop);
-    if (maxItems !== undefined) add("max_items", [num(maxItems)]);
-    const pattern = getPattern(p, prop) ?? (type.kind === "Scalar" ? getPattern(p, type) : undefined);
-    if (pattern !== undefined) add("pattern", [str(pattern)]);
-
-    const format = getFormat(p, prop) ?? (type.kind === "Scalar" ? getFormat(p, type) : undefined);
-    if (format === "email" || format === "uuid" || format === "uri") add(format);
-    else if (format === "url" || scalar === "url") add("uri");
-
-    if (!field.repeated && field.type && !field.type.map) {
-      const encode = this.encoding(prop, scalar);
+    if (!sawFormat && scalar === "url") add("uri");
+    if (!sawEncode) {
+      const encode = this.encoding(prop, scalar, field);
       if (encode) add("encode", [str(encode)]);
     }
   }
 
   /** Maps TypeSpec's `@encode` onto onkt's wire encodings. */
-  private encoding(prop: ModelProperty, scalar: string | undefined): string | undefined {
+  private encoding(prop: ModelProperty, scalar: string | undefined, field: S.FieldDecl): string | undefined {
+    if (field.repeated || !field.type || field.type.map) return undefined;
+    if (findOnktDecorator(this.program, prop, "encode")) return undefined;
     const encode = getEncode(this.program, prop);
     switch (scalar) {
       case "int64":
@@ -337,12 +431,7 @@ class DocumentBuilder {
       case "plainDate":
         return "date";
       case "bytes":
-        switch (encode?.encoding) {
-          case "base64url":
-            return "base64url";
-          default:
-            return undefined;
-        }
+        return encode?.encoding !== undefined && BYTES_ENCODINGS.has(encode.encoding) ? encode.encoding : undefined;
     }
     return undefined;
   }
@@ -454,24 +543,27 @@ class DocumentBuilder {
       }
       decl.values.push(value);
     }
-    const file = this.fileFor(en, pkg);
-    (file.enums ??= []).push(decl);
+    const parent = this.parentDecl(en);
+    if (parent) {
+      (parent.enums ??= []).push(decl);
+    } else {
+      const file = this.fileFor(en, pkg);
+      (file.enums ??= []).push(decl);
+    }
     return qualified;
   }
 
   // -------------------------------------------------------------- services
 
-  private emitServices(): void {
-    const [services, diagnostics] = getAllHttpServices(this.program);
-    if (diagnostics.length > 0) this.program.reportDiagnostics(diagnostics);
+  private emitServices(operations: Operation[], interfaces: Interface[]): void {
     const byContainer = new Map<Type, HttpOperation[]>();
-    for (const service of services) {
-      for (const op of service.operations) {
-        if (getLocationContext(this.program, op.operation).type !== "project") continue;
-        const list = byContainer.get(op.container) ?? [];
-        list.push(op);
-        byContainer.set(op.container, list);
-      }
+    for (const iface of interfaces) byContainer.set(iface, []);
+    for (const operation of operations) {
+      const [op, diagnostics] = getHttpOperation(this.program, operation);
+      if (diagnostics.length > 0) this.program.reportDiagnostics(diagnostics);
+      const list = byContainer.get(op.container) ?? [];
+      list.push(op);
+      byContainer.set(op.container, list);
     }
     for (const [container, ops] of byContainer) {
       this.emitService(container as Namespace, ops);
@@ -487,26 +579,20 @@ class DocumentBuilder {
     if (doc) decl.doc = doc;
 
     const rpcs = ops.map((op) => this.rpc(op, pkg));
-    const base = rpcs[0]?.base ?? "";
-    for (const rpc of rpcs) {
-      if (rpc.base !== base) {
-        reportDiagnostic(this.program, {
-          code: "request-shape",
-          format: { message: `every operation of ${name} must share the base path ${base || "/"}` },
-          target: rpc.op.operation,
-        });
-      }
-    }
+    const base = wildcards(this.containerRoute(container));
     decl.basePath = base === "" ? "/" : base;
 
-    // Headers every operation declares the same way belong to the service.
-    const shared = rpcs[0]?.decl.headers?.filter((h) =>
-      rpcs.every((r) => r.decl.headers?.some((other) => sameHeader(h, other))),
-    );
-    if (shared && shared.length > 0) {
-      decl.headers = shared;
+    // A header every operation spreads in from the same model property
+    // (`...ApiKeyHeaders`) belongs to the service; a header an operation
+    // declares itself stays on the operation.
+    const first = rpcs[0];
+    const sharedOrigins = first
+      ? first.headerOrigins.filter((origin) => origin !== undefined && rpcs.every((r) => r.headerOrigins.includes(origin)))
+      : [];
+    if (first && sharedOrigins.length > 0) {
+      decl.headers = sharedOrigins.map((origin) => first.decl.headers![first.headerOrigins.indexOf(origin)]);
       for (const r of rpcs) {
-        r.decl.headers = r.decl.headers?.filter((h) => !shared.some((s) => sameHeader(h, s)));
+        r.decl.headers = r.decl.headers?.filter((_, i) => !sharedOrigins.includes(r.headerOrigins[i]));
         if (r.decl.headers?.length === 0) delete r.decl.headers;
       }
     }
@@ -515,12 +601,22 @@ class DocumentBuilder {
     (file.services ??= []).push(decl);
   }
 
-  private rpc(op: HttpOperation, pkg: string): { decl: S.RPCDecl; base: string; op: HttpOperation } {
+  /** The route an operation container adds: its own `@route` after its namespaces'. */
+  private containerRoute(container: Type): string {
+    const parts: string[] = [];
+    let current: Namespace | Interface | undefined = container.kind === "Interface" || container.kind === "Namespace" ? container : undefined;
+    while (current) {
+      const route = getRoutePath(this.program, current)?.path;
+      if (route) parts.unshift(route);
+      current = current.namespace;
+    }
+    return parts.map((part) => part.replace(/\/+$/, "")).join("");
+  }
+
+  private rpc(op: HttpOperation, pkg: string): { decl: S.RPCDecl; headerOrigins: Array<ModelProperty | undefined> } {
     const operation = op.operation;
     const position = this.position(operation);
-    const opRoute = getRoutePath(this.program, operation)?.path ?? "";
-    const base = op.path.endsWith(opRoute) && opRoute !== "" ? op.path.slice(0, op.path.length - opRoute.length) : op.path;
-    const route = opRoute === "" && base === op.path ? "" : opRoute;
+    const route = wildcards(getRoutePath(this.program, operation)?.path ?? "");
 
     const decl: S.RPCDecl = {
       name: operation.name,
@@ -536,7 +632,8 @@ class DocumentBuilder {
     const decorators: S.Decorator[] = [];
     const onkt = getOnktDecorators(this.program, operation);
     const isWS = onkt.some((d) => d.name === "ws");
-    decorators.push({ name: isWS ? "ws" : op.verb, args: [str(route)], ...position });
+    const method = onkt.find((d) => d.name === "method")?.args[0].value.toLowerCase();
+    decorators.push({ name: isWS ? "ws" : (method ?? op.verb), args: [str(route)], ...position });
     const deprecated = getDeprecationDetails(this.program, operation);
     if (deprecated) decorators.push({ name: "deprecated", ...(deprecated.message ? { args: [str(deprecated.message)] } : {}), ...position });
 
@@ -557,36 +654,50 @@ class DocumentBuilder {
       decorators.push({ name: "success", args: [num(response.success)], ...position });
     }
     for (const d of onkt) {
-      if (d.name !== "ws") decorators.push({ ...d, ...position });
+      if (d.name !== "ws" && d.name !== "method") decorators.push({ ...d, ...position });
     }
     decl.decorators = decorators;
-    return { decl, base, op };
+    return { decl, headerOrigins: request.headerOrigins };
   }
 
   /**
    * Finds or builds the request message. Parameters spread from one model
-   * (`op f(...M)`) or a single `@body` / `@bodyRoot` model use that model;
-   * anything else gets a `<Operation>Request` message next to the operation.
+   * (`op f(...M)`, header-only models aside) or a single `@body` /
+   * `@bodyRoot` model use that model; anything else gets a
+   * `<Operation>Request` message next to the operation.
    */
-  private request(op: HttpOperation, pkg: string): { name: string; bodyField?: string; headers: S.HeaderDecl[] } {
+  private request(
+    op: HttpOperation,
+    pkg: string,
+  ): { name: string; bodyField?: string; headers: S.HeaderDecl[]; headerOrigins: Array<ModelProperty | undefined> } {
     const operation = op.operation;
     const headers: S.HeaderDecl[] = [];
+    const headerOrigins: Array<ModelProperty | undefined> = [];
     const params: ModelProperty[] = [];
     for (const prop of operation.parameters.properties.values()) {
       if (isHeader(this.program, prop)) {
         headers.push(this.header(prop));
+        headerOrigins.push(prop.sourceProperty);
       } else {
         params.push(prop);
       }
     }
+    const result = (name: string, bodyField?: string) => ({ name, bodyField, headers, headerOrigins });
 
-    const sources = new Set(params.map((p) => p.sourceProperty?.model));
-    const [source] = sources;
-    if (params.length > 0 && sources.size === 1 && source && source.name !== "" && params.length === allProperties(source).length) {
-      return { name: this.messageRef(source, undefined), headers };
+    const spreads = (operation.parameters.sourceModels ?? [])
+      .filter((source) => source.usage === "spread")
+      .map((source) => source.model)
+      .filter((model) => {
+        const props = allProperties(model);
+        return props.length === 0 || !props.every((p) => isHeader(this.program, p));
+      });
+    const [spread] = spreads;
+    if (spreads.length === 1 && spread.name !== "" && params.every((p) => p.sourceProperty?.model === spread)) {
+      const body = allProperties(spread).find((p) => isBody(this.program, p));
+      return result(this.messageRef(spread, undefined), body?.name);
     }
-    if (params.length === 1 && (isBody(this.program, params[0]) || isBodyRoot(this.program, params[0])) && params[0].type.kind === "Model" && params[0].type.name !== "" && !isArrayModelType(this.program, params[0].type)) {
-      return { name: this.messageRef(params[0].type, undefined), headers };
+    if (spreads.length === 0 && params.length === 1 && (isBody(this.program, params[0]) || isBodyRoot(this.program, params[0])) && params[0].type.kind === "Model" && params[0].type.name !== "" && !isArrayModelType(this.program, params[0].type)) {
+      return result(this.messageRef(params[0].type, undefined));
     }
 
     const name = `${pascal(operation.name)}Request`;
@@ -603,7 +714,7 @@ class DocumentBuilder {
     }
     if (fields.length > 0) decl.fields = fields;
     (file.messages ??= []).push(decl);
-    return { name: this.qualify(pkg, name), bodyField, headers };
+    return result(this.qualify(pkg, name), bodyField);
   }
 
   private header(prop: ModelProperty): S.HeaderDecl {
@@ -679,6 +790,9 @@ class DocumentBuilder {
 
 // ------------------------------------------------------------------ helpers
 
+/** Byte encodings TypeSpec's `@encode` may name that onkt understands. */
+const BYTES_ENCODINGS = new Set(["base64url"]);
+
 /** TypeSpec standard scalars and the onkt scalar each one maps to. */
 const SCALARS: Record<string, string> = {
   string: "string",
@@ -725,9 +839,15 @@ function allProperties(model: Model): ModelProperty[] {
   return chain.flatMap((m) => [...m.properties.values()]);
 }
 
-function sameHeader(a: S.HeaderDecl, b: S.HeaderDecl): boolean {
-  const strip = (h: S.HeaderDecl) => JSON.stringify({ ...h, line: 0, col: 0, decorators: h.decorators?.map((d) => ({ ...d, line: 0, col: 0 })) });
-  return strip(a) === strip(b);
+/** Spells RFC 6570 reserved expansions (`{+path}`) as onkt wildcards (`{path...}`). */
+function wildcards(route: string): string {
+  return route.replace(/\{\+([A-Za-z0-9_]+)\}/g, "{$1...}");
+}
+
+/** A decorator's numeric argument, spelled exactly (64-bit bounds included). */
+function numericArg(value: unknown): OnktArg {
+  if (value !== null && typeof value === "object" && "asBigInt" in value) return { value: String(value) };
+  return { value: String(value) };
 }
 
 function literalArg(type: Type): OnktArg {

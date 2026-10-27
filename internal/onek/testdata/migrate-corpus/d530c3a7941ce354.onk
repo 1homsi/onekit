@@ -1,0 +1,5 @@
+package readme
+message RunResult {
+  exit_code: int32
+  result_json: string @raw
+}

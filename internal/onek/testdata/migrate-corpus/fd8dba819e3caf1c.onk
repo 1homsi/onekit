@@ -1,0 +1,6 @@
+
+package check
+
+message R { id: string }
+
+service Items { get(R) -> R @get("/items/{id}") }

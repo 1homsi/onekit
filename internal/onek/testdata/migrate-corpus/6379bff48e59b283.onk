@@ -1,0 +1,13 @@
+
+package app
+message A {
+  n: int64 @range(0, 9223372036854775806)
+  u: uint64 @gte(9007199254740993)
+  k: int64 @in(9007199254740993, 5)
+  l: int64 @lt(9007199254740993) @gt(-9007199254740993)
+  plain: int32 @range(0, 10)
+  oa: int64? @range(0, 100)
+  ob: uint64? @gte(5)
+  oc: int64? @in(1, 2) @encode("number")
+}
+service S { op(A) -> A @post("/a") }

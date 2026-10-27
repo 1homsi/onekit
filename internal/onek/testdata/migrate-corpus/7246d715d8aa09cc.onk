@@ -1,0 +1,27 @@
+package app
+
+message Req {
+  id: string
+
+  n: int32
+
+  tags: string[]
+
+  note: string?
+}
+
+message Res {
+  id: string
+
+  echoed: int32
+
+  tags: string[]
+
+  big: int64
+
+  note: string?
+}
+
+service S {
+  echo(Req) -> Res @post("/echo")
+}

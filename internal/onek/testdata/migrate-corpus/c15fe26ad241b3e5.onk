@@ -1,0 +1,4 @@
+package app
+message R { a: string }
+message E { v: string }
+service S { x(R) -> E @get("/x/{a}") @http(response: "json") }

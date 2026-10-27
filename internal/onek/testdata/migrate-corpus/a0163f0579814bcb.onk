@@ -1,0 +1,10 @@
+package readme
+message BundleRequest { slug: string  v: int32 @query }
+message UploadRequest { slug: string  key: string }
+message Nothing {}
+
+service Apps {
+  base_path: "/apps"
+  bundle(BundleRequest) -> Nothing @get("/{slug}/bundle.js") @http("application/javascript") @guard("apps/read/:slug")
+  put_object(UploadRequest) -> Nothing @put("/{slug}/objects/{key...}") @http @max_body("64MiB")
+}

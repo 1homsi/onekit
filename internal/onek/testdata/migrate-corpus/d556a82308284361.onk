@@ -1,0 +1,6 @@
+
+package check
+
+message Ping { id: string }
+
+service Pings { get(Ping) -> Ping @get("/pings/{id}") }

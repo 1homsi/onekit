@@ -1,0 +1,8 @@
+package app
+
+message Frame { id: string @ws_id  text: string }
+
+service Chat {
+  base_path: "/v1"
+  talk(Frame) -> Frame @ws("/talk")
+}

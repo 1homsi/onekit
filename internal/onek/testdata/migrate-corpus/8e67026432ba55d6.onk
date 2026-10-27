@@ -1,0 +1,9 @@
+
+package queryfixture
+
+message SearchRequest { term: string }
+message SearchResponse { total: int64 }
+
+service SearchService {
+  search(SearchRequest) -> SearchResponse @query("/search")
+}

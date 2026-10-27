@@ -1,0 +1,11 @@
+package api
+message Booking
+  @rule("self.nights * self.rooms <= 60", "at most 60 room-nights per booking")
+  @rule("size(self.guests) <= self.rooms * 4", "at most four guests per room")
+{
+  checkin: string @rule("value.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')", "dates look like 2026-01-31")
+  nights: int32 @rule("value >= 1", "book at least one night")
+  rooms: int32 @rule("value >= 1", "book at least one room")
+  guests: string[]
+  coupon: string? @rule("!has(self.coupon) || size(value) == 8", "coupons have eight characters")
+}

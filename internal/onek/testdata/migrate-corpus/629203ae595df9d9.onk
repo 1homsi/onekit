@@ -1,0 +1,7 @@
+
+package app
+message Ask { id: string }
+message Reply { text: string }
+service Live {
+  live(Ask) -> Reply @ws("/live")
+}

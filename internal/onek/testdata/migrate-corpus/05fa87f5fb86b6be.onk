@@ -1,0 +1,9 @@
+
+package app
+message UpdateUser { id: string name: string }
+message Touch { id: string }
+message User { id: string }
+service Users {
+  update(UpdateUser) -> User @put("/users/{id}")
+  touch(Touch) -> User @post("/users/{id}/touch")
+}

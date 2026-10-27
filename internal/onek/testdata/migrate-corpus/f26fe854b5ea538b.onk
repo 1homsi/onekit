@@ -1,0 +1,6 @@
+
+package app
+message Page {
+  size: int32 @in(10, 25)
+  code: string @in("1", "2")
+}

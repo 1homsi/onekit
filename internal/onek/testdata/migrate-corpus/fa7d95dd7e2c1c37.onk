@@ -1,0 +1,8 @@
+package app
+
+message Req { id: string }
+message Res { id: string  tags: string[] }
+
+service S {
+  get(Req) -> Res @post("/x")
+}

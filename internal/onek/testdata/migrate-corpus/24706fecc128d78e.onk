@@ -1,0 +1,11 @@
+package app
+
+message Req { id: string }
+message Res { id: string }
+message Count { n: int32 }
+
+service Items {
+  get(Req) -> Res @get("/items/{id}")
+  watch(Req) -> Res @get("/watch/{id}") @stream
+  total(Count) -> Res @get("/total/{n}")
+}

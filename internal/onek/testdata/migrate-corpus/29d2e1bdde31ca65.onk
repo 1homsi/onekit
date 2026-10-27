@@ -1,0 +1,8 @@
+
+package app
+message Note { text: string  count: int32 }
+message ListNotes { limit: int32 @query }
+service Notes {
+  create(Note) -> Note @post("/notes")
+  list(ListNotes) -> Note @get("/notes")
+}

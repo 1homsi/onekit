@@ -1,0 +1,5 @@
+package app
+message M @rule("'k' in self.m && size(self.b) > 0", "map key and bytes") {
+  m: map[string, int32]
+  b: bytes
+}

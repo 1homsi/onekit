@@ -1,0 +1,8 @@
+
+package app
+message M {
+  email: string @email
+  id: string @uuid
+  site: string @uri
+  code: string @pattern("^[A-Z]+$")
+}

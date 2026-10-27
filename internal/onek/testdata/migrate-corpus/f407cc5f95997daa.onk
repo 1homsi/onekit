@@ -1,0 +1,10 @@
+
+package check
+
+message Msg {
+  room: string
+  limit: int32? @query
+  text: string @len(1, 100)
+}
+
+service Chat { chat(Msg) -> Msg @ws("/rooms/{room}") }

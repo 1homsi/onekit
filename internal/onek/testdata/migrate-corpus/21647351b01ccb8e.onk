@@ -1,0 +1,9 @@
+
+package jsruntime
+
+message Ping { id: string }
+
+service Pings {
+  base_path: "/pings"
+  ping(Ping) -> Ping @post("/ping")
+}

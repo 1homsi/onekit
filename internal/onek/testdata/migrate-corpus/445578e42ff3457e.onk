@@ -1,0 +1,4 @@
+
+package app
+message Msg { text: string }
+service Chat { chat(Msg) -> Msg @ws("/chat") }

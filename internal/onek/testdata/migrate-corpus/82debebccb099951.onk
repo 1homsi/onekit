@@ -1,0 +1,7 @@
+package rt
+message Call {
+ id: string @ws_id
+ timeout_ms: int64 @ws_timeout
+}
+message Frame { payload: oneof(discriminator: "type") { call: Call } }
+service Runtime { execute(Frame) -> Frame @ws("/x") }

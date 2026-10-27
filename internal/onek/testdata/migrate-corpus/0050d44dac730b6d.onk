@@ -1,0 +1,9 @@
+package fe
+
+message Req { id: string }
+message Res { ok: bool }
+
+service Svc {
+  base_path: "/v1"
+  getThing(Req) -> Res @get("/things/{id}")
+}

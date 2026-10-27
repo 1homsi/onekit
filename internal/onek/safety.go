@@ -72,13 +72,13 @@ func readRegularFile(filePath string) ([]byte, error) {
 // each build still sees a fresh filesystem view - only redundant re-checks
 // within one build are skipped, never across separate builds.
 //
-// Safe only because Build is invoked once per process, never concurrently
-// (its only caller is cmd/onek/main.go): revisit this cache if that changes.
+// Builds running concurrently share it: a cleared entry only costs another
+// Lstat.
 var verifiedNonSymlinkDirs sync.Map
 
 func resetSymlinkCheckCache() {
-	verifiedNonSymlinkDirs = sync.Map{}
-	createdOutputDirs = sync.Map{}
+	verifiedNonSymlinkDirs.Clear()
+	createdOutputDirs.Clear()
 }
 
 // rejectSymlinkPath checks every existing component of a path. It is used

@@ -1,0 +1,17 @@
+package app
+
+message Empty {}
+message PingRequest {}
+message EnvironmentRef { id: int64 @encode("number") }
+message Environment { id: int64 @encode("number")  name: string }
+message CreateEnvironment { name: string }
+message Pong { ok: bool }
+
+service Environments {
+  base_path: "/v1"
+  ping(PingRequest) -> Pong @get("/ping")
+  list(Empty) -> Environment @get("/environments")
+  get(EnvironmentRef) -> Environment @get("/environments/{id}")
+  remove(EnvironmentRef) -> Empty @delete("/environments/{id}")
+  create(CreateEnvironment) -> Environment @post("/environments")
+}

@@ -1,0 +1,9 @@
+
+package api
+message Span
+  @rule("self.low <= self.high", "low must not exceed high")
+  @rule("self.high - self.low <= 100", "range too wide")
+{
+  low: int32 @rule("value >= 0", "low must be non-negative")
+  high: int32
+}

@@ -1,0 +1,3 @@
+message PageInfo {
+  next: string
+}

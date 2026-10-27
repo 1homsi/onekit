@@ -1,0 +1,6 @@
+
+package app
+message Ask { id: string }
+message Reply { text: string }
+message Missing @status(404) { code: string }
+service Lookup { find(Ask) -> Reply | Missing @get("/find/{id}") }

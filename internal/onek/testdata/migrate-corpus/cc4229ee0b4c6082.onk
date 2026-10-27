@@ -1,0 +1,14 @@
+
+package app
+
+message Item { name: string @len(1, 10) }
+message Patch {
+  id: int32
+  folder_id: int64? @nullable @encode("number")
+  note: string? @nullable @len(1, 5)
+  item: Item? @nullable
+}
+
+service Patches {
+  patch(Patch) -> Patch @patch("/patch")
+}

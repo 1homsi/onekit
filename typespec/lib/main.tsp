@@ -72,13 +72,13 @@ extern dec maxBody(target: Operation, size: valueof string);
 
 /**
  * The route is handled by hand-written code instead of a JSON handler.
- * `request` is none, json, multipart or stream; `response` is stream, json,
- * redirect or websocket.
+ * `contentType` is the response content type, `request` is none, json,
+ * multipart or stream, and `response` is stream, json, redirect or websocket.
  */
 extern dec http(
   target: Operation,
-  contentType?: valueof string,
   options?: valueof {
+    contentType?: string;
     request?: "none" | "json" | "multipart" | "stream";
     response?: "stream" | "json" | "redirect" | "websocket";
   }
@@ -86,3 +86,43 @@ extern dec http(
 
 /** The header carries credentials: an API key, a bearer token or basic credentials. */
 extern dec auth(target: ModelProperty, scheme: valueof "api_key" | "bearer" | "basic", schemeName?: valueof string);
+
+/** An example value of a header, for documentation. */
+extern dec example(target: ModelProperty, value: valueof string);
+
+/**
+ * Serves the route on an HTTP method TypeSpec has no decorator for: `ANY`
+ * answers every method, `QUERY` is the safe method that carries a body.
+ */
+extern dec method(target: Operation, method: valueof "ANY" | "QUERY");
+
+/**
+ * The values a property may hold. A union of string literals says the same
+ * for a string property that has no other string constraint.
+ */
+extern dec values(target: ModelProperty, ...values: valueof (string | numeric)[]);
+
+/**
+ * An inclusive numeric range, checked as one bound pair. `@minValue` and
+ * `@maxValue` check each bound on its own.
+ */
+extern dec range(target: ModelProperty, min: valueof numeric, max: valueof numeric);
+
+/** The JSON key of a union variant when it differs from the variant name. */
+extern dec json(target: UnionVariant, key: valueof string);
+
+/** A WebSocket client sends this variant to cancel a call. */
+extern dec wsCancel(target: UnionVariant);
+
+/** The key type of a `Record` property whose JSON object keys are integers. */
+extern dec mapKey(target: ModelProperty, key: valueof "int32" | "int64" | "uint32" | "uint64");
+
+/**
+ * The wire encoding of a property when TypeSpec's `@encode` has no
+ * equivalent: hex, base64, base64_raw, base64url_raw, unix_millis, or
+ * number on an enum.
+ */
+extern dec encode(target: ModelProperty, encoding: valueof string);
+
+/** Declares this model or enum inside another model, as a nested type. */
+extern dec parent(target: Model | Enum, parent: Model);

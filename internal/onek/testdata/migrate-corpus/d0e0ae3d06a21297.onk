@@ -1,0 +1,7 @@
+package api
+message Req { path: string }
+message NReq { n: int32 }
+message Empty {}
+message Res { ok: bool }
+service S { base_path: "/files"
+  read(Empty) -> Res @get("") }

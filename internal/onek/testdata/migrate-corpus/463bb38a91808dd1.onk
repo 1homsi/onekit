@@ -1,0 +1,5 @@
+package b
+message Item { y: int32 }
+message Req { id: string }
+message Uses { a: Item }
+service B { get(Req) -> Uses @get("/b/{id}") }

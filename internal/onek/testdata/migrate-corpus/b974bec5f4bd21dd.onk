@@ -1,0 +1,13 @@
+package leaf.v1
+
+message Leaf {
+  id: string
+
+  size: int32
+
+  color: string
+}
+
+service Leaves {
+  get(Leaf) -> Leaf @get("/leaves/{id}")
+}

@@ -1,0 +1,9 @@
+package readme
+message Cancel { id: string @ws_id }
+
+message Frame {
+  payload: oneof(discriminator: "type") {
+    // ...the other variants
+    cancel: Cancel @tag("cancel") @ws_cancel
+  }
+}

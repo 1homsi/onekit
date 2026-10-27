@@ -1,0 +1,3 @@
+package app
+message Names { names: string[] @unwrap }
+message Tags { tags: map[string, string] @unwrap }

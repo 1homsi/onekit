@@ -1,0 +1,18 @@
+package api
+enum Level { LOW HIGH }
+message Inner { v: string }
+message M {
+  s: string
+  b: bool
+  n: int32
+  l: Level
+  tags: string[]
+  by: map[string, string]
+  data: bytes
+  items: Inner[]
+  when: timestamp
+  free: json
+  maybe: string?
+  inner: Inner
+  pick: oneof { x: string y: int32 }
+}

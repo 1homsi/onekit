@@ -1,0 +1,9 @@
+
+package app
+message Item { id: string }
+message Empty {}
+service Items {
+  create(Item) -> Item @post("/items") @success(201)
+  remove(Item) -> Empty @delete("/items/{id}") @success(204)
+  get(Item) -> Item @get("/items/{id}")
+}

@@ -1,0 +1,4 @@
+
+package app
+message Ids { v: int64[] @unwrap }
+message Total { v: uint64 @unwrap }

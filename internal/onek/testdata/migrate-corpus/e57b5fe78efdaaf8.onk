@@ -1,0 +1,3 @@
+message GetDashboardRequest {
+  id: string
+}

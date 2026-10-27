@@ -1,0 +1,24 @@
+
+package mswfix
+
+enum Plan { FREE PRO }
+message NotFound @status(404) { message: string }
+
+message User {
+  id: string @uuid
+  email: string @email
+  plan: Plan
+  joined_at: timestamp @encode(unix_seconds)
+  avatar: bytes @encode(hex)
+}
+
+message GetUserRequest { id: string @uuid }
+message Empty {}
+
+service UserService {
+  base_path: "/v1"
+
+  getUser(GetUserRequest) -> User @get("/users/{id}")
+  search(Empty) -> User @query("/users/search")
+  events(Empty) -> User @get("/users/events") @stream
+}

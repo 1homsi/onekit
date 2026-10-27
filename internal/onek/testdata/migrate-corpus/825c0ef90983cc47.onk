@@ -1,0 +1,4 @@
+message R {}
+service API {
+  a(R) -> R @get("/a") @stream @requires("events:read")
+}

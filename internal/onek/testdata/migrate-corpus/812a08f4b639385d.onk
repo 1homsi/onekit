@@ -1,0 +1,6 @@
+
+package app
+message Blob { room: string limit: int32? @query name: string data: bytes @raw }
+service Chat {
+  join(Blob) -> Blob @ws("/rooms/{room}")
+}

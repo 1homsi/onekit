@@ -1,0 +1,8 @@
+
+package app
+message Ask { id: string }
+message Reply { text: string }
+service Chat {
+  ping(Ask) -> Reply @get("/ping/{id}")
+  live(Ask) -> Reply @ws("/live")
+}

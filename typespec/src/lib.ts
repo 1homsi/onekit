@@ -35,6 +35,7 @@ export const $lib = createTypeSpecLibrary({
   },
   state: {
     onktDecorators: { description: "onkt decorators applied to a type, in source order" },
+    onktParent: { description: "the model a nested model or enum is declared inside" },
   },
 } as const);
 

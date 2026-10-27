@@ -1,0 +1,2 @@
+package app
+message Span @rule("self.low < self.high", "order") { low: int32 high: int32 }

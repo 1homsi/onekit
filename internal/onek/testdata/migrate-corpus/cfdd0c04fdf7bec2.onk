@@ -1,0 +1,21 @@
+
+package app
+
+message StreamEventsRequest {
+  channel: string @query("channel")
+}
+
+message Event {
+  id: string
+  payload: string
+}
+
+message StreamError @status(400) {
+  reason: string
+}
+
+service SSEService {
+  base_path: "/api/v1"
+
+  streamEvents(StreamEventsRequest) -> Event | StreamError @get("/events") @stream
+}

@@ -1,0 +1,19 @@
+package api
+
+message Principal @principal {
+  user_id: string
+  roles: string[]
+  org: string
+}
+
+message DeleteDoc {
+  id: string
+  owner_org: string
+}
+
+message Ack { ok: bool }
+
+service Docs {
+  delete(DeleteDoc) -> Ack @post("/docs/delete")
+    @requires("docs:write") @authorize("size(auth.user_id) > 0", "sign in") @authorize("auth.org != ''", "join an organization")
+}

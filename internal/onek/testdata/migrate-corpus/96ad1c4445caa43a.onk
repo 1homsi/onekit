@@ -1,0 +1,6 @@
+
+package common
+
+message Lookup { id: string }
+message Tick { id: string at: timestamp }
+message NotFound @status(404) { code: string }

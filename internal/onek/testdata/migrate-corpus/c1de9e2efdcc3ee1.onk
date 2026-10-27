@@ -1,0 +1,11 @@
+
+package app
+enum Status { UNKNOWN  ACTIVE }
+message M {
+  status: Status
+  maybe: Status?
+  message Inner {
+    kind: Kind
+    enum Kind { A  B }
+  }
+}

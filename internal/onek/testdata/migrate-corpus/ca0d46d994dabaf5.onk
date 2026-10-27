@@ -1,0 +1,14 @@
+package example.api
+
+message HealthRequest {
+}
+
+message HealthResponse {
+  status: string
+}
+
+service HealthService {
+  base_path: "/v1"
+
+  health(HealthRequest) -> HealthResponse @get("/health")
+}

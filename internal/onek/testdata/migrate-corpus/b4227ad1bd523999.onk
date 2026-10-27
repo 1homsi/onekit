@@ -1,0 +1,6 @@
+/// Example:
+///     client.get(id)
+///
+/// Done.
+message M {
+}

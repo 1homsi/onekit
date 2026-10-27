@@ -1,0 +1,4 @@
+
+message Request {}
+message Response {}
+service API { get(Request) -> Response @get("/items") }

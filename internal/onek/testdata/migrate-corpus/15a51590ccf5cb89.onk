@@ -1,0 +1,12 @@
+
+package common
+
+message Ping {
+  room: string
+  text: string
+}
+
+message Pong {
+  room: string
+  text: string
+}

@@ -1,0 +1,7 @@
+package app
+message Req { slug: string }
+message Out { ok: bool }
+message Empty {}
+service API {
+  p(Req) -> Empty @any("/apps/{slug}/p") @http
+}

@@ -1,0 +1,127 @@
+package conformance
+
+enum Status { OPEN DONE ARCHIVED }
+
+message Meta {
+  owner: string
+  tags: string[]
+}
+
+message Subject
+  @rule("self.count + 1 > 10", "r000")
+  @rule("self.count * 2 == 14", "r001")
+  @rule("self.count / 2 == 3", "r002")
+  @rule("self.count / 2 == -3", "r003")
+  @rule("self.count % 3 == 1", "r004")
+  @rule("self.count % 3 == -1", "r005")
+  @rule("self.big + 1 > self.big", "r006")
+  @rule("self.big - 1 < self.big", "r007")
+  @rule("self.big * 2 > 0", "r008")
+  @rule("-self.big < 0", "r009")
+  @rule("self.big / -1 != 0", "r010")
+  @rule("self.big % -1 == 0", "r011")
+  @rule("1 / self.zero == 0", "r012")
+  @rule("1 % self.zero == 0", "r013")
+  @rule("self.count < self.big", "r014")
+  @rule("9223372036854775807 + 0 == 9223372036854775807", "r015")
+  @rule("-9223372036854775808 + 0 < 0", "r016")
+  @rule("(self.count - 3) * (self.count - 3) >= 0", "r017")
+  @rule("self.ratio * 2.0 > 1.0", "r018")
+  @rule("self.ratio / 0.0 > 1.0", "r019")
+  @rule("double(self.count) / 2.0 == 3.5", "r020")
+  @rule("int(self.ratio) == 3", "r021")
+  @rule("int(self.ratio) == -3", "r022")
+  @rule("int(1e30) == 0", "r023")
+  @rule("0.1 + 0.2 > 0.3", "r024")
+  @rule("0.1 + 0.2 == 0.30000000000000004", "r025")
+  @rule("self.ratio > 0.0 ? self.ratio < 100.0 : self.ratio > -100.0", "r026")
+  @rule("double(self.big) > 0.0", "r027")
+  @rule("1e300 * 1e300 > 0.0", "r028")
+  @rule("size(self.name) == 3", "r029")
+  @rule("size(self.name) == 1", "r030")
+  @rule("self.name == 'abc'", "r031")
+  @rule("self.name == 'e\\u0301'", "r032")
+  @rule("self.name == '\\u00e9'", "r033")
+  @rule("self.name != ''", "r034")
+  @rule("self.name.startsWith('ab')", "r035")
+  @rule("self.name.endsWith('bc')", "r036")
+  @rule("self.name.contains('b')", "r037")
+  @rule("self.name.contains('')", "r038")
+  @rule("self.name.matches('[a-z]+')", "r039")
+  @rule("self.name.matches('[a-z]{2,4}')", "r040")
+  @rule("self.name.matches('(ab)+c?')", "r041")
+  @rule("self.name.matches('[^a]+')", "r042")
+  @rule("self.name.matches('[a-z]*')", "r043")
+  @rule("self.name.matches('a|ab|abc')", "r044")
+  @rule("matches(self.name, '[0-9]+(\\\\.[0-9]+)?')", "r045")
+  @rule("self.name.matches('[\\u00e0-\\u00ff]+')", "r046")
+  @rule("self.flag ? self.count > 0 : self.count < 0", "r047")
+  @rule("!self.flag", "r048")
+  @rule("self.flag && self.count > 0", "r049")
+  @rule("self.flag || self.count > 0", "r050")
+  @rule("false && 1 / self.zero == 0", "r051")
+  @rule("true || 1 / self.zero == 0", "r052")
+  @rule("1 / self.zero == 0 || true", "r053")
+  @rule("true && 1 / self.zero == 0", "r054")
+  @rule("has(self.maybe)", "r055")
+  @rule("!has(self.maybe) || self.maybe != ''", "r056")
+  @rule("self.maybe == ''", "r057")
+  @rule("has(self.maybe_n)", "r058")
+  @rule("self.maybe_n == 0", "r059")
+  @rule("has(self.name)", "r060")
+  @rule("has(self.count)", "r061")
+  @rule("has(self.flag)", "r062")
+  @rule("has(self.tags)", "r063")
+  @rule("has(self.labels)", "r064")
+  @rule("has(self.meta)", "r065")
+  @rule("has(self.meta.owner)", "r066")
+  @rule("self.meta.owner == ''", "r067")
+  @rule("self.status == 'OPEN'", "r068")
+  @rule("self.status != 'DONE'", "r069")
+  @rule("self.status in ['OPEN', 'DONE']", "r070")
+  @rule("'ARCHIVED' == self.status", "r071")
+  @rule("size(self.tags) <= 1", "r072")
+  @rule("self.tags.size() == 0", "r073")
+  @rule("self.tags.all(t, size(t) > 0)", "r074")
+  @rule("self.tags.exists(t, t == 'x')", "r075")
+  @rule("'x' in self.tags", "r076")
+  @rule("self.nums[0] == 5", "r077")
+  @rule("self.nums[1] == 7", "r078")
+  @rule("self.nums[-1] == 5", "r079")
+  @rule("self.nums.all(n, n > 0)", "r080")
+  @rule("self.nums.exists(n, n % 2 == 0)", "r081")
+  @rule("self.nums.all(n, self.nums.exists(m, m >= n))", "r082")
+  @rule("self.metas.all(m, m.owner != '')", "r083")
+  @rule("self.metas.exists(m, size(m.tags) > 0)", "r084")
+  @rule("5 in self.nums", "r085")
+  @rule("self.count in [1, 2, 7]", "r086")
+  @rule("self.name in ['abc', 'x']", "r087")
+  @rule("'k' in self.labels", "r088")
+  @rule("self.labels['k'] == 'v'", "r089")
+  @rule("size(self.labels) < 3", "r090")
+  @rule("self.scores['a'] > 1", "r091")
+  @rule("'a' in self.scores && self.scores['a'] > 1", "r092")
+  @rule("self.meta.owner != ''", "r093")
+  @rule("size(self.meta.tags) == 1", "r094")
+  @rule("self.meta.tags.all(t, t != '')", "r095")
+  @rule("size(self.data) == 3", "r096")
+  @rule("size(self.data) == 0", "r097")
+  @rule("self.count < self.big", "r098")
+  @rule("self.big >= -9223372036854775807", "r099") {
+  name: string @rule("size(value) <= 6", "field-name-size")
+  count: int32 @rule("value >= -100", "field-count-floor")
+  big: int64
+  zero: int32
+  ratio: float64
+  flag: bool
+  maybe: string?
+  maybe_n: int32?
+  status: Status
+  tags: string[]
+  nums: int32[]
+  labels: map[string, string]
+  scores: map[string, int32]
+  meta: Meta
+  metas: Meta[]
+  data: bytes
+}

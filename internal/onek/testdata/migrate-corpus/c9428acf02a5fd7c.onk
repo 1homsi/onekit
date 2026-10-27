@@ -1,0 +1,145 @@
+package app
+
+enum Level {
+  LOW
+
+  HIGH
+
+  MAX
+}
+
+message Leaf {
+  name: string
+
+  n: int32
+}
+
+message Kitchen {
+  s: string
+
+  b: bool
+
+  i32: int32
+
+  u32: uint32
+
+  i64: int64
+
+  u64: uint64
+
+  i64n: int64 @encode("number")
+
+  f32: float32
+
+  f64: float64
+
+  lvl: Level
+
+  lvln: Level @encode("number")
+
+  data: bytes
+
+  hexd: bytes @encode("hex")
+
+  b64u: bytes @encode("base64url")
+
+  at: timestamp
+
+  atu: timestamp @encode("unix_seconds")
+
+  atm: timestamp @encode("unix_millis")
+
+  on: timestamp @encode("date")
+
+  cfg: json
+
+  obj: json @object
+
+  leaf: Leaf
+
+  tags: string[]
+
+  ids: int32[]
+
+  big: int64[]
+
+  levels: Level[]
+
+  leaves: Leaf[]
+
+  blobs: bytes[]
+
+  m_str: map[string, string]
+
+  m_leaf: map[string, Leaf]
+
+  m_num: map[string, int64]
+
+  m_int: map[int64, string]
+
+  o_s: string?
+
+  o_i: int64?
+
+  o_in: int64? @encode("number")
+
+  o_f: float64?
+
+  o_lvl: Level?
+
+  o_data: bytes?
+
+  o_hex: bytes? @encode("hex")
+
+  o_at: timestamp?
+
+  o_atu: timestamp? @encode("unix_seconds")
+
+  n_s: string? @nullable
+
+  n_in: int64? @nullable @encode("number")
+
+  n_leaf: Leaf? @nullable
+
+  n_lvl: Level? @nullable
+
+  choice: oneof(discriminator: "type") {
+    text: string @tag("text")
+
+    count: int64 @tag("count")
+
+    item: Leaf @tag("leaf")
+
+    level: Level @tag("level")
+  }
+}
+
+message Holder {
+  name: string
+
+  kitchen: Kitchen
+
+  items: Kitchen[]
+
+  by_key: map[string, Kitchen]
+
+  leaves: Leaf[]
+}
+
+message Tree {
+  label: string
+
+  kids: Tree[]
+
+  extra: map[string, string]
+
+  note: string? @nullable
+}
+
+message Plain {
+  a: string
+
+  b: int32
+
+  leaf: Leaf
+}

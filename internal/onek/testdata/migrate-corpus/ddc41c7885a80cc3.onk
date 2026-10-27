@@ -1,0 +1,9 @@
+package app
+message Note {
+  /// Legacy title.
+  title: string @deprecated("use heading")
+  body: string @deprecated
+}
+service Notes {
+  get(Note) -> Note @get("/notes") @deprecated("use fetch")
+}

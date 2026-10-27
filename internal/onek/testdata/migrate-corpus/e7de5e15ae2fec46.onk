@@ -1,0 +1,10 @@
+package w
+message Call { id: string @ws_id }
+message Cancel { id: string @ws_id }
+message Frame {
+  payload: oneof(discriminator: "type") {
+    call: Call @tag("call")
+    cancel: Cancel @tag("cancel") @ws_cancel
+  }
+}
+service S { f(Frame) -> Frame @ws("/y") }

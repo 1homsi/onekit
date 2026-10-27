@@ -1,0 +1,7 @@
+package app
+
+message Doc {
+  id: string
+  settings: json @object
+  any: json
+}

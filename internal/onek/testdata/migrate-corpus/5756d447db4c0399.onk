@@ -1,0 +1,10 @@
+
+package check
+
+enum Status { ACTIVE  DISABLED }
+
+message Account {
+  status: Status
+  previous: Status?
+  history: Status[]
+}

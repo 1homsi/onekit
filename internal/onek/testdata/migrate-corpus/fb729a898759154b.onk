@@ -1,0 +1,11 @@
+
+package wsf
+
+message ChatMessage { room: string text: string }
+message ChatEvent { seq: int64 }
+
+service ChatService {
+  base_path: "/v1"
+
+  chat(ChatMessage) -> ChatEvent @ws("/rooms/{room}")
+}

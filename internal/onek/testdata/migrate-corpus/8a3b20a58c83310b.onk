@@ -1,0 +1,8 @@
+package app
+
+message Turn { prompt: string }
+message Event { text: string }
+
+service Agent {
+  turn(Turn) -> Event @post("/turn") @stream
+}

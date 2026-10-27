@@ -1,0 +1,7 @@
+package app
+message I {
+  n: int32
+}
+message M @rule("self.items.exists(i, i.n > 1)", "one item above one") {
+  items: I[]
+}

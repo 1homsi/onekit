@@ -1,0 +1,6 @@
+package readme
+message UpdateEnvironment {
+  id: int64 @encode("number")
+  name: string? @nullable
+  folder_id: int64? @nullable @encode("number")
+}

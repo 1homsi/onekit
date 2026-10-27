@@ -1,0 +1,10 @@
+package app
+
+message Item {
+  id: int64
+  big: uint64
+  ids: int64[]
+  maybe: int64?
+  by_name: map[string, int64]
+  keep: int64 @encode("number")
+}

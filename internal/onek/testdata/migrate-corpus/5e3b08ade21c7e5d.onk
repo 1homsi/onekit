@@ -1,0 +1,7 @@
+package app
+enum Status { ON OFF }
+message M {
+  plain: Status
+  numbered: Status @encode("number")
+  many: Status[]
+}

@@ -1,0 +1,15 @@
+
+package rt
+message Call { id: string @ws_id
+method: string }
+message Result { id: string @ws_id
+output: string @raw }
+message Cancel { id: string @ws_id }
+message Frame { payload: oneof(discriminator: "type") { call: Call @tag("call")
+result: Result @tag("result")
+cancel: Cancel @tag("cancel") @ws_cancel } }
+service Runtime {
+  base_path: "/v1"
+  /// Runs code interactively.
+  execute(Frame) -> Frame @ws("/execute")
+}

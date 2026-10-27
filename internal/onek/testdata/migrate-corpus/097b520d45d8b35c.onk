@@ -1,0 +1,5 @@
+package crm.settings.v1
+
+message Settings {
+  a: string
+}

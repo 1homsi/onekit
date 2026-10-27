@@ -1,0 +1,4 @@
+
+package check
+
+message Name { value: string @len(1, 4) }

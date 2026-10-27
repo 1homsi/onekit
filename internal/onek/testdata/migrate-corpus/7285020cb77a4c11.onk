@@ -1,0 +1,5 @@
+package small
+message M @rule("self.a < self.b", "a before b") {
+  a: int32
+  b: int32
+}

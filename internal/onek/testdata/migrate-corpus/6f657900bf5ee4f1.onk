@@ -1,0 +1,5 @@
+
+package app.models
+message Request { id: string }
+message Response { id: string }
+message Failure @status(422) { message: string }

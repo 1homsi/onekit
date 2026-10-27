@@ -1,0 +1,16 @@
+
+package app
+message Probe {
+  f: float64
+  arr: string[]
+  m: map[string, string]
+  big: int64
+  s: string
+  n: int32
+  tags: Probe[]
+  pat: string @pattern("^[a-z]+$")
+}
+
+service Echo {
+  echo(Probe) -> Probe @post("/echo")
+}

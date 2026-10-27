@@ -1,0 +1,5 @@
+
+package app
+message Filter { id: string limit: int32? @query }
+message Item { id: string }
+service S { list(Filter) -> Item @get("/items/{id}") }

@@ -1,0 +1,7 @@
+package app
+message B { s: string }
+message O {
+  s: string
+  a: oneof(discriminator: "ta") { x: B @tag("a") }
+  b: oneof(discriminator: "tb") { y: B @tag("b") }
+}

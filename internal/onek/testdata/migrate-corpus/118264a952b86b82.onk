@@ -1,0 +1,9 @@
+
+package app
+message Msg { text: string }
+message TimeoutError @status(504) { message: string }
+message ConnectionError @status(502) { message: string }
+service Chat {
+  send(Msg) -> Msg | TimeoutError | ConnectionError @post("/send")
+  stream(Msg) -> Msg @ws("/chat")
+}

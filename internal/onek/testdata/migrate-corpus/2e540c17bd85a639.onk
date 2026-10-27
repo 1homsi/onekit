@@ -1,0 +1,13 @@
+package app
+
+message TurnRequest { prompt: string }
+message Text { text: string }
+message TurnEvent {
+  payload: oneof(discriminator: "type") {
+    text: Text @tag("text")
+  }
+}
+
+service Agent {
+  turn(TurnRequest) -> TurnEvent @post("/turn") @stream
+}

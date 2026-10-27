@@ -1,0 +1,2 @@
+package p
+message M { x: string }

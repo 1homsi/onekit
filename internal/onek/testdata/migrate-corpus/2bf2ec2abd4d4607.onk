@@ -1,0 +1,21 @@
+package app
+
+// Ownership: platform team.
+// Do not add fields without an ADR.
+message Health {
+  status: string
+}
+
+/*
+  Frozen for v1.
+*/
+enum Level {
+  LOW
+}
+
+// service-level note
+service S {
+  base_path: "/v1"
+
+  get(Health) -> Health @post("/h")
+}

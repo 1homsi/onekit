@@ -1,0 +1,8 @@
+
+message Req { id: string }
+message Addr { city: string }
+message Res {
+  id: string
+  billing: Addr @flatten(prefix: "billing_")
+}
+service Svc { get(Req) -> Res @get("/r/{id}") }

@@ -1,0 +1,7 @@
+
+package check
+
+message Blob {
+  data: bytes @encode(base64)
+  maybe: bytes? @encode(base64)
+}

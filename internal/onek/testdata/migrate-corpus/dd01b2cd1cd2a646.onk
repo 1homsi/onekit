@@ -1,0 +1,12 @@
+
+package app
+enum Level { LOW HIGH }
+message Email { address: string @email }
+message Payload {
+  value: oneof(discriminator: "kind") {
+    email: Email @tag("email")
+    blob: bytes @tag("blob")
+    count: int64 @tag("count")
+    level: Level @tag("level")
+  }
+}

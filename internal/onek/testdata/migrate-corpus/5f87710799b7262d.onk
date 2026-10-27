@@ -1,0 +1,6 @@
+
+package check
+
+message Note { text: string }
+
+service Notes { create(Note) -> Note @post("/notes") }
