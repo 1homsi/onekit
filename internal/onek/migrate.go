@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/1homsi/onekit/internal/onkmigrate"
@@ -22,6 +23,8 @@ type MigrateOptions struct {
 type MigrateResult struct {
 	Written []string
 	Removed []string
+	// Notes are steps the migration left to the user.
+	Notes []string
 }
 
 // toolVersion is the running onkt release ("dev" for a development build);
@@ -54,8 +57,9 @@ func typespecPackageJSON() string {
 
 // Migrate converts every .onk schema under the project's schema root to
 // TypeSpec: one .tsp file next to each .onk file, a main.tsp importing them
-// all, and a package.json when the project has none. It renames onkt.toml
-// to onkt.toml, and removes the .onk files unless KeepSchemas is set.
+// all, and a package.json when the project has none. It renames onekit.toml
+// to onkt.toml, moves a pinned version to the running release, and removes
+// the .onk files unless KeepSchemas is set.
 func Migrate(dir string, options MigrateOptions) (MigrateResult, error) {
 	var result MigrateResult
 	cfg, err := loadOptionalConfig(dir)
@@ -104,6 +108,8 @@ func Migrate(dir string, options MigrateOptions) (MigrateResult, error) {
 			return result, err
 		}
 		result.Written = append(result.Written, packageJSON)
+	} else if data, err := os.ReadFile(packageJSON); err == nil && !strings.Contains(string(data), `"`+typespecEmitter+`"`) {
+		result.Notes = append(result.Notes, fmt.Sprintf("%s already exists; add the TypeSpec toolchain to it: npm install --save-dev @typespec/compiler @typespec/http %s", packageJSON, typespecEmitter))
 	}
 	legacy := filepath.Join(project, legacyConfigFileName)
 	current := filepath.Join(project, configFileName)
@@ -116,6 +122,11 @@ func Migrate(dir string, options MigrateOptions) (MigrateResult, error) {
 			result.Removed = append(result.Removed, legacy)
 		}
 	}
+	if note, err := repinConfig(current); err != nil {
+		return result, err
+	} else if note != "" {
+		result.Notes = append(result.Notes, note)
+	}
 	if !options.KeepSchemas {
 		for _, src := range sources {
 			if err := os.Remove(src); err != nil {
@@ -125,6 +136,47 @@ func Migrate(dir string, options MigrateOptions) (MigrateResult, error) {
 		}
 	}
 	return result, nil
+}
+
+var (
+	pinnedVersionLine = regexp.MustCompile(`(?m)^(\s*version\s*=\s*)"([^"]*)"`)
+	tableHeader       = regexp.MustCompile(`(?m)^\s*\[`)
+)
+
+// repinConfig moves a version pinned in the project config to the running
+// release: an older pin would hand every build to a release that only reads
+// .onk schemas. A development build cannot be pinned, so it only says so.
+func repinConfig(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	// Only the top-level key: tables such as [generate.openapi] have their
+	// own version.
+	top := data
+	if loc := tableHeader.FindIndex(data); loc != nil {
+		top = data[:loc[0]]
+	}
+	match := pinnedVersionLine.FindSubmatch(top)
+	if match == nil {
+		return "", nil
+	}
+	pinned := string(match[2])
+	running := NormalizeVersion(toolVersion)
+	if !versionPattern.MatchString(running) {
+		return fmt.Sprintf("%s pins version %q; pin a release that reads TypeSpec (0.38.0 or newer)", path, pinned), nil
+	}
+	if NormalizeVersion(pinned) == running {
+		return "", nil
+	}
+	updated := append(pinnedVersionLine.ReplaceAll(top, []byte(`${1}"`+running+`"`)), data[len(top):]...)
+	if err := os.WriteFile(path, updated, genFilePerm); err != nil { //nolint:gosec // the project's own config
+		return "", err
+	}
+	return fmt.Sprintf("%s: version pin moved from %q to %q", path, pinned, running), nil
 }
 
 // onkSchemaExtensions is the configured schema extensions without .tsp: the
@@ -181,6 +233,9 @@ func DescribeMigration(result MigrateResult) string {
 	}
 	for _, path := range result.Removed {
 		fmt.Fprintf(&b, "\n  removed %s", path)
+	}
+	for _, note := range result.Notes {
+		fmt.Fprintf(&b, "\n  note    %s", note)
 	}
 	b.WriteString("\nnext: run `npm install` in the project, then `onkt build`")
 	return b.String()

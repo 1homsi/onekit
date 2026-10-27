@@ -143,8 +143,10 @@ a Git Bash terminal is the simplest way to get all of it at once.
 onekit used to have its own schema language, `.onk`. `onkt migrate` converts a
 project: it writes a `.tsp` file next to every `.onk` file, a `main.tsp` that
 imports them, and a `package.json` for the TypeSpec toolchain, renames
-`onekit.toml` to `onkt.toml`, and removes the `.onk` files (`--keep` leaves
-them). A project that kept `.onk` schemas in `.proto` files with
+`onekit.toml` to `onkt.toml`, moves a pinned `version` to the release doing
+the migration, and removes the `.onk` files (`--keep` leaves them). A project
+that already has a `package.json` keeps it; `onkt migrate` prints the
+`npm install --save-dev` line that adds the TypeSpec toolchain to it. A project that kept `.onk` schemas in `.proto` files with
 `schema_extensions` is converted too, and real Protocol Buffers files are left
 alone. Then run `npm install` and `onkt build`; the generated code is the same
 as before, byte for byte. `onkt compat --against main` still reads a `.onk`

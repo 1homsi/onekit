@@ -217,3 +217,28 @@ func TestPackageJSONPinsTheMatchingEmitter(t *testing.T) {
 		}
 	}
 }
+
+// A pin to a release from before TypeSpec would hand every build after the
+// migration to a release that cannot read it, so the pin moves along.
+func TestMigrateMovesAnOldPinToTheRunningRelease(t *testing.T) {
+	defer SetToolVersion(toolVersion)
+	SetToolVersion("0.38.0")
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "api", "models.onk"), simpleAPIModelsOnk)
+	writeTestFile(t, filepath.Join(dir, legacyConfigFileName), "version = \"0.36.3\"\nmodule = \"example.com/x\"\n\n[generate.openapi]\nout = \"docs\"\nversion = \"1.0.0\"\n")
+	writeTestFile(t, filepath.Join(dir, "package.json"), `{"private": true}`)
+	result, err := Migrate(dir, MigrateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := os.ReadFile(filepath.Join(dir, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "version = \"0.38.0\"\nmodule = \"example.com/x\"\n\n[generate.openapi]\nout = \"docs\"\nversion = \"1.0.0\"\n"; string(config) != want {
+		t.Fatalf("onkt.toml =\n%s\nwant\n%s", config, want)
+	}
+	if len(result.Notes) != 2 || !strings.Contains(result.Notes[0], "@onkt/typespec") || !strings.Contains(result.Notes[1], `"0.36.3" to "0.38.0"`) {
+		t.Fatalf("notes = %q", result.Notes)
+	}
+}
