@@ -151,7 +151,7 @@ func projectSnapshot(dir string, previous []fileStamp) ([]fileStamp, error) {
 	if err != nil {
 		return nil, err
 	}
-	config := filepath.Join(dir, configFileName)
+	config := configFilePath(dir)
 	if info, statErr := os.Stat(config); statErr == nil && !info.IsDir() {
 		paths = append(paths, config)
 	} else if statErr != nil && !os.IsNotExist(statErr) {

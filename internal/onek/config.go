@@ -111,8 +111,8 @@ type GenerateConfig struct {
 }
 
 type Config struct {
-	// Version pins the onek release this project builds with. When it differs
-	// from the running binary, onek downloads that release (checksum
+	// Version pins the onkt release this project builds with. When it differs
+	// from the running binary, onkt downloads that release (checksum
 	// verified), caches it and hands the command over to it.
 	Version          string   `toml:"version"`
 	RepeatedStyle    string   `toml:"repeated_style"`
@@ -173,7 +173,26 @@ func (c *Config) SchemaDir() string {
 	return c.schemaDir
 }
 
-const configFileName = "onekit.toml"
+const (
+	configFileName = "onkt.toml"
+	// legacyConfigFileName is the name projects used before onkt; it is
+	// still read when a project has no onkt.toml.
+	legacyConfigFileName = "onekit.toml"
+)
+
+// configFilePath is the project config in dir: onkt.toml, else a legacy
+// onekit.toml, else where onkt.toml would go.
+func configFilePath(dir string) string {
+	path := filepath.Join(dir, configFileName)
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	legacy := filepath.Join(dir, legacyConfigFileName)
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy
+	}
+	return path
+}
 
 // ConfigError gives editor integrations a concrete file location for TOML
 // and project configuration failures while preserving the wrapped cause.
@@ -186,7 +205,7 @@ type ConfigError struct {
 
 func (e *ConfigError) Error() string {
 	if errors.Is(e.Err, fs.ErrNotExist) {
-		return fmt.Sprintf("%s not found: run `onek init` to create a project here, or pass --dir to point at one", e.Path)
+		return fmt.Sprintf("%s not found: run `onkt init` to create a project here, or pass --dir to point at one", e.Path)
 	}
 	if e.Line > 0 && !tomlErrorLine.MatchString(e.Err.Error()) {
 		return fmt.Sprintf("parse %s:%d:%d: %v", e.Path, e.Line, e.Column, e.Err)
@@ -199,9 +218,9 @@ func (e *ConfigError) Unwrap() error { return e.Err }
 func LoadConfig(dir string) (*Config, error) {
 	root, err := canonicalProjectDir(dir)
 	if err != nil {
-		return nil, &ConfigError{Path: filepath.Join(dir, configFileName), Err: err}
+		return nil, &ConfigError{Path: configFilePath(dir), Err: err}
 	}
-	path := filepath.Join(root, configFileName)
+	path := configFilePath(root)
 	data, err := readRegularFile(path)
 	if err != nil {
 		return nil, &ConfigError{Path: path, Err: fmt.Errorf("read: %w", err)}

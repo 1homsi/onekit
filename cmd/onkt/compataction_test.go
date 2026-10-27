@@ -29,7 +29,7 @@ service Items {
 `
 
 type compatActionEnv struct {
-	onek   string
+	onkt   string
 	script string
 	dir    string
 }
@@ -45,10 +45,10 @@ func setupCompatAction(t *testing.T) compatActionEnv {
 		}
 	}
 	root := t.TempDir()
-	onek := filepath.Join(root, "onek")
-	build := exec.Command("go", "build", "-o", onek, ".")
+	onkt := filepath.Join(root, "onkt")
+	build := exec.Command("go", "build", "-o", onkt, ".")
 	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build onek: %v\n%s", err, out)
+		t.Fatalf("build onkt: %v\n%s", err, out)
 	}
 	script, err := filepath.Abs(filepath.Join("..", "..", "scripts", "compat-report.sh"))
 	if err != nil {
@@ -72,7 +72,7 @@ func setupCompatAction(t *testing.T) compatActionEnv {
 	runGit(t, dir, "add", "-A")
 	runGit(t, dir, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "-m", "base")
 	runGit(t, dir, "checkout", "-q", "-b", "feature")
-	return compatActionEnv{onek: onek, script: script, dir: dir}
+	return compatActionEnv{onkt: onkt, script: script, dir: dir}
 }
 
 func runGit(t *testing.T, dir string, args ...string) {
@@ -91,7 +91,7 @@ func (e compatActionEnv) run(t *testing.T, against, allow string) (string, strin
 	outputFile := filepath.Join(tmp, "output.txt")
 	cmd := exec.Command("bash", e.script)
 	cmd.Env = append(os.Environ(),
-		"ONEK_BIN="+e.onek,
+		"ONEK_BIN="+e.onkt,
 		"ONEK_DIR="+e.dir,
 		"ONEK_AGAINST="+against,
 		"ONEK_ALLOW="+allow,

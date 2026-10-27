@@ -173,7 +173,7 @@ func TestInitDefaultsToTheGoTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	linkTypeSpec(t, dir)
-	config, err := os.ReadFile(filepath.Join(dir, "onekit.toml"))
+	config, err := os.ReadFile(filepath.Join(dir, configFileName))
 	if err != nil || !strings.Contains(string(config), "[generate.go-server]") || strings.Contains(string(config), "ts-client") {
 		t.Fatalf("default template changed: %v\n%s", err, config)
 	}

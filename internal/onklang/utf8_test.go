@@ -9,7 +9,7 @@ import (
 // lexString scans the literal body one byte at a time and hands decoding to
 // strconv.Unquote. Go's unquoteChar decodes with utf8.DecodeRuneInString and
 // treats a decoding error as a valid RuneError, so malformed bytes become
-// U+FFFD with a nil error. Parse then succeeds and `onek fmt` writes the
+// U+FFFD with a nil error. Parse then succeeds and `onkt fmt` writes the
 // mangled bytes back to disk, silently and irreversibly.
 func TestParseRejectsInvalidUTF8InStringLiteral(t *testing.T) {
 	src := "package p\n\nmessage M {\n  a: string @format(\"caf\xff\")\n}\n"

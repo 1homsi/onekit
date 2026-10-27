@@ -19,6 +19,10 @@ func TestMigrateExample(t *testing.T) {
 		}
 	}
 	copyTree(t, filepath.Join("testdata", "simple-api-onk"), dir)
+	// The example predates onkt.toml in this test's story.
+	if err := os.Rename(filepath.Join(dir, configFileName), filepath.Join(dir, legacyConfigFileName)); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := Migrate(dir, MigrateOptions{})
 	if err != nil {
@@ -34,8 +38,11 @@ func TestMigrateExample(t *testing.T) {
 			t.Errorf("migrate left %s in place", name)
 		}
 	}
-	if len(result.Removed) != 2 {
-		t.Errorf("removed = %v", result.Removed)
+	if len(result.Removed) != 3 {
+		t.Errorf("removed = %v, want the two .onk files and onekit.toml", result.Removed)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "onkt.toml")); err != nil {
+		t.Errorf("migrate did not rename onekit.toml to onkt.toml: %v", err)
 	}
 
 	linkTypeSpec(t, dir)
@@ -80,7 +87,7 @@ func TestBuildPointsOnkProjectsAtMigrate(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "api.onk"), "package app\nmessage M {}\n")
 	err := Check(dir)
-	if err == nil || !strings.Contains(err.Error(), "onek migrate") {
-		t.Fatalf("err = %v, want a pointer to onek migrate", err)
+	if err == nil || !strings.Contains(err.Error(), "onkt migrate") {
+		t.Fatalf("err = %v, want a pointer to onkt migrate", err)
 	}
 }

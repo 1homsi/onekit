@@ -19,7 +19,7 @@ type DriftError struct {
 }
 
 func (e *DriftError) Error() string {
-	return "generated output is out of date (run onek build): " + strings.Join(e.Files, ", ")
+	return "generated output is out of date (run onkt build): " + strings.Join(e.Files, ", ")
 }
 
 func (e *DriftError) ExitCode() int { return 1 }

@@ -7,12 +7,12 @@ import (
 	"testing"
 )
 
-func TestMissingConfigPointsAtOnekInit(t *testing.T) {
+func TestMissingConfigPointsAtOnktInit(t *testing.T) {
 	_, err := LoadConfig(t.TempDir())
 	if err == nil {
 		t.Fatal("an empty directory has no project")
 	}
-	if !strings.Contains(err.Error(), "onekit.toml not found") || !strings.Contains(err.Error(), "onek init") {
+	if !strings.Contains(err.Error(), "onkt.toml not found") || !strings.Contains(err.Error(), "onkt init") {
 		t.Fatalf("the message must say what to do: %v", err)
 	}
 	if strings.Contains(err.Error(), "parse ") || strings.Contains(err.Error(), "lstat") {

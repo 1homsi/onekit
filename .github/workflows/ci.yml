@@ -428,8 +428,8 @@ jobs:
 
       - name: Test binary execution
         run: |
-          test -x "./bin/onek"
-          ./bin/onek check --dir examples/simple-api
+          test -x "./bin/onkt"
+          ./bin/onkt check --dir examples/simple-api
 
       - name: Verify generated example output
         run: make check-generated
@@ -437,7 +437,7 @@ jobs:
       - name: Upload binaries
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: onek-binary
+          name: onkt-binary
           path: bin/
 
   status-check:

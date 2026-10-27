@@ -101,7 +101,7 @@ fmt:
 
 .PHONY: check-schema
 check-schema: build typespec
-	@./bin/onek check --dir examples/simple-api
+	@./bin/onkt check --dir examples/simple-api
 
 .PHONY: vet
 vet:
@@ -153,5 +153,5 @@ ci-validate:
 
 .PHONY: check-generated
 check-generated: build typespec
-	@ONEK_NO_CACHE=1 ./bin/onek build --dir examples/simple-api
+	@ONEK_NO_CACHE=1 ./bin/onkt build --dir examples/simple-api
 	@git diff --exit-code -- examples/simple-api/api examples/simple-api/docs

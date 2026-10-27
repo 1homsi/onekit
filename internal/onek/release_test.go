@@ -1,6 +1,9 @@
 package onek
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,5 +44,32 @@ func TestReleaseAssetNamesMatchTheReleaseArchives(t *testing.T) {
 	}
 	if _, err := releaseAssetName("1.2.3", "plan9", "amd64"); err == nil {
 		t.Error("an unsupported platform must be an error")
+	}
+}
+
+func TestExtractBinaryFindsTheCurrentAndLegacyNames(t *testing.T) {
+	for _, name := range []string{"onkt", "onek"} {
+		var buf bytes.Buffer
+		gz := gzip.NewWriter(&buf)
+		tw := tar.NewWriter(gz)
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: 2, Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte("hi")); err != nil {
+			t.Fatal(err)
+		}
+		if err := tw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := gz.Close(); err != nil {
+			t.Fatal(err)
+		}
+		binary, err := extractBinary(buf.Bytes(), "onekit_1.0.0_Linux_x86_64.tar.gz", binaryName("linux"))
+		if err != nil {
+			binary, err = extractBinary(buf.Bytes(), "onekit_1.0.0_Linux_x86_64.tar.gz", legacyBinaryName("linux"))
+		}
+		if err != nil || string(binary) != "hi" {
+			t.Fatalf("%s: binary = %q, err = %v", name, binary, err)
+		}
 	}
 }

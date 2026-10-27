@@ -48,7 +48,7 @@ func TestImportRejectsSchemasThatFailCheck(t *testing.T) {
 	}
 	out := filepath.Join(dir, "schemas")
 	err := run([]string{"import", "--out", out, spec})
-	if err == nil || !strings.Contains(err.Error(), "does not pass onek check") {
+	if err == nil || !strings.Contains(err.Error(), "does not pass onkt check") {
 		t.Fatalf("want check failure, got %v", err)
 	}
 	if _, statErr := os.Stat(filepath.Join(out, "pets.tsp")); !os.IsNotExist(statErr) {

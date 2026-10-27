@@ -64,7 +64,7 @@ func repointFileBacklinks(dst *onkir.File) {
 }
 
 // relDirOf returns a compiled file's source directory relative to the schema
-// root (the directory containing onekit.toml), in slash form. "." means the
+// root (the directory containing onkt.toml), in slash form. "." means the
 // file sits at the schema root itself.
 func relDirOf(schemaRoot string, f *onkir.File) (string, error) {
 	rel, err := filepath.Rel(schemaRoot, filepath.Dir(f.Path))
@@ -217,7 +217,7 @@ func errOnkSchemas(root string, files []string) error {
 	if err != nil {
 		rel = files[0]
 	}
-	return fmt.Errorf("%s is a .onk schema; onek now reads TypeSpec. Run `onek migrate --dir %s` to convert the project", rel, root)
+	return fmt.Errorf("%s is a .onk schema; onkt now reads TypeSpec. Run `onkt migrate --dir %s` to convert the project", rel, root)
 }
 
 func compileTree(dir string, exts []string, options onkcompile.CompileOptions) (*onkir.Package, error) {
@@ -272,13 +272,13 @@ func compileSchemaTree(dir string, exts []string, options onkcompile.CompileOpti
 }
 
 // errNoConfigFile is returned by loadOptionalConfig when the project
-// directory has no onekit.toml; callers treat it as "use defaults".
-var errNoConfigFile = errors.New("no onekit.toml in project directory")
+// directory has no onkt.toml; callers treat it as "use defaults".
+var errNoConfigFile = errors.New("no onkt.toml in project directory")
 
-// loadOptionalConfig loads onekit.toml when present and returns
+// loadOptionalConfig loads onkt.toml when present and returns
 // errNoConfigFile when the project has no config file.
 func loadOptionalConfig(dir string) (*Config, error) {
-	configPath := filepath.Join(dir, configFileName)
+	configPath := configFilePath(dir)
 	if _, statErr := os.Stat(configPath); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return nil, errNoConfigFile

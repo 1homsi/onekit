@@ -116,6 +116,18 @@ func runTypeSpec(root, entry string) (*onkschema.Document, error) {
 	return onkschema.DecodeBytes(data)
 }
 
+// Getenv reads an ONKT_* environment variable, falling back to the ONEK_*
+// name it had before the rename to onkt.
+func Getenv(name string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	if legacy, ok := strings.CutPrefix(name, "ONKT_"); ok {
+		return os.Getenv("ONEK_" + legacy)
+	}
+	return ""
+}
+
 // TypeSpecError is a failed `tsp compile`; Output holds its diagnostics.
 type TypeSpecError struct {
 	Output string
@@ -170,9 +182,9 @@ func typespecDiagnostics(output string) string {
 
 // findTypeSpecCompiler finds the project's own `tsp`: node_modules/.bin/tsp
 // in the schema root or the nearest directory above it, the way npm scripts
-// resolve it. ONEK_TSP overrides the lookup.
+// resolve it. ONKT_TSP overrides the lookup.
 func findTypeSpecCompiler(root string) (string, error) {
-	if override := os.Getenv("ONEK_TSP"); override != "" {
+	if override := Getenv("ONKT_TSP"); override != "" {
 		return override, nil
 	}
 	name := "tsp"

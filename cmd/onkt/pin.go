@@ -13,8 +13,11 @@ import (
 const (
 	commandBuild = "build"
 	commandCheck = "check"
-	pinReexecEnv = "ONEK_PINNED_REEXEC"
-	pinSkipEnv   = "ONEK_NO_PIN"
+	pinReexecEnv = "ONKT_PINNED_REEXEC"
+	// legacyPinReexecEnv is what a pinned release from before the rename to
+	// onkt checks, so it does not re-exec again.
+	legacyPinReexecEnv = "ONEK_PINNED_REEXEC"
+	pinSkipEnv         = "ONKT_NO_PIN"
 )
 
 var pinnedCommands = map[string]bool{commandBuild: true, "generate": true, commandCheck: true, "watch": true, "mock": true}
@@ -52,7 +55,7 @@ func pinDirectory(command string, args []string) string {
 }
 
 func pinnedBinary(command string, args []string) (string, error) {
-	if !pinnedCommands[command] || os.Getenv(pinReexecEnv) != "" || os.Getenv(pinSkipEnv) != "" {
+	if !pinnedCommands[command] || onek.Getenv(pinReexecEnv) != "" || onek.Getenv(pinSkipEnv) != "" {
 		return "", nil
 	}
 	wanted, err := onek.PinnedVersion(pinDirectory(command, args))
@@ -63,18 +66,21 @@ func pinnedBinary(command string, args []string) (string, error) {
 		return "", nil
 	}
 	if version == "dev" {
-		fmt.Fprintf(os.Stderr, "onek: this is a development build, ignoring the project's version = %q\n", wanted)
+		fmt.Fprintf(os.Stderr, "onkt: this is a development build, ignoring the project's version = %q\n", wanted)
 		return "", nil
 	}
 	source := onek.ReleaseSource{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
 	path, err := source.Fetch(context.Background(), wanted)
 	if err != nil {
-		return "", fmt.Errorf("fetch onek %s pinned by onekit.toml: %w", wanted, err)
+		return "", fmt.Errorf("fetch onkt %s pinned by onkt.toml: %w", wanted, err)
 	}
 	return path, nil
 }
 
 func reexecPinned(path string, args []string) error {
+	if err := os.Setenv(legacyPinReexecEnv, "1"); err != nil {
+		return err
+	}
 	if err := os.Setenv(pinReexecEnv, "1"); err != nil {
 		return err
 	}

@@ -129,7 +129,7 @@ func importProto(t *testing.T, src string) (*Result, string) {
 		t.Fatalf("output does not parse: %v\n%s", err, result.Source)
 	}
 	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: "api.onk", AST: ast}}); err != nil {
-		t.Fatalf("output does not pass onek check: %v\n%s", err, result.Source)
+		t.Fatalf("output does not pass onkt check: %v\n%s", err, result.Source)
 	}
 	return result, string(result.Source)
 }

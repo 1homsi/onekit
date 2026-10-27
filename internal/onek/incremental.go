@@ -15,8 +15,8 @@ import (
 // incrementalPlan lists the schema directories whose generated output can be
 // kept from the previous build, because nothing they are generated from has
 // changed: their own schema files, the schema files of every directory whose
-// types they reference, the project's set of directories, onekit.toml and the
-// onek binary. The per-directory targets (Go, TypeScript, Python, OpenAPI)
+// types they reference, the project's set of directories, onkt.toml and the
+// onkt binary. The per-directory targets (Go, TypeScript, Python, OpenAPI)
 // skip those directories; every other target regenerates everything.
 type incrementalPlan struct {
 	clean  map[string]bool

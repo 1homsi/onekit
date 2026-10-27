@@ -391,7 +391,7 @@ service Svc {
 	}
 }
 
-// TestCompatibilityHonorsSchemaRoot ensures onek compat compares the schema
+// TestCompatibilityHonorsSchemaRoot ensures onkt compat compares the schema
 // trees (not the project roots) when both revisions declare schema_root.
 func TestCompatibilityHonorsSchemaRoot(t *testing.T) {
 	configFor := `module = "example.com/compat"

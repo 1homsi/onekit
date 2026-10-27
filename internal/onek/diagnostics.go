@@ -9,7 +9,7 @@ import (
 	"github.com/1homsi/onekit/internal/onklang"
 )
 
-// Diagnostic is the stable machine-readable shape used by `onek check
+// Diagnostic is the stable machine-readable shape used by `onkt check
 // --json`. Paths are kept absolute when the caller supplied an absolute path
 // and otherwise remain relative to preserve useful project-local output.
 type Diagnostic struct {

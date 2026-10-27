@@ -10,7 +10,7 @@ import (
 	"github.com/1homsi/onekit/internal/onkmigrate"
 )
 
-// MigrateOptions controls `onek migrate`.
+// MigrateOptions controls `onkt migrate`.
 type MigrateOptions struct {
 	// KeepSchemas leaves the .onk files in place after writing the .tsp files.
 	KeepSchemas bool
@@ -38,8 +38,8 @@ const typespecPackageJSON = `{
 
 // Migrate converts every .onk schema under the project's schema root to
 // TypeSpec: one .tsp file next to each .onk file, a main.tsp importing them
-// all, and a package.json when the project has none. The .onk files are
-// removed unless KeepSchemas is set.
+// all, and a package.json when the project has none. It renames onkt.toml
+// to onkt.toml, and removes the .onk files unless KeepSchemas is set.
 func Migrate(dir string, options MigrateOptions) (MigrateResult, error) {
 	var result MigrateResult
 	cfg, err := loadOptionalConfig(dir)
@@ -81,13 +81,24 @@ func Migrate(dir string, options MigrateOptions) (MigrateResult, error) {
 		}
 		result.Written = append(result.Written, out.Path)
 	}
-	project := filepath.Dir(filepath.Join(dir, configFileName))
+	project := dir
 	packageJSON := filepath.Join(project, "package.json")
 	if _, err := os.Stat(packageJSON); errors.Is(err, os.ErrNotExist) {
 		if err := os.WriteFile(packageJSON, []byte(typespecPackageJSON), genFilePerm); err != nil {
 			return result, err
 		}
 		result.Written = append(result.Written, packageJSON)
+	}
+	legacy := filepath.Join(project, legacyConfigFileName)
+	current := filepath.Join(project, configFileName)
+	if _, err := os.Stat(current); errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(legacy); err == nil {
+			if err := os.Rename(legacy, current); err != nil {
+				return result, err
+			}
+			result.Written = append(result.Written, current)
+			result.Removed = append(result.Removed, legacy)
+		}
 	}
 	if !options.KeepSchemas {
 		for _, src := range sources {
@@ -145,13 +156,16 @@ func convertSchemas(root string, exts []string) ([]onkmigrate.Output, []string, 
 	return outputs, files, nil
 }
 
-// DescribeMigration is the summary `onek migrate` prints.
+// DescribeMigration is the summary `onkt migrate` prints.
 func DescribeMigration(result MigrateResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "wrote %d TypeSpec files", len(result.Written))
-	if len(result.Removed) > 0 {
-		fmt.Fprintf(&b, " and removed %d .onk files", len(result.Removed))
+	b.WriteString("migrated to TypeSpec")
+	for _, path := range result.Written {
+		fmt.Fprintf(&b, "\n  wrote   %s", path)
 	}
-	b.WriteString("\nnext: run `npm install` in the project, then `onek build`")
+	for _, path := range result.Removed {
+		fmt.Fprintf(&b, "\n  removed %s", path)
+	}
+	b.WriteString("\nnext: run `npm install` in the project, then `onkt build`")
 	return b.String()
 }

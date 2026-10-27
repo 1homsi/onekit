@@ -12,7 +12,7 @@ func TestUnknownCommandSuggestsClosest(t *testing.T) {
 			t.Fatalf("%s: want suggestion %q, got %v", input, want, err)
 		}
 	}
-	if err := run([]string{"zzzzzz"}); err == nil || !strings.Contains(err.Error(), "onek help") {
+	if err := run([]string{"zzzzzz"}); err == nil || !strings.Contains(err.Error(), "onkt help") {
 		t.Fatalf("want help hint, got %v", err)
 	}
 	if err := run([]string{"help"}); err != nil {
@@ -25,6 +25,16 @@ func TestRemovedOnkCommandsPointAtTypeSpec(t *testing.T) {
 		err := run([]string{command})
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("%s: err = %v, want a pointer to %s", command, err, want)
+		}
+	}
+}
+
+func TestLegacyNameWarns(t *testing.T) {
+	for arg0, want := range map[string]bool{"/usr/local/bin/onek": true, `C:\bin\onek.exe`: true, "onkt": false} {
+		var stderr strings.Builder
+		warnLegacyName(arg0, &stderr)
+		if got := strings.Contains(stderr.String(), "onek is now onkt"); got != want {
+			t.Errorf("%s: warned = %v, want %v", arg0, got, want)
 		}
 	}
 }

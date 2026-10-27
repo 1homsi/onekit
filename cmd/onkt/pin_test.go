@@ -23,7 +23,7 @@ func fakeReleaseArchive(t *testing.T) []byte {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
-	if err := tw.WriteHeader(&tar.Header{Name: "onek", Mode: 0o755, Size: int64(len(script)), Typeflag: tar.TypeReg}); err != nil {
+	if err := tw.WriteHeader(&tar.Header{Name: "onkt", Mode: 0o755, Size: int64(len(script)), Typeflag: tar.TypeReg}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tw.Write([]byte(script)); err != nil {
@@ -69,7 +69,7 @@ func TestPinnedVersionDownloadsVerifiesAndRunsTheRelease(t *testing.T) {
 	}))
 	defer server.Close()
 
-	bin := filepath.Join(t.TempDir(), "onek")
+	bin := filepath.Join(t.TempDir(), "onkt")
 	build := exec.Command("go", "build", "-ldflags", "-X main.version=0.0.1", "-o", bin, ".")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)

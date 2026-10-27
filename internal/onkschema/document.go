@@ -10,7 +10,7 @@ import (
 
 // Version is the schema document format this build reads. A frontend writes
 // it as the document's "version"; any other value is rejected so an old
-// onek never misreads a newer frontend's output.
+// onkt never misreads a newer frontend's output.
 const Version = 1
 
 // Document is the JSON form of a whole schema project: every source file a
@@ -43,7 +43,7 @@ func Decode(r io.Reader) (*Document, error) {
 		return nil, errors.New("decode schema document: unexpected data after the document")
 	}
 	if doc.Version != Version {
-		return nil, fmt.Errorf("schema document version %d is not supported (this onek reads version %d)", doc.Version, Version)
+		return nil, fmt.Errorf("schema document version %d is not supported (this onkt reads version %d)", doc.Version, Version)
 	}
 	if err := doc.validate(); err != nil {
 		return nil, err

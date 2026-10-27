@@ -29,21 +29,31 @@ var version = "dev"
 
 func usage(w io.Writer) {
 	fmt.Fprintln(w, `usage:
-  onek build [--check] [--dir DIR]
-  onek check [--json | --format text|json|github] [--dir DIR]
-  onek generate [--dir DIR]
-  onek watch [--interval DURATION] [--dir DIR]
-  onek mock [--addr ADDR] [--seed N] [--error-rate FLOAT] [--latency DURATION] [--watch] [--dir DIR]
-  onek init [--force] [--template NAME | --list-templates] [DIR]
-  onek import [--out DIR] [--package NAME] [--service NAME] [--force] [--stdout] OPENAPI-OR-PROTO-FILE
-  onek compat [--json] PREVIOUS-DIR CURRENT-DIR
-  onek compat [--json] --against GIT-REF [CURRENT-DIR]
-  onek migrate [--keep] [--force] [--dir DIR]
-  onek version`)
+  onkt build [--check] [--dir DIR]
+  onkt check [--json | --format text|json|github] [--dir DIR]
+  onkt generate [--dir DIR]
+  onkt watch [--interval DURATION] [--dir DIR]
+  onkt mock [--addr ADDR] [--seed N] [--error-rate FLOAT] [--latency DURATION] [--watch] [--dir DIR]
+  onkt init [--force] [--template NAME | --list-templates] [DIR]
+  onkt import [--out DIR] [--package NAME] [--service NAME] [--force] [--stdout] OPENAPI-OR-PROTO-FILE
+  onkt compat [--json] PREVIOUS-DIR CURRENT-DIR
+  onkt compat [--json] --against GIT-REF [CURRENT-DIR]
+  onkt migrate [--keep] [--force] [--dir DIR]
+  onkt version`)
 }
 
 func main() {
+	warnLegacyName(os.Args[0], os.Stderr)
 	os.Exit(exitCode(run(os.Args[1:]), os.Stdout, os.Stderr))
+}
+
+// warnLegacyName tells someone running the CLI by its old name, which
+// releases still ship so scripts and pinned versions keep working, to switch.
+func warnLegacyName(arg0 string, stderr io.Writer) {
+	name := arg0[strings.LastIndexAny(arg0, `/\`)+1:]
+	if strings.TrimSuffix(name, ".exe") == "onek" {
+		fmt.Fprintln(stderr, "onek is now onkt; run onkt instead (the onek name will be removed in a later release)")
+	}
 }
 
 func exitCode(err error, stdout, stderr io.Writer) int {
@@ -53,12 +63,12 @@ func exitCode(err error, stdout, stderr io.Writer) int {
 	var diagnosticErr *jsonDiagnosticsExitError
 	if errors.As(err, &diagnosticErr) {
 		if encodeErr := json.NewEncoder(stdout).Encode(onek.Diagnostics(diagnosticErr.err)); encodeErr != nil {
-			fmt.Fprintln(stderr, "onek:", encodeErr)
+			fmt.Fprintln(stderr, "onkt:", encodeErr)
 			return 1
 		}
 		return diagnosticErr.ExitCode()
 	}
-	fmt.Fprintln(stderr, "onek:", err)
+	fmt.Fprintln(stderr, "onkt:", err)
 	var coded interface{ ExitCode() int }
 	if errors.As(err, &coded) {
 		return coded.ExitCode()
@@ -84,13 +94,13 @@ func run(args []string) error {
 	}
 	switch args[0] {
 	case "mcp", "lsp":
-		return fmt.Errorf("onek %s was removed with the .onk language; TypeSpec ships its own language server (the TypeSpec extension for VS Code and other editors)", args[0])
+		return fmt.Errorf("onkt %s was removed with the .onk language; TypeSpec ships its own language server (the TypeSpec extension for VS Code and other editors)", args[0])
 	case "version":
 		return runVersion(args[1:])
 	case commandBuild, "generate", commandCheck:
 		return runProjectCommand(args[0], args[1:])
 	case "fmt":
-		return errors.New("onek fmt was removed with the .onk language; format TypeSpec with `npx tsp format \"**/*.tsp\"`")
+		return errors.New("onkt fmt was removed with the .onk language; format TypeSpec with `npx tsp format \"**/*.tsp\"`")
 	case "init":
 		return runInit(args[1:])
 	case "watch":
@@ -110,7 +120,7 @@ func run(args []string) error {
 		if suggestion := suggestCommand(args[0]); suggestion != "" {
 			return fmt.Errorf("unknown command %q (did you mean %q?)", args[0], suggestion)
 		}
-		return fmt.Errorf("unknown command %q; run 'onek help' for usage", args[0])
+		return fmt.Errorf("unknown command %q; run 'onkt help' for usage", args[0])
 	}
 }
 
@@ -204,7 +214,7 @@ func runInit(args []string) error {
 	if err := onek.InitTemplateProject(dir, *force, *template); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "onek: created onekit.toml and api.onk (%s template); edit api.onk, then run: onek build --dir %s\n", *template, dir)
+	fmt.Fprintf(os.Stderr, "onkt: created onkt.toml, main.tsp and package.json (%s template); run `npm install`, edit main.tsp, then run: onkt build --dir %s\n", *template, dir)
 	return nil
 }
 
@@ -224,7 +234,7 @@ func runMigrate(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stderr, "onek:", onek.DescribeMigration(result))
+	fmt.Fprintln(os.Stderr, "onkt:", onek.DescribeMigration(result))
 	return nil
 }
 
@@ -313,7 +323,7 @@ func runImport(args []string) error {
 		return err
 	}
 	for _, warning := range result.Warnings {
-		fmt.Fprintln(os.Stderr, "onek import:", warning)
+		fmt.Fprintln(os.Stderr, "onkt import:", warning)
 	}
 	// Defense in depth: package names derive from slug(info.title), but
 	// refuse anything that could escape the output directory.
@@ -361,7 +371,7 @@ func importedTypeSpec(result *onkimport.Result, target string) (string, error) {
 		return "", fmt.Errorf("internal: imported schema does not parse: %w", err)
 	}
 	if _, err := onkcompile.Compile([]onkcompile.Source{{Path: result.Package + ".onk", AST: ast}}); err != nil {
-		return "", fmt.Errorf("imported schema does not pass onek check: %w", err)
+		return "", fmt.Errorf("imported schema does not pass onkt check: %w", err)
 	}
 	out, err := onkmigrate.Convert([]onkmigrate.Source{{Path: target, AST: ast}}, onkmigrate.Options{})
 	if err != nil {
@@ -501,14 +511,14 @@ func runBuildWithSummary(dir string, quiet bool) error {
 		return err
 	}
 	if len(summary.Targets) == 0 {
-		fmt.Fprintln(os.Stderr, "onek: no [generate.*] targets in onekit.toml; nothing was generated")
+		fmt.Fprintln(os.Stderr, "onkt: no [generate.*] targets in onkt.toml; nothing was generated")
 		return nil
 	}
 	if summary.Cached {
-		fmt.Fprintf(os.Stderr, "onek: up to date: %d files for %s\n", summary.Files, strings.Join(summary.Targets, ", "))
+		fmt.Fprintf(os.Stderr, "onkt: up to date: %d files for %s\n", summary.Files, strings.Join(summary.Targets, ", "))
 		return nil
 	}
-	fmt.Fprintf(os.Stderr, "onek: wrote %d files for %s\n", summary.Files, strings.Join(summary.Targets, ", "))
+	fmt.Fprintf(os.Stderr, "onkt: wrote %d files for %s\n", summary.Files, strings.Join(summary.Targets, ", "))
 	return nil
 }
 
@@ -532,7 +542,7 @@ func writeGitHubAnnotations(w io.Writer, diagnostics []onek.Diagnostic) {
 			props = append(props, fmt.Sprintf("col=%d", d.Column))
 		}
 		if d.Code != "" {
-			props = append(props, "title="+property.Replace("onek "+d.Code))
+			props = append(props, "title="+property.Replace("onkt "+d.Code))
 		}
 		fmt.Fprintf(w, "::error %s::%s\n", strings.Join(props, ","), escape.Replace(d.Message))
 	}
