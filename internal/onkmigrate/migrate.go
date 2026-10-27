@@ -35,17 +35,21 @@ type Options struct {
 	// Lenient writes a type name that resolves to nothing as it is spelled,
 	// for converting documentation snippets that use undeclared types.
 	Lenient bool
+	// Int64Number is the project's int64_encoding = "number": every 64-bit
+	// integer already crosses as a JSON number, so none is written with
+	// @encode(string), which would say otherwise.
+	Int64Number bool
 }
 
 // EntryFile is the TypeSpec file every project compiles from.
 const EntryFile = "main.tsp"
 
-// Convert translates every source into a .tsp file next to it, and returns
-// them in path order. Type references are resolved the way the .onk compiler
-// resolves them and written fully qualified across namespaces.
 // scalarString is the string scalar, spelled the same in both languages.
 const scalarString = "string"
 
+// Convert translates every source into a .tsp file next to it, and returns
+// them in path order. Type references are resolved the way the .onk compiler
+// resolves them and written fully qualified across namespaces.
 func Convert(sources []Source, options Options) ([]Output, error) {
 	c := newConverter(sources, options)
 	c.prepare()
@@ -761,14 +765,16 @@ func (c *converter) fieldType(fc *fileContext, f *onkschema.FieldDecl, encode st
 	case (t.Name == "int64" || t.Name == "uint64") && f.Repeated:
 		// TypeSpec's int64[] is numbers; .onk's follows int64_encoding
 		// unless it says @encode("number").
-		if encode != "number" {
+		if encode != "number" && !c.options.Int64Number {
 			decorators = append(decorators, `@Onkt.encode("string")`)
 		}
 	case (t.Name == "int64" || t.Name == "uint64") && !f.Repeated:
 		switch encode {
 		case "number":
 		case "":
-			decorators = append(decorators, "@encode(string)")
+			if !c.options.Int64Number {
+				decorators = append(decorators, "@encode(string)")
+			}
 		default:
 			decorators = append(decorators, fmt.Sprintf("@Onkt.encode(%s)", quote(encode)))
 		}

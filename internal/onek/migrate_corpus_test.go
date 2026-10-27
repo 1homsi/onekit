@@ -598,3 +598,49 @@ service QueryScope { run(Query) -> Query @post("/query") }
 `,
 	}, true)
 }
+
+// Under int64_encoding = "number" every 64-bit integer is a JSON number, so
+// the migrated schema must not say @encode(string) on any of them.
+func TestMigrateUnderInt64NumberWritesNoStringEncodings(t *testing.T) {
+	t.Parallel()
+	repoNodeModules(t)
+	onkSchemasAccepted.Store(true)
+	t.Cleanup(func() { onkSchemasAccepted.Store(false) })
+	config := "int64_encoding = \"number\"\n" + corpusAllTargets
+	files := map[string]string{"schema.onk": `package app
+message CurrentUser {
+  id: int64
+  org_ids: int64[]
+  big: uint64
+  pick: oneof { n: int64  s: string }
+}
+message Lookup { id: int64 }
+service Users { me(Lookup) -> CurrentUser @get("/me/{id}") }
+`}
+	base := t.TempDir()
+	onkDir, tspDir := filepath.Join(base, "onk"), filepath.Join(base, "tsp")
+	writeCorpusProject(t, onkDir, config, files)
+	if err := Build(onkDir); err != nil {
+		t.Fatalf("build the .onk project: %v", err)
+	}
+	writeCorpusProject(t, tspDir, config, files)
+	if _, err := Migrate(tspDir, MigrateOptions{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if tsp := readTSP(t, tspDir); strings.Contains(tsp, `encode(string)`) || strings.Contains(tsp, `encode("string")`) {
+		t.Fatalf("a string encoding contradicts int64_encoding = \"number\":\n%s", tsp)
+	}
+	linkTypeSpec(t, tspDir)
+	if err := Build(tspDir); err != nil {
+		t.Fatalf("build the migrated project: %v\n%s", err, readTSP(t, tspDir))
+	}
+	want, got := generatedFiles(t, filepath.Join(onkDir, "gen")), generatedFiles(t, filepath.Join(tspDir, "gen"))
+	if len(want) == 0 || len(want) != len(got) {
+		t.Fatalf("generated %d files from .onk and %d from TypeSpec", len(want), len(got))
+	}
+	for path, content := range want {
+		if !bytes.Equal(got[path], content) {
+			t.Errorf("%s differs", path)
+		}
+	}
+}

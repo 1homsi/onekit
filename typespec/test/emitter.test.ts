@@ -66,7 +66,8 @@ describe("@onkt/typespec emitter", () => {
     const fields = messages(doc)[0].fields!;
     assert.deepEqual(fields[0].decorators?.map((d) => d.name), ["lte", "gte"]);
     assert.deepEqual(fields[1].decorators?.map((d) => [d.name, d.args?.map((a) => a.value)]), [["len", ["1", "40"]]]);
-    assert.equal(fields[2].decorators, undefined);
+    // Written out, so onkt can check it against int64_encoding.
+    assert.deepEqual(fields[2].decorators?.map((d) => [d.name, d.args?.[0].value]), [["encode", "string"]]);
     assert.deepEqual(fields[3].decorators?.map((d) => [d.name, d.args?.[0].value]), [["encode", "number"]]);
   });
 
@@ -166,7 +167,7 @@ describe("@useAuth", () => {
 });
 
 describe("64-bit integers", () => {
-  it("writes repeated int64 as numbers unless told to keep the default", async () => {
+  it("writes repeated int64 as numbers unless told to use strings", async () => {
     const doc = await emit(`
       namespace app;
       model M {
@@ -176,7 +177,7 @@ describe("64-bit integers", () => {
       }`);
     const fields = messages(doc)[0].fields!;
     assert.deepEqual(fields[0].decorators?.map((d) => [d.name, d.args?.[0].value]), [["encode", "number"]]);
-    assert.equal(fields[1].decorators, undefined);
+    assert.deepEqual(fields[1].decorators?.map((d) => [d.name, d.args?.[0].value]), [["encode", "string"]]);
     assert.equal(fields[2].decorators, undefined);
   });
 });

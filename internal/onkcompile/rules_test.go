@@ -178,8 +178,14 @@ model M {
   by_name: Record<int64>;
 }
 `
+	// Under "number" a schema cannot also ask for strings.
+	numeric := strings.NewReplacer("@encode(string)\n", "", "@Onkt.encode(\"string\")\n", "").Replace(src)
 	compile := func(encoding string) map[string]bool {
-		pkg, err := CompileWithOptions([]Source{{Path: "api.tsp", AST: parseOrFatal(t, src)}}, CompileOptions{Int64Encoding: encoding})
+		schema := src
+		if encoding == Int64EncodingNumber {
+			schema = numeric
+		}
+		pkg, err := CompileWithOptions([]Source{{Path: "api.tsp", AST: parseOrFatal(t, schema)}}, CompileOptions{Int64Encoding: encoding})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -347,5 +353,24 @@ model M {
 	}
 	if fields[1].Int64Number {
 		t.Fatal("a repeated int64 without @encode keeps the project default")
+	}
+}
+
+// A schema that says a 64-bit integer crosses as a string must not be sent
+// as a number because the project config says so.
+func TestInt64EncodingNumberRejectsExplicitStrings(t *testing.T) {
+	for name, field := range map[string]string{
+		"field": "  @encode(string)\n  id: int64;",
+		"array": "  @Onkt.encode(\"string\")\n  id: uint64[];",
+	} {
+		src := "namespace api;\n\nmodel M {\n" + field + "\n}\n"
+		_, err := CompileWithOptions([]Source{{Path: "api.tsp", AST: parseOrFatal(t, src)}}, CompileOptions{Int64Encoding: Int64EncodingNumber})
+		var compileErr *Error
+		if !errors.As(err, &compileErr) || compileErr.Code != "int64_encoding_conflict" || !strings.Contains(compileErr.Msg, `"id"`) {
+			t.Errorf("%s: want an int64_encoding_conflict error, got %v", name, err)
+		}
+		if _, err := CompileWithOptions([]Source{{Path: "api.tsp", AST: parseOrFatal(t, src)}}, CompileOptions{}); err != nil {
+			t.Errorf("%s: the string form is the default without int64_encoding, got %v", name, err)
+		}
 	}
 }

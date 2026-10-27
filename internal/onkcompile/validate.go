@@ -93,6 +93,9 @@ var (
 		"number": true, "hex": true, "base64": true, "base64_raw": true,
 		"base64url": true, "base64url_raw": true, "unix_seconds": true,
 		"unix_millis": true, "date": true,
+		// "string" is only the explicit form of a 64-bit integer's default,
+		// recorded so it can be checked against int64_encoding.
+		encodeString: true,
 	}
 	fieldDecorators = map[string]decoratorRule{
 		"email": {}, "uuid": {}, "uri": {}, "required": {}, "nullable": {}, "unwrap": {}, "object": {},
@@ -349,7 +352,7 @@ func validateFieldDecoratorType(filePath string, field *onkschema.FieldDecl, nam
 			return &Error{Path: filePath, Line: field.Line, Msg: "@unwrap cannot be optional"}
 		}
 	case "encode":
-		if repeatedInt64Number(field) {
+		if repeatedInt64Number(field) || int64EncodedAsString(field) {
 			break
 		}
 		if field.Repeated || field.Type.IsMap {
@@ -359,11 +362,29 @@ func validateFieldDecoratorType(filePath string, field *onkschema.FieldDecl, nam
 	return nil
 }
 
+// encodeString is the @encode value that spells out a 64-bit integer's
+// default string form.
+const encodeString = "string"
+
+// is64BitInteger reports a 64-bit integer type name.
+func is64BitInteger(name string) bool { return name == "int64" || name == "uint64" }
+
+// int64EncodedAsString reports a 64-bit integer field, or a list of them,
+// marked @encode("string"): TypeSpec's @encode(string), or
+// @Onkt.encode("string") on an array.
+func int64EncodedAsString(field *onkschema.FieldDecl) bool {
+	if field.Type == nil || field.Type.IsMap || !is64BitInteger(field.Type.Name) {
+		return false
+	}
+	encode, ok := findDecorator(field.Decorators, "encode")
+	return ok && len(encode.Args) == 1 && encode.Args[0].Value == encodeString
+}
+
 // repeatedInt64Number reports a repeated 64-bit integer field marked
 // @encode("number"): its items cross the wire as JSON numbers, as every
 // 64-bit integer does under int64_encoding = "number".
 func repeatedInt64Number(field *onkschema.FieldDecl) bool {
-	if !field.Repeated || field.Type == nil || field.Type.IsMap || (field.Type.Name != "int64" && field.Type.Name != "uint64") {
+	if !field.Repeated || field.Type == nil || field.Type.IsMap || !is64BitInteger(field.Type.Name) {
 		return false
 	}
 	encode, ok := findDecorator(field.Decorators, "encode")

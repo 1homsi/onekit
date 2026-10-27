@@ -1078,11 +1078,13 @@ It applies to every JSON response the server writes, errors included, and to the
 
 A TypeSpec `int64` or `uint64` crosses the wire as a JSON number, as TypeSpec intends, and so does every item of an `int64[]`. Write `@encode(string) id: int64` to carry one as a JSON string instead, so JavaScript and other double-based parsers never lose precision on values beyond 2^53; on an array, `@Onkt.encode("string")` does the same. Map values are always numbers, and a oneof variant whose payload is a 64-bit integer keeps the string form.
 
-A string-encoded 64-bit integer follows the project's `int64_encoding`, which `onkt migrate` relies on so a migrated project keeps its wire format:
+A project migrated from `.onk` may set `int64_encoding = "number"` in `onkt.toml`, which sends every 64-bit integer as a JSON number, oneof payloads included:
 
 ```toml
 int64_encoding = "number"   # "string" is the default
 ```
+
+The schema must then not say otherwise: `@encode(string)` (or `@Onkt.encode("string")`) on a 64-bit integer is an error under that setting, so a `.tsp` never claims a string the wire does not carry. `onkt migrate` writes plain `int64` fields for such a project.
 
 Changing a field's encoding on an existing API is a wire change, so `onkt compat` reports every affected field.
 

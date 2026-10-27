@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkmigrate"
 )
 
@@ -76,7 +77,7 @@ func Migrate(dir string, options MigrateOptions) (MigrateResult, error) {
 	if err != nil {
 		return result, err
 	}
-	outputs, sources, err := convertSchemas(root, onkSchemaExtensions(cfg))
+	outputs, sources, err := convertSchemas(root, onkSchemaExtensions(cfg), cfg != nil && cfg.Int64Encoding == onkcompile.Int64EncodingNumber)
 	if err != nil {
 		return result, err
 	}
@@ -194,8 +195,9 @@ func onkSchemaExtensions(cfg *Config) []string {
 }
 
 // convertSchemas converts the .onk schemas under root to TypeSpec and
-// returns the files to write and the sources they replace.
-func convertSchemas(root string, exts []string) ([]onkmigrate.Output, []string, error) {
+// returns the files to write and the sources they replace. int64Number is
+// the project's int64_encoding = "number".
+func convertSchemas(root string, exts []string, int64Number bool) ([]onkmigrate.Output, []string, error) {
 	files, err := discoverSchemaFiles(root, exts)
 	if err != nil {
 		return nil, nil, err
@@ -219,6 +221,7 @@ func convertSchemas(root string, exts []string) ([]onkmigrate.Output, []string, 
 			}
 			return inferBasePath(rel)
 		},
+		Int64Number: int64Number,
 	})
 	if err != nil {
 		return nil, nil, err

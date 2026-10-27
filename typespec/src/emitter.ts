@@ -362,11 +362,7 @@ class DocumentBuilder {
             if (field.type?.map) field.type.mapKey = d.args[0].value;
             continue;
           }
-          if (d.name === "encode") {
-            sawEncode = true;
-            // "string" keeps 64-bit integers in the project's default form.
-            if (d.args[0]?.value === "string") continue;
-          }
+          if (d.name === "encode") sawEncode = true;
           add(d.name, d.args);
         }
         continue;
@@ -456,8 +452,9 @@ class DocumentBuilder {
       case "int64":
       case "uint64":
         // TypeSpec writes 64-bit integers as JSON numbers unless they are
-        // `@encode(string)`; onkt's default is the string form.
-        return encode?.type && stdScalar(encode.type) === "string" ? undefined : "number";
+        // `@encode(string)`. The string form is onkt's default, but it is
+        // written out so onkt can check it against int64_encoding.
+        return encode?.type && stdScalar(encode.type) === "string" ? "string" : "number";
       case "utcDateTime":
       case "offsetDateTime":
         if (encode?.encoding === "unixTimestamp") return "unix_seconds";

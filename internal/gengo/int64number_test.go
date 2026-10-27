@@ -17,13 +17,9 @@ import (
 const int64NumberSchema = `namespace app;
 
 model Item {
-  @encode(string)
   id: int64;
-  @encode(string)
   big: uint64;
-  @Onkt.encode("string")
   ids: int64[];
-  @encode(string)
   maybe?: int64;
   by_name: Record<int64>;
   keep: int64;

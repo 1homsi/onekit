@@ -421,8 +421,14 @@ interface S {
   get(...Get): Item;
 }
 `
+	// Under "number" the schema cannot also ask for strings.
+	numeric := strings.NewReplacer("  @encode(string)\n", "", "  @Onkt.encode(\"string\")\n", "").Replace(src)
 	generate := func(encoding string) map[string]any {
-		ast, err := onktest.Parse(src)
+		schema := src
+		if encoding == onkcompile.Int64EncodingNumber {
+			schema = numeric
+		}
+		ast, err := onktest.Parse(schema)
 		if err != nil {
 			t.Fatal(err)
 		}

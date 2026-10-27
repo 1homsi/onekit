@@ -467,8 +467,18 @@ func (c *compiler) buildField(fd *onkschema.FieldDecl, owner *onkir.Message, pat
 	}
 	field.Type = typ
 	field.EmitZero = c.options.EmitZeroValues && emitsZero(field)
-	if c.options.Int64Encoding == Int64EncodingNumber && typ.Kind == onkir.KindScalar &&
-		(typ.Scalar == onkir.ScalarInt64 || typ.Scalar == onkir.ScalarUint64) {
+	switch {
+	case int64EncodedAsString(fd):
+		// The schema asks for the string form; int64_encoding = "number"
+		// would silently send a number, so the two must not disagree.
+		if c.options.Int64Encoding == Int64EncodingNumber {
+			return nil, &Error{Path: path, Line: fd.Line, Column: fd.Col, Code: "int64_encoding_conflict", Msg: fmt.Sprintf(
+				"field %q is @encode(string), but int64_encoding = \"number\" sends every 64-bit integer as a JSON number; remove the @encode(string) (the wire stays a number) or remove int64_encoding from the project config", fd.Name)}
+		}
+		// It is the default form: generators see a plain 64-bit integer.
+		field.Decorators = withoutDecorator(field.Decorators, "encode")
+	case c.options.Int64Encoding == Int64EncodingNumber && typ.Kind == onkir.KindScalar &&
+		(typ.Scalar == onkir.ScalarInt64 || typ.Scalar == onkir.ScalarUint64):
 		field.Int64Number = true
 	}
 	if repeatedInt64Number(fd) {

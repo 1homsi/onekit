@@ -2,6 +2,7 @@ package onkcompat
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
@@ -130,8 +131,15 @@ model Item {
   name: string;
 }
 `
+	// Under "number" the schema cannot also ask for strings, so the move
+	// drops them, as onkt migrate does.
+	numeric := strings.NewReplacer("  @encode(string)\n", "", "  @Onkt.encode(\"string\")\n", "").Replace(src)
 	build := func(encoding string) *onkir.Package {
-		pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{*compile(t, src)}, onkcompile.CompileOptions{Int64Encoding: encoding})
+		schema := src
+		if encoding == onkcompile.Int64EncodingNumber {
+			schema = numeric
+		}
+		pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{*compile(t, schema)}, onkcompile.CompileOptions{Int64Encoding: encoding})
 		if err != nil {
 			t.Fatal(err)
 		}
