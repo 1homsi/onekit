@@ -126,3 +126,26 @@ func TestTypeSpecErrorsBecomeDiagnostics(t *testing.T) {
 		t.Fatalf("diagnostics = %+v", got)
 	}
 }
+
+func TestTypeSpecUseAuthBecomesCredentialHeaders(t *testing.T) {
+	dir := t.TempDir()
+	linkTypeSpec(t, dir)
+	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"example.com/auth\"\n\n[generate.go-server]\nout = \"gen\"\n\n[generate.openapi]\nout = \"docs\"\n")
+	writeTestFile(t, filepath.Join(dir, "main.tsp"), `import "@typespec/http";
+import "@onkt/typespec";
+using TypeSpec.Http;
+namespace api;
+model Req { id: string; }
+@useAuth(BearerAuth)
+@route("/v1") interface Items {
+  @get @route("/items/{id}") get(...Req): Req;
+}
+`)
+	if err := Build(dir); err != nil {
+		t.Fatal(err)
+	}
+	openapi := read(t, filepath.Join(dir, "docs", "openapi.yaml"))
+	if !strings.Contains(openapi, "scheme: bearer") {
+		t.Fatalf("the OpenAPI document must declare bearer auth:\n%s", openapi)
+	}
+}

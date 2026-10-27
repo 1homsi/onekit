@@ -61,6 +61,7 @@ Two things onekit is built around:
 | `A \| B` return type with `@error` models | the response and the typed errors |
 | `{ @statusCode _: 201; @body body: T }` | a `201` success status |
 | `@header` on an operation parameter | a header contract; one spread into every operation (`...ApiKey`) belongs to the whole service |
+| `@useAuth(BearerAuth)`, `BasicAuth`, `ApiKeyAuth<ApiKeyLocation.header, "X-Key">`, OAuth2 | a required credential header (`Authorization` or the key's header); on the service when every operation shares it, otherwise on each operation, so `@useAuth(NoAuth)` makes one public |
 | a named `union` of models | a oneof written `{"type": "<variant>", "<variant>": {...}}`; `@Onkt.discriminator("kind")` renames the key |
 | `@discriminated(#{ discriminatorPropertyName: "kind", envelope: "none" })` union | a flattened oneof, the variant's fields next to the discriminator |
 | `"a" \| "b"` string property | an allowed-values check |

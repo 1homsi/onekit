@@ -38,7 +38,9 @@ import {
   resolvePath,
 } from "@typespec/compiler";
 import {
+  type Authentication,
   type HttpOperation,
+  getAuthenticationForOperation,
   getHttpOperation,
   getHeaderFieldName,
   getRoutePath,
@@ -596,9 +598,73 @@ class DocumentBuilder {
         if (r.decl.headers?.length === 0) delete r.decl.headers;
       }
     }
+    this.applyAuthentication(decl, ops, rpcs.map((r) => r.decl));
     decl.rpcs = rpcs.map((r) => r.decl);
     const file = this.fileFor(container, pkg);
     (file.services ??= []).push(decl);
+  }
+
+  /**
+   * Turns `@useAuth` into credential headers. When every operation of the
+   * service authenticates the same way the headers belong to the service;
+   * otherwise (an operation overriding the service's, or `NoAuth` on a public
+   * one) each operation gets its own.
+   */
+  private applyAuthentication(service: S.ServiceDecl, ops: HttpOperation[], rpcs: S.RPCDecl[]): void {
+    const perOperation = ops.map((op) => this.authHeaders(getAuthenticationForOperation(this.program, op.operation), op.operation));
+    if (perOperation.every((headers) => headers.length === 0)) return;
+    const key = (headers: S.HeaderDecl[]) => JSON.stringify(headers.map((h) => [h.name, h.decorators?.map((d) => [d.name, d.args])]));
+    if (perOperation.every((headers) => key(headers) === key(perOperation[0]))) {
+      service.headers = [...perOperation[0], ...(service.headers ?? [])];
+      return;
+    }
+    perOperation.forEach((headers, i) => {
+      if (headers.length > 0) rpcs[i].headers = [...headers, ...(rpcs[i].headers ?? [])];
+    });
+  }
+
+  /** The headers one `@useAuth` configuration sends credentials in. */
+  private authHeaders(auth: Authentication | undefined, target: Operation): S.HeaderDecl[] {
+    if (!auth || auth.options.length === 0) return [];
+    if (auth.options.length > 1) {
+      reportDiagnostic(this.program, {
+        code: "unsupported",
+        format: { what: "alternative authentication schemes (`@useAuth(A | B)`); list the schemes a caller sends together as `@useAuth([A, B])`" },
+        target,
+      });
+    }
+    const headers: S.HeaderDecl[] = [];
+    const position = this.position(target);
+    const header = (name: string, scheme: string): S.HeaderDecl => ({
+      name,
+      type: "string",
+      decorators: [
+        { name: "required", ...position },
+        { name: "auth", args: [{ value: scheme }], ...position },
+      ],
+      ...position,
+    });
+    for (const scheme of auth.options[0].schemes) {
+      switch (scheme.type) {
+        case "noAuth":
+          break;
+        case "http":
+          if (scheme.scheme === "Bearer") headers.push(header("Authorization", "bearer"));
+          else if (scheme.scheme === "Basic") headers.push(header("Authorization", "basic"));
+          else reportDiagnostic(this.program, { code: "unsupported", format: { what: `the HTTP auth scheme ${(scheme as { scheme: string }).scheme}` }, target });
+          break;
+        case "apiKey":
+          if (scheme.in === "header") headers.push(header(scheme.name, "api_key"));
+          else reportDiagnostic(this.program, { code: "unsupported", format: { what: `an API key in the ${scheme.in}; send it in a header` }, target });
+          break;
+        case "oauth2":
+        case "openIdConnect":
+          // Both send their access token as a bearer token.
+          headers.push(header("Authorization", "bearer"));
+          break;
+      }
+    }
+    return headers;
   }
 
   /** The route an operation container adds: its own `@route` after its namespaces'. */

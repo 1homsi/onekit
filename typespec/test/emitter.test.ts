@@ -116,3 +116,37 @@ describe("@onkt/typespec emitter", () => {
     assert.equal(services(doc)[0].rpcs?.[0].decorators?.[0].args?.[0].value, "/{path...}");
   });
 });
+
+describe("@useAuth", () => {
+  it("puts credentials every operation shares on the service", async () => {
+    const doc = await emit(`
+      namespace app;
+      model Req { id: string; }
+      @useAuth(BearerAuth)
+      @route("/v1") interface Items {
+        @get @route("/a") a(...Req): Req;
+        @get @route("/b") b(...Req): Req;
+      }`);
+    const [service] = services(doc);
+    assert.deepEqual(
+      service.headers?.map((h) => [h.name, h.decorators?.map((d) => [d.name, d.args?.[0]?.value ?? null])]),
+      [["Authorization", [["required", null], ["auth", "bearer"]]]],
+    );
+    assert.equal(service.rpcs?.[0].headers, undefined);
+  });
+
+  it("gives operations their own credentials when one overrides the service", async () => {
+    const doc = await emit(`
+      namespace app;
+      model Req { id: string; }
+      @useAuth(ApiKeyAuth<ApiKeyLocation.header, "X-API-Key">)
+      interface Items {
+        @get @route("/a") a(...Req): Req;
+        @useAuth(NoAuth) @post @route("/login") login(...Req): Req;
+      }`);
+    const [service] = services(doc);
+    assert.equal(service.headers, undefined);
+    assert.deepEqual(service.rpcs?.[0].headers?.map((h) => h.name), ["X-API-Key"]);
+    assert.equal(service.rpcs?.[1].headers, undefined);
+  });
+});
