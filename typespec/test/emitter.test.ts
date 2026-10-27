@@ -107,6 +107,16 @@ describe("@onkt/typespec emitter", () => {
     assert.deepEqual(fields[3].decorators?.map((d) => [d.name, d.args?.map((a) => a.value)]), [["in", ["red", "blue"]]]);
   });
 
+  it("serves an interface under its @Onkt.name", async () => {
+    const doc = await emit(`
+      namespace app;
+      model Branding { name: string; }
+      model Lookup { slug: string; }
+      @Onkt.name("Branding") interface BrandingService {
+        @get @route("/branding/{slug}") get(...Lookup): Branding;
+      }`);
+    assert.deepEqual(services(doc).map((s) => s.name), ["Branding"]);
+  });
   it("nests @Onkt.parent types and spells {+path} as a wildcard", async () => {
     const doc = await emit(`
       namespace app;

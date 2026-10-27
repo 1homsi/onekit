@@ -126,3 +126,11 @@ extern dec encode(target: ModelProperty, encoding: valueof string);
 
 /** Declares this model or enum inside another model, as a nested type. */
 extern dec parent(target: Model | Enum, parent: Model);
+
+/**
+ * The service name onkt generates from, when the interface's own name is
+ * taken: TypeSpec gives an interface and a model or enum one namespace, so
+ * `@Onkt.name("Branding") interface BrandingService` serves `Branding`
+ * beside a `Branding` model.
+ */
+extern dec name(target: Interface, name: valueof string);

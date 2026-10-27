@@ -122,6 +122,8 @@ type converter struct {
 	taken map[string]map[string]bool
 	// unionNames assigns each oneof field its union declaration.
 	unionNames map[*onkschema.FieldDecl]string
+	// interfaceNames assigns each service its interface name.
+	interfaceNames map[*onkschema.ServiceDecl]string
 }
 
 func newConverter(sources []Source, options Options) *converter {
@@ -137,6 +139,8 @@ func newConverter(sources []Source, options Options) *converter {
 		pathParams: map[*onkschema.MessageDecl]map[string]bool{},
 		taken:      map[string]map[string]bool{},
 		unionNames: map[*onkschema.FieldDecl]string{},
+
+		interfaceNames: map[*onkschema.ServiceDecl]string{},
 	}
 }
 
@@ -164,6 +168,7 @@ func (c *converter) take(pkg, name string) {
 
 func (c *converter) prepare() {
 	c.indexDeclarations()
+	c.nameInterfaces()
 	c.indexRPCs()
 	c.nameUnions()
 }
@@ -189,8 +194,26 @@ func (c *converter) indexDeclarations() {
 		for _, e := range src.AST.Enums {
 			c.add(&decl{pkg: src.AST.Package, name: e.Name, dir: dir, enum: true})
 		}
+	}
+}
+
+// nameInterfaces gives every service an interface name. .onk let a service
+// share its name with a message or enum of its package, but TypeSpec gives
+// them one namespace, so such a service's interface is named <Name>Service
+// and @Onkt.name keeps the name it generates under.
+func (c *converter) nameInterfaces() {
+	for _, src := range c.sources {
+		pkg := src.AST.Package
 		for _, s := range src.AST.Services {
-			c.take(src.AST.Package, s.Name)
+			name := s.Name
+			if _, clash := c.byPkg[pkg][name]; clash {
+				name = s.Name + "Service"
+				for i := 2; c.taken[pkg][name]; i++ {
+					name = fmt.Sprintf("%sService%d", s.Name, i)
+				}
+			}
+			c.take(pkg, name)
+			c.interfaceNames[s] = name
 		}
 	}
 }
@@ -912,7 +935,10 @@ func (c *converter) service(fc *fileContext, s *onkschema.ServiceDecl) error {
 	if basePath != "" {
 		w.linef("@route(%s)", quote(basePath))
 	}
-	w.linef("interface %s {", ident(s.Name))
+	if name := c.interfaceNames[s]; name != s.Name {
+		w.linef("@Onkt.name(%s)", quote(s.Name))
+	}
+	w.linef("interface %s {", ident(c.interfaceNames[s]))
 	w.indent++
 	for i, rpc := range s.RPCs {
 		if i > 0 {

@@ -3,8 +3,10 @@ package onek
 import (
 	"bytes"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -451,18 +453,26 @@ func TestMigrateCorpus(t *testing.T) {
 	for name, source := range corpus {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			checkMigration(t, source)
+			checkMigration(t, map[string]string{"schema.onk": source}, false)
 		})
 	}
 }
 
-func checkMigration(t *testing.T, source string) {
+// checkMigration builds a .onk project and the TypeSpec onkt migrate writes
+// for it, and requires the same generated files. A project that does not
+// build as .onk is skipped unless it must build.
+func checkMigration(t *testing.T, files map[string]string, mustBuild bool) {
 	t.Helper()
+	var sources []string
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		sources = append(sources, "// "+name+"\n"+files[name])
+	}
+	source := strings.Join(sources, "\n")
 	base := t.TempDir()
 	onkDir := filepath.Join(base, "onk")
 	var config string
 	for _, candidate := range []string{corpusAllTargets, corpusWebTargets} {
-		writeCorpusProject(t, onkDir, candidate, source)
+		writeCorpusProject(t, onkDir, candidate, files)
 		if err := Build(onkDir); err == nil {
 			config = candidate
 			break
@@ -470,11 +480,15 @@ func checkMigration(t *testing.T, source string) {
 		os.RemoveAll(onkDir)
 	}
 	if config == "" {
+		if mustBuild {
+			writeCorpusProject(t, onkDir, corpusWebTargets, files)
+			t.Fatalf("the .onk schema does not build: %v", Build(onkDir))
+		}
 		t.Skip("the .onk schema does not build")
 	}
 
 	tspDir := filepath.Join(base, "tsp")
-	writeCorpusProject(t, tspDir, config, source)
+	writeCorpusProject(t, tspDir, config, files)
 	if _, err := Migrate(tspDir, MigrateOptions{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -510,7 +524,7 @@ func checkMigration(t *testing.T, source string) {
 	}
 }
 
-func writeCorpusProject(t *testing.T, dir, config, source string) {
+func writeCorpusProject(t *testing.T, dir, config string, files map[string]string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -518,8 +532,10 @@ func writeCorpusProject(t *testing.T, dir, config, source string) {
 	if err := os.WriteFile(filepath.Join(dir, configFileName), []byte(config), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "schema.onk"), []byte(source), 0o644); err != nil {
-		t.Fatal(err)
+	for name, source := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -551,4 +567,34 @@ func generatedFiles(t *testing.T, dir string) map[string][]byte {
 		return nil
 	})
 	return files
+}
+
+// .onk let a service share its name with a message or enum of its package;
+// TypeSpec does not, so the interface is renamed and keeps generating under
+// the service's name.
+func TestMigrateRenamesAnInterfaceThatSharesAName(t *testing.T) {
+	t.Parallel()
+	repoNodeModules(t)
+	onkSchemasAccepted.Store(true)
+	t.Cleanup(func() { onkSchemasAccepted.Store(false) })
+	checkMigration(t, map[string]string{
+		"branding.onk": `package app
+message PublicBranding { name: string }
+message GetBrandingRequest { slug: string }
+service PublicBranding { get(GetBrandingRequest) -> PublicBranding @get("/branding/{slug}") }
+`,
+		"twofactor.onk": `package app
+message MyTwoFactor { enabled: bool }
+message MyTwoFactorService { note: string }
+message Empty {}
+service MyTwoFactor { status(Empty) -> MyTwoFactor @get("/2fa") }
+`,
+		"query.onk": `package app
+enum QueryScope { ALL MINE }
+message Query { scope: QueryScope }
+`,
+		"scope.onk": `package app
+service QueryScope { run(Query) -> Query @post("/query") }
+`,
+	}, true)
 }

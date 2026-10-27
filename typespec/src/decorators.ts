@@ -49,6 +49,11 @@ export function getOnktParent(program: Program, target: Type): Type | undefined 
   return program.stateMap(StateKeys.onktParent).get(target);
 }
 
+/** The service name an interface generates under, from `@Onkt.name`. */
+export function getOnktName(program: Program, target: Type): string | undefined {
+  return program.stateMap(StateKeys.onktName).get(target);
+}
+
 export function findOnktDecorator(program: Program, target: Type, name: string): OnktDecorator | undefined {
   return getOnktDecorators(program, target).find((d) => d.name === name);
 }
@@ -100,6 +105,9 @@ export const $decorators = {
     parent: (ctx: DecoratorContext, target: Type, parent: Type) => {
       const state = ctx.program.stateMap(StateKeys.onktParent);
       state.set(target, parent);
+    },
+    name: (ctx: DecoratorContext, target: Type, name: string) => {
+      ctx.program.stateMap(StateKeys.onktName).set(target, name);
     },
     auth: (ctx: DecoratorContext, target: Type, scheme: string, schemeName?: string) => {
       // Recorded in reverse: each record goes in front of the last.

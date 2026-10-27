@@ -51,7 +51,7 @@ import {
   isStatusCode,
   getStatusCodes,
 } from "@typespec/http";
-import { type OnktArg, findOnktDecorator, getAppliedOnktDecorators, getOnktDecorators, getOnktParent } from "./decorators.js";
+import { type OnktArg, findOnktDecorator, getAppliedOnktDecorators, getOnktDecorators, getOnktName, getOnktParent } from "./decorators.js";
 import { type OnktEmitterOptions, reportDiagnostic } from "./lib.js";
 import type * as S from "./schema.js";
 
@@ -607,7 +607,7 @@ class DocumentBuilder {
   private emitService(container: Namespace | Type, ops: HttpOperation[]): void {
     const namespace = container.kind === "Namespace" ? container : (container as { namespace?: Namespace }).namespace;
     const pkg = namespace ? getNamespaceFullName(namespace) : "";
-    const name = (container as { name: string }).name || "Service";
+    const name = getOnktName(this.program, container) ?? ((container as { name: string }).name || "Service");
     const decl: S.ServiceDecl = { name, ...this.position(container) };
     const doc = this.doc(container);
     if (doc) decl.doc = doc;

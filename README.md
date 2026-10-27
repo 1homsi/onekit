@@ -88,6 +88,7 @@ The `Onkt` namespace adds what TypeSpec has no decorator for:
 | `@Onkt.maxBody("64MiB")`, `@Onkt.method("ANY" \| "QUERY")` | a per-method body limit, and the methods TypeSpec has no verb for |
 | `@Onkt.flatten`, `@Onkt.unwrap`, `@Onkt.empty`, `@Onkt.object`, `@Onkt.encode` | JSON mapping |
 | `@Onkt.wsId`, `@Onkt.wsTimeout`, `@Onkt.wsCancel`, `@Onkt.raw` | WebSocket correlation, deadlines, cancellation and binary frames |
+| `@Onkt.name("Branding")` | the service name an interface generates under, for when a model or enum of its namespace already has that name |
 | `@Onkt.tag`, `@Onkt.json`, `@Onkt.values`, `@Onkt.range`, `@Onkt.example`, `@Onkt.auth`, `@Onkt.parent` | the rest of onekit's schema vocabulary |
 
 Each decorator is documented in [`typespec/lib/main.tsp`](typespec/lib/main.tsp), and [`examples/simple-api`](examples/simple-api) is a complete, working project.
