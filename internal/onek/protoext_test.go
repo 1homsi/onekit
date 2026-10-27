@@ -47,7 +47,7 @@ func TestProtoFilesHoldingOnekitSyntaxAreSchemasWhenEnabled(t *testing.T) {
 
 func TestProtoFilesAreIgnoredByDefault(t *testing.T) {
 	dir := protoProject(t, "")
-	if err := Build(dir); err == nil || !strings.Contains(err.Error(), "no .onk files") {
+	if err := Build(dir); err == nil || !strings.Contains(err.Error(), "no schema files") {
 		t.Fatalf("without schema_extensions a .proto file is not a schema, got %v", err)
 	}
 }

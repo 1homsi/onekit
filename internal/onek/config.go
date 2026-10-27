@@ -546,8 +546,8 @@ func validateRepeatedStyle(value string) error {
 
 func validateSchemaExtensions(exts []string) error {
 	for _, ext := range exts {
-		if ext != onkExtension && ext != protoExtension {
-			return fmt.Errorf("schema_extensions entries must be %q or %q, not %q", onkExtension, protoExtension, ext)
+		if ext != onkExtension && ext != protoExtension && ext != tspExtension {
+			return fmt.Errorf("schema_extensions entries must be %q, %q or %q, not %q", onkExtension, tspExtension, protoExtension, ext)
 		}
 	}
 	return nil

@@ -1,0 +1,6 @@
+{
+  "name": "onekit-workspace",
+  "private": true,
+  "description": "Development workspace: the @onkt/typespec emitter and the TypeSpec sources of the examples and tests share one TypeSpec compiler.",
+  "workspaces": ["typespec"]
+}

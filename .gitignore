@@ -61,3 +61,7 @@ coverage/
 # Temporary test files
 *.generated
 playground/dist/
+
+# npm workspace
+node_modules/
+/.scratch/

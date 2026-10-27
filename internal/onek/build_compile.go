@@ -215,11 +215,27 @@ func compileTree(dir string, exts []string, options onkcompile.CompileOptions) (
 		return nil, err
 	}
 	if len(files) == 0 {
-		return nil, fmt.Errorf("no .onk files found under %s", dir)
+		return nil, fmt.Errorf("no schema files found under %s", dir)
 	}
-	sources, err := parseSources(files)
+	var onkFiles []string
+	hasTypeSpec := false
+	for _, file := range files {
+		if strings.HasSuffix(file, tspExtension) {
+			hasTypeSpec = true
+			continue
+		}
+		onkFiles = append(onkFiles, file)
+	}
+	sources, err := parseSources(onkFiles)
 	if err != nil {
 		return nil, err
+	}
+	if hasTypeSpec {
+		tspSources, err := typespecSources(root)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, tspSources...)
 	}
 	pkg, err := onkcompile.CompileWithOptions(sources, options)
 	if err != nil {

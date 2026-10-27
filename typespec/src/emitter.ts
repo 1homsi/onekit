@@ -1,0 +1,760 @@
+import {
+  type EmitContext,
+  type Enum,
+  type Model,
+  type ModelProperty,
+  type Namespace,
+  type Operation,
+  type Program,
+  type Scalar,
+  type Type,
+  type Union,
+  emitFile,
+  getDeprecationDetails,
+  getDiscriminatedUnion,
+  getDoc,
+  getEncode,
+  getFormat,
+  getLocationContext,
+  getMaxItems,
+  getMaxLength,
+  getMaxValue,
+  getMaxValueExclusive,
+  getMinItems,
+  getMinLength,
+  getMinValue,
+  getMinValueExclusive,
+  getNamespaceFullName,
+  getPattern,
+  getSourceLocation,
+  isArrayModelType,
+  isErrorModel,
+  isNullType,
+  isRecordModelType,
+  isTemplateDeclaration,
+  navigateProgram,
+  resolveEncodedName,
+  resolvePath,
+} from "@typespec/compiler";
+import {
+  type HttpOperation,
+  getAllHttpServices,
+  getHeaderFieldName,
+  getRoutePath,
+  isBody,
+  isBodyRoot,
+  isHeader,
+  getQueryParamName,
+  isStatusCode,
+  getStatusCodes,
+} from "@typespec/http";
+import { type OnktArg, findOnktDecorator, getOnktDecorators } from "./decorators.js";
+import { type OnktEmitterOptions, reportDiagnostic } from "./lib.js";
+import type * as S from "./schema.js";
+
+export async function $onEmit(context: EmitContext<OnktEmitterOptions>): Promise<void> {
+  const document = buildDocument(context.program);
+  if (context.program.compilerOptions.noEmit || context.program.hasError()) {
+    return;
+  }
+  await emitFile(context.program, {
+    path: resolvePath(context.emitterOutputDir, context.options["output-file"] ?? "schema.json"),
+    content: JSON.stringify(document, null, 2) + "\n",
+  });
+}
+
+/** Builds the onkt schema document for every declaration in the project's own sources. */
+export function buildDocument(program: Program): S.Document {
+  return new DocumentBuilder(program).build();
+}
+
+const str = (value: string): OnktArg => ({ value, quoted: true });
+const num = (value: number | bigint): OnktArg => ({ value: String(value) });
+
+interface Position {
+  line?: number;
+  col?: number;
+}
+
+class DocumentBuilder {
+  private readonly files = new Map<string, S.SourceFile>();
+  private readonly messageNames = new Map<Model, string>();
+  private readonly enumNames = new Map<Enum, string>();
+  private readonly pending: Array<() => void> = [];
+  /** Source offset of each declaration's anchor, so declarations keep source order. */
+  private readonly offsets = new WeakMap<object, number>();
+
+  constructor(private readonly program: Program) {}
+
+  build(): S.Document {
+    navigateProgram(
+      this.program,
+      {
+        model: (model) => {
+          if (this.isProjectDeclaration(model) && model.name !== "" && !isArrayModelType(model) && !isRecordModelType(model)) {
+            this.messageRef(model, undefined);
+          }
+        },
+        enum: (en) => {
+          if (this.isProjectDeclaration(en)) this.enumRef(en);
+        },
+      },
+      { includeTemplateDeclaration: false },
+    );
+    this.emitServices();
+    while (this.pending.length > 0) this.pending.shift()!();
+    const files = [...this.files.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    for (const file of files) {
+      file.messages?.sort((a, b) => this.order(a) - this.order(b));
+      file.enums?.sort((a, b) => this.order(a) - this.order(b));
+    }
+    return { version: 1, files };
+  }
+
+  // ---------------------------------------------------------------- files
+
+  private isProjectDeclaration(type: Model | Enum | Union | Operation): boolean {
+    if ("templateNode" in type && type.templateNode && isTemplateDeclaration(type as Model)) return false;
+    if (type.kind === "Model" && type.templateMapper) return false;
+    return getLocationContext(this.program, type).type === "project";
+  }
+
+  private namespaceOf(type: { namespace?: Namespace }): string {
+    return type.namespace ? getNamespaceFullName(type.namespace) : "";
+  }
+
+  /** The schema file a declaration belongs in: its source file and namespace. */
+  private fileFor(type: Type, pkg: string): S.SourceFile {
+    const location = getSourceLocation(type);
+    let path = location.file.path;
+    let file = this.files.get(path);
+    if (file && file.package !== pkg) {
+      // A source file declaring several namespaces becomes one schema file
+      // per namespace; the suffix keeps them in the source's directory.
+      path = `${location.file.path}#${pkg}`;
+      file = this.files.get(path);
+    }
+    if (!file) {
+      file = { path, package: pkg };
+      this.files.set(path, file);
+    }
+    return file;
+  }
+
+  private position(type: Type): Position {
+    const location = getSourceLocation(type, { locateId: true });
+    if (!location || location.isSynthetic) return {};
+    const { line, character } = location.file.getLineAndCharacterOfPosition(location.pos);
+    return { line: line + 1, col: character + 1 };
+  }
+
+  private span(type: Type): S.Span {
+    const location = getSourceLocation(type);
+    if (!location || location.isSynthetic) return {};
+    const start = location.file.getLineAndCharacterOfPosition(location.pos);
+    const end = location.file.getLineAndCharacterOfPosition(location.end);
+    return { line: start.line + 1, col: start.character + 1, endLine: end.line + 1, endCol: end.character + 1 };
+  }
+
+  private place<T extends object>(decl: T, anchor: Type): T {
+    this.offsets.set(decl, getSourceLocation(anchor)?.pos ?? Number.MAX_SAFE_INTEGER);
+    return decl;
+  }
+
+  private order(decl: object): number {
+    return this.offsets.get(decl) ?? Number.MAX_SAFE_INTEGER;
+  }
+
+  private qualify(pkg: string, name: string): string {
+    return pkg === "" ? name : `${pkg}.${name}`;
+  }
+
+  // ------------------------------------------------------------- messages
+
+  /**
+   * Returns the qualified schema name of a model, declaring it on first use.
+   * Anonymous and template-instance models are declared next to the
+   * declaration that first refers to them, under `fallbackName`.
+   */
+  private messageRef(model: Model, fallback: { name: string; owner: Type; pkg: string } | undefined): string {
+    const known = this.messageNames.get(model);
+    if (known) return known;
+
+    let name = model.name;
+    let pkg = this.namespaceOf(model);
+    let anchor: Type = model;
+    if (name === "" || model.templateMapper || getLocationContext(this.program, model).type !== "project") {
+      if (model.templateMapper && model.name !== "") {
+        name = model.name + model.templateMapper.args.map((arg) => typeDisplayName(arg)).join("");
+      } else if (fallback) {
+        name = fallback.name;
+      }
+      if (fallback) {
+        pkg = fallback.pkg;
+        anchor = fallback.owner;
+      }
+    }
+    const qualified = this.qualify(pkg, name);
+    this.messageNames.set(model, qualified);
+
+    const file = this.fileFor(anchor, pkg);
+    const decl: S.MessageDecl = this.place({ name, ...this.position(model) }, anchor);
+    (file.messages ??= []).push(decl);
+    this.pending.push(() => this.fillMessage(model, decl, pkg, anchor));
+    return qualified;
+  }
+
+  private fillMessage(model: Model, decl: S.MessageDecl, pkg: string, anchor: Type): void {
+    decl.doc = this.doc(model);
+    const decorators: S.Decorator[] = [];
+    if (isErrorModel(this.program, model)) {
+      const status = this.errorStatus(model);
+      if (status !== undefined) decorators.push({ name: "status", args: [num(status)], ...this.position(model) });
+    }
+    for (const d of getOnktDecorators(this.program, model)) decorators.push({ ...d, ...this.position(model) });
+    if (decorators.length > 0) decl.decorators = decorators;
+
+    const fields: S.FieldDecl[] = [];
+    for (const prop of allProperties(model)) {
+      if (isStatusCode(this.program, prop)) continue;
+      const field = this.field(prop, decl.name, pkg, anchor);
+      if (field) fields.push(field);
+    }
+    if (fields.length > 0) decl.fields = fields;
+  }
+
+  private errorStatus(model: Model): number | undefined {
+    for (const prop of allProperties(model)) {
+      if (!isStatusCode(this.program, prop)) continue;
+      const codes = getStatusCodes(this.program, prop);
+      const first = codes[0];
+      if (codes.length === 1 && typeof first === "number") return first;
+      if (prop.type.kind === "Number") return prop.type.value;
+      reportDiagnostic(this.program, { code: "unsupported", format: { what: "a status code range on an error model" }, target: prop });
+    }
+    return undefined;
+  }
+
+  private field(prop: ModelProperty, ownerName: string, pkg: string, anchor: Type): S.FieldDecl | undefined {
+    const name = resolveEncodedName(this.program, prop as ModelProperty & { name: string }, "application/json");
+    const position = this.position(prop);
+    const field: S.FieldDecl = { name, ...position };
+    const doc = this.doc(prop);
+    if (doc) field.doc = doc;
+    if (prop.optional) field.optional = true;
+
+    const decorators: S.Decorator[] = [];
+    const add = (decoratorName: string, args: OnktArg[] = []) =>
+      decorators.push({ name: decoratorName, ...(args.length > 0 ? { args } : {}), ...position });
+
+    let type = prop.type;
+    if (type.kind === "Union") {
+      const nonNull = [...type.variants.values()].filter((v) => !isNullType(v.type));
+      if (nonNull.length === 1 && nonNull.length < type.variants.size) {
+        type = nonNull[0].type;
+        add("nullable");
+      }
+    }
+
+    if (type.kind === "Union" && !this.isLiteralUnion(type)) {
+      field.oneof = this.oneof(type, prop, ownerName, pkg, anchor);
+    } else if (type.kind === "Model" && isArrayModelType(this.program, type)) {
+      field.repeated = true;
+      field.type = this.typeRef(type.indexer.value, prop, `${ownerName}${pascal(prop.name)}Item`, pkg, anchor);
+    } else {
+      field.type = this.typeRef(type, prop, `${ownerName}${pascal(prop.name)}`, pkg, anchor);
+    }
+
+    if (findOnktDecorator(this.program, prop, "required")) add("required");
+    if (getLocationContext(this.program, prop).type === "project" || prop.sourceProperty) {
+      this.constraints(prop, type, field, add);
+    }
+    if (prop.type.kind === "Union" && this.isLiteralUnion(prop.type)) {
+      add("in", [...prop.type.variants.values()].map((v) => literalArg(v.type)));
+    }
+    const query = getQueryParamName(this.program, prop);
+    if (query !== undefined) add("query", query === prop.name ? [] : [str(query)]);
+    const deprecated = getDeprecationDetails(this.program, prop);
+    if (deprecated) add("deprecated", deprecated.message ? [str(deprecated.message)] : []);
+    for (const d of getOnktDecorators(this.program, prop)) {
+      if (d.name !== "required") decorators.push({ ...d, ...position });
+    }
+    if (decorators.length > 0) field.decorators = decorators;
+    return field;
+  }
+
+  private constraints(prop: ModelProperty, type: Type, field: S.FieldDecl, add: (name: string, args?: OnktArg[]) => void): void {
+    const p = this.program;
+    const scalar = type.kind === "Scalar" ? stdScalar(type) : undefined;
+
+    const minLength = getMinLength(p, prop) ?? (type.kind === "Scalar" ? getMinLength(p, type) : undefined);
+    const maxLength = getMaxLength(p, prop) ?? (type.kind === "Scalar" ? getMaxLength(p, type) : undefined);
+    if (minLength !== undefined || maxLength !== undefined) {
+      add("len", [num(minLength ?? 0), num(maxLength ?? Number.MAX_SAFE_INTEGER)]);
+    }
+    const minValue = getMinValue(p, prop) ?? (type.kind === "Scalar" ? getMinValue(p, type) : undefined);
+    const maxValue = getMaxValue(p, prop) ?? (type.kind === "Scalar" ? getMaxValue(p, type) : undefined);
+    if (minValue !== undefined && maxValue !== undefined) {
+      add("range", [num(minValue), num(maxValue)]);
+    } else {
+      if (minValue !== undefined) add("gte", [num(minValue)]);
+      if (maxValue !== undefined) add("lte", [num(maxValue)]);
+    }
+    const gt = getMinValueExclusive(p, prop);
+    if (gt !== undefined) add("gt", [num(gt)]);
+    const lt = getMaxValueExclusive(p, prop);
+    if (lt !== undefined) add("lt", [num(lt)]);
+    const minItems = getMinItems(p, prop);
+    if (minItems !== undefined) add("min_items", [num(minItems)]);
+    const maxItems = getMaxItems(p, prop);
+    if (maxItems !== undefined) add("max_items", [num(maxItems)]);
+    const pattern = getPattern(p, prop) ?? (type.kind === "Scalar" ? getPattern(p, type) : undefined);
+    if (pattern !== undefined) add("pattern", [str(pattern)]);
+
+    const format = getFormat(p, prop) ?? (type.kind === "Scalar" ? getFormat(p, type) : undefined);
+    if (format === "email" || format === "uuid" || format === "uri") add(format);
+    else if (format === "url" || scalar === "url") add("uri");
+
+    if (!field.repeated && field.type && !field.type.map) {
+      const encode = this.encoding(prop, scalar);
+      if (encode) add("encode", [str(encode)]);
+    }
+  }
+
+  /** Maps TypeSpec's `@encode` onto onkt's wire encodings. */
+  private encoding(prop: ModelProperty, scalar: string | undefined): string | undefined {
+    const encode = getEncode(this.program, prop);
+    switch (scalar) {
+      case "int64":
+      case "uint64":
+        // TypeSpec writes 64-bit integers as JSON numbers unless they are
+        // `@encode(string)`; onkt's default is the string form.
+        return encode?.type && stdScalar(encode.type) === "string" ? undefined : "number";
+      case "utcDateTime":
+      case "offsetDateTime":
+        if (encode?.encoding === "unixTimestamp") return "unix_seconds";
+        return undefined;
+      case "plainDate":
+        return "date";
+      case "bytes":
+        switch (encode?.encoding) {
+          case "base64url":
+            return "base64url";
+          default:
+            return undefined;
+        }
+    }
+    return undefined;
+  }
+
+  private isLiteralUnion(union: Union): boolean {
+    const variants = [...union.variants.values()];
+    return variants.length > 0 && variants.every((v) => v.type.kind === "String" || v.type.kind === "Number");
+  }
+
+  private oneof(union: Union, prop: ModelProperty, ownerName: string, pkg: string, anchor: Type): S.OneofDecl {
+    const decl: S.OneofDecl = { variants: [], ...this.position(union.name ? union : prop) };
+    const [discriminated] = getDiscriminatedUnion(this.program, union);
+    if (discriminated) {
+      if (discriminated.options.envelope !== "none") {
+        reportDiagnostic(this.program, {
+          code: "unsupported",
+          format: { what: `the "object" envelope of @discriminated (use envelope: "none", or a plain union keyed by variant name)` },
+          target: union,
+        });
+      }
+      decl.args = [
+        { name: "discriminator", value: discriminated.options.discriminatorPropertyName, quoted: true },
+        { name: "flatten", value: "true" },
+      ];
+    } else {
+      const discriminator = findOnktDecorator(this.program, union, "discriminator");
+      if (discriminator) decl.args = [{ name: "discriminator", value: discriminator.args[0].value, quoted: true }];
+    }
+    for (const [key, variant] of union.variants) {
+      if (isNullType(variant.type)) {
+        reportDiagnostic(this.program, { code: "unsupported", format: { what: "null in a union with several variants" }, target: variant });
+        continue;
+      }
+      const variantName = typeof key === "string" ? key : variantKeyName(variant.type);
+      const decorators: S.Decorator[] = [];
+      for (const d of getOnktDecorators(this.program, variant)) decorators.push(d);
+      const typeName = `${ownerName}${pascal(prop.name)}${pascal(variantName)}`;
+      decl.variants.push({
+        name: variantName,
+        type: this.typeRef(variant.type, variant, typeName, pkg, anchor),
+        ...(decorators.length > 0 ? { decorators } : {}),
+        ...this.position(variant),
+      });
+    }
+    return decl;
+  }
+
+  // ----------------------------------------------------------------- types
+
+  private typeRef(type: Type, at: Type, inlineName: string, pkg: string, anchor: Type): S.TypeRef {
+    const span = this.span(at);
+    switch (type.kind) {
+      case "Scalar": {
+        const scalar = stdScalar(type);
+        const mapped = scalar === undefined ? undefined : SCALARS[scalar];
+        if (mapped === undefined) {
+          reportDiagnostic(this.program, { code: "unsupported", format: { what: `the scalar ${type.name}` }, target: at });
+          return { span, name: "string" };
+        }
+        return { span, name: mapped };
+      }
+      case "Intrinsic":
+        if (type.name === "unknown") return { span, name: "json" };
+        break;
+      case "String":
+        return { span, name: "string" };
+      case "Boolean":
+        return { span, name: "bool" };
+      case "Number":
+        return { span, name: Number.isInteger(type.value) ? "int64" : "float64" };
+      case "Union":
+        if (this.isLiteralUnion(type)) {
+          const kinds = new Set([...type.variants.values()].map((v) => v.type.kind));
+          return { span, name: kinds.has("Number") ? "int64" : "string" };
+        }
+        break;
+      case "Enum":
+        return { span, name: this.enumRef(type) };
+      case "Model":
+        if (isRecordModelType(this.program, type)) {
+          return { span, map: true, mapKey: "string", mapValue: this.typeRef(type.indexer.value, at, `${inlineName}Value`, pkg, anchor) };
+        }
+        if (isArrayModelType(this.program, type)) break;
+        return { span, name: this.messageRef(type, { name: inlineName, owner: anchor, pkg }) };
+    }
+    reportDiagnostic(this.program, { code: "unsupported", format: { what: `this type in this position (${type.kind})` }, target: at });
+    return { span, name: "json" };
+  }
+
+  // ------------------------------------------------------------------ enums
+
+  private enumRef(en: Enum): string {
+    const known = this.enumNames.get(en);
+    if (known) return known;
+    const pkg = this.namespaceOf(en);
+    const qualified = this.qualify(pkg, en.name);
+    this.enumNames.set(en, qualified);
+    const decl: S.EnumDecl = this.place({ name: en.name, values: [], ...this.position(en) }, en);
+    const doc = this.doc(en);
+    if (doc) decl.doc = doc;
+    for (const member of en.members.values()) {
+      const value: S.EnumValueDecl = { name: member.name, ...this.position(member) };
+      const memberDoc = this.doc(member);
+      if (memberDoc) value.doc = memberDoc;
+      if (typeof member.value === "string" && member.value !== member.name) {
+        value.decorators = [{ name: "json", args: [str(member.value)], ...this.position(member) }];
+      } else if (typeof member.value === "number") {
+        reportDiagnostic(this.program, { code: "unsupported", format: { what: "numeric enum values" }, target: member });
+      }
+      decl.values.push(value);
+    }
+    const file = this.fileFor(en, pkg);
+    (file.enums ??= []).push(decl);
+    return qualified;
+  }
+
+  // -------------------------------------------------------------- services
+
+  private emitServices(): void {
+    const [services, diagnostics] = getAllHttpServices(this.program);
+    if (diagnostics.length > 0) this.program.reportDiagnostics(diagnostics);
+    const byContainer = new Map<Type, HttpOperation[]>();
+    for (const service of services) {
+      for (const op of service.operations) {
+        if (getLocationContext(this.program, op.operation).type !== "project") continue;
+        const list = byContainer.get(op.container) ?? [];
+        list.push(op);
+        byContainer.set(op.container, list);
+      }
+    }
+    for (const [container, ops] of byContainer) {
+      this.emitService(container as Namespace, ops);
+    }
+  }
+
+  private emitService(container: Namespace | Type, ops: HttpOperation[]): void {
+    const namespace = container.kind === "Namespace" ? container : (container as { namespace?: Namespace }).namespace;
+    const pkg = namespace ? getNamespaceFullName(namespace) : "";
+    const name = (container as { name: string }).name || "Service";
+    const decl: S.ServiceDecl = { name, ...this.position(container) };
+    const doc = this.doc(container);
+    if (doc) decl.doc = doc;
+
+    const rpcs = ops.map((op) => this.rpc(op, pkg));
+    const base = rpcs[0]?.base ?? "";
+    for (const rpc of rpcs) {
+      if (rpc.base !== base) {
+        reportDiagnostic(this.program, {
+          code: "request-shape",
+          format: { message: `every operation of ${name} must share the base path ${base || "/"}` },
+          target: rpc.op.operation,
+        });
+      }
+    }
+    decl.basePath = base === "" ? "/" : base;
+
+    // Headers every operation declares the same way belong to the service.
+    const shared = rpcs[0]?.decl.headers?.filter((h) =>
+      rpcs.every((r) => r.decl.headers?.some((other) => sameHeader(h, other))),
+    );
+    if (shared && shared.length > 0) {
+      decl.headers = shared;
+      for (const r of rpcs) {
+        r.decl.headers = r.decl.headers?.filter((h) => !shared.some((s) => sameHeader(h, s)));
+        if (r.decl.headers?.length === 0) delete r.decl.headers;
+      }
+    }
+    decl.rpcs = rpcs.map((r) => r.decl);
+    const file = this.fileFor(container, pkg);
+    (file.services ??= []).push(decl);
+  }
+
+  private rpc(op: HttpOperation, pkg: string): { decl: S.RPCDecl; base: string; op: HttpOperation } {
+    const operation = op.operation;
+    const position = this.position(operation);
+    const opRoute = getRoutePath(this.program, operation)?.path ?? "";
+    const base = op.path.endsWith(opRoute) && opRoute !== "" ? op.path.slice(0, op.path.length - opRoute.length) : op.path;
+    const route = opRoute === "" && base === op.path ? "" : opRoute;
+
+    const decl: S.RPCDecl = {
+      name: operation.name,
+      request: "",
+      response: "",
+      requestSpan: {},
+      responseSpan: {},
+      ...position,
+    };
+    const doc = this.doc(operation);
+    if (doc) decl.doc = doc;
+
+    const decorators: S.Decorator[] = [];
+    const onkt = getOnktDecorators(this.program, operation);
+    const isWS = onkt.some((d) => d.name === "ws");
+    decorators.push({ name: isWS ? "ws" : op.verb, args: [str(route)], ...position });
+    const deprecated = getDeprecationDetails(this.program, operation);
+    if (deprecated) decorators.push({ name: "deprecated", ...(deprecated.message ? { args: [str(deprecated.message)] } : {}), ...position });
+
+    const request = this.request(op, pkg);
+    decl.request = request.name;
+    decl.requestSpan = this.span(operation);
+    if (request.bodyField) decorators.push({ name: "body", args: [str(request.bodyField)], ...position });
+    if (request.headers.length > 0) decl.headers = request.headers;
+
+    const response = this.response(op, pkg);
+    decl.response = response.name;
+    decl.responseSpan = this.span(operation);
+    if (response.errors.length > 0) {
+      decl.errors = response.errors;
+      decl.errorSpans = response.errors.map(() => this.span(operation));
+    }
+    if (response.success !== undefined && response.success !== 200) {
+      decorators.push({ name: "success", args: [num(response.success)], ...position });
+    }
+    for (const d of onkt) {
+      if (d.name !== "ws") decorators.push({ ...d, ...position });
+    }
+    decl.decorators = decorators;
+    return { decl, base, op };
+  }
+
+  /**
+   * Finds or builds the request message. Parameters spread from one model
+   * (`op f(...M)`) or a single `@body` / `@bodyRoot` model use that model;
+   * anything else gets a `<Operation>Request` message next to the operation.
+   */
+  private request(op: HttpOperation, pkg: string): { name: string; bodyField?: string; headers: S.HeaderDecl[] } {
+    const operation = op.operation;
+    const headers: S.HeaderDecl[] = [];
+    const params: ModelProperty[] = [];
+    for (const prop of operation.parameters.properties.values()) {
+      if (isHeader(this.program, prop)) {
+        headers.push(this.header(prop));
+      } else {
+        params.push(prop);
+      }
+    }
+
+    const sources = new Set(params.map((p) => p.sourceProperty?.model));
+    const [source] = sources;
+    if (params.length > 0 && sources.size === 1 && source && source.name !== "" && params.length === allProperties(source).length) {
+      return { name: this.messageRef(source, undefined), headers };
+    }
+    if (params.length === 1 && (isBody(this.program, params[0]) || isBodyRoot(this.program, params[0])) && params[0].type.kind === "Model" && params[0].type.name !== "" && !isArrayModelType(this.program, params[0].type)) {
+      return { name: this.messageRef(params[0].type, undefined), headers };
+    }
+
+    const name = `${pascal(operation.name)}Request`;
+    const file = this.fileFor(operation, pkg);
+    const decl: S.MessageDecl = this.place({ name, ...this.position(operation) }, operation);
+    const fields: S.FieldDecl[] = [];
+    let bodyField: string | undefined;
+    for (const prop of params) {
+      if (isBody(this.program, prop) && prop.type.kind === "Model" && !isArrayModelType(this.program, prop.type) && !isRecordModelType(this.program, prop.type)) {
+        bodyField = prop.name;
+      }
+      const field = this.field(prop, name, pkg, operation);
+      if (field) fields.push(field);
+    }
+    if (fields.length > 0) decl.fields = fields;
+    (file.messages ??= []).push(decl);
+    return { name: this.qualify(pkg, name), bodyField, headers };
+  }
+
+  private header(prop: ModelProperty): S.HeaderDecl {
+    const position = this.position(prop);
+    const decorators: S.Decorator[] = [];
+    if (!prop.optional) decorators.push({ name: "required", ...position });
+    const format = getFormat(this.program, prop);
+    if (format === "uuid" || format === "email" || format === "uri") decorators.push({ name: "format", args: [str(format)], ...position });
+    const deprecated = getDeprecationDetails(this.program, prop);
+    if (deprecated) decorators.push({ name: "deprecated", ...(deprecated.message ? { args: [str(deprecated.message)] } : {}), ...position });
+    for (const d of getOnktDecorators(this.program, prop)) decorators.push({ ...d, ...position });
+    return {
+      name: getHeaderFieldName(this.program, prop),
+      type: "string",
+      ...(decorators.length > 0 ? { decorators } : {}),
+      ...position,
+    };
+  }
+
+  private response(op: HttpOperation, pkg: string): { name: string; errors: string[]; success?: number } {
+    const operation = op.operation;
+    const errors: string[] = [];
+    let success: number | undefined;
+    let name: string | undefined;
+    const returns = operation.returnType.kind === "Union" ? [...operation.returnType.variants.values()].map((v) => v.type) : [operation.returnType];
+    for (const type of returns) {
+      if (type.kind === "Model" && isErrorModel(this.program, type)) {
+        errors.push(this.messageRef(type, undefined));
+        continue;
+      }
+      if (name !== undefined) {
+        reportDiagnostic(this.program, { code: "request-shape", format: { message: `${operation.name} returns more than one success type` }, target: operation });
+        continue;
+      }
+      if (type.kind === "Intrinsic" && type.name === "void") {
+        name = this.emptyMessage(`${pascal(operation.name)}Response`, operation, pkg);
+        continue;
+      }
+      if (type.kind !== "Model") {
+        reportDiagnostic(this.program, { code: "unsupported", format: { what: `returning ${type.kind} (return a model)` }, target: operation });
+        continue;
+      }
+      const statusProp = allProperties(type).find((p) => isStatusCode(this.program, p));
+      const bodyProp = allProperties(type).find((p) => isBody(this.program, p) || isBodyRoot(this.program, p));
+      if (statusProp) {
+        const codes = getStatusCodes(this.program, statusProp);
+        if (typeof codes[0] === "number") success = codes[0];
+        else if (statusProp.type.kind === "Number") success = statusProp.type.value;
+      }
+      if (bodyProp && bodyProp.type.kind === "Model") {
+        name = this.messageRef(bodyProp.type, { name: `${pascal(operation.name)}Response`, owner: operation, pkg });
+      } else if (statusProp && allProperties(type).length === 1) {
+        name = this.emptyMessage(`${pascal(operation.name)}Response`, operation, pkg);
+      } else {
+        name = this.messageRef(type, { name: `${pascal(operation.name)}Response`, owner: operation, pkg });
+      }
+    }
+    return { name: name ?? this.emptyMessage(`${pascal(operation.name)}Response`, operation, pkg), errors, success };
+  }
+
+  private emptyMessage(name: string, owner: Operation, pkg: string): string {
+    const file = this.fileFor(owner, pkg);
+    if (!file.messages?.some((m) => m.name === name)) {
+      (file.messages ??= []).push(this.place({ name, ...this.position(owner) }, owner));
+    }
+    return this.qualify(pkg, name);
+  }
+
+  private doc(type: Type): string | undefined {
+    return getDoc(this.program, type) || undefined;
+  }
+}
+
+// ------------------------------------------------------------------ helpers
+
+/** TypeSpec standard scalars and the onkt scalar each one maps to. */
+const SCALARS: Record<string, string> = {
+  string: "string",
+  url: "string",
+  boolean: "bool",
+  int8: "int32",
+  int16: "int32",
+  int32: "int32",
+  int64: "int64",
+  safeint: "int64",
+  integer: "int64",
+  uint8: "uint32",
+  uint16: "uint32",
+  uint32: "uint32",
+  uint64: "uint64",
+  float32: "float32",
+  float64: "float64",
+  float: "float64",
+  numeric: "float64",
+  decimal: "float64",
+  decimal128: "float64",
+  bytes: "bytes",
+  utcDateTime: "timestamp",
+  offsetDateTime: "timestamp",
+  plainDate: "timestamp",
+  plainTime: "string",
+  duration: "string",
+};
+
+/** The standard-library scalar a scalar derives from. */
+function stdScalar(type: Type): string | undefined {
+  let scalar: Scalar | undefined = type.kind === "Scalar" ? type : undefined;
+  while (scalar) {
+    if (scalar.namespace?.name === "TypeSpec" && SCALARS[scalar.name] !== undefined) return scalar.name;
+    scalar = scalar.baseScalar;
+  }
+  return undefined;
+}
+
+/** A model's properties including inherited ones, base properties first. */
+function allProperties(model: Model): ModelProperty[] {
+  const chain: Model[] = [];
+  for (let m: Model | undefined = model; m; m = m.baseModel) chain.unshift(m);
+  return chain.flatMap((m) => [...m.properties.values()]);
+}
+
+function sameHeader(a: S.HeaderDecl, b: S.HeaderDecl): boolean {
+  const strip = (h: S.HeaderDecl) => JSON.stringify({ ...h, line: 0, col: 0, decorators: h.decorators?.map((d) => ({ ...d, line: 0, col: 0 })) });
+  return strip(a) === strip(b);
+}
+
+function literalArg(type: Type): OnktArg {
+  if (type.kind === "String") return str(type.value);
+  if (type.kind === "Number") return num(type.value);
+  return str(String(type.kind));
+}
+
+function typeDisplayName(type: Type | { entityKind?: string }): string {
+  const t = type as Type;
+  if ("name" in t && typeof t.name === "string") return pascal(t.name);
+  return "";
+}
+
+function variantKeyName(type: Type): string {
+  if ("name" in type && typeof type.name === "string" && type.name !== "") return snake(type.name);
+  return "value";
+}
+
+function pascal(name: string): string {
+  return name
+    .split(/[_\-\s]+/)
+    .filter(Boolean)
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join("");
+}
+
+function snake(name: string): string {
+  return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+}
