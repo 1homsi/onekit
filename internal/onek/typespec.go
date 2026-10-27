@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -122,11 +122,12 @@ func runTypeSpec(root, entry string) (*onkschema.Document, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), typespecTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, tsp, "compile", entry,
+	args := append(slices.Clone(tsp[1:]), "compile", entry,
 		"--emit", findEmitter(root),
 		"--option", typespecEmitter+".emitter-output-dir="+out,
 		"--pretty", "false",
 	)
+	cmd := exec.CommandContext(ctx, tsp[0], args...) //nolint:gosec // the project's own TypeSpec compiler
 	cmd.Dir = root
 	var output bytes.Buffer
 	cmd.Stdout = &output
@@ -223,25 +224,28 @@ func typespecDiagnostics(output string) string {
 	return strings.Join(kept, "\n")
 }
 
-// findTypeSpecCompiler finds the project's own `tsp`: node_modules/.bin/tsp
-// in the schema root or the nearest directory above it, the way npm scripts
-// resolve it. ONKT_TSP overrides the lookup.
-func findTypeSpecCompiler(root string) (string, error) {
+// findTypeSpecCompiler finds the project's own TypeSpec compiler, in the
+// node_modules of the schema root or the nearest directory above it, the way
+// npm scripts resolve it, and returns the command that runs it. The compiler
+// runs under node directly: on Windows the node_modules/.bin/tsp.cmd shim
+// goes through cmd.exe, which splits a project path that holds a space.
+// ONKT_TSP overrides the lookup.
+func findTypeSpecCompiler(root string) ([]string, error) {
 	if override := Getenv("ONKT_TSP"); override != "" {
-		return override, nil
-	}
-	name := "tsp"
-	if runtime.GOOS == "windows" {
-		name = "tsp.cmd"
+		return []string{override}, nil
 	}
 	for dir := root; ; dir = filepath.Dir(dir) {
-		candidate := filepath.Join(dir, "node_modules", ".bin", name)
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate, nil
+		script := filepath.Join(dir, "node_modules", "@typespec", "compiler", "cmd", "tsp.js")
+		if info, err := os.Stat(script); err == nil && !info.IsDir() {
+			node, err := exec.LookPath("node")
+			if err != nil {
+				return nil, errors.New("node is not on PATH; onkt compiles TypeSpec with Node.js")
+			}
+			return []string{node, script}, nil
 		}
 		if parent := filepath.Dir(dir); parent == dir {
 			break
 		}
 	}
-	return "", fmt.Errorf("the TypeSpec compiler is not installed for %s; run `npm install --save-dev @typespec/compiler @typespec/http %s` there", root, typespecEmitter)
+	return nil, fmt.Errorf("the TypeSpec compiler is not installed for %s; run `npm install --save-dev @typespec/compiler @typespec/http %s` there", root, typespecEmitter)
 }
