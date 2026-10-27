@@ -123,8 +123,10 @@ func main() {
 			return &app.Principal{}, nil
 		case "teapot":
 			return nil, statusError{code: 418}
+		case "db-down":
+			return nil, errors.New("dial tcp 127.0.0.1:5432: connect: connection refused")
 		}
-		return nil, errors.New("unknown caller")
+		return nil, nil
 	}
 
 	mux := http.NewServeMux()
@@ -153,6 +155,11 @@ func main() {
 	check("unknown caller is unauthorized", status, 401)
 	status, _ = post(server.URL+"/v1/docs/delete", "teapot", ` + "`" + `{"id":"1"}` + "`" + `)
 	check("the resolver controls the status", status, 418)
+	status, body = post(server.URL+"/v1/docs/delete", "db-down", ` + "`" + `{"id":"1"}` + "`" + `)
+	check("a failing resolver is a server fault, not a signed-out caller", status, 500)
+	if body["message"] != "internal server error" {
+		panic(fmt.Sprintf("message: %v", body))
+	}
 	status, _ = post(server.URL+"/v1/docs/open", "stranger", ` + "`" + `{"id":"1"}` + "`" + `)
 	check("methods without @authorize never ask who the caller is", status, 200)
 

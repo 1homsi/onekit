@@ -219,13 +219,9 @@ func writeAuthorizationRuntime(p *Printer) {
 		p.P("if (route.authorize) {")
 		p.P("const resolve = options?.principal;")
 		p.P(`if (!resolve) return renderError(registeredError(500, "internal", "authorization is not configured"), req, onError);`)
-		p.P("let principal;")
-		p.P("try {")
-		p.P("principal = await resolve(req);")
-		p.P("} catch (err) {")
-		p.P("if (err instanceof HttpError) throw err;")
-		p.P(`throw requestError(401, "unauthorized", "unauthorized");`)
-		p.P("}")
+		// A thrown HttpError keeps its status; any other error is a server
+		// fault and reaches errorResponse as a 500 with the error as its cause.
+		p.P("const principal = await resolve(req);")
 		p.P(`if (principal === undefined || principal === null) throw requestError(401, "unauthorized", "unauthorized");`)
 		p.P("principals.set(req, principal);")
 		p.P("}")

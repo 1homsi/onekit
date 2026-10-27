@@ -83,6 +83,18 @@ const configured = createDocsFetchHandler(handler, {
     return people[who];
   },
 });
+// The session store is unreachable: the lookup fails for a reason that says
+// nothing about the caller's credentials.
+const causes: unknown[] = [];
+const outageHandler = createDocsFetchHandler(handler, {
+  principal: async () => {
+    throw new Error("connect ECONNREFUSED 127.0.0.1:5432");
+  },
+  onError: (info) => {
+    causes.push(info.cause);
+    return Response.json({ message: info.message }, { status: info.status });
+  },
+});
 const bare = createDocsFetchHandler(handler);
 
 async function call(h: (req: Request) => Promise<Response>, path: string, who: string, body?: unknown) {
@@ -111,6 +123,10 @@ if (both.json.violations.length !== 2) throw new Error("violations: " + JSON.str
 
 expect("unknown caller is unauthorized", (await call(configured, "/v1/docs/delete", "stranger", { id: "1" })).status, 401);
 expect("the resolver controls the status", (await call(configured, "/v1/docs/delete", "teapot", { id: "1" })).status, 418);
+const outage = await call(outageHandler, "/v1/docs/delete", "admin", { id: "1" });
+expect("a failing resolver is a server fault, not a signed-out caller", outage.status, 500);
+if (outage.json.message !== "internal server error") throw new Error("message: " + JSON.stringify(outage.json));
+if (!(causes[0] instanceof Error) || !causes[0].message.includes("ECONNREFUSED")) throw new Error("onError should see the resolver's error, got " + String(causes[0]));
 expect("methods without @authorize never ask who the caller is", (await call(configured, "/v1/docs/open", "stranger", { id: "1" })).status, 200);
 expect("invalid requests are still rejected first", (await call(configured, "/v1/docs/delete", "admin", { id: 5 })).status, 400);
 expect("stream without a caller is unauthorized", (await call(configured, "/v1/docs/watch?org=acme", "stranger")).status, 401);

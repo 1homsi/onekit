@@ -1216,9 +1216,9 @@ The order on the server is: authenticate (`401` when no caller can be identified
 
 | Target | How callers are identified |
 | --- | --- |
-| Go server | `WithPrincipal(func(ctx, r) (*Principal, error))`; an error is a `401` unless it carries `HTTPStatusCode()`, and returning a nil principal with no error is also a `401`, so a rule that never reads `auth` cannot let an unidentified caller through. Handlers read the caller with `PrincipalFromContext(ctx)` |
-| TypeScript server | the `principal` option of `createXFetchHandler`, `createXNodeHandler` and `attachXNodeHandlers`; throw an `HttpError` to choose the status. Handlers read `context.principal` |
-| Rust server | insert the `Principal` as a request extension from your authentication layer (`request.extensions_mut().insert(principal)`); a request without one is a `401`. Handlers read `context.principal` |
+| Go server | `WithPrincipal(func(ctx, r) (*Principal, error))`; return a nil principal for a caller the credentials do not identify, which is a `401`, so a rule that never reads `auth` cannot let an unidentified caller through. An error that carries `HTTPStatusCode()` answers that status, and any other error is a server fault: a `500` with the error as `ServerError.Cause`, so an unreachable session store does not look like a signed-out caller. Handlers read the caller with `PrincipalFromContext(ctx)` |
+| TypeScript server | the `principal` option of `createXFetchHandler`, `createXNodeHandler` and `attachXNodeHandlers`; return `undefined` or `null` for a caller the credentials do not identify (a `401`), throw an `HttpError` to choose the status, and any other thrown error is a `500` with the error as `ServerErrorInfo.cause`. Handlers read `context.principal` |
+| Rust server | insert the `Principal` as a request extension from your authentication layer (`request.extensions_mut().insert(principal)`); a request without one is a `401`, so when the lookup itself fails the layer should answer a `5xx` rather than skip the extension. Handlers read `context.principal` |
 
 `@Onkt.authorize` is enforced by Go, TypeScript and Rust servers, and is not supported on `@Onkt.ws` methods yet (the compiler says so). `onkt compat` reports a changed, added or removed authorization rule, and an `@Onkt.authorize` rule on a method is part of the contract the same way a required scope is.
 
