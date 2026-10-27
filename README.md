@@ -440,7 +440,9 @@ server.listen(8080);
 
 Regular (non-`@Onkt.ws`) routes get the same treatment. `attachChatServiceNodeHandlers(server, handlerImpl)`
 serves them on an `http.Server`, and an unmatched path gets a 404 when nothing else
-listens. `createChatServiceNodeHandler(handlerImpl)` returns `(req, res) => boolean`
+listens. A request that cannot become a Fetch `Request`, such as one with a malformed
+`Host` header or credentials in its URL, gets a 400 with the code `bad_request` through
+the `onError` writer. `createChatServiceNodeHandler(handlerImpl)` returns `(req, res) => boolean`
 for composing with your own request listener. Both take any object shaped like
 `node:http`'s, so the generated server needs neither `@types/node` nor `ws`
 unless it has `@Onkt.ws` methods.
@@ -1031,7 +1033,7 @@ By default every error the generated servers produce themselves, a malformed bod
 | TypeScript | `{ onError: (error, req) => Response }` on `createXFetchHandler`, `createXNodeHandler` and `attachXNodeHandlers` |
 | Rust | `with_error_writer(router, Arc::new(\|info, headers\| ...))` |
 
-The writer receives the status, a stable `code`, the default `message`, the `field` at fault (a path parameter, query parameter, header or JSON body path) and the `violations`. The codes are `invalid_request_body`, `request_body_too_large`, `invalid_path_parameter`, `invalid_query_parameter`, `missing_header`, `invalid_header`, `invalid_credentials`, `validation_failed`, `unauthorized`, `forbidden`, `not_found`, `method_not_allowed` and `internal`; a handler error uses the snake_case name of its status, or its own `PublicCode()`. The underlying error is available as `Cause` (Go) and is never sent by the default writer. In Go the request ID is `RequestIDFromContext(r.Context())`. A Go body that fails to decode keeps the `invalid_request_body` code, and its message names the JSON path and the problem, such as `type: "mysql" is not one of rest, s3, sql` or `options.sql.port: expected integer, got string`, with the path in `field`. Malformed JSON reports `invalid JSON: ` and the parser's reason.
+The writer receives the status, a stable `code`, the default `message`, the `field` at fault (a path parameter, query parameter, header or JSON body path) and the `violations`. The codes are `invalid_request_body`, `request_body_too_large`, `invalid_path_parameter`, `invalid_query_parameter`, `missing_header`, `invalid_header`, `invalid_credentials`, `validation_failed`, `unauthorized`, `forbidden`, `not_found`, `method_not_allowed`, `bad_request` (TypeScript Node adapter only) and `internal`; a handler error uses the snake_case name of its status, or its own `PublicCode()`. The underlying error is available as `Cause` (Go) and is never sent by the default writer. In Go the request ID is `RequestIDFromContext(r.Context())`. A Go body that fails to decode keeps the `invalid_request_body` code, and its message names the JSON path and the problem, such as `type: "mysql" is not one of rest, s3, sql` or `options.sql.port: expected integer, got string`, with the path in `field`. Malformed JSON reports `invalid JSON: ` and the parser's reason.
 
 ```go
 mux := http.NewServeMux()
