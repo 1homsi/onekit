@@ -27,12 +27,12 @@
     "README.md",
     "LICENSE"
   ],
-  "optionalDependencies": {},
   "homepage": "https://github.com/1homsi/onekit#the-onkt-cli",
   "bugs": {
     "url": "https://github.com/1homsi/onekit/issues"
   },
   "engines": {
     "node": ">=20"
-  }
+  },
+  "preferUnplugged": true
 }

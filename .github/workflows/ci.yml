@@ -180,8 +180,8 @@ jobs:
       - name: Test the TypeSpec emitter
         run: npm test --workspace typespec
 
-      - name: Check the onkt npm launcher and packaging script
-        run: node --check npm/onkt/bin/onkt.js && node --check scripts/npm-cli.mjs
+      - name: Check the onkt npm launcher and publish script
+        run: node --check npm/onkt/bin/onkt.js && bash -n scripts/npm-publish.sh
 
       - name: Run tests
         run: ./scripts/run_tests.sh ${{ matrix.test-args }}

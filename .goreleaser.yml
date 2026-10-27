@@ -42,6 +42,13 @@ archives:
     files:
       - README.md
       - LICENSE
+  # The bare onkt binary per platform, which the onkt npm package downloads
+  # on first use; checksums.txt covers it like the archives.
+  - id: onkt-binary
+    ids:
+      - onkt
+    formats: [binary]
+    name_template: "onkt-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
 
 checksum:
   name_template: checksums.txt

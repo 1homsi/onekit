@@ -120,11 +120,15 @@ npm install                 # onkt, @onkt/typespec, @typespec/compiler, @typespe
 npx onkt build              # generates everything configured in onkt.toml
 ```
 
-The `onkt` package runs a prebuilt binary for macOS, Linux (glibc and musl, so
-Alpine works) and Windows, on x64 and arm64, from an optional dependency such as
-`@onkt/cli-linux-x64`; npm installs only the one for the machine, so do not
-install with `--omit=optional`. Keep `onkt` and `@onkt/typespec` on the same
-version: they are released together. To add both to an existing project:
+The `onkt` package is a small launcher. The first time it runs, it downloads the
+binary for the machine (macOS, Linux and Windows, on x64 and arm64; the Linux
+binary is static, so Alpine works) from the GitHub release of its own version,
+checks it against the release's `checksums.txt`, and caches it under the user
+cache directory (`~/.cache/onekit/releases/<version>` on Linux). It needs no
+install script, so `--ignore-scripts` and pnpm are fine. Set
+`ONKT_DOWNLOAD_BASE` to a mirror of `https://github.com/1homsi/onekit/releases/download`
+or `ONKT_CACHE_DIR` to move the cache. Keep `onkt` and `@onkt/typespec` on the
+same version: they are released together. To add both to an existing project:
 
 ```bash
 npm install --save-dev onkt @onkt/typespec @typespec/compiler @typespec/http

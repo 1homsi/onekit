@@ -1,6 +1,7 @@
 # Binaries for programs and plugins
 .secrets
 bin/
+!npm/onkt/bin/
 *.exe
 *.exe~
 *.dll
