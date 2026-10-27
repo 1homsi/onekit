@@ -471,6 +471,12 @@ func (c *compiler) buildField(fd *onklang.FieldDecl, owner *onkir.Message, path 
 		(typ.Scalar == onkir.ScalarInt64 || typ.Scalar == onkir.ScalarUint64) {
 		field.Int64Number = true
 	}
+	if repeatedInt64Number(fd) {
+		// The field is then exactly what the project-wide setting produces;
+		// generators never see @encode on a repeated field.
+		field.Int64Number = true
+		field.Decorators = withoutDecorator(field.Decorators, "encode")
+	}
 	if hasDecorator(fd.Decorators, "nullable") {
 		reason := nullableIneligibleReason(field)
 		switch {
@@ -481,6 +487,16 @@ func (c *compiler) buildField(fd *onklang.FieldDecl, owner *onkir.Message, path 
 		}
 	}
 	return field, nil
+}
+
+func withoutDecorator(decorators []onkir.Decorator, name string) []onkir.Decorator {
+	var kept []onkir.Decorator
+	for _, d := range decorators {
+		if d.Name != name {
+			kept = append(kept, d)
+		}
+	}
+	return kept
 }
 
 func nullableIneligibleReason(f *onkir.Field) string {

@@ -67,7 +67,7 @@ Two things onekit is built around:
 | `"a" \| "b"` string property | an allowed-values check |
 | `x?: T \| null` | a nullable field: absent, `null` and a value survive a round trip |
 | `Record<T>` | a map with string keys (`@Onkt.mapKey("int64")` for integer keys) |
-| `int64` | a JSON number; `@encode(string) int64` crosses as a string |
+| `int64`, `int64[]` | JSON numbers; `@encode(string)` (`@Onkt.encode("string")` on an array) crosses as strings |
 | `utcDateTime`, `plainDate`, `unknown`, `bytes` | timestamp, a date, any JSON value, base64 bytes |
 | `@route("/{+path}")` | a wildcard tail parameter |
 
@@ -1057,14 +1057,15 @@ It applies to every JSON response the server writes, errors included, and to the
 
 ### 64-bit integers on the wire
 
-A TypeSpec `int64` or `uint64` property crosses the wire as a JSON number, as TypeSpec intends. Write `@encode(string) id: int64` to carry it as a JSON string instead, so JavaScript and other double-based parsers never lose precision on values beyond 2^53. Repeated 64-bit integers cannot carry `@encode` and follow the project setting, as do oneof variant payloads, which keep the string form:
+A TypeSpec `int64` or `uint64` crosses the wire as a JSON number, as TypeSpec intends, and so does every item of an `int64[]`. Write `@encode(string) id: int64` to carry one as a JSON string instead, so JavaScript and other double-based parsers never lose precision on values beyond 2^53; on an array, `@Onkt.encode("string")` does the same. Map values are always numbers, and a oneof variant whose payload is a 64-bit integer keeps the string form.
+
+A string-encoded 64-bit integer follows the project's `int64_encoding`, which `onkt migrate` relies on so a migrated project keeps its wire format:
 
 ```toml
-module = "example.com/api"
-int64_encoding = "number"   # "string" is the default for repeated fields
+int64_encoding = "number"   # "string" is the default
 ```
 
-Map values are always numbers. Changing a field's encoding on an existing API is a wire change, so `onkt compat` reports every affected field.
+Changing a field's encoding on an existing API is a wire change, so `onkt compat` reports every affected field.
 
 ### Repeated messages as values in Go
 

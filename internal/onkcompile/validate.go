@@ -349,11 +349,25 @@ func validateFieldDecoratorType(filePath string, field *onklang.FieldDecl, name 
 			return &Error{Path: filePath, Line: field.Line, Msg: "@unwrap cannot be optional"}
 		}
 	case "encode":
+		if repeatedInt64Number(field) {
+			break
+		}
 		if field.Repeated || field.Type.IsMap {
 			return &Error{Path: filePath, Line: field.Line, Msg: "@encode does not support repeated or map fields"}
 		}
 	}
 	return nil
+}
+
+// repeatedInt64Number reports a repeated 64-bit integer field marked
+// @encode("number"): its items cross the wire as JSON numbers, as every
+// 64-bit integer does under int64_encoding = "number".
+func repeatedInt64Number(field *onklang.FieldDecl) bool {
+	if !field.Repeated || field.Type == nil || field.Type.IsMap || (field.Type.Name != "int64" && field.Type.Name != "uint64") {
+		return false
+	}
+	encode, ok := findDecorator(field.Decorators, "encode")
+	return ok && len(encode.Args) == 1 && encode.Args[0].Value == Int64EncodingNumber
 }
 
 func acceptsIn(field *onklang.FieldDecl) bool {

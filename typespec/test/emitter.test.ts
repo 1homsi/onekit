@@ -150,3 +150,19 @@ describe("@useAuth", () => {
     assert.equal(service.rpcs?.[1].headers, undefined);
   });
 });
+
+describe("64-bit integers", () => {
+  it("writes repeated int64 as numbers unless told to keep the default", async () => {
+    const doc = await emit(`
+      namespace app;
+      model M {
+        ids: int64[];
+        @Onkt.encode("string") legacy: uint64[];
+        counts: int32[];
+      }`);
+    const fields = messages(doc)[0].fields!;
+    assert.deepEqual(fields[0].decorators?.map((d) => [d.name, d.args?.[0].value]), [["encode", "number"]]);
+    assert.equal(fields[1].decorators, undefined);
+    assert.equal(fields[2].decorators, undefined);
+  });
+});

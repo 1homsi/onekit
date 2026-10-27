@@ -728,6 +728,9 @@ func (c *converter) fieldType(fc *fileContext, f *onkschema.FieldDecl, encode st
 		return "", nil, err
 	}
 	switch {
+	case (t.Name == "int64" || t.Name == "uint64") && f.Repeated:
+		// TypeSpec's int64[] is numbers; .onk's follows int64_encoding.
+		decorators = append(decorators, `@Onkt.encode("string")`)
 	case (t.Name == "int64" || t.Name == "uint64") && !f.Repeated:
 		switch encode {
 		case "number":

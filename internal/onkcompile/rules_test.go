@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/1homsi/onekit/internal/onklang"
 )
 
 func compileRules(t *testing.T, src string) error {
@@ -216,5 +218,29 @@ func TestMetaDecoratorValidation(t *testing.T) {
 	ws := "package api\nmessage R { id: string }\nservice S {\n  stream(R) -> R @ws(\"/ws\") @meta(\"a\", \"b\")\n}\n"
 	if err := compileRules(t, ws); err == nil || !strings.Contains(err.Error(), "@meta") {
 		t.Errorf("@meta on a WebSocket method should be rejected, got %v", err)
+	}
+}
+
+func TestRepeatedInt64CanBeEncodedAsNumbers(t *testing.T) {
+	src := `package api
+message M {
+  ids: int64[] @encode("number")
+  keys: uint64[]
+}
+`
+	ast, err := onklang.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := Compile([]Source{{Path: "/p/api.onk", AST: ast}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := pkg.Files[0].Messages[0].Fields
+	if !fields[0].Int64Number || len(fields[0].Decorators) != 0 {
+		t.Fatalf("ids = %+v, want numeric items and no @encode left", fields[0])
+	}
+	if fields[1].Int64Number {
+		t.Fatal("a repeated int64 without @encode keeps the project default")
 	}
 }

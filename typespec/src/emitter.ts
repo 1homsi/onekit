@@ -319,7 +319,8 @@ class DocumentBuilder {
    * `@maxLength` written next to each other become one `len`.
    */
   private appliedDecorators(prop: ModelProperty, type: Type, field: S.FieldDecl, add: (name: string, args?: OnktArg[]) => void): void {
-    const scalar = type.kind === "Scalar" ? stdScalar(type) : undefined;
+    const itemType = type.kind === "Model" && isArrayModelType(this.program, type) ? type.indexer.value : type;
+    const scalar = itemType.kind === "Scalar" ? stdScalar(itemType) : undefined;
     // TypeSpec lists decorators in the order it applied them, bottom-up.
     const apps = [...prop.decorators].reverse();
     const nameOf = (i: number) => apps[i]?.definition?.name;
@@ -336,7 +337,11 @@ class DocumentBuilder {
             if (field.type?.map) field.type.mapKey = d.args[0].value;
             continue;
           }
-          if (d.name === "encode") sawEncode = true;
+          if (d.name === "encode") {
+            sawEncode = true;
+            // "string" keeps 64-bit integers in the project's default form.
+            if (d.args[0]?.value === "string") continue;
+          }
           add(d.name, d.args);
         }
         continue;
@@ -417,7 +422,9 @@ class DocumentBuilder {
 
   /** Maps TypeSpec's `@encode` onto onkt's wire encodings. */
   private encoding(prop: ModelProperty, scalar: string | undefined, field: S.FieldDecl): string | undefined {
-    if (field.repeated || !field.type || field.type.map) return undefined;
+    if (!field.type || field.type.map) return undefined;
+    // A repeated field can only be told to carry 64-bit integers as numbers.
+    if (field.repeated && scalar !== "int64" && scalar !== "uint64") return undefined;
     if (findOnktDecorator(this.program, prop, "encode")) return undefined;
     const encode = getEncode(this.program, prop);
     switch (scalar) {
