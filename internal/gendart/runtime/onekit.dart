@@ -248,7 +248,7 @@ Object onekitTimeEncode(DateTime value, String encoding) {
     case 'unix_millis':
       return utc.millisecondsSinceEpoch;
     case 'date':
-      return '${utc.year.toString().padLeft(4, '0')}-${_two(utc.month)}-${_two(utc.day)}';
+      return '${value.year.toString().padLeft(4, '0')}-${_two(value.month)}-${_two(value.day)}';
     default:
       return utc.toIso8601String();
   }
