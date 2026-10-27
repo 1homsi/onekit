@@ -32,6 +32,9 @@ type Options struct {
 	// at, given its source file; .onk infers it from the directory, while
 	// TypeSpec routes are always explicit.
 	BasePath func(sourcePath string) string
+	// Lenient writes a type name that resolves to nothing as it is spelled,
+	// for converting documentation snippets that use undeclared types.
+	Lenient bool
 }
 
 // EntryFile is the TypeSpec file every project compiles from.
@@ -269,6 +272,9 @@ func (c *converter) resolve(src Source, name string) (*decl, error) {
 	}
 	switch matches := c.byName[name]; len(matches) {
 	case 0:
+		if c.options.Lenient {
+			return &decl{pkg: src.AST.Package, name: name}, nil
+		}
 		return nil, fmt.Errorf("unresolved type %q", name)
 	case 1:
 		return matches[0], nil

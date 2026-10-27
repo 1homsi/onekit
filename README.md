@@ -4,43 +4,91 @@
 
 # onekit
 
-onekit is a schema language and toolchain for building HTTP APIs. You describe an API once in `.onk` files, and `onek` generates the code around it: Go servers and clients, TypeScript clients and server routes, Python clients, Dart/Flutter clients, Swift clients, Rust clients and Axum servers, and OpenAPI 3.1 documents.
+onekit generates the code around an HTTP API from its [TypeSpec](https://typespec.io) definition: Go servers and clients, TypeScript clients and server routes, Python clients, Dart/Flutter clients, Swift clients, Rust clients and Axum servers, and OpenAPI 3.1 documents.
 
-One binary does the whole job. The compiler turns your schemas into a single intermediate representation (`internal/onkir`), and every generator reads that same representation, so a rule written once in the schema behaves the same way in every language.
+You describe the API in TypeSpec, the `@onkt/typespec` emitter turns it into onekit's schema, and the `onkt` CLI compiles that into a single intermediate representation (`internal/onkir`) that every generator reads, so a rule written once in the schema behaves the same way in every language.
 
-## The `.onk` language
+## Writing an API in TypeSpec
 
+```typespec
+import "@typespec/http";
+import "@onkt/typespec";
+
+using TypeSpec.Http;
+
+namespace example.users;
+
+model User {
+  id: string;
+  name: string;
+  email: string;
+}
+
+model CreateUserRequest {
+  @minLength(2) @maxLength(100) name: string;
+  @format("email") email: string;
+}
+
+@error
+model NotFound {
+  @statusCode _: 404;
+  message: string;
+}
+
+alias ApiKey = {
+  @header("X-API-Key") @format("uuid") apiKey: string;
+};
+
+@route("/v1")
+interface UserService {
+  @post @route("/users") createUser(...ApiKey, ...CreateUserRequest): User;
+}
 ```
-package example.users
 
-message User {
-  id: string
-  name: string
-  email: string
-}
+Everything TypeSpec already has a word for is read from TypeSpec itself: `@route` and the verb decorators, `@header`, `@query`, `@body`, `@minLength`/`@maxLength`, `@minValue`/`@maxValue` and their exclusive forms, `@minItems`/`@maxItems`, `@pattern`, `@format("email" | "uuid" | "uri")`, `@encode`, doc comments, `#deprecated`, `T | null`, enums, and `@error` models with a `@statusCode`.
 
-message CreateUserRequest {
-  name: string @len(2, 100)
-  email: string @email
-}
+Two things onekit is built around:
 
-service UserService {
-  base_path: "/v1"
-  headers: {
-    "X-API-Key": string @required @format("uuid")
-  }
+- **Error unions**: `createUser(...): User | NotFound | ValidationError` makes a method's possible errors part of the schema, so generated clients offer exhaustive, statically typed error handling.
+- **Doc comments** (`/** */` or `@doc`) that flow straight into generated Go and Dart doc comments, TS/Python docstrings, and OpenAPI descriptions. `#deprecated "reason"` on a property or operation gives `Deprecated:` notes in Go, `@deprecated` in TypeScript, `#[deprecated]` in Rust, `@Deprecated` in Dart, a `DeprecationWarning` from Python client calls, and `deprecated: true` in OpenAPI.
 
-  createUser(CreateUserRequest) -> User @post("/users")
-}
-```
+### How the schema maps
 
-Fields carry no numbers to manage, and attributes are written as `@decorator(args)` on the field or method they apply to. The language is pre-1.0 and evolving; read [`examples/onk-simple-api`](examples/onk-simple-api) for a complete, working example, or `internal/onklang` for the grammar itself.
+| TypeSpec | onekit |
+| --- | --- |
+| `model` | message; spread a model into an operation (`op f(...M)`) and `M` is the request message |
+| `interface` with `@route` | service with that base path; each operation is an RPC |
+| `A \| B` return type with `@error` models | the response and the typed errors |
+| `{ @statusCode _: 201; @body body: T }` | a `201` success status |
+| `@header` on an operation parameter | a header contract; one spread into every operation (`...ApiKey`) belongs to the whole service |
+| a named `union` of models | a oneof written `{"type": "<variant>", "<variant>": {...}}`; `@Onkt.discriminator("kind")` renames the key |
+| `@discriminated(#{ discriminatorPropertyName: "kind", envelope: "none" })` union | a flattened oneof, the variant's fields next to the discriminator |
+| `"a" \| "b"` string property | an allowed-values check |
+| `x?: T \| null` | a nullable field: absent, `null` and a value survive a round trip |
+| `Record<T>` | a map with string keys (`@Onkt.mapKey("int64")` for integer keys) |
+| `int64` | a JSON number; `@encode(string) int64` crosses as a string |
+| `utcDateTime`, `plainDate`, `unknown`, `bytes` | timestamp, a date, any JSON value, base64 bytes |
+| `@route("/{+path}")` | a wildcard tail parameter |
 
-Two things `.onk` is built around:
+### onkt decorators
 
-- **RPC error unions** — `-> User | NotFoundError | ValidationError` makes a method's possible errors part of the schema, so generated clients offer exhaustive, statically typed error handling.
-- **Doc comments** (`///`) that flow straight into generated Go and Dart doc comments, TS/Python docstrings, and OpenAPI descriptions.
-  Mark fields and RPCs with `@deprecated` or `@deprecated("reason")` to get `Deprecated:` notes in Go, `@deprecated` in TypeScript, `#[deprecated]` in Rust, `@Deprecated` in Dart, a `DeprecationWarning` from Python client calls, and `deprecated: true` in OpenAPI.
+The `Onkt` namespace adds what TypeSpec has no decorator for:
+
+| Decorator | Meaning |
+| --- | --- |
+| `@Onkt.stream` | the operation answers with server-sent events of its return type |
+| `@Onkt.ws` | the operation is a bidirectional WebSocket call |
+| `@Onkt.authorize(expr, message)`, `@Onkt.principal` | authorization rules the server enforces, and the model that describes the caller |
+| `@Onkt.requires(...scopes)`, `@Onkt.guard(...)`, `@Onkt.meta(key, value)` | scopes, guards and metadata handed to server code with the route |
+| `@Onkt.rule(expr, message)` | a validation rule in onekit's expression language |
+| `@Onkt.required` | the value must be present and non-empty |
+| `@Onkt.http(#{ contentType, request, response })` | a route handled by hand-written code |
+| `@Onkt.maxBody("64MiB")`, `@Onkt.method("ANY" \| "QUERY")` | a per-method body limit, and the methods TypeSpec has no verb for |
+| `@Onkt.flatten`, `@Onkt.unwrap`, `@Onkt.empty`, `@Onkt.object`, `@Onkt.encode` | JSON mapping |
+| `@Onkt.wsId`, `@Onkt.wsTimeout`, `@Onkt.wsCancel`, `@Onkt.raw` | WebSocket correlation, deadlines, cancellation and binary frames |
+| `@Onkt.tag`, `@Onkt.json`, `@Onkt.values`, `@Onkt.range`, `@Onkt.example`, `@Onkt.auth`, `@Onkt.parent` | the rest of onekit's schema vocabulary |
+
+Each decorator is documented in [`typespec/lib/main.tsp`](typespec/lib/main.tsp), and [`examples/simple-api`](examples/simple-api) is a complete, working project.
 
 ## What it generates
 
@@ -54,27 +102,33 @@ Two things `.onk` is built around:
 | `internal/genswift` | Swift models (final classes, enums with associated-value oneofs) and validation, and an `async`/`await` `URLSession` client with SSE streams, for iOS and macOS |
 | `internal/genopenapi` | OpenAPI 3.1 documents (via `pb33f/libopenapi`) |
 
-All target languages and formats are driven off the same compiled schema (`internal/onkir`), produced by parsing `.onk` (`internal/onklang`) and resolving cross-references (`internal/onkcompile`).
+All targets are driven off the same compiled schema (`internal/onkir`), produced from the emitter's schema document (`internal/onkschema`) by `internal/onkcompile`.
 
 ## Quick start
+
+`onkt` compiles TypeSpec with the project's own TypeSpec toolchain, so a project needs Node.js and npm.
+
+```bash
+onkt init ./my-api          # onkt.toml, main.tsp and package.json
+cd my-api
+npm install                 # @typespec/compiler, @typespec/http, @onkt/typespec
+onkt build                  # generates everything configured in onkt.toml
+```
+
+To work on onekit itself:
 
 ```bash
 git clone https://github.com/1homsi/onekit.git
 cd onekit
-make build          # builds ./bin/onek
-```
-
-Try the example:
-
-```bash
-cd examples/onk-simple-api
+make build          # builds ./bin/onkt
+make typespec       # installs the npm workspace and builds the @onkt/typespec emitter
+cd examples/simple-api
 go test ./...        # exercises the already-generated code end to end
-../../bin/onek compat ./previous-schema .  # reports breaking contract changes
-../../bin/onek build .   # regenerates api/*.gen.go and docs/openapi.{yaml,json} from models.onk + service.onk
+../../bin/onkt build # regenerates api/*.gen.go and docs/openapi.{yaml,json} from main.tsp and models.tsp
 ```
 
-**On Windows**, the released `onek.exe` binary works standalone with no extra
-setup. Building the repo itself (`make build`, `make check-generated`,
+**On Windows**, the released `onkt.exe` binary works standalone (with Node.js
+for TypeSpec). Building the repo itself (`make build`, `make check-generated`,
 `scripts/run_tests.sh`) needs GNU Make and a POSIX-ish shell, neither of
 which ship with Windows by default. CI runs this on `windows-latest` via
 Chocolatey's `make` package plus the `sh`/`bash`/coreutils that come with Git
@@ -82,9 +136,23 @@ for Windows (already on `PATH` if you have Git installed); the same setup
 (`choco install make`, and Git for Windows for `git`) works locally. WSL or
 a Git Bash terminal is the simplest way to get all of it at once.
 
-## The `onek` CLI
+## Moving from `.onk`
 
-A project is a directory with an `onekit.toml` and one or more `.onk` files:
+onekit used to have its own schema language, `.onk`. `onkt migrate` converts a
+project: it writes a `.tsp` file next to every `.onk` file, a `main.tsp` that
+imports them, and a `package.json` for the TypeSpec toolchain, renames
+`onekit.toml` to `onkt.toml`, and removes the `.onk` files (`--keep` leaves
+them). Then run `npm install` and `onkt build`; the generated code is the same
+as before, byte for byte. `onkt compat --against main` still reads a `.onk`
+baseline, so the move can be checked against the schema it replaces.
+
+The CLI used to be called `onek`. Releases still carry the binary under that
+name too, and `onekit.toml` and the `ONEK_*` environment variables are still
+read, so existing scripts keep working while you switch.
+
+## The `onkt` CLI
+
+A project is a directory with an `onkt.toml`, a `main.tsp` and a `package.json`:
 
 ```toml
 module = "github.com/you/yourapp/api"
@@ -118,6 +186,11 @@ version = "1.0.0"
 servers = ["https://api.example.com"]
 ```
 
+TypeSpec compiles from `main.tsp` at the schema root, and every other `.tsp`
+file is reached through its imports. The directory a declaration's source
+file sits in decides its generated package, so a project with several
+services keeps each in its own directory.
+
 The OpenAPI target writes one YAML/JSON pair per service, mirroring the schema
 directory structure: `api/hub/business/v1` produces
 `docs/hub/business/v1/openapi.yaml` and `openapi.json`. Each document includes
@@ -127,15 +200,14 @@ Directories containing multiple services use `<ServiceName>.openapi.yaml` and
 
 `route_prefix` is optional. It prepends a public HTTP prefix to every generated
 server, client, and OpenAPI route without changing generated package or import
-paths. For example, schemas under `hub/business/v1` still generate into
-`hub/business/v1`, while their routes start with `/api/hub/business/v1`.
+paths.
 
 `schema_root` is optional and lets the schema tree live in a subdirectory of
-the project (the directory containing `onekit.toml`) while generator outputs
+the project (the directory containing `onkt.toml`) while generator outputs
 stay anchored at the project root:
 
 ```toml
-# onekit.toml at the repository root; schemas live in api/
+# onkt.toml at the repository root; schemas live in api/
 module = "github.com/you/yourapp/gen/go"
 schema_root = "api"
 
@@ -143,106 +215,103 @@ schema_root = "api"
 out = "gen/go"
 ```
 
-Base-path inference and cross-package import paths mirror directories under
-`schema_root`; output containment keeps being validated against the project
-directory, and the drift manifest stays at `<project>/.onekit/manifest.json`
-with `schema_files` recorded relative to the schema root.
+Package import paths mirror directories under `schema_root`; output
+containment keeps being validated against the project directory, and the
+drift manifest stays at `<project>/.onekit/manifest.json` with `schema_files`
+recorded relative to the schema root.
 
 The prefix must be a canonical literal URL path such as `/api` or
 `/api/internal`: it must start with `/`, must not end with `/`, and cannot
 contain query strings, fragments, percent escapes, or path parameters.
 
 ```bash
-onek check   # parse + compile every .onk file, no codegen - fast validation
-onek build   # parse + compile + generate everything configured in onekit.toml
-onek fmt     # canonicalize .onk files (use --check in CI)
-onek init ./my-api                          # Go server and client
-onek init --template fullstack ./my-app     # Go server + TypeScript, Flutter and Swift clients
-onek init --list-templates                  # every starter project
-onek watch   # rebuild on schema/config changes until interrupted
-onek mock    # dev server serving schema-derived fixtures for every route
-onek import api.yaml        # convert an OpenAPI 3.x document into .onk
-onek import service.proto   # convert a .proto service into .onk
+onkt check   # compile the TypeSpec and check it, no codegen - fast validation
+onkt build   # compile + generate everything configured in onkt.toml
+onkt init ./my-api                          # Go server and client
+onkt init --template fullstack ./my-app     # Go server + TypeScript, Flutter and Swift clients
+onkt init --list-templates                  # every starter project
+onkt watch   # rebuild on schema/config changes until interrupted
+onkt mock    # dev server serving schema-derived fixtures for every route
+onkt import api.yaml        # convert an OpenAPI 3.x document into TypeSpec
+onkt import service.proto   # convert a .proto service into TypeSpec
+onkt migrate                # convert a .onk project to TypeSpec
 ```
 
-`onek init` writes `onekit.toml` and a working `api.onk` you can `onek build`
-straight away. `--template` picks the stack: `go` (the default), `web` (Go
-server plus a TypeScript client), `fullstack` (that plus Dart/Flutter and Swift
-clients), `mobile` (Flutter and Swift clients for a backend you already run),
-`ts` (TypeScript server and client), and `rust` (axum server and client).
-Every template except `go` starts from the same small Todo service (list,
-create, get with a typed `NotFound`, and an SSE stream). The starters are
-deliberately unopinionated: the generated TypeScript depends on nothing but
-`fetch`. MSW handlers are an opt-in flag (`msw`) on `[generate.ts-client]` for
-projects that want them.
+Format TypeSpec with `npx tsp format "**/*.tsp"`, and use the TypeSpec
+extension for VS Code (or any editor with the TypeSpec language server) for
+completion, navigation and diagnostics. `onkt check --json` reports TypeSpec
+and onekit diagnostics alike with path, line and column.
 
-`onek build` is incremental: it keeps a small per-project record of the last
+`onkt init` writes `onkt.toml`, `main.tsp` and `package.json`; after
+`npm install` the project builds straight away. `--template` picks the stack:
+`go` (the default), `web` (Go server plus a TypeScript client), `fullstack`
+(that plus Dart/Flutter and Swift clients), `mobile` (Flutter and Swift
+clients for a backend you already run), `ts` (TypeScript server and client),
+and `rust` (axum server and client). Every template except `go` starts from
+the same small Todo service (list, create, get with a typed `NotFound`, and
+an SSE stream). The starters are deliberately unopinionated: the generated
+TypeScript depends on nothing but `fetch`. MSW handlers are an opt-in flag
+(`msw`) on `[generate.ts-client]` for projects that want them.
+
+`onkt build` is incremental: it keeps a small per-project record of the last
 successful build in your user cache directory (outside the repository). When
-the schemas, `onekit.toml` and the `onek` binary are all unchanged, and every
+the schemas, `onkt.toml` and the `onkt` binary are all unchanged, and every
 generated file is still exactly as it was written, the build is skipped and
 reports `up to date`. Editing, deleting, or re-checking-out any generated file
-triggers a normal rebuild. `onek build --check` never uses the cache. Set
-`ONEK_NO_CACHE=1` to disable it, or `ONEK_CACHE_DIR` to relocate it.
+triggers a normal rebuild. `onkt build --check` never uses the cache. Set
+`ONKT_NO_CACHE=1` to disable it, or `ONKT_CACHE_DIR` to relocate it.
 
 When only some schemas changed, the build regenerates only the packages that
 depend on them. A package is kept when its own schema files, the schema files
-of every package whose types it uses, the list of packages, `onekit.toml` and
-the `onek` binary are all unchanged, and its generated files are still exactly
-as the last build wrote them. In a 200-package project with the Go, TypeScript,
-Python and OpenAPI targets, rebuilding after editing one package went from
-0.70s to 0.13s. The Go, TypeScript, Python and OpenAPI outputs are kept per
-package; the Dart, Swift and Rust targets, which write project-wide files,
-always regenerate.
+of every package whose types it uses, the list of packages, `onkt.toml` and
+the `onkt` binary are all unchanged, and its generated files are still exactly
+as the last build wrote them. The Go, TypeScript, Python and OpenAPI outputs
+are kept per package; the Dart, Swift and Rust targets, which write
+project-wide files, always regenerate.
 
 ### Importing an existing API
 
-`onek import` turns an OpenAPI 3.x document or a `.proto` file into a `.onk`
+`onkt import` turns an OpenAPI 3.x document or a `.proto` file into a TypeSpec
 schema you can check and build, and prints a warning for everything it cannot
 express instead of dropping it silently. It refuses to write a schema that does
-not pass `onek check`.
+not pass `onkt check`, and writes a `main.tsp` importing it when the output
+directory has none.
 
 The `.proto` reader is built in and needs no external tooling. It converts
 messages (nested ones are flattened to `OuterInner`), enums, `repeated`,
 `optional`, `map<,>` fields, `oneof`, `google.protobuf` well-known types
-(`Timestamp` becomes `timestamp`, `Struct` and `Value` become `json`, wrappers
-become optional scalars, `Empty` becomes an empty message), doc comments, and
+(`Timestamp` becomes `utcDateTime`, `Struct` and `Value` become `unknown`, wrappers
+become optional scalars, `Empty` becomes an empty model), doc comments, and
 `deprecated` options. Services become onekit services: `google.api.http` rules
 give each RPC its verb, path and `body`; an RPC without one becomes
 `POST /<package>.<Service>/<Method>` with all fields in the body. Server
-streaming becomes a GET `@stream` (the request fields become query
+streaming becomes a GET `@Onkt.stream` (the request fields become query
 parameters). Client and bidirectional streaming have no HTTP mapping and
 are skipped with a warning.
 
 Things to know before relying on the result: oneofs use onekit's discriminated
 JSON encoding, field names keep their `snake_case` form, and imported `.proto`
-files are not followed (their types become `json` with a warning). Regenerate
+files are not followed (their types become `unknown` with a warning). Regenerate
 both the client and the server from the converted schema so the two ends agree
 on the wire format.
 
-### Try it in the browser
-
-`make playground` builds a static page into `playground/dist` (`index.html`,
-`onek.wasm`, `wasm_exec.js`): the real compiler and generators, compiled to
-WebAssembly, so you can edit a schema and read the Go, TypeScript, Python,
-Dart, Swift, Rust and OpenAPI output with no install. Serve the folder with any static
-file server (for example `python3 -m http.server -d playground/dist`). It
-formats schemas, shows diagnostics with line and column, and shares a schema as
-a link (the schema travels in the URL fragment and never leaves the browser).
-
 ## Streaming over POST with typed events
 
-`@stream` works with any verb. With a body-bearing verb the request travels as a JSON body, so large requests (messages, images) stream a response without query-string limits:
+`@Onkt.stream` works with any verb. With a body-bearing verb the request travels as a JSON body, so large requests (messages, images) stream a response without query-string limits:
 
-```onk
-message TurnEvent {
-  payload: oneof(discriminator: "type") {
-    text: Text @tag("text")
-    done: Done @tag("done")
-  }
+```typespec
+@Onkt.discriminator("type")
+union TurnEventPayload {
+  @Onkt.tag("text") text: Text,
+  @Onkt.tag("done") done: Done,
 }
 
-service Agent {
-  turn(TurnRequest) -> TurnEvent @post("/turn") @stream
+model TurnEvent {
+  payload: TurnEventPayload;
+}
+
+interface Agent {
+  @post @route("/turn") @Onkt.stream turn(...TurnRequest): TurnEvent;
 }
 ```
 
@@ -252,15 +321,14 @@ Servers send `: ping` comment frames every 15 seconds, which also commits the re
 
 ## Bidirectional WebSocket streaming
 
-Alongside SSE (`@stream`), a method can be declared as a bidirectional
+Alongside SSE (`@Onkt.stream`), a method can be declared as a bidirectional
 WebSocket RPC. Request messages flow client-to-server and response messages
 server-to-client as JSON frames of the declared types:
 
-```onk
-service ChatService {
-  base_path: "/v1"
-
-  chat(ChatMessage) -> ChatEvent @ws("/rooms/{room}")
+```typespec
+@route("/v1")
+interface ChatService {
+  @Onkt.ws @route("/rooms/{room}") chat(...ChatMessage): ChatEvent;
 }
 ```
 
@@ -272,7 +340,7 @@ service ChatService {
   TypeScript: promise-based `receive()`; Python/Rust/Dart: `send`/`receive`)
   instead of a one-shot response.
 
-Peer dependencies per target, only when the schema uses `@ws`: Go needs
+Peer dependencies per target, only when the schema uses `@Onkt.ws`: Go needs
 `github.com/coder/websocket`, Python needs `websockets>=12`, Dart needs
 `web_socket_channel`, the Rust client
 needs `tokio-tungstenite`; servers reuse their existing framework sockets
@@ -282,7 +350,7 @@ below, which needs the `ws` package.
 ### Using the Dart client from Flutter
 
 `dart-client` writes a shared runtime (`onekit.dart`, plus `onekit_ws*.dart`
-when the schema uses `@ws`) at the output root and a `models.dart` and
+when the schema uses `@Onkt.ws`) at the output root and a `models.dart` and
 `client.dart` per schema package. Point `out` inside your app's `lib/` and add
 the dependencies:
 
@@ -309,7 +377,7 @@ classes you can `switch` over, timestamps are `DateTime`, bytes are
 exceptions, other failures as `UnexpectedStatusException`, and requests time
 out after 30 seconds unless `timeout` says otherwise. The same code runs on
 Flutter web, with two browser limits: browsers cannot send custom headers on
-a WebSocket handshake, so `@ws` methods throw `UnsupportedError` there when the
+a WebSocket handshake, so `@Onkt.ws` methods throw `UnsupportedError` there when the
 client has headers (pass credentials as `@query` fields instead), and `int`
 holds exact integers only up to 2^53.
 
@@ -347,12 +415,12 @@ level, so a single-package project has no namespace at all. The build stops
 with a clear message if a root type is named like a namespace, or if two
 directories map to the same namespace.
 
-Limit of the Swift target so far: `@ws` methods are not generated (a schema
-with only `@ws` methods gets no client file).
+Limit of the Swift target so far: `@Onkt.ws` methods are not generated (a schema
+with only `@Onkt.ws` methods gets no client file).
 
-### Deploying a generated TypeScript `@ws` server
+### Deploying a generated TypeScript `@Onkt.ws` server
 
-`ts-server` emits two entry points per service with `@ws` methods, so the
+`ts-server` emits two entry points per service with `@Onkt.ws` methods, so the
 same generated output runs on either family of server runtime:
 
 ```ts
@@ -382,50 +450,57 @@ attachChatServiceNodeSocketHandlers(server, handlerImpl);
 server.listen(8080);
 ```
 
-Regular (non-`@ws`) routes get the same treatment. `attachChatServiceNodeHandlers(server, handlerImpl)`
+Regular (non-`@Onkt.ws`) routes get the same treatment. `attachChatServiceNodeHandlers(server, handlerImpl)`
 serves them on an `http.Server`, and an unmatched path gets a 404 when nothing else
 listens. `createChatServiceNodeHandler(handlerImpl)` returns `(req, res) => boolean`
 for composing with your own request listener. Both take any object shaped like
 `node:http`'s, so the generated server needs neither `@types/node` nor `ws`
-unless it has `@ws` methods.
+unless it has `@Onkt.ws` methods.
 
-### Multiplexed correlated calls with `@ws_id`
+### Multiplexed correlated calls with `@Onkt.wsId`
 
-A single `@ws` connection can carry many independent, concurrent exchanges -
+A single `@Onkt.ws` connection can carry many independent, concurrent exchanges -
 for example a server that pushes an arbitrary number of asynchronous
 `HostCall` frames while handling one long-running request, each of which the
 client must answer with a matching `HostResult` before the server continues,
 all interleaved and resolved out of order. Model the frame as a `oneof` and
-mark whichever field carries the correlation key with `@ws_id`:
+mark whichever field carries the correlation key with `@Onkt.wsId`:
 
-```onk
-message HostCall { id: string @ws_id
-method: string }
-message HostResult { id: string @ws_id
-value: string }
-
-message Frame {
-  payload: oneof(discriminator: "type") {
-    run: RunRequest @tag("run")
-    host_call: HostCall @tag("host_call")
-    host_result: HostResult @tag("host_result")
-    run_result: RunResult @tag("run_result")
-  }
+```typespec
+model HostCall {
+  @Onkt.wsId id: string;
+  method: string;
 }
 
-service Runtime {
-  base_path: "/v1"
+model HostResult {
+  @Onkt.wsId id: string;
+  value: string;
+}
 
-  execute(Frame) -> Frame @ws("/execute")
+@Onkt.discriminator("type")
+union FramePayload {
+  @Onkt.tag("run") run: RunRequest,
+  @Onkt.tag("host_call") host_call: HostCall,
+  @Onkt.tag("host_result") host_result: HostResult,
+  @Onkt.tag("run_result") run_result: RunResult,
+}
+
+model Frame {
+  payload: FramePayload;
+}
+
+@route("/v1")
+interface Runtime {
+  @Onkt.ws @route("/execute") execute(...Frame): Frame;
 }
 ```
 
-`@ws_id` is a plain field-level decorator (like `@required`): put it on a
+`@Onkt.wsId` is a plain field-level decorator (like `@Onkt.required`): put it on a
 non-repeated `string`/`int32`/`int64`/`uint32`/`uint64` field, either directly
-on a `@ws` method's request/response message or inside one of its oneof
-variants. Every `@ws_id` field a single method touches (across both
-directions) must resolve to the same scalar type - `onek check` rejects a
-mix, and rejects more than one `@ws_id` field in the same message or variant.
+on a `@Onkt.ws` method's request/response message or inside one of its oneof
+variants. Every `@Onkt.wsId` field a single method touches (across both
+directions) must resolve to the same scalar type - `onkt check` rejects a
+mix, and rejects more than one `@Onkt.wsId` field in the same message or variant.
 
 Once declared, every generated backend gives both the server handler's `out`
 and the client's duplex handle a `call(id, value)` (Go/Rust) / `.call(id, value)`
@@ -437,7 +512,7 @@ the call sent: an inbound `host_call` that happens to reuse the id of your own
 in-flight `host_call` is the peer starting its own call, so it reaches the
 handler/`receive()` instead of being taken for the reply. Plain `Send`/`Receive` keep working for frames that were
 never routed to a pending call. This also closes a correctness gap that
-otherwise applies to `@ws` even without correlation: every send is now
+otherwise applies to `@Onkt.ws` even without correlation: every send is now
 serialized (Go: `sync.Mutex`; TypeScript: single event listener; Rust:
 `tokio::sync::Mutex`), so concurrent senders on one connection can't corrupt
 the wire.
@@ -458,16 +533,21 @@ the underlying `websocket.CloseError`), `WSClosedError` (with `code`/
 `closeReason`) in TypeScript, and `WsCallError::Closed` in Rust.
 
 To tell the peer as well, so it can stop working on an abandoned call, mark
-one oneof variant with `@ws_cancel`. Its message must carry the `@ws_id`:
+one oneof variant with `@Onkt.wsCancel`. Its message must carry the `@Onkt.wsId`:
 
-```onk
-message Cancel { id: string @ws_id }
+```typespec
+model Cancel {
+  @Onkt.wsId id: string;
+}
 
-message Frame {
-  payload: oneof(discriminator: "type") {
-    // ...the other variants
-    cancel: Cancel @tag("cancel") @ws_cancel
-  }
+@Onkt.discriminator("type")
+union FramePayload {
+  // ...the other variants
+  @Onkt.tag("cancel") @Onkt.wsCancel cancel: Cancel,
+}
+
+model Frame {
+  payload: FramePayload;
 }
 ```
 
@@ -476,15 +556,15 @@ call is abandoned. A cancel frame is never treated as a reply: it arrives at
 the peer's handler (server) or `receive()` (client) like any other frame, and
 the peer decides what stopping means.
 
-### Deadline propagation with `@ws_timeout`
+### Deadline propagation with `@Onkt.wsTimeout`
 
-Mark an integer field next to a call's `@ws_id` with `@ws_timeout`:
+Mark an integer field next to a call's `@Onkt.wsId` with `@Onkt.wsTimeout`:
 
-```onk
-message HostCall {
-  id: string @ws_id
-  method: string
-  timeout_ms: int64 @ws_timeout
+```typespec
+model HostCall {
+  @Onkt.wsId id: string;
+  method: string;
+  @Onkt.wsTimeout @encode(string) timeout_ms: int64;
 }
 ```
 
@@ -497,7 +577,7 @@ wait for.
 
 ### Errors on the wire
 
-A `@ws` connection never carries off-schema frames. When the server rejects
+A `@Onkt.ws` connection never carries off-schema frames. When the server rejects
 a frame that doesn't decode or validate, it closes with status 1007. When a
 handler returns an error, it closes with 1011. Either way the message is the
 close reason, truncated to the protocol's 123 bytes. Go clients see this as a
@@ -525,7 +605,7 @@ Servers ping every 30 seconds and drop a peer that misses a pong, so a hard
 network drop ends the connection instead of hanging until a timeout. Set
 `WithWSPingInterval(d)` in Go (negative disables), `pingIntervalMs` in the
 TypeScript Node adapter (0 disables), or `WsServerOptions::ping_interval` in
-Rust (`None` disables). Clients of methods that use `@ws_id` ping too, every
+Rust (`None` disables). Clients of methods that use `@Onkt.wsId` ping too, every
 30 seconds by default, and fail in-flight calls with a closed error when a
 pong goes missing: `WSPingInterval` in Go, `with_ws_ping_interval` in Rust.
 Browsers and Node's built-in `WebSocket` offer no ping API, so TypeScript
@@ -533,15 +613,15 @@ clients rely on the server's pings. A client that receives a frame it can't deco
 the socket (a 1007 `WSClosedError` in TypeScript, the decode error in Go)
 rather than skipping it.
 
-### Large payloads with `@raw`
+### Large payloads with `@Onkt.raw`
 
-Mark a non-repeated, non-optional `string` or `bytes` field `@raw` to carry it
+Mark a non-repeated, non-optional `string` or `bytes` field `@Onkt.raw` to carry it
 outside the JSON:
 
-```onk
-message RunResult {
-  exit_code: int32
-  result_json: string @raw
+```typespec
+model RunResult {
+  exit_code: int32;
+  @Onkt.raw result_json: string;
 }
 ```
 
@@ -559,7 +639,7 @@ so older peers keep working. In TypeScript a raw `bytes` field is a
 
 A 400 KB `result_json` (Apple M-series, Go 1.26, Node 26):
 
-| | JSON | `@raw` |
+| | JSON | `@Onkt.raw` |
 | --- | --- | --- |
 | Go encode | 2252 µs (v0.16), 635 µs now | 24.6 µs |
 | Go decode | 3470 µs (v0.16), 1642 µs now | 0.6 µs |
@@ -569,10 +649,10 @@ A 400 KB `result_json` (Apple M-series, Go 1.26, Node 26):
 
 ### Messages over 16 MiB
 
-A message larger than 16 MiB (JSON text or a `@raw` binary frame) is sent as
+A message larger than 16 MiB (JSON text or a `@Onkt.raw` binary frame) is sent as
 8 MiB binary chunks. Each chunk carries a 13-byte header: the marker
 `0xFFFFFFFF`, a kind byte (0 text, 1 binary) and the total length as a
-big-endian u64. The receiver reassembles them before decoding, so `@raw`
+big-endian u64. The receiver reassembles them before decoding, so `@Onkt.raw`
 fields remain zero-copy slices of the assembled buffer. The per-message cap
 still applies to each chunk, and the assembled total has its own cap, 256 MiB
 by default: `WithMaxWSMessageBytes` / `MaxWSMessageBytes` in Go,
@@ -597,7 +677,7 @@ connection when a peer exceeds it (status 1009 in Go and TypeScript):
 
 The generated TypeScript depends on nothing but `fetch`. Each message also gets
 a `validate<Message>()` function that returns the violations of its validators
-and `@rule`s, so forms can check input against the exact API contract without a
+and `@Onkt.rule`s, so forms can check input against the exact API contract without a
 schema library. One companion module is opt-in on the `ts-client` target:
 
 ```toml
@@ -607,7 +687,7 @@ msw = true         # msw.ts - Mock Service Worker handlers per route
 ```
 
 - **msw.ts** emits deterministic fixtures derived from validators
-  (`@uuid` → real UUID shape, `@in(...)` → first allowed value, encodings
+  (`@format("uuid")` → real UUID shape, `@in(...)` → first allowed value, encodings
   honored) so component tests intercept fetch with contract-accurate data:
   `worker.use(...userServiceHandlers)`. The `msw` package is a peer dependency
   only when the flag is on.
@@ -618,14 +698,14 @@ in your own `useQuery`, or validate with your own schema library, in a few lines
 
 ### The mock server
 
-`onek mock` compiles your schema tree and serves every route with
+`onkt mock` compiles your schema tree and serves every route with
 schema-derived JSON - realistic values from validators, correct wire
 encodings, declared error statuses, and SSE streams that emit three frames. A
-route implemented as a plain handler (`@http`) answers `501`, because the mock
+route implemented as a plain handler (`@Onkt.http`) answers `501`, because the mock
 cannot know what the handler writes:
 
 ```bash
-onek mock --dir api --addr :8080 \
+onkt mock --dir api --addr :8080 \
   --seed 1 \                # deterministic errors/latency
   --error-rate 0.1 \        # serve declared typed errors ~10% of the time
   --latency 300ms           # inject up to 300ms jitter per request
@@ -652,15 +732,15 @@ contracts feed server checks and OpenAPI security schemes; generated TypeScript
 handlers, Go authorization hooks, and Rust request contexts expose the incoming
 headers for application-level authentication.
 
-### Nullable fields with `@nullable`
+### Nullable fields with `T | null`
 
-An optional field (`?`) is omitted from the wire when unset. Add `@nullable` and it has three states that survive a round trip: absent, an explicit `null`, and a value. This is what a PATCH body needs to tell "leave it alone" from "clear it".
+An optional property (`?`) is omitted from the wire when unset. Make its type `T | null` and it has three states that survive a round trip: absent, an explicit `null`, and a value. This is what a PATCH body needs to tell "leave it alone" from "clear it".
 
-```onk
-message UpdateEnvironment {
-  id: int64 @encode("number")
-  name: string? @nullable
-  folder_id: int64? @nullable @encode("number")
+```typespec
+model UpdateEnvironment {
+  id: int64;
+  name?: string | null;
+  folder_id?: int64 | null;
 }
 ```
 
@@ -674,19 +754,19 @@ message UpdateEnvironment {
 | Swift | the field plus `nameNull` |
 | OpenAPI | the schema allows `null` |
 
-In a message that only responses use (some RPC returns it and no RPC accepts it), a `@nullable` field is always on the wire: Go writes `null` for an unset field without needing the `Null` flag, so the TypeScript property is required and typed `T | null` (`folder_id: number | null`, `app: App | null`) and the decoder turns a missing key into `null`. A message that is also a request keeps the three-state form above. A plain `?` field without `@nullable` stays optional, since Go omits it when unset.
+In a message that only responses use (some RPC returns it and no RPC accepts it), a nullable field is always on the wire: Go writes `null` for an unset field without needing the `Null` flag, so the TypeScript property is required and typed `T | null` (`folder_id: number | null`, `app: App | null`) and the decoder turns a missing key into `null`. A message that is also a request keeps the three-state form above. A plain `?` property without `| null` stays optional, since Go omits it when unset.
 
-`@nullable` needs the `?` marker and a plain wire form: it cannot be combined with `@required`, `@query`, `@flatten`, `@unwrap`, `@empty`, an `@encode` on an enum, message or timestamp, or `bytes`, and a 64-bit integer must be numeric (`int64_encoding = "number"` or `@encode("number")`). Rules and validators treat `null` as absent.
+`| null` needs the `?` marker and a plain wire form: it cannot be combined with `@Onkt.required`, `@query`, `@Onkt.flatten`, `@Onkt.unwrap`, `@Onkt.empty`, an `@encode` on an enum, message or timestamp, or `bytes`, and a 64-bit integer must be numeric (a plain `int64`, not `@encode(string)`). Rules and validators treat `null` as absent.
 
 ### Wildcard path parameters and empty routes
 
-A path parameter written `{name...}` captures the rest of the path, slashes included. It must be the last segment, bind to a `string` request field, and cannot be used on `@ws` routes.
+A path parameter written `{+name}` captures the rest of the path, slashes included. It must be the last segment, bind to a `string` request field, and cannot be used on `@Onkt.ws` routes.
 
-```onk
-service Files {
-  base_path: "/files"
-  read(FileRef) -> Content @get("/{path...}")
-  root(Empty) -> Content @get("")
+```typespec
+@route("/files")
+interface Files {
+  @get @route("/{+path}") read(...FileRef): Content;
+  @get root(...Empty): Content;
 }
 ```
 
@@ -694,17 +774,18 @@ service Files {
 
 `@get("")` (any verb) is allowed when the service sets `base_path`, and serves exactly the base path. An exact route wins over a wildcard route that could also match. The Go, TypeScript and mock servers match `/files/` with an empty `path`; the Rust server (axum) requires at least one character.
 
-### Route metadata with `@meta`
+### Route metadata with `@Onkt.meta`
 
-`@meta(key, value)` attaches a free-form pair to a method and hands it to your own code at runtime, so facts about a route that your middleware needs, such as the permission it checks or the audit event it records, live in the schema next to the route instead of in a second table:
+`@Onkt.meta(key, value)` attaches a free-form pair to a method and hands it to your own code at runtime, so facts about a route that your middleware needs, such as the permission it checks or the audit event it records, live in the schema next to the route instead of in a second table:
 
-```onk
-edit(EditApp) -> App @post("/apps/{slug}/edit")
-  @meta("guard", "app/edit/:slug")
-  @meta("audit.event", "app.update")
+```typespec
+@post @route("/apps/{slug}/edit")
+@Onkt.meta("guard", "app/edit/:slug")
+@Onkt.meta("audit.event", "app.update")
+edit(...EditApp): App;
 ```
 
-It is repeatable, keys are lower-case (`[a-z][a-z0-9_.-]*`) and unique per method, and values are 1 to 200 bytes. It is not supported on `@ws` methods. onekit attaches no meaning to the pairs.
+It is repeatable, keys are lower-case (`[a-z][a-z0-9_.-]*`) and unique per method, and values are 1 to 200 bytes. It is not supported on `@Onkt.ws` methods. onekit attaches no meaning to the pairs.
 
 | Target | Where you read it |
 | --- | --- |
@@ -712,18 +793,18 @@ It is repeatable, keys are lower-case (`[a-z][a-z0-9_.-]*`) and unique per metho
 | TypeScript server | `route.meta` in `authorize(req, route)`, and `context.meta` in the handler |
 | Rust server | `context.meta_value(key)` and `context.meta` in the handler |
 | OpenAPI | `x-onekit-meta` on the operation |
-| `onek compat` | adding, removing or changing a pair is reported as a contract change |
+| `onkt compat` | adding, removing or changing a pair is reported as a contract change |
 
 A permission guard keyed on a path parameter is then a few lines: read `guard` from the metadata, read the parameter with `r.PathValue("slug")`, and decide.
 
-### Per-method body limits with `@max_body`
+### Per-method body limits with `@Onkt.maxBody`
 
-Servers cap request bodies at 8 MiB by default (`WithMaxRequestBodyBytes` in Go sets one value for a whole `Register...Server` call). `@max_body` sets a different cap for one method, so a large upload and a small form can live in the same service:
+Servers cap request bodies at 8 MiB by default (`WithMaxRequestBodyBytes` in Go sets one value for a whole `Register...Server` call). `@Onkt.maxBody` sets a different cap for one method, so a large upload and a small form can live in the same service:
 
-```onk
-service Agent {
-  turn(TurnRequest) -> TurnEvent @post("/turn") @stream @max_body("64MiB")
-  rename(RenameRequest) -> Renamed @post("/rename")
+```typespec
+interface Agent {
+  @post @route("/turn") @Onkt.stream @Onkt.maxBody("64MiB") turn(...TurnRequest): TurnEvent;
+  @post @route("/rename") rename(...RenameRequest): Renamed;
 }
 ```
 
@@ -804,7 +885,7 @@ api.RegisterOrdersServer(mux, impl{},
 - **Error envelope.** `httpkit.Envelope` writes `{"error": {"code", "message", "request_id"}}`, plus `field` and `violations` when there are any. The cause of a 5xx is logged with the request id (`slog`, or `Envelope.Logger`) and never sent. `Envelope.ContentType` and `Envelope.Wrap` change the content type and the body shape.
 - **Request state.** `httpkit.Middleware` puts a `*State` in the context: `RequestID` (the incoming header, or a generated id, echoed on the response), `Start`, `ClientIP` and the response `Status()` and `Bytes()`. `X-Forwarded-For` is believed only when the connection comes from a `TrustedProxies` address, and the client address is the closest hop that is not itself a trusted proxy. `httpkit.SetPrincipal(ctx, p)` records the authenticated caller, `httpkit.Principal[T](ctx)` reads it, and `httpkit.MustPrincipal[T](ctx)` panics when it is missing, for routes behind authentication. The principal lives on the shared state, so an `Authorizer` can set it and the handler and observers can read it.
 - **Response size and path values.** `RequestResult` now carries `Bytes` and `PathValues` (the route's path parameters), so an audit log can be a plain `RequestObserver`. `httpkit.NewRecorder` wraps a `ResponseWriter` when you need the same numbers outside the generated server.
-- **Guards.** `@guard("object/level/:id")` on an RPC attaches permission patterns whose `:name` segments must be path parameters of the route. Guards are data for your authorizer, not a check on their own: a route with `@guard` and no `WithAuthorizer` is not protected. `ResolveGuards` refuses a path value that is empty, `.`, `..` or contains `/`, `\` or a control character (a percent-encoded `%2F` decodes to a slash inside one path segment), so a caller cannot reshape the key you check. The server passes them to your authorizer as `RequestMetadata.Guards`, and `httpkit.ResolveGuards(meta.Guards, r.PathValue)` fills in the request's values:
+- **Guards.** `@Onkt.guard("object/level/:id")` on an RPC attaches permission patterns whose `:name` segments must be path parameters of the route. Guards are data for your authorizer, not a check on their own: a route with `@Onkt.guard` and no `WithAuthorizer` is not protected. `ResolveGuards` refuses a path value that is empty, `.`, `..` or contains `/`, `\` or a control character (a percent-encoded `%2F` decodes to a slash inside one path segment), so a caller cannot reshape the key you check. The server passes them to your authorizer as `RequestMetadata.Guards`, and `httpkit.ResolveGuards(meta.Guards, r.PathValue)` fills in the request's values:
 
 ```go
 func authorize(ctx context.Context, meta api.RequestMetadata, r *http.Request) error {
@@ -823,17 +904,30 @@ func authorize(ctx context.Context, meta api.RequestMetadata, r *http.Request) e
 
 ### Routes that are not JSON in, JSON out
 
-Some routes do not fit a message-in, message-out shape: a JavaScript bundle with an `ETag`, an image, an upload that streams to object storage. Declare them in the schema with `@http` and implement them as ordinary `http.Handler` code. They still get the route, the generated bind-and-validate step, `@guard`, `@meta`, `@max_body`, middleware, the authorizer and the request observer.
+Some routes do not fit a message-in, message-out shape: a JavaScript bundle with an `ETag`, an image, an upload that streams to object storage. Declare them in the schema with `@Onkt.http` and implement them as ordinary `http.Handler` code. They still get the route, the generated bind-and-validate step, `@Onkt.guard`, `@Onkt.meta`, `@Onkt.maxBody`, middleware, the authorizer and the request observer.
 
-```onk
-message BundleRequest { slug: string  v: int32 @query }
-message UploadRequest { slug: string  key: string }
-message Nothing {}
+```typespec
+model BundleRequest {
+  slug: string;
+  @query v: int32;
+}
 
-service Apps {
-  base_path: "/apps"
-  bundle(BundleRequest) -> Nothing @get("/{slug}/bundle.js") @http("application/javascript") @guard("apps/read/:slug")
-  put_object(UploadRequest) -> Nothing @put("/{slug}/objects/{key...}") @http @max_body("64MiB")
+model UploadRequest {
+  slug: string;
+  key: string;
+}
+
+model Nothing {}
+
+@route("/apps")
+interface Apps {
+  @get @route("/{slug}/bundle.js")
+  @Onkt.http(#{ contentType: "application/javascript" })
+  @Onkt.guard("apps/read/:slug")
+  bundle(...BundleRequest): Nothing;
+
+  @put @route("/{slug}/objects/{+key}") @Onkt.http @Onkt.maxBody("64MiB")
+  put_object(...UploadRequest): Nothing;
 }
 ```
 
@@ -857,27 +951,42 @@ func (s *service) Bundle(w http.ResponseWriter, r *http.Request, req *api.Bundle
 }
 ```
 
-An error returned before the handler has written anything goes through the error writer, so it uses the same envelope as every other route; an error returned after the response started is not written on top of it. Only path parameters and `@query` fields may be declared on the request message, because the handler reads the body itself (`r.Body`, already limited by `@max_body` or `WithMaxRequestBodyBytes`).
+An error returned before the handler has written anything goes through the error writer, so it uses the same envelope as every other route; an error returned after the response started is not written on top of it. Only path parameters and `@query` fields may be declared on the request message, because the handler reads the body itself (`r.Body`, already limited by `@Onkt.maxBody` or `WithMaxRequestBodyBytes`).
 
 Clients return the raw response: the Go client returns `*http.Response` (and takes `body io.Reader, contentType string` for PUT, POST and PATCH), and the TypeScript client returns a `Response` (with `{ body, contentType }` in the options for routes with a body), so headers such as `ETag`, `res.blob()` and streaming all work. OpenAPI documents the route with a binary body and the declared content type.
 
-`@http` is generated by the `go-server`, `go-client`, `ts-client` and `openapi` targets. The `ts-server`, `python-client`, `dart-client`, `swift-client`, `rust-client` and `rust-server` targets leave raw routes out of their output, so a project can declare them next to typed routes and still generate every target. The message types are still generated everywhere.
+`@Onkt.http` is generated by the `go-server`, `go-client`, `ts-client` and `openapi` targets. The `ts-server`, `python-client`, `dart-client`, `swift-client`, `rust-client` and `rust-server` targets leave raw routes out of their output, so a project can declare them next to typed routes and still generate every target. The message types are still generated everywhere.
 
 #### Saying what the body is
 
-`@http` takes optional `request:` and `response:` arguments after the content type, so the clients know what to emit:
+`@Onkt.http` takes optional `request:` and `response:` arguments after the content type, so the clients know what to emit:
 
-```onk
-message DraftRequest { slug: string  draft: DraftBody }
+```typespec
+model DraftRequest {
+  slug: string;
+  @body draft: DraftBody;
+}
 
-service Apps {
-  base_path: "/apps"
-  draft(DraftRequest) -> Nothing @post("/{slug}/bundle-draft.js") @http("application/javascript", request: "json") @body("draft")
-  policy(Slug) -> Policy @get("/{slug}/local-execution") @http(response: "json")
-  run(Slug) -> Nothing @get("/{slug}/local-execution/run") @http(response: "websocket")
-  oauth(Slug) -> Nothing @get("/{slug}/oauth") @http(response: "redirect")
-  upload(Slug) -> UploadResult @post("/{slug}/uploads") @http(request: "multipart", response: "json") @max_body("64MiB")
-  proxy(ProxyRequest) -> Nothing @any("/{slug}/proxy/{resource}/{path...}") @http @guard("app/use/:slug")
+@route("/apps")
+interface Apps {
+  @post @route("/{slug}/bundle-draft.js")
+  @Onkt.http(#{ contentType: "application/javascript", request: "json" })
+  draft(...DraftRequest): Nothing;
+
+  @get @route("/{slug}/local-execution") @Onkt.http(#{ response: "json" })
+  policy(...Slug): Policy;
+
+  @get @route("/{slug}/local-execution/run") @Onkt.http(#{ response: "websocket" })
+  run(...Slug): Nothing;
+
+  @get @route("/{slug}/oauth") @Onkt.http(#{ response: "redirect" })
+  oauth(...Slug): Nothing;
+
+  @post @route("/{slug}/uploads") @Onkt.http(#{ request: "multipart", response: "json" }) @Onkt.maxBody("64MiB")
+  upload(...Slug): UploadResult;
+
+  @Onkt.method("ANY") @route("/{slug}/proxy/{resource}/{+path}") @Onkt.http @Onkt.guard("app/use/:slug")
+  proxy(...ProxyRequest): Nothing;
 }
 ```
 
@@ -894,13 +1003,13 @@ service Apps {
 | `json` | decodes the declared response message and throws the declared error types | decodes the declared response message |
 | `redirect`, `websocket` | a URL builder only | a URL builder only |
 
-Every other kind needs an empty response message; `response: "json"` takes the message the handler writes. `@any` makes a route answer every HTTP method: the Go server registers the pattern without a method (`RequestMetadata.HTTPMethod` is `"ANY"`), and the clients take the method as an argument (`method string` in Go, `opts.method` in TypeScript, default `GET`).
+Every other kind needs an empty response message; `response: "json"` takes the message the handler writes. `@Onkt.method("ANY")` makes a route answer every HTTP method: the Go server registers the pattern without a method (`RequestMetadata.HTTPMethod` is `"ANY"`), and the clients take the method as an argument (`method string` in Go, `opts.method` in TypeScript, default `GET`).
 
 Every raw route also gets a URL builder in the TypeScript client, for the callers that need a string, such as a `<script src>`, a manifest link or an OAuth start. `appsBundleUrl("https://api.example.com", { slug })` builds it with the path parameters and `@query` fields encoded (and rejects `.` and `..` segments in a wildcard tail), and `client.bundleUrl({ slug })` does the same with the client's base URL. The Go client has the same for every raw route, including `redirect` and `websocket` routes that have no fetch method: `url, err := client.BundleURL(&api.BundleRequest{Slug: slug})`.
 
 #### Wildcard tails, WebSockets and raw handlers
 
-A `{path...}` tail is kept in the Go mux pattern, in `RequestMetadata.Route` and in the TypeScript URL. `net/http` answers a request path with `//` or `.` and `..` segments, such as `/proxy/pg/a//b/../c`, with a redirect to the cleaned path before any handler runs. To pass those paths to a handler as sent, wrap the mux: `http.ListenAndServe(addr, api.PreserveSegments(mux))`. Only requests that match a route with a wildcard tail are affected; every other route keeps the mux's cleaning and redirect. Routes with a wildcard tail then see the original `r.URL.Path`, and `r.PathValue` and the request message hold the tail unchanged. `PreserveSegments` is opt-in, and a tail can now contain `..` and empty segments, so a handler that maps it onto a filesystem or an upstream URL must treat it as untrusted. Until a route's handler runs, middleware and the authorizer see each such segment with a `\x00` prefix, so a path-based check never matches an unclean path by accident.
+A `{+path}` tail is kept in the Go mux pattern, in `RequestMetadata.Route` and in the TypeScript URL. `net/http` answers a request path with `//` or `.` and `..` segments, such as `/proxy/pg/a//b/../c`, with a redirect to the cleaned path before any handler runs. To pass those paths to a handler as sent, wrap the mux: `http.ListenAndServe(addr, api.PreserveSegments(mux))`. Only requests that match a route with a wildcard tail are affected; every other route keeps the mux's cleaning and redirect. Routes with a wildcard tail then see the original `r.URL.Path`, and `r.PathValue` and the request message hold the tail unchanged. `PreserveSegments` is opt-in, and a tail can now contain `..` and empty segments, so a handler that maps it onto a filesystem or an upstream URL must treat it as untrusted. Until a route's handler runs, middleware and the authorizer see each such segment with a `\x00` prefix, so a path-based check never matches an unclean path by accident.
 
 The `http.ResponseWriter` a raw handler receives still implements `http.Flusher` and `http.Hijacker`, so a WebSocket upgrade (`websocket.Accept(w, r, ...)`) and streamed responses work, and `ResponseHeader`, `SetCookie`, `Redirect`, `NotModified` and `SetResponseStatus` keep working through the request's context. A raw route never buffers a request or response body.
 
@@ -914,11 +1023,11 @@ A handler adjusts the response through its context:
 - `api.NotModified(ctx)` answers `304` with no body, while the `200` case still uses the generated JSON encoding.
 - `api.SetResponseStatus(ctx, status)` chooses any 2xx or 3xx status; `204` and `304` send no body.
 
-`@success(204)` on an RPC makes `204 No Content` the default status of the method (`@success(201)` works too), and OpenAPI documents it as such. `onek compat` reports a change.
+Returning `{ @statusCode _: 204; @body body: T }` makes `204 No Content` the default status of the method (`201` works too), and OpenAPI documents it as such. `onkt compat` reports a change.
 
 ### Hand-written routes with the same pipeline
 
-`api.Mount(mux, "/apps/{slug}/proxy/{resource}/{path...}", handler, api.RequestMetadata{Service: "Proxy", Method: "Forward", Route: "/apps/{slug}/proxy/{resource}/{path...}", Meta: map[string]string{"audit.event": "proxy"}, Guards: []string{"apps/use/:slug"}}, opts...)` registers any `http.Handler` with the options the generated routes get: middleware, `WithAuthorizer` and `WithScopes`, the request id and the request observer. Use it for routes the schema cannot describe, such as one that forwards every HTTP method. Pass the same `ServerOption` values you give `Register...Server`.
+`api.Mount(mux, "/apps/{slug}/proxy/{resource}/{+path}", handler, api.RequestMetadata{Service: "Proxy", Method: "Forward", Route: "/apps/{slug}/proxy/{resource}/{+path}", Meta: map[string]string{"audit.event": "proxy"}, Guards: []string{"apps/use/:slug"}}, opts...)` registers any `http.Handler` with the options the generated routes get: middleware, `WithAuthorizer` and `WithScopes`, the request id and the request observer. Use it for routes the schema cannot describe, such as one that forwards every HTTP method. Pass the same `ServerOption` values you give `Register...Server`.
 
 A `RequestObserver` sees what an audit log needs: `RequestResult` carries the status (500 when the handler panicked, with the panic in `Panic`), `Bytes`, `PathValues` and the `Request`. `RequestStarted` can call `httpkit.EnsureState(ctx, api.HTTPRequestFromContext(ctx))` so the request id, the principal (`httpkit.SetPrincipal`) and per-request flags (`httpkit.SetFlag(ctx, "skip-audit")`) are shared with the handlers and readable in `RequestFinished`.
 
@@ -926,7 +1035,7 @@ A `RequestObserver` sees what an audit log needs: `RequestResult` carries the st
 
 ### Shaping error responses
 
-By default every error the generated servers produce themselves, a malformed body, a bad path or query parameter, a missing header, a failed validation or `@authorize` rule, or a handler error with no declared body, is `{"message": "..."}` (with `"violations": [...]` when there are several). Errors a method declares with `@status` keep their declared body. An error message in a method's union that has no `@status` is sent with status `500`, so give every error you expect a `@status`. To send a different shape, install one error writer per server:
+By default every error the generated servers produce themselves, a malformed body, a bad path or query parameter, a missing header, a failed validation or `@Onkt.authorize` rule, or a handler error with no declared body, is `{"message": "..."}` (with `"violations": [...]` when there are several). Errors a method declares with `@statusCode` keep their declared body. An error message in a method's union that has no `@statusCode` is sent with status `500`, so give every error you expect a `@statusCode`. To send a different shape, install one error writer per server:
 
 | Target | How |
 | --- | --- |
@@ -942,11 +1051,11 @@ api.RegisterThingsServer(mux, impl{}, api.WithRequestID("X-Request-ID"), api.Wit
 http.ListenAndServe(addr, api.ErrorHandler(mux, api.WithRequestID("X-Request-ID"), api.WithErrorWriter(envelope)))
 ```
 
-Errors that happen after a stream has started cannot change the HTTP status, so they travel as an `event: error` frame. That frame goes through the same writer: the body is whatever your error writer produces for the handler's error, so the code and message a handler exposes (`PublicCode` and `PublicMessage` in Go, `HttpError` in TypeScript) reach the client in your envelope. Errors a method declares with `@status` keep their declared body, and an unexpected error still shows only the generic message. `error` stays a reserved event name, so a oneof variant of your own should use another name.
+Errors that happen after a stream has started cannot change the HTTP status, so they travel as an `event: error` frame. That frame goes through the same writer: the body is whatever your error writer produces for the handler's error, so the code and message a handler exposes (`PublicCode` and `PublicMessage` in Go, `HttpError` in TypeScript) reach the client in your envelope. Errors a method declares with `@statusCode` keep their declared body, and an unexpected error still shows only the generic message. `error` stays a reserved event name, so a oneof variant of your own should use another name.
 
 Parameter errors no longer include the Go parser's text: a non-numeric `{id}` is `invalid path parameter id: must be an integer`.
 
-A message may have a field called `error` (the Go field is `Error_` on an error message, with the same JSON name), so an envelope such as `{"error": {"code", "message", "request_id"}}` can also be declared as a typed error with `@status`.
+A message may have a field called `error` (the Go field is `Error_` on an error message, with the same JSON name), so an envelope such as `{"error": {"code", "message", "request_id"}}` can also be declared as a typed error with `@statusCode`.
 
 The generated TypeScript client throws `ApiError` for any undeclared status. Besides `statusCode` and the raw `body` it now has the parsed `json`, `message`, `code` and `requestId`. The default parser reads `{message}`, `{code, message, request_id}` and the nested `{error: {...}}` envelope and falls back to the `X-Request-ID` header; pass `errorParser` in the client options for any other shape.
 
@@ -962,18 +1071,16 @@ json_content_type = "application/json; charset=utf-8"
 
 It applies to every JSON response the server writes, errors included, and to the shared runtime when `runtime = "shared"`. The value must be a JSON media type (`application/json` or a `+json` type).
 
-### 64-bit integers as JSON numbers
+### 64-bit integers on the wire
 
-`int64` and `uint64` cross the wire as JSON strings by default, so JavaScript and other double-based parsers never silently lose precision. When your IDs are numbers everywhere and you accept that trade, set it once for the whole project instead of marking every field with `@encode("number")`:
+A TypeSpec `int64` or `uint64` property crosses the wire as a JSON number, as TypeSpec intends. Write `@encode(string) id: int64` to carry it as a JSON string instead, so JavaScript and other double-based parsers never lose precision on values beyond 2^53. Repeated 64-bit integers cannot carry `@encode` and follow the project setting, as do oneof variant payloads, which keep the string form:
 
 ```toml
 module = "example.com/api"
-int64_encoding = "number"   # "string" is the default
+int64_encoding = "number"   # "string" is the default for repeated fields
 ```
 
-The setting applies to every `int64` and `uint64` field in every target, including repeated ones (which cannot carry `@encode`), optional ones, and the OpenAPI schemas, and a field's own `@encode("number")` stays valid. Map values were always numbers. A 64-bit value beyond 2^53 loses precision in any consumer that parses JSON numbers as doubles, such as a browser, which is why the default is the string form. Changing the setting on an existing API is a wire change, so `onek compat` reports every affected field.
-
-`oneof` variant payloads that are themselves 64-bit integers keep the string form.
+Map values are always numbers. Changing a field's encoding on an existing API is a wire change, so `onkt compat` reports every affected field.
 
 ### Repeated messages as values in Go
 
@@ -983,15 +1090,15 @@ By default a repeated message field is `[]*T` in Go. For large lists that costs 
 repeated_style = "values"
 ```
 
-Validation, JSON, the getters and `@rule` expressions all follow, and the other targets are unchanged. Items are not pointers, so a nil item cannot occur. A message reachable from a `@ws` method keeps `[]*T`, since the WebSocket frame codec works with pointers. The default is `"pointers"`.
+Validation, JSON, the getters and `@Onkt.rule` expressions all follow, and the other targets are unchanged. Items are not pointers, so a nil item cannot occur. A message reachable from a `@Onkt.ws` method keeps `[]*T`, since the WebSocket frame codec works with pointers. The default is `"pointers"`.
 
-### JSON objects with `@object`
+### JSON objects with `@Onkt.object`
 
-A plain `json` field holds any JSON value. Add `@object` when it must be an object, as with a free-form settings blob: TypeScript types it `Record<string, unknown>` and validates it, Go keeps `json.RawMessage` (the bytes pass through untouched, so keys are never reordered, which a `map[string, json]` would not guarantee) and rejects arrays and scalars in `Validate()`, and OpenAPI declares `type: object`. `null` and an absent field stay allowed. The Python, Dart, Swift and Rust generators treat the field as any `json` value.
+A plain `json` field holds any JSON value. Add `@Onkt.object` when it must be an object, as with a free-form settings blob: TypeScript types it `Record<string, unknown>` and validates it, Go keeps `json.RawMessage` (the bytes pass through untouched, so keys are never reordered, which a `map[string, json]` would not guarantee) and rejects arrays and scalars in `Validate()`, and OpenAPI declares `type: object`. `null` and an absent field stay allowed. The Python, Dart, Swift and Rust generators treat the field as any `json` value.
 
 ### Rejecting non-positive ids
 
-Put `@range(1, 9223372036854775807)` on an `int64` id field to reject zero and negative ids in the generated Go, TypeScript and Rust validators (use `4294967295` for a `uint32`). With 64-bit integers carried as strings, that is the one place the bound is spelled, and `onek compat` reports it if it changes.
+Put `@Onkt.range(1, 9223372036854775807)` (or `@minValue(1)`) on an `int64` id field to reject zero and negative ids in the generated Go, TypeScript and Rust validators (use `4294967295` for a `uint32`). That is the one place the bound is spelled, and `onkt compat` reports it if it changes.
 
 ### Request fields on GET and DELETE
 
@@ -1009,26 +1116,16 @@ A field called `in`, `from`, `default`, `type` or `class` keeps that exact name 
 
 A map key is a `string`, `int32`, `int64`, `uint32` or `uint64`: `map[int64, string]`. JSON object keys are strings on the wire, so the wire form is the same for every key type. Go generates `map[int64]string` and decoding rejects a key that is not an integer, Rust generates `HashMap<i64, String>`, and TypeScript keeps `Record<string, V>` and fails validation for a key that is not an integer (an unsigned key may not have a sign). Python, Dart and Swift keep string keys.
 
-### Schemas in `.proto` files
+### Pinning the onkt version
 
-Schemas are `.onk` files. If you want protobuf-aware editors and GitHub to highlight them, name them `.proto` and say so in `onekit.toml`:
-
-```toml
-schema_extensions = [".onk", ".proto"]
-```
-
-A `.proto` file is then read as OneKit when it is OneKit text. A real Protocol Buffers file, one with a `syntax = ...` line or numbered fields such as `string id = 1;`, is skipped, so a directory that also holds gRPC definitions still builds; convert those with `onek import`. `build`, `check`, `fmt`, `watch`, the language server and MCP all follow the setting. Without it only `.onk` files are schemas. Tools such as `protoc` and `buf` cannot parse OneKit syntax, so keep them away from these files.
-
-### Pinning the onek version
-
-Set `version` in `onekit.toml` and every machine builds with that release, with no Go toolchain and nothing to install beyond a first `onek`:
+Set `version` in `onkt.toml` and every machine builds with that release, with no Go toolchain and nothing to install beyond a first `onkt`:
 
 ```toml
 version = "0.26.0"
 module = "example.com/api"
 ```
 
-When `onek build`, `check`, `generate`, `watch` or `mock` runs with a different version, it downloads the pinned release from GitHub, checks its SHA-256 against the release's `checksums.txt`, keeps it in the cache directory (`ONEK_CACHE_DIR`, default the user cache dir) and hands the command over to it. The download happens once per version. Set `ONEK_NO_PIN=1` to skip the pin, or `ONEK_DOWNLOAD_BASE` to fetch from a mirror. A development build ignores the pin. Pin a release that already knows the `version` key (0.26.0 or newer), since older releases reject unknown keys.
+When `onkt build`, `check`, `generate`, `watch` or `mock` runs with a different version, it downloads the pinned release from GitHub, checks its SHA-256 against the release's `checksums.txt`, keeps it in the cache directory (`ONKT_CACHE_DIR`, default the user cache dir) and hands the command over to it. The download happens once per version. Set `ONKT_NO_PIN=1` to skip the pin, or `ONKT_DOWNLOAD_BASE` to fetch from a mirror. A project can pin a release from before the rename to onkt; it is fetched and run the same way. A development build ignores the pin. Pin a release that already knows the `version` key (0.26.0 or newer), since older releases reject unknown keys.
 
 ### Writing zero values
 
@@ -1043,7 +1140,7 @@ Every non-optional scalar, enum, `bytes`, repeated and map field is then always 
 
 Messages that need this (and other wire adjustments such as 64-bit strings) are encoded by a generated `AppendJSON` method, described below. The generated types import `encoding/json/jsontext` for it, which needs Go 1.27 or newer.
 
-This applies to requests as well as responses, since both use the same types, so a message used as a partial update should declare its patchable fields optional (`name: string?`) to say "not provided". `onek compat` reports the change.
+This applies to requests as well as responses, since both use the same types, so a message used as a partial update should declare its patchable fields optional (`name: string?`) to say "not provided". `onkt compat` reports the change.
 
 ### How generated Go messages are encoded and decoded
 
@@ -1068,7 +1165,7 @@ Ten resources with nested messages, maps, a nullable field and a `json` field, o
 | decode: generated now, `json.Unmarshal` | 42 µs | 217 |
 | decode: generated now, `DecodeJSON` | 24 µs | 217 |
 
-The output is the same JSON, with two differences. Keys come out in declaration order; before, fields with a wire adjustment came after the others. A `json` field is validated and written as stored, not compacted, and a field holding invalid JSON fails the encode. Reading a request body now rejects data after the first JSON value, where it used to be ignored. A message that uses `@flatten` keeps the earlier encoder and decoder.
+The output is the same JSON, with two differences. Keys come out in declaration order; before, fields with a wire adjustment came after the others. A `json` field is validated and written as stored, not compacted, and a field holding invalid JSON fails the encode. Reading a request body now rejects data after the first JSON value, where it used to be ignored. A message that uses `@Onkt.flatten` keeps the earlier encoder and decoder.
 
 ### Client speed notes
 
@@ -1078,13 +1175,13 @@ The output is the same JSON, with two differences. Keys come out in declaration 
 
 ### Declaring what a method requires
 
-`@requires("users:read", "users:write")` on an RPC declares the scopes (or
+`@Onkt.requires("users:read", "users:write")` on an RPC declares the scopes (or
 roles) a caller must hold; every listed scope is required. Onekit does not
 decide where scopes come from, it makes the requirement part of the contract
 and hands it to your authentication code in each target:
 
-```onk
-get(GetUser) -> User @get("/users/{id}") @requires("users:read")
+```typespec
+@get @route("/users/{id}") @Onkt.requires("users:read") get(...GetUser): User;
 ```
 
 | Target | What you get |
@@ -1093,35 +1190,37 @@ get(GetUser) -> User @get("/users/{id}") @requires("users:read")
 | TypeScript server | `scopes` on each `RouteDescriptor`, and `{ authorize: requireScopes((req) => grantedScopes) }` on `createXFetchHandler`, `createXNodeHandler` and `attachXNodeHandlers` (or your own `authorize(req, route)`) |
 | Rust server | `context.required_scopes` and `context.missing_scopes(&granted)` on the `RequestContext` passed to every handler |
 | OpenAPI | the scopes are listed under each auth scheme in the operation's `security` requirement (needs an `@auth` header on the service or method) |
-| `onek compat` | adding, removing or changing required scopes is reported as a contract change |
-| `onek import` | scopes in an OpenAPI operation's `security` become `@requires(...)` |
+| `onkt compat` | adding, removing or changing required scopes is reported as a contract change |
+| `onkt import` | scopes in an OpenAPI operation's `security` become `@Onkt.requires(...)` |
 
-`@requires` is not supported on `@ws` methods yet (the compiler says so rather
+`@Onkt.requires` is not supported on `@Onkt.ws` methods yet (the compiler says so rather
 than generating a server that silently skips the check); authorize the
 WebSocket upgrade request in middleware for now. The generated Go, TypeScript
 and Rust clients do not check scopes, since a client does not know what its
 server will grant.
 
-### Authorizing callers with `@authorize`
+### Authorizing callers with `@Onkt.authorize`
 
-`@requires` names scopes and leaves the decision to you. `@authorize(expression, message)` states the decision itself, in the same expression language as `@rule`, and the generated server enforces it:
+`@Onkt.requires` names scopes and leaves the decision to you. `@Onkt.authorize(expression, message)` states the decision itself, in the same expression language as `@Onkt.rule`, and the generated server enforces it:
 
-```onk
-message Principal @principal {
-  user_id: string
-  roles: string[]
-  org: string
+```typespec
+@Onkt.principal
+model Principal {
+  user_id: string;
+  roles: string[];
+  org: string;
 }
 
-service Docs {
-  delete(DeleteDoc) -> Ack @post("/docs/delete")
-    @authorize("'admin' in auth.roles || auth.org == req.owner_org", "not allowed to delete this document")
+interface Docs {
+  @post @route("/docs/delete")
+  @Onkt.authorize("'admin' in auth.roles || auth.org == req.owner_org", "not allowed to delete this document")
+  delete(...DeleteDoc): Ack;
 }
 ```
 
-`@principal` marks the one message that describes the authenticated caller (a project may have only one). In an `@authorize` expression `auth` is that message and `req` is the decoded request, so a rule can compare who is calling with what they are asking for. Both are type-checked when the schema compiles, with the same line and column diagnostics as `@rule`. The decorator is repeatable, and every rule must hold.
+`@Onkt.principal` marks the one message that describes the authenticated caller (a project may have only one). In an `@Onkt.authorize` expression `auth` is that message and `req` is the decoded request, so a rule can compare who is calling with what they are asking for. Both are type-checked when the schema compiles, with the same line and column diagnostics as `@Onkt.rule`. The decorator is repeatable, and every rule must hold.
 
-The order on the server is: authenticate (`401` when no caller can be identified), decode and validate the request (`400`), then evaluate the rules (`403` with the first failed message in `message` and all of them in `violations`). A rule that cannot be evaluated counts as failed, so it can never silently allow a call. A method without `@authorize` never asks who the caller is, and a server that has an `@authorize` method but no way to identify callers answers `500` instead of letting the call through.
+The order on the server is: authenticate (`401` when no caller can be identified), decode and validate the request (`400`), then evaluate the rules (`403` with the first failed message in `message` and all of them in `violations`). A rule that cannot be evaluated counts as failed, so it can never silently allow a call. A method without `@Onkt.authorize` never asks who the caller is, and a server that has an `@Onkt.authorize` method but no way to identify callers answers `500` instead of letting the call through.
 
 | Target | How callers are identified |
 | --- | --- |
@@ -1129,7 +1228,7 @@ The order on the server is: authenticate (`401` when no caller can be identified
 | TypeScript server | the `principal` option of `createXFetchHandler`, `createXNodeHandler` and `attachXNodeHandlers`; throw an `HttpError` to choose the status. Handlers read `context.principal` |
 | Rust server | insert the `Principal` as a request extension from your authentication layer (`request.extensions_mut().insert(principal)`); a request without one is a `401`. Handlers read `context.principal` |
 
-`@authorize` is enforced by Go, TypeScript and Rust servers, and is not supported on `@ws` methods yet (the compiler says so). `onek compat` reports a changed, added or removed authorization rule, and an `@authorize` rule on a method is part of the contract the same way a required scope is.
+`@Onkt.authorize` is enforced by Go, TypeScript and Rust servers, and is not supported on `@Onkt.ws` methods yet (the compiler says so). `onkt compat` reports a changed, added or removed authorization rule, and an `@Onkt.authorize` rule on a method is part of the contract the same way a required scope is.
 
 Rust client and server targets may share the same output directory. Onekit
 then writes a complete Rust module tree (`mod.rs`, `types.rs`, `client.rs`,
@@ -1161,14 +1260,14 @@ validator = "0.20"   # @email
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] } # @ws clients
 ```
 
-`onek check` performs semantic validation as well as parsing: unsupported or
+`onkt check` performs semantic validation as well as parsing: unsupported or
 misplaced decorators, invalid validator values, generated-name collisions,
 malformed bindings, duplicate routes or headers, invalid error statuses, and
 incompatible header/auth contracts are rejected before generation. Add
 `--json` for editor/CI diagnostics with path, line, column, code, and message
-fields. `onek compat` compares nested types, fields, enums, oneofs, validators,
+fields. `onkt compat` compares nested types, fields, enums, oneofs, validators,
 routes, bindings, headers, streams, and typed errors, including configured
-route prefixes; `onek compat --json` emits stable machine-readable findings.
+route prefixes; `onkt compat --json` emits stable machine-readable findings.
 Accept an intentional break with `--allow app.User.email` (repeatable; a
 message or service name also covers its fields and routes).
 Successful builds write an ignored `.onekit/manifest.json` containing the
@@ -1176,7 +1275,7 @@ schema fingerprint and expected generated outputs.
 
 ### Catching breaking schema changes in pull requests
 
-The repository ships a GitHub Action that runs `onek compat` against the pull
+The repository ships a GitHub Action that runs `onkt compat` against the pull
 request's base branch, comments on the PR with a table of breaking changes (and
 which generated targets ship the affected contract), and fails the job. When
 the schema is clean it stays silent, and it updates its own comment instead of
@@ -1201,7 +1300,7 @@ jobs:
 ```
 
 Inputs: `directory` (project dir, default `.`), `against` (default: the PR base
-branch), `version` (onek release to install, default `latest`; the download is
+branch), `version` (onkt release to install, default `latest`; the download is
 verified against the published checksums), `allow` (newline-separated paths to
 accept), `comment` and `fail-on-breaking` (both default `true`). The action
 runs on Linux and macOS runners, and exposes a `breaking` output with the
@@ -1211,7 +1310,7 @@ job summary and the failing status still report the result.
 Install the CLI:
 
 ```bash
-go install github.com/1homsi/onekit/cmd/onek@latest
+go install github.com/1homsi/onekit/cmd/onkt@latest
 ```
 
 
@@ -1229,11 +1328,11 @@ out = "./server/ts"
 field_names = "wire"
 ```
 
-With `"wire"`, `is_default` stays `is_default` in the types, requests, responses, validators and `@rule` checks, and encoding and decoding become the identity for keys. Oneof variant payload keys follow the same rule. Set it on both targets if you generate both, so a client and a server agree on property names.
+With `"wire"`, `is_default` stays `is_default` in the types, requests, responses, validators and `@Onkt.rule` checks, and encoding and decoding become the identity for keys. Oneof variant payload keys follow the same rule. Set it on both targets if you generate both, so a client and a server agree on property names.
 
 ### Required fields in TypeScript responses
 
-A TypeScript field is optional (`id?: number | undefined`) unless it is `@required`, because a server may omit a field that holds its zero value. With `emit_zero_values = true` every non-optional scalar, enum, repeated and map field is always sent, so the types say so: in a message that some method returns (a response, a stream event or a declared error, directly or nested) and that no method accepts as a request, those fields are required (`id: number`, `is_default: boolean`). Timestamps and singular message fields are required there too: the Go server always writes a timestamp, and writes a message field that the handler left unset as an empty message. A message field whose type can lead back to itself (a tree node's `parent`) is not given this treatment and stays optional, as do `?` fields and `json`. Request messages keep optional fields so callers can send partial objects, and a message used as both a request and a response stays optional. Without `emit_zero_values` nothing changes.
+A TypeScript field is optional (`id?: number | undefined`) unless it is `@Onkt.required`, because a server may omit a field that holds its zero value. With `emit_zero_values = true` every non-optional scalar, enum, repeated and map field is always sent, so the types say so: in a message that some method returns (a response, a stream event or a declared error, directly or nested) and that no method accepts as a request, those fields are required (`id: number`, `is_default: boolean`). Timestamps and singular message fields are required there too: the Go server always writes a timestamp, and writes a message field that the handler left unset as an empty message. A message field whose type can lead back to itself (a tree node's `parent`) is not given this treatment and stays optional, as do `?` fields and `json`. Request messages keep optional fields so callers can send partial objects, and a message used as both a request and a response stays optional. Without `emit_zero_values` nothing changes.
 
 Generated TypeScript compiles under `"strict": true` with `noUnusedLocals` and `noUnusedParameters`: imports, private helpers and parameters that a given schema never uses are not emitted, so the output can sit inside a project that type-checks it.
 
@@ -1273,18 +1372,19 @@ The client builds every URL as `baseUrl` plus the route path, and the route path
 
 ## Validation rules
 
-`@rule(expression, message)` attaches a rule written in a small expression language to a message or a field. The compiler type-checks every rule against the schema, so a typo or a type mismatch is a compile error with the line of the decorator and the column inside the expression. Rules are repeatable.
+`@Onkt.rule(expression, message)` attaches a rule written in a small expression language to a message or a field. The compiler type-checks every rule against the schema, so a typo or a type mismatch is a compile error with the line of the decorator and the column inside the expression. Rules are repeatable.
 
-```onk
-message Booking
-  @rule("self.nights * self.rooms <= 60", "at most 60 room-nights per booking")
-  @rule("size(self.guests) <= self.rooms * 4", "at most four guests per room")
-{
-  checkin: string @rule("value.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')", "dates look like 2026-01-31")
-  nights: int32 @rule("value >= 1", "book at least one night")
-  rooms: int32 @rule("value >= 1", "book at least one room")
-  guests: string[]
-  coupon: string? @rule("!has(self.coupon) || size(value) == 8", "coupons have eight characters")
+```typespec
+@Onkt.rule("self.nights * self.rooms <= 60", "at most 60 room-nights per booking")
+@Onkt.rule("size(self.guests) <= self.rooms * 4", "at most four guests per room")
+model Booking {
+  @Onkt.rule("value.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')", "dates look like 2026-01-31")
+  checkin: string;
+  @Onkt.rule("value >= 1", "book at least one night") nights: int32;
+  @Onkt.rule("value >= 1", "book at least one room") rooms: int32;
+  guests: string[];
+  @Onkt.rule("!has(self.coupon) || size(value) == 8", "coupons have eight characters")
+  coupon?: string;
 }
 ```
 
@@ -1305,12 +1405,12 @@ Semantics that differ from what you might assume:
 - Unset fields read as their zero value. `has(self.f)` tests presence: set for optional fields and messages, non-zero for other scalars, non-empty for lists, maps and bytes.
 - Enum fields compare to string literals naming a value: `self.status == 'ACTIVE'`, checked against the enum when the schema compiles.
 - A missing map key or an out-of-range index is an error. Test first with `'k' in self.labels` or `size(self.items) > 0`.
-- `matches` must match the whole string and its pattern must be a string literal in a portable regular-expression subset: literals, bracket classes, `|`, `(...)`, `(?:...)`, `* + ?` and `{n,m}`. Anchors, `.`, shorthand classes such as `\d`, lazy quantifiers, lookaround, repetition of a group that contains `|` or another repetition, `\-` outside a bracket class, and a doubled `&&`, `||` or `~~` inside one are rejected, because the supported targets disagree about them. To write a backslash in a pattern inside a `.onk` string, double it twice: `'[0-9]+(\\\\.[0-9]+)?'`.
+- `matches` must match the whole string and its pattern must be a string literal in a portable regular-expression subset: literals, bracket classes, `|`, `(...)`, `(?:...)`, `* + ?` and `{n,m}`. Anchors, `.`, shorthand classes such as `\d`, lazy quantifiers, lookaround, repetition of a group that contains `|` or another repetition, `\-` outside a bracket class, and a doubled `&&`, `||` or `~~` inside one are rejected, because the supported targets disagree about them. To write a backslash in a pattern inside a TypeSpec string, double it twice: `'[0-9]+(\\\\.[0-9]+)?'`.
 - An expression is at most 1024 bytes and 48 levels deep; the message is at most 200 characters.
 
 `a ? b : c` produces a `bool`, `int`, `double`, `string` or enum, never a list, map or message.
 
-Changing a rule counts as a breaking change in `onek compat`.
+Changing a rule counts as a breaking change in `onkt compat`.
 
 ### Where rules are enforced
 
@@ -1321,7 +1421,7 @@ Changing a rule counts as a breaking change in `onek compat`.
 | Python (`python-client`) | Enforced by the generated `validate()`, which raises `ValueError` with the failed rule messages joined by `"; "`; the generated client validates requests before sending. |
 | Rust (`rust-client`, `rust-server`) | Enforced by the generated `validate()`, which returns the first failed rule as a `ValidationError` (the field's name for a field rule, empty for a message rule). `rule_violations()` returns every failed rule. A rule that uses `matches()` needs the `regex` crate, like `@pattern`. |
 | Dart (`dart-client`) | Enforced by the generated `validate()`, which returns the failed rule messages along with its other violations. Integers use Dart's native 64-bit `int`, so rules need the Dart VM or Flutter on a device; Dart compiled to JavaScript has no 64-bit integers. |
-| Swift (`swift-client`) | Enforced by the generated `validate()`, which returns the failed rule messages along with its other violations. Strings are compared by Unicode scalar rather than by Swift's canonical equivalence, so `"\u{e9}"` and `"e\u{301}"` differ here exactly as they do everywhere else. A rule that reads a `@deprecated` field of a message declared in a different namespace sees that field as unset, because the field's storage is private to its own file. |
+| Swift (`swift-client`) | Enforced by the generated `validate()`, which returns the failed rule messages along with its other violations. Strings are compared by Unicode scalar rather than by Swift's canonical equivalence, so `"\u{e9}"` and `"e\u{301}"` differ here exactly as they do everywhere else. A rule that reads a `#deprecated` field of a message declared in a different namespace sees that field as unset, because the field's storage is private to its own file. |
 
 Every target is held to the same conformance suite (`internal/onkexpr/conformance`): about a hundred rules run over the same inputs and must fail exactly the rules the reference evaluator fails. Go, TypeScript and Python compile each rule to native expressions; Rust, Dart and Swift embed a small evaluator that is a port of the reference one.
 
@@ -1329,49 +1429,30 @@ Every target is held to the same conformance suite (`internal/onkexpr/conformanc
 
 | Path | Contents |
 | --- | --- |
-| `cmd/onek/` | CLI entrypoint |
-| `internal/onklang/` | Lexer, parser, AST for `.onk` |
-| `internal/onkcompile/` | Compiles parsed `.onk` files into the IR, resolving cross-file type references |
+| `cmd/onkt/` | CLI entrypoint |
+| `typespec/` | The `@onkt/typespec` npm package: the `Onkt` decorators and the emitter that writes onekit's schema document |
+| `internal/onkschema/` | The versioned schema document every frontend writes and the compiler reads |
+| `internal/onkcompile/` | Checks the declarations and compiles them into the IR, resolving cross-file type references |
 | `internal/onkir/` | The native intermediate representation every generator consumes |
-| `internal/onek/` | `onekit.toml` parsing and the `build`/`check` orchestration |
+| `internal/onek/` | `onkt.toml` parsing and the `build`/`check`/`migrate` orchestration |
+| `internal/onkmigrate/`, `internal/onklang/` | `onkt migrate`: the `.onk` parser and its conversion to TypeSpec |
 | `internal/gengo/`, `internal/gents/`, `internal/genpy/`, `internal/gendart/`, `internal/genswift/`, `internal/genrust/`, `internal/genopenapi/` | Generator backends |
-| `examples/onk-simple-api/` | A complete, working example with committed generated output |
+| `examples/simple-api/` | A complete, working example with committed generated output |
 
 ## Status
 
-onekit is a young project and the language is pre-1.0. It supports messages (scalars including arbitrary `json`, repeated, optional, maps, nested types), enums, discriminated oneofs, field validation (`@email`, `@uuid`, `@uri`, `@pattern`, `@len`, `@range`, `@in` on strings and integers, `@required`, item counts), HTTP path/query/body binding, typed headers and error unions, SSE clients in Go, TypeScript, Python, Dart, and Rust, and Go/TypeScript/Python/Dart/Rust/OpenAPI generators.
+onekit is a young project and pre-1.0. It supports messages (scalars including arbitrary `json`, repeated, optional, maps, nested types), enums, discriminated oneofs, field validation (formats, patterns, lengths, ranges, allowed values on strings and integers, `@Onkt.required`, item counts), HTTP path/query/body binding, typed headers and error unions, SSE clients in Go, TypeScript, Python, Dart, and Rust, and Go/TypeScript/Python/Dart/Rust/OpenAPI generators.
 
-JSON mapping is supported through `@flatten`, root-level `@unwrap`, and `@encode(...)` for safe integer, enum, timestamp, and byte representations. Map-value messages must not use `@unwrap`; `onek check` rejects that shape consistently instead of allowing generators to diverge. Generated clients validate requests before sending, generated servers validate decoded requests, and nested validation is emitted consistently across targets. Generated Go servers also provide functional registration options for mux selection, middleware, request IDs, authorization, route metadata, and lifecycle observation.
+JSON mapping is supported through `@Onkt.flatten`, root-level `@Onkt.unwrap`, and `@encode(...)` for safe integer, enum, timestamp, and byte representations. Map-value messages must not use `@Onkt.unwrap`; `onkt check` rejects that shape consistently instead of allowing generators to diverge. Generated clients validate requests before sending, generated servers validate decoded requests, and nested validation is emitted consistently across targets. Generated Go servers also provide functional registration options for mux selection, middleware, request IDs, authorization, route metadata, and lifecycle observation.
 
-## AI agents and language servers
+## AI agents and editors
 
-`onek mcp` exposes compiler-backed validation, symbols, definitions, references,
-and hover to any MCP client. `onek lsp` is a stdio language server with the same
-navigation plus diagnostics for unsaved buffers. Both are read-only, honor
-`schema_root` in `onekit.toml`, and need no API key.
-
-Point your agent at `onek mcp --dir .` from the project root. For example,
-`.mcp.json` (Claude Code, Cursor and most MCP clients):
-
-```json
-{
-  "mcpServers": {
-    "onekit": { "type": "stdio", "command": "onek", "args": ["mcp", "--dir", "."] }
-  }
-}
-```
-
-or `.codex/config.toml` (Codex):
-
-```toml
-[mcp_servers.onekit]
-command = "onek"
-args = ["mcp", "--dir", "."]
-```
-
-Editors attach `onek lsp` (optionally `--dir` to pick one schema project in a
-monorepo) to `.onk` files. Tool positions are zero-based lines and UTF-16
-columns. Type-reference bindings are withheld until the schema compiles.
+TypeSpec's own language server gives editors and agents completion,
+navigation and diagnostics for `.tsp` files; install the TypeSpec extension
+for VS Code, or point any LSP client at `tsp-server` from
+`@typespec/compiler`. `onkt check --json` reports compile errors from both
+TypeSpec and onekit with path, line and column, which is what an agent needs
+to fix a schema.
 
 ## License
 

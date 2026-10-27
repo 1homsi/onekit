@@ -167,6 +167,44 @@ jobs:
           name: release-artifacts
           path: dist/
 
+  npm:
+    name: Publish @onkt/typespec
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [prepare, release]
+    permissions:
+      contents: read
+      # npm trusted publishing: the registry accepts this workflow's OIDC
+      # token instead of a stored npm token, and records provenance.
+      id-token: write
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install the workspace and test the emitter
+        run: |
+          npm ci --no-audit --no-fund
+          npm test --workspace typespec
+
+      - name: Publish unless this version is already on npm
+        working-directory: typespec
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if npm view "@onkt/typespec@$version" version >/dev/null 2>&1; then
+            echo "@onkt/typespec $version is already published"
+            exit 0
+          fi
+          npm publish --provenance --access public
+
   docker:
     name: Docker Image
     runs-on: ubuntu-latest

@@ -4,18 +4,42 @@
   "description": "onekit code generators for TypeSpec: Go, TypeScript, Python, Rust, Dart and Swift servers and clients",
   "license": "MIT",
   "type": "module",
-  "repository": { "type": "git", "url": "git+https://github.com/1homsi/onekit.git", "directory": "typespec" },
-  "keywords": ["typespec", "codegen", "go", "typescript", "rust", "dart", "swift", "python", "openapi"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/1homsi/onekit.git",
+    "directory": "typespec"
+  },
+  "keywords": [
+    "typespec",
+    "codegen",
+    "go",
+    "typescript",
+    "rust",
+    "dart",
+    "swift",
+    "python",
+    "openapi"
+  ],
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "exports": {
-    ".": { "typespec": "./lib/main.tsp", "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" }
+    ".": {
+      "typespec": "./lib/main.tsp",
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
   },
   "tspMain": "lib/main.tsp",
-  "files": ["lib", "dist/src"],
+  "files": [
+    "lib",
+    "dist/src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc -p .",
-    "test": "npm run build && node --test \"dist/test/**/*.test.js\""
+    "test": "npm run build && node --test \"dist/test/**/*.test.js\"",
+    "prepack": "npm run build"
   },
   "peerDependencies": {
     "@typespec/compiler": "^1.17.0",
@@ -26,5 +50,12 @@
     "@typespec/compiler": "^1.17.0",
     "@typespec/http": "^1.17.0",
     "typescript": "^5.9.0"
+  },
+  "homepage": "https://github.com/1homsi/onekit#writing-an-api-in-typespec",
+  "bugs": {
+    "url": "https://github.com/1homsi/onekit/issues"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
