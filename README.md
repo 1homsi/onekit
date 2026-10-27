@@ -110,12 +110,24 @@ All targets are driven off the same compiled schema (`internal/onkir`), produced
 ## Quick start
 
 `onkt` compiles TypeSpec with the project's own TypeSpec toolchain, so a project needs Node.js and npm.
+The CLI itself is on npm too, so a project pins it in `package.json` beside the
+emitter and everyone on the project, CI included, runs the same version:
 
 ```bash
-onkt init ./my-api          # onkt.toml, main.tsp and package.json
+npx onkt init ./my-api      # onkt.toml, main.tsp and package.json
 cd my-api
-npm install                 # @typespec/compiler, @typespec/http, @onkt/typespec
-onkt build                  # generates everything configured in onkt.toml
+npm install                 # onkt, @onkt/typespec, @typespec/compiler, @typespec/http
+npx onkt build              # generates everything configured in onkt.toml
+```
+
+The `onkt` package runs a prebuilt binary for macOS, Linux (glibc and musl, so
+Alpine works) and Windows, on x64 and arm64, from an optional dependency such as
+`@onkt/cli-linux-x64`; npm installs only the one for the machine, so do not
+install with `--omit=optional`. Keep `onkt` and `@onkt/typespec` on the same
+version: they are released together. To add both to an existing project:
+
+```bash
+npm install --save-dev onkt @onkt/typespec @typespec/compiler @typespec/http
 ```
 
 To work on onekit itself:
@@ -1299,7 +1311,7 @@ runs on Linux and macOS runners, and exposes a `breaking` output with the
 number of findings. PRs from forks cannot comment with the default token; the
 job summary and the failing status still report the result.
 
-Install the CLI:
+Install the CLI from npm (see [Quick start](#quick-start)), or with Go:
 
 ```bash
 go install github.com/1homsi/onekit/cmd/onkt@latest

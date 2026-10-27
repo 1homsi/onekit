@@ -247,5 +247,24 @@ func findTypeSpecCompiler(root string) ([]string, error) {
 			break
 		}
 	}
-	return nil, fmt.Errorf("the TypeSpec compiler is not installed for %s; run `npm install --save-dev @typespec/compiler @typespec/http %s` there", root, typespecEmitter)
+	return nil, errors.New("the TypeSpec compiler is not installed: " + typespecInstallHint(root))
+}
+
+// typespecInstallHint says where to install the TypeSpec toolchain: in the
+// directory of the package.json that governs the schema root, which is the
+// project root rather than a schemas directory below it.
+func typespecInstallHint(root string) string {
+	install := "npm install --save-dev @typespec/compiler @typespec/http " + typespecEmitter
+	for dir := root; ; dir = filepath.Dir(dir) {
+		data, err := os.ReadFile(filepath.Join(dir, "package.json"))
+		if err == nil {
+			if strings.Contains(string(data), `"@typespec/compiler"`) {
+				return fmt.Sprintf("run `npm install` in %s", dir)
+			}
+			return fmt.Sprintf("run `%s` in %s", install, dir)
+		}
+		if filepath.Dir(dir) == dir {
+			return fmt.Sprintf("there is no package.json above %s; run `%s` in the project directory, beside %s", root, install, configFileName)
+		}
+	}
 }

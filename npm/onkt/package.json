@@ -1,0 +1,38 @@
+{
+  "name": "onkt",
+  "version": "0.0.0-development",
+  "description": "The onkt CLI: Go, TypeScript, Python, Rust, Dart and Swift servers and clients from TypeSpec",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/1homsi/onekit.git",
+    "directory": "npm/onkt"
+  },
+  "keywords": [
+    "typespec",
+    "codegen",
+    "go",
+    "typescript",
+    "rust",
+    "dart",
+    "swift",
+    "python",
+    "openapi"
+  ],
+  "bin": {
+    "onkt": "bin/onkt.js"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "optionalDependencies": {},
+  "homepage": "https://github.com/1homsi/onekit#the-onkt-cli",
+  "bugs": {
+    "url": "https://github.com/1homsi/onekit/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

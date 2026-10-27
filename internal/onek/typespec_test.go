@@ -156,3 +156,23 @@ model Req { id: string; }
 		t.Fatalf("the OpenAPI document must declare bearer auth:\n%s", openapi)
 	}
 }
+
+// The toolchain belongs where the project's package.json is, which is the
+// project root even when the schemas sit in a directory below it.
+func TestMissingCompilerPointsAtThePackageJSON(t *testing.T) {
+	if Getenv("ONKT_TSP") != "" {
+		t.Skip("ONKT_TSP overrides the lookup")
+	}
+	project := t.TempDir()
+	contracts := filepath.Join(project, "contracts")
+	writeTestFile(t, filepath.Join(contracts, "main.tsp"), "")
+	writeTestFile(t, filepath.Join(project, "package.json"), `{"private": true}`)
+	_, err := findTypeSpecCompiler(contracts)
+	if err == nil || !strings.Contains(err.Error(), "npm install --save-dev") || !strings.HasSuffix(err.Error(), " in "+project) {
+		t.Fatalf("want an install hint for %s, got %v", project, err)
+	}
+	writeTestFile(t, filepath.Join(project, "package.json"), `{"devDependencies": {"@typespec/compiler": "^1.17.0"}}`)
+	if _, err := findTypeSpecCompiler(contracts); err == nil || !strings.HasSuffix(err.Error(), "run `npm install` in "+project) {
+		t.Fatalf("a listed but uninstalled toolchain needs only npm install, got %v", err)
+	}
+}

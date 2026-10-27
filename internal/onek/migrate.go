@@ -37,8 +37,9 @@ func SetToolVersion(version string) {
 }
 
 // typespecPackageJSON is written for a project onkt creates or migrates, so
-// `npm install` brings in the TypeSpec toolchain. @onkt/typespec is
-// published with every onkt release under the same version.
+// `npm install` brings in the TypeSpec toolchain and the onkt CLI itself.
+// onkt and @onkt/typespec are published with every release under the same
+// version.
 func typespecPackageJSON() string {
 	emitter := "latest"
 	if version := NormalizeVersion(toolVersion); validatePinnedVersion(version) == nil && version != "" {
@@ -49,7 +50,8 @@ func typespecPackageJSON() string {
   "devDependencies": {
     "@onkt/typespec": "` + emitter + `",
     "@typespec/compiler": "^1.17.0",
-    "@typespec/http": "^1.17.0"
+    "@typespec/http": "^1.17.0",
+    "onkt": "` + emitter + `"
   }
 }
 `
@@ -109,7 +111,7 @@ func Migrate(dir string, options MigrateOptions) (MigrateResult, error) {
 		}
 		result.Written = append(result.Written, packageJSON)
 	} else if data, err := os.ReadFile(packageJSON); err == nil && !strings.Contains(string(data), `"`+typespecEmitter+`"`) {
-		result.Notes = append(result.Notes, fmt.Sprintf("%s already exists; add the TypeSpec toolchain to it: npm install --save-dev @typespec/compiler @typespec/http %s", packageJSON, typespecEmitter))
+		result.Notes = append(result.Notes, fmt.Sprintf("%s already exists; add the TypeSpec toolchain to it: npm install --save-dev @typespec/compiler @typespec/http %s onkt", packageJSON, typespecEmitter))
 	}
 	legacy := filepath.Join(project, legacyConfigFileName)
 	current := filepath.Join(project, configFileName)
