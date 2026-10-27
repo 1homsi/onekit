@@ -30,18 +30,33 @@ func protoProject(t *testing.T, config string) string {
 	return dir
 }
 
-func TestProtoFilesHoldingOnekitSyntaxAreSchemasWhenEnabled(t *testing.T) {
+func TestLegacyProtoSchemasArePointedAtMigrate(t *testing.T) {
+	onkSchemasAccepted = false
+	t.Cleanup(func() { onkSchemasAccepted = true })
+	dir := protoProject(t, "schema_extensions = [\".onk\", \".proto\"]\n")
+	err := Check(dir)
+	if err == nil || !strings.Contains(err.Error(), "items.proto") || !strings.Contains(err.Error(), "onkt migrate") {
+		t.Fatalf("err = %v, want items.proto pointed at onkt migrate", err)
+	}
+}
+
+func TestMigrateConvertsLegacyProtoSchemas(t *testing.T) {
 	dir := protoProject(t, "schema_extensions = [\".onk\", \".proto\"]\n")
 	writeTestFile(t, filepath.Join(dir, "vendor-api", "thing.proto"), realProtobuf)
-	if err := Build(dir); err != nil {
-		t.Fatalf("a .proto file written in onekit syntax must build: %v", err)
+	if _, err := Migrate(dir, MigrateOptions{}); err != nil {
+		t.Fatal(err)
 	}
-	server := read(t, filepath.Join(dir, "gen", "api", "server.gen.go"))
-	if !strings.Contains(server, "ItemsServer") {
-		t.Fatalf("the service in items.proto must be generated:\n%s", server)
+	if _, err := os.Stat(filepath.Join(dir, "api", "items.tsp")); err != nil {
+		t.Fatalf("items.proto was not converted: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "gen", "vendor-api")); err == nil {
-		t.Fatal("a real protobuf file must be skipped, not parsed")
+	if _, err := os.Stat(filepath.Join(dir, "api", "items.proto")); !os.IsNotExist(err) {
+		t.Fatal("the converted .proto schema must be removed")
+	}
+	if got := read(t, filepath.Join(dir, "vendor-api", "thing.proto")); got != realProtobuf {
+		t.Fatal("a real protobuf file must be left alone")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "vendor-api", "thing.tsp")); err == nil {
+		t.Fatal("a real protobuf file must not be converted")
 	}
 }
 

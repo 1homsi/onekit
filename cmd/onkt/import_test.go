@@ -56,44 +56,26 @@ func TestImportRejectsSchemasThatFailCheck(t *testing.T) {
 	}
 }
 
-const importProtoSource = `syntax = "proto3";
-package shop.v1;
-
-message Item { string sku = 1; int32 qty = 2; }
-message GetItemRequest { string sku = 1; }
-message ListItemsRequest { string filter = 1; }
-message ListItemsResponse { repeated Item items = 1; }
-
-service Shop {
-  rpc GetItem(GetItemRequest) returns (Item) {
-    option (google.api.http) = { get: "/v1/items/{sku}" };
-  }
-  rpc ListItems(ListItemsRequest) returns (ListItemsResponse) {
-    option (google.api.http) = { get: "/v1/items" };
-  }
-}
-`
-
-func TestImportProtoProducesAProjectThatBuilds(t *testing.T) {
+func TestImportProducesAProjectThatBuilds(t *testing.T) {
 	dir := t.TempDir()
-	proto := filepath.Join(dir, "shop.proto")
-	if err := os.WriteFile(proto, []byte(importProtoSource), 0o644); err != nil {
+	spec := filepath.Join(dir, "spec.json")
+	if err := os.WriteFile(spec, []byte(importSpec), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out := filepath.Join(dir, "project")
-	if err := run([]string{"import", "--out", out, proto}); err != nil {
+	if err := run([]string{"import", "--out", out, spec}); err != nil {
 		t.Fatalf("import: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(out, "shop.v1.tsp")); err != nil {
-		t.Fatalf("expected the converted schema: %v", err)
+	if _, err := os.Stat(filepath.Join(out, "main.tsp")); err != nil {
+		t.Fatalf("expected a main.tsp importing the schema: %v", err)
 	}
 	linkTypeSpec(t, out)
-	config := "module = \"example.com/shop\"\n\n[generate.go-server]\nout = \"./gen\"\n\n[generate.ts-client]\nout = \"./web\"\n"
-	if err := os.WriteFile(filepath.Join(out, "onekit.toml"), []byte(config), 0o644); err != nil {
+	config := "module = \"example.com/pets\"\n\n[generate.go-server]\nout = \"./gen\"\n\n[generate.ts-client]\nout = \"./web\"\n"
+	if err := os.WriteFile(filepath.Join(out, "onkt.toml"), []byte(config), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := run([]string{"build", "--dir", out}); err != nil {
-		t.Fatalf("a schema imported from .proto must build: %v", err)
+		t.Fatalf("an imported schema must build: %v", err)
 	}
 	for _, name := range []string{"gen/server.gen.go", "web/client.ts"} {
 		if _, err := os.Stat(filepath.Join(out, filepath.FromSlash(name))); err != nil {
@@ -102,14 +84,14 @@ func TestImportProtoProducesAProjectThatBuilds(t *testing.T) {
 	}
 }
 
-func TestImportRejectsAnUnreadableProto(t *testing.T) {
+func TestImportRejectsProtocolBuffers(t *testing.T) {
 	dir := t.TempDir()
-	proto := filepath.Join(dir, "bad.proto")
-	if err := os.WriteFile(proto, []byte(`syntax = "proto3"; message M { string a = 1;`), 0o644); err != nil {
+	proto := filepath.Join(dir, "shop.proto")
+	if err := os.WriteFile(proto, []byte(`syntax = "proto3"; message M { string a = 1; }`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := run([]string{"import", "--out", filepath.Join(dir, "x"), proto}); err == nil || !strings.Contains(err.Error(), "unterminated message M") {
-		t.Fatalf("expected a parse error, got %v", err)
+	if err := run([]string{"import", "--out", filepath.Join(dir, "x"), proto}); err == nil || !strings.Contains(err.Error(), "no longer imports Protocol Buffers") {
+		t.Fatalf("err = %v, want a refusal", err)
 	}
 }
 

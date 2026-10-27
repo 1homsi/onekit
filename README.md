@@ -142,7 +142,9 @@ onekit used to have its own schema language, `.onk`. `onkt migrate` converts a
 project: it writes a `.tsp` file next to every `.onk` file, a `main.tsp` that
 imports them, and a `package.json` for the TypeSpec toolchain, renames
 `onekit.toml` to `onkt.toml`, and removes the `.onk` files (`--keep` leaves
-them). Then run `npm install` and `onkt build`; the generated code is the same
+them). A project that kept `.onk` schemas in `.proto` files with
+`schema_extensions` is converted too, and real Protocol Buffers files are left
+alone. Then run `npm install` and `onkt build`; the generated code is the same
 as before, byte for byte. `onkt compat --against main` still reads a `.onk`
 baseline, so the move can be checked against the schema it replaces.
 
@@ -233,7 +235,6 @@ onkt init --list-templates                  # every starter project
 onkt watch   # rebuild on schema/config changes until interrupted
 onkt mock    # dev server serving schema-derived fixtures for every route
 onkt import api.yaml        # convert an OpenAPI 3.x document into TypeSpec
-onkt import service.proto   # convert a .proto service into TypeSpec
 onkt migrate                # convert a .onk project to TypeSpec
 ```
 
@@ -271,29 +272,11 @@ project-wide files, always regenerate.
 
 ### Importing an existing API
 
-`onkt import` turns an OpenAPI 3.x document or a `.proto` file into a TypeSpec
-schema you can check and build, and prints a warning for everything it cannot
-express instead of dropping it silently. It refuses to write a schema that does
-not pass `onkt check`, and writes a `main.tsp` importing it when the output
-directory has none.
-
-The `.proto` reader is built in and needs no external tooling. It converts
-messages (nested ones are flattened to `OuterInner`), enums, `repeated`,
-`optional`, `map<,>` fields, `oneof`, `google.protobuf` well-known types
-(`Timestamp` becomes `utcDateTime`, `Struct` and `Value` become `unknown`, wrappers
-become optional scalars, `Empty` becomes an empty model), doc comments, and
-`deprecated` options. Services become onekit services: `google.api.http` rules
-give each RPC its verb, path and `body`; an RPC without one becomes
-`POST /<package>.<Service>/<Method>` with all fields in the body. Server
-streaming becomes a GET `@Onkt.stream` (the request fields become query
-parameters). Client and bidirectional streaming have no HTTP mapping and
-are skipped with a warning.
-
-Things to know before relying on the result: oneofs use onekit's discriminated
-JSON encoding, field names keep their `snake_case` form, and imported `.proto`
-files are not followed (their types become `unknown` with a warning). Regenerate
-both the client and the server from the converted schema so the two ends agree
-on the wire format.
+`onkt import` turns an OpenAPI 3.x document into a TypeSpec schema you can
+check and build, and prints a warning for everything it cannot express instead
+of dropping it silently. It refuses to write a schema that does not pass
+`onkt check`, and writes a `main.tsp` importing it when the output directory
+has none. Protocol Buffers are not supported.
 
 ## Streaming over POST with typed events
 

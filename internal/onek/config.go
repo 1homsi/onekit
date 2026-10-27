@@ -563,18 +563,28 @@ func validateRepeatedStyle(value string) error {
 	return fmt.Errorf("repeated_style must be \"pointers\" or \"values\", not %q", value)
 }
 
+// validateSchemaExtensions checks the legacy schema_extensions key, which
+// let .onk schemas live in .proto files. Only onkt migrate still reads them.
 func validateSchemaExtensions(exts []string) error {
 	for _, ext := range exts {
-		if ext != onkExtension && ext != protoExtension && ext != tspExtension {
-			return fmt.Errorf("schema_extensions entries must be %q, %q or %q, not %q", onkExtension, tspExtension, protoExtension, ext)
+		if ext != onkExtension && ext != protoExtension {
+			return fmt.Errorf("schema_extensions is a legacy setting for .onk schemas kept in .proto files; its entries must be %q or %q, not %q", onkExtension, protoExtension, ext)
 		}
 	}
 	return nil
 }
 
+// schemaExtensions are the files a build discovers: TypeSpec, plus every
+// legacy .onk extension so a project that still has such schemas is pointed
+// at onkt migrate.
 func (c *Config) schemaExtensions() []string {
-	if c == nil || len(c.SchemaExtensions) == 0 {
-		return defaultSchemaExtensions()
+	exts := defaultSchemaExtensions()
+	if c != nil {
+		for _, ext := range c.SchemaExtensions {
+			if !slices.Contains(exts, ext) {
+				exts = append(exts, ext)
+			}
+		}
 	}
-	return c.SchemaExtensions
+	return exts
 }

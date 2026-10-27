@@ -169,6 +169,12 @@ func (im *importer) convertOperation(op map[string]any, method, pathKey string, 
 	return im.renderRPC(op, opName, reqName, method, pr, hasBody)
 }
 
+const (
+	methodPatch = "patch"
+	methodPost  = "post"
+	methodPut   = "put"
+)
+
 func (im *importer) requestBodyFor(op map[string]any, opName, method string) (map[string]any, bool) {
 	// @query binding is only legal on non-body verbs, so detect a request
 	// body before emitting any parameters: query params on body-bearing

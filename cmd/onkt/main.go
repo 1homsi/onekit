@@ -35,7 +35,7 @@ func usage(w io.Writer) {
   onkt watch [--interval DURATION] [--dir DIR]
   onkt mock [--addr ADDR] [--seed N] [--error-rate FLOAT] [--latency DURATION] [--watch] [--dir DIR]
   onkt init [--force] [--template NAME | --list-templates] [DIR]
-  onkt import [--out DIR] [--package NAME] [--service NAME] [--force] [--stdout] OPENAPI-OR-PROTO-FILE
+  onkt import [--out DIR] [--package NAME] [--service NAME] [--force] [--stdout] OPENAPI-FILE
   onkt compat [--json] PREVIOUS-DIR CURRENT-DIR
   onkt compat [--json] --against GIT-REF [CURRENT-DIR]
   onkt migrate [--keep] [--force] [--dir DIR]
@@ -307,18 +307,16 @@ func runImport(args []string) error {
 		return err
 	}
 	if len(fs.Args()) != 1 {
-		return errors.New("import requires exactly one OpenAPI (.yaml, .json) or Protocol Buffers (.proto) file")
+		return errors.New("import requires exactly one OpenAPI (.yaml, .json) file")
+	}
+	if strings.EqualFold(filepath.Ext(fs.Arg(0)), ".proto") {
+		return errors.New("onkt no longer imports Protocol Buffers; import an OpenAPI document instead")
 	}
 	data, err := os.ReadFile(fs.Arg(0))
 	if err != nil {
 		return fmt.Errorf("read %s: %w", fs.Arg(0), err)
 	}
-	var result *onkimport.Result
-	if strings.EqualFold(filepath.Ext(fs.Arg(0)), ".proto") {
-		result, err = onkimport.ImportProto(data, onkimport.Options{Package: *pkg})
-	} else {
-		result, err = onkimport.Import(data, onkimport.Options{Package: *pkg, Service: *service})
-	}
+	result, err := onkimport.Import(data, onkimport.Options{Package: *pkg, Service: *service})
 	if err != nil {
 		return err
 	}
