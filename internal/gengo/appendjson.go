@@ -83,7 +83,7 @@ func (p *Printer) appendKindOf(t *onkir.Type, f *onkir.Field, inOneof bool) appe
 		}
 		return akBytes
 	case onkir.ScalarTimestamp:
-		if f != nil && timestampEncodingValue(f) != "" {
+		if f != nil && timestampValueEncoding(f) != "" {
 			return akTimeEncoded
 		}
 		return akTime
@@ -517,7 +517,8 @@ func (g *appendGen) fieldBody(f *onkir.Field) {
 func (g *appendGen) mapBody(f *onkir.Field, expr string) {
 	p := g.p
 	t := f.Type
-	valueKind := p.appendKindOf(t.MapValue, nil, false)
+	valueField := mapValueField(f)
+	valueKind := p.appendKindOf(t.MapValue, valueField, false)
 	if t.MapKey != onkir.ScalarString {
 		p.P("if ", expr, " == nil {")
 		p.P(`b = append(b, "{}"...)`)
@@ -537,7 +538,7 @@ func (g *appendGen) mapBody(f *onkir.Field, expr string) {
 	p.P("}")
 	p.P("b = onkAppendString(b, k)")
 	p.P("b = append(b, ':')")
-	g.value(valueKind, t.MapValue, nil, expr+"[k]")
+	g.value(valueKind, t.MapValue, valueField, expr+"[k]")
 	p.P("}")
 	p.P("b = append(b, '}')")
 	p.P("}")
@@ -627,7 +628,7 @@ func (g *appendGen) value(kind appendKind, t *onkir.Type, f *onkir.Field, expr s
 		p.P("}")
 		p.P("b = append(b, '\"')")
 	case akTimeEncoded:
-		switch timestampEncodingValue(f) {
+		switch timestampValueEncoding(f) {
 		case timestampEncodeUnixSeconds:
 			p.P("b = strconv.AppendInt(b, ", expr, ".Unix(), 10)")
 		case timestampEncodeUnixMillis:

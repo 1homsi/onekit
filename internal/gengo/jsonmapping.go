@@ -54,6 +54,43 @@ func timestampEncodingValue(f *onkir.Field) string {
 	return v
 }
 
+// timestampValueEncoding is the encoding of each timestamp f holds: the
+// field's own for a single timestamp, and "date" for a list or map of
+// timestamps marked @encode("date"), whose every item is YYYY-MM-DD.
+func timestampValueEncoding(f *onkir.Field) string {
+	if f == nil {
+		return ""
+	}
+	if dateItems(f) {
+		return timestampEncodeDate
+	}
+	return timestampEncodingValue(f)
+}
+
+// dateItems reports a list or map of timestamps marked @encode("date"). The
+// compiler accepts no other encoding on a collection of timestamps.
+func dateItems(f *onkir.Field) bool {
+	if f == nil || f.Type == nil {
+		return false
+	}
+	collection := isTimestamp(f.Type) && f.Repeated || f.Type.Kind == onkir.KindMap && isTimestamp(f.Type.MapValue)
+	v, ok := fieldEncodeValue(f)
+	return collection && ok && v == timestampEncodeDate
+}
+
+// mapValueField is the field whose encoding applies to each value of map
+// field f: f itself for a map of dates, and nil, the plain form, otherwise.
+func mapValueField(f *onkir.Field) *onkir.Field {
+	if dateItems(f) {
+		return f
+	}
+	return nil
+}
+
+func isTimestamp(t *onkir.Type) bool {
+	return t != nil && t.Kind == onkir.KindScalar && t.Scalar == onkir.ScalarTimestamp
+}
+
 func flattenPrefix(f *onkir.Field) (string, bool) {
 	return genshared.FlattenPrefix(f)
 }

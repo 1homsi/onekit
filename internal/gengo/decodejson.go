@@ -191,9 +191,9 @@ func (g *decodeGen) plain(f *onkir.Field, kind appendKind, target string) {
 		p.P("continue")
 		p.P("}")
 	case akTimeEncoded:
-		if timestampEncodingValue(f) != timestampEncodeDate {
+		if timestampValueEncoding(f) != timestampEncodeDate {
 			zero := target + " = time.Unix(0, 0).UTC()"
-			if timestampEncodingValue(f) == timestampEncodeUnixMillis {
+			if timestampValueEncoding(f) == timestampEncodeUnixMillis {
 				zero = target + " = time.UnixMilli(0).UTC()"
 			}
 			g.fixup(zero)
@@ -268,7 +268,8 @@ func (g *decodeGen) mapField(f *onkir.Field, target string) {
 		p.P("d.delegate(&", target, ")")
 		return
 	}
-	valueKind := p.appendKindOf(t.MapValue, nil, false)
+	valueField := mapValueField(f)
+	valueKind := p.appendKindOf(t.MapValue, valueField, false)
 	valueType := p.GoFieldType(t.MapValue)
 	p.P("if d.null() {")
 	p.P(target, " = nil")
@@ -286,7 +287,7 @@ func (g *decodeGen) mapField(f *onkir.Field, target string) {
 	p.P("return")
 	p.P("}")
 	switch valueKind {
-	case akString, akBool, akInt, akUint, akFloat32, akFloat64, akBytes, akTime, akMessage:
+	case akString, akBool, akInt, akUint, akFloat32, akFloat64, akBytes, akTime, akTimeEncoded, akMessage:
 		p.P("if d.null() {")
 		p.P("var zero ", valueType)
 		p.P(target, "[k] = zero")
@@ -297,7 +298,7 @@ func (g *decodeGen) mapField(f *onkir.Field, target string) {
 	if valueKind == akMessage {
 		g.message(t.MapValue, "item")
 	} else {
-		g.value(valueKind, t.MapValue, nil, "item", true, false)
+		g.value(valueKind, t.MapValue, valueField, "item", true, false)
 	}
 	p.P(target, "[k] = item")
 	p.P("}")
@@ -503,7 +504,7 @@ func (g *decodeGen) value(kind appendKind, t *onkir.Type, f *onkir.Field, target
 
 func (g *decodeGen) timeEncoded(f *onkir.Field, target string, strict bool) {
 	p := g.p
-	switch timestampEncodingValue(f) {
+	switch timestampValueEncoding(f) {
 	case timestampEncodeUnixSeconds:
 		p.P(target, " = time.Unix(d.int(64), 0).UTC()")
 	case timestampEncodeUnixMillis:

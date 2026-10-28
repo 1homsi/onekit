@@ -73,7 +73,7 @@ func typeFastKind(t *onkir.Type, f *onkir.Field, inOneof bool) (fastKind, int) {
 		}
 		return fkBytes, 0
 	case onkir.ScalarTimestamp:
-		if f != nil && timestampEncodingValue(f) != "" {
+		if f != nil && timestampValueEncoding(f) != "" {
 			return fkUnsupported, 0
 		}
 		return fkDelegate, 0

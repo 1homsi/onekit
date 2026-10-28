@@ -13,7 +13,8 @@ import (
 // zone. Encoding it as the UTC day sent local midnight east of UTC (a
 // DatePicker value) as the day before, and a late evening west of UTC as the
 // day after; decoding to UTC midnight made a received day read as the day
-// before west of UTC.
+// before west of UTC. A list or map of them sent each item as a full
+// timestamp.
 func TestSwiftPlainDateSendsTheDayItHolds(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("the Swift client targets Apple platforms")
@@ -25,6 +26,8 @@ func TestSwiftPlainDateSendsTheDayItHolds(t *testing.T) {
 
 model Booking {
   day: plainDate;
+  days: plainDate[];
+  byCity: Record<plainDate>;
 }
 `)
 	dir := t.TempDir()
@@ -44,15 +47,16 @@ var calendar = Calendar(identifier: .gregorian)
 calendar.timeZone = TimeZone.current
 let midnight = calendar.date(from: DateComponents(year: 2026, month: 11, day: 3))!
 let evening = calendar.date(from: DateComponents(year: 2026, month: 11, day: 3, hour: 23, minute: 59))!
+let want = "{\"byCity\":{\"x\":\"2026-11-03\"},\"day\":\"2026-11-03\",\"days\":[\"2026-11-03\"]}"
 for day in [midnight, evening] {
-    let sent = wire(Booking(day: day))
-    precondition(sent == "{\"day\":\"2026-11-03\"}", "\(day) in \(TimeZone.current.identifier) sent as \(sent)")
+    let sent = wire(Booking(day: day, days: [day], byCity: ["x": day]))
+    precondition(sent == want, "\(day) in \(TimeZone.current.identifier) sent as \(sent)")
 }
-let back = try Booking(json: ["day": "2026-11-03"])
+let back = try Booking(json: ["day": "2026-11-03", "days": ["2026-11-03"], "byCity": ["x": "2026-11-03"]])
 precondition(back.day.map { calendar.dateComponents([.year, .month, .day], from: $0) } == DateComponents(year: 2026, month: 11, day: 3),
              "decoded \(String(describing: back.day)) in \(TimeZone.current.identifier)")
 let again = wire(back)
-precondition(again == "{\"day\":\"2026-11-03\"}", "decoded \(String(describing: back.day)) sent as \(again)")
+precondition(again == want, "decoded \(String(describing: back.day)) sent as \(again)")
 print("OK")
 `)
 	bin := filepath.Join(dir, "check")

@@ -346,6 +346,8 @@ class DocumentBuilder {
   private appliedDecorators(prop: ModelProperty, type: Type, field: S.FieldDecl, add: (name: string, args?: OnktArg[]) => void): void {
     const itemType = type.kind === "Model" && isArrayModelType(this.program, type) ? type.indexer.value : type;
     const scalar = itemType.kind === "Scalar" ? stdScalar(itemType) : undefined;
+    const mapValue = type.kind === "Model" && isRecordModelType(this.program, type) ? type.indexer.value : undefined;
+    const mapScalar = mapValue?.kind === "Scalar" ? stdScalar(mapValue) : undefined;
     // TypeSpec lists decorators in the order it applied them, bottom-up.
     const apps = [...prop.decorators].reverse();
     const nameOf = (i: number) => apps[i]?.definition?.name;
@@ -414,7 +416,7 @@ class DocumentBuilder {
         }
         case "@encode": {
           sawEncode = true;
-          const encode = this.encoding(prop, scalar, field);
+          const encode = this.encoding(prop, field.type?.map ? mapScalar : scalar, field);
           if (encode) add("encode", [str(encode)]);
           break;
         }
@@ -436,16 +438,21 @@ class DocumentBuilder {
     }
     if (!sawFormat && scalar === "url") add("uri");
     if (!sawEncode) {
-      const encode = this.encoding(prop, scalar, field);
+      const encode = this.encoding(prop, field.type?.map ? mapScalar : scalar, field);
       if (encode) add("encode", [str(encode)]);
     }
   }
 
-  /** Maps TypeSpec's `@encode` onto onkt's wire encodings. */
+  /**
+   * Maps TypeSpec's `@encode` onto onkt's wire encodings. `scalar` is the
+   * item scalar of a list and the value scalar of a map: a collection carries
+   * an encoding only where onkt applies it to every item, which is a list of
+   * 64-bit integers sent as numbers and a list or map of dates.
+   */
   private encoding(prop: ModelProperty, scalar: string | undefined, field: S.FieldDecl): string | undefined {
-    if (!field.type || field.type.map) return undefined;
-    // A repeated field can only be told to carry 64-bit integers as numbers.
-    if (field.repeated && scalar !== "int64" && scalar !== "uint64") return undefined;
+    if (!field.type) return undefined;
+    if (field.type.map && scalar !== "plainDate") return undefined;
+    if (field.repeated && scalar !== "int64" && scalar !== "uint64" && scalar !== "plainDate") return undefined;
     if (findOnktDecorator(this.program, prop, "encode")) return undefined;
     const encode = getEncode(this.program, prop);
     switch (scalar) {

@@ -118,6 +118,9 @@ func fieldSchemaProxy(f *onkir.Field) *base.SchemaProxy {
 		if genshared.NeedsInt64NumberEncoding(f) {
 			item = base.CreateSchemaProxy(numberEncodedIntegerSchema(f.Type.Scalar))
 		}
+		if dateItems(f) {
+			item = base.CreateSchemaProxy(dateSchema())
+		}
 		schema := &base.Schema{
 			Type:  []string{"array"},
 			Items: &base.DynamicValue[*base.SchemaProxy, bool]{A: item},
@@ -219,6 +222,31 @@ func bytesEncodingSchema(encoding string) *base.Schema {
 	return schema
 }
 
+// timestampEncodeDate is the @encode value that sends a timestamp as a
+// calendar date.
+const timestampEncodeDate = "date"
+
+func dateSchema() *base.Schema {
+	return &base.Schema{Type: []string{"string"}, Format: "date"}
+}
+
+// dateItems reports a list or map of timestamps marked @encode("date"):
+// every item is a YYYY-MM-DD string.
+func dateItems(field *onkir.Field) bool {
+	if field.Type == nil {
+		return false
+	}
+	timestamp := func(t *onkir.Type) bool {
+		return t != nil && t.Kind == onkir.KindScalar && t.Scalar == onkir.ScalarTimestamp
+	}
+	if !(field.Repeated && timestamp(field.Type)) && !(field.Type.Kind == onkir.KindMap && timestamp(field.Type.MapValue)) {
+		return false
+	}
+	encode, ok := field.Decorator("encode")
+	value, _ := encode.Value()
+	return ok && value == timestampEncodeDate
+}
+
 func concreteTypeSchema(field *onkir.Field) *base.Schema {
 	if field.Type == nil {
 		return &base.Schema{}
@@ -236,8 +264,8 @@ func concreteTypeSchema(field *onkir.Field) *base.Schema {
 				if encodeValue == "unix_seconds" || encodeValue == "unix_millis" {
 					return &base.Schema{Type: []string{"integer"}, Format: "int64"}
 				}
-				if encodeValue == "date" {
-					return &base.Schema{Type: []string{"string"}, Format: "date"}
+				if encodeValue == timestampEncodeDate {
+					return dateSchema()
 				}
 			case onkir.ScalarBytes:
 				return bytesEncodingSchema(encodeValue)
@@ -265,7 +293,11 @@ func concreteTypeSchema(field *onkir.Field) *base.Schema {
 		}
 		return &base.Schema{AllOf: []*base.SchemaProxy{typeSchemaProxy(field.Type)}}
 	case onkir.KindMap:
-		return &base.Schema{Type: []string{"object"}, AdditionalProperties: &base.DynamicValue[*base.SchemaProxy, bool]{A: typeSchemaProxy(field.Type.MapValue)}}
+		value := typeSchemaProxy(field.Type.MapValue)
+		if dateItems(field) {
+			value = base.CreateSchemaProxy(dateSchema())
+		}
+		return &base.Schema{Type: []string{"object"}, AdditionalProperties: &base.DynamicValue[*base.SchemaProxy, bool]{A: value}}
 	default:
 		return &base.Schema{}
 	}

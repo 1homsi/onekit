@@ -15,8 +15,11 @@ type fieldCategories struct {
 	enums      []*onkir.Field
 	bytesF     []*onkir.Field
 	timestamps []*onkir.Field
-	flattens   []*onkir.Field
-	emptys     []*onkir.Field
+	// dates are lists and maps of timestamps whose every item is sent as
+	// YYYY-MM-DD.
+	dates    []*onkir.Field
+	flattens []*onkir.Field
+	emptys   []*onkir.Field
 	// zeroCollections are EmitZero repeated, map and plain bytes fields whose nil
 	// form would marshal as JSON null; the marshal aux struct writes [], {} or
 	// "" for them instead.
@@ -26,7 +29,7 @@ type fieldCategories struct {
 
 func (c fieldCategories) needsUnmarshal() bool {
 	return len(c.oneofs)+len(c.int64s)+len(c.int64Reps)+len(c.int64Opts)+len(c.enums)+
-		len(c.bytesF)+len(c.timestamps)+len(c.flattens)+len(c.emptys)+len(c.nulls) > 0
+		len(c.bytesF)+len(c.timestamps)+len(c.dates)+len(c.flattens)+len(c.emptys)+len(c.nulls) > 0
 }
 
 func zeroMessageField(f *onkir.Field) bool {
@@ -79,6 +82,8 @@ func categorizeFields(m *onkir.Message) fieldCategories {
 			c.bytesF = append(c.bytesF, f)
 		case timestampEncodingValue(f) != "":
 			c.timestamps = append(c.timestamps, f)
+		case dateItems(f):
+			c.dates = append(c.dates, f)
 		case zeroCollectionField(f):
 			c.zeroCollections = append(c.zeroCollections, f)
 		}
@@ -215,6 +220,13 @@ func writeAuxFieldDecls(p *Printer, m *onkir.Message, c fieldCategories, include
 		// a legitimate wire value and would otherwise vanish.
 		p.P(GoFieldName(f), " ", auxType, " `json:\"", f.Name, "\"`")
 	}
+	for _, f := range c.dates {
+		auxType := "[]string"
+		if f.Type.Kind == onkir.KindMap {
+			auxType = "map[string]string"
+		}
+		p.P(GoFieldName(f), " ", auxType, " `json:\"", f.Name, fieldTagOptions(f), "\"`")
+	}
 	for _, f := range c.flattens {
 		p.P(GoFieldName(f), " json.RawMessage `json:\"", f.Name, ",omitempty\"`")
 	}
@@ -349,6 +361,52 @@ func writeTimestampMarshalAssignments(p *Printer, c fieldCategories) {
 	}
 }
 
+func writeDateItemsMarshalAssignments(p *Printer, c fieldCategories) {
+	for _, f := range c.dates {
+		goName := GoFieldName(f)
+		if f.Type.Kind == onkir.KindMap {
+			p.P("if m.", goName, " != nil {")
+			p.P("aux.", goName, " = make(map[string]string, len(m.", goName, "))")
+			p.P("for k, v := range m.", goName, " {")
+			p.P("aux.", goName, "[k] = v.Format(\"2006-01-02\")")
+			p.P("}")
+			p.P("}")
+			continue
+		}
+		p.P("if m.", goName, " != nil {")
+		p.P("aux.", goName, " = make([]string, len(m.", goName, "))")
+		p.P("for i, v := range m.", goName, " {")
+		p.P("aux.", goName, "[i] = v.Format(\"2006-01-02\")")
+		p.P("}")
+		p.P("}")
+	}
+}
+
+func writeDateItemsUnmarshalAssignments(p *Printer, c fieldCategories) {
+	for _, f := range c.dates {
+		goName := GoFieldName(f)
+		p.P("if aux.", goName, " != nil {")
+		if f.Type.Kind == onkir.KindMap {
+			p.P("m.", goName, " = make(map[string]time.Time, len(aux.", goName, "))")
+			p.P("for k, s := range aux.", goName, " {")
+		} else {
+			p.P("m.", goName, " = make([]time.Time, len(aux.", goName, "))")
+			p.P("for i, s := range aux.", goName, " {")
+		}
+		p.P("t, err := time.Parse(\"2006-01-02\", s)")
+		p.P("if err != nil {")
+		p.P("return err")
+		p.P("}")
+		if f.Type.Kind == onkir.KindMap {
+			p.P("m.", goName, "[k] = t")
+		} else {
+			p.P("m.", goName, "[i] = t")
+		}
+		p.P("}")
+		p.P("}")
+	}
+}
+
 func writeEmptyMarshalAssignments(p *Printer, c fieldCategories) {
 	for _, f := range c.emptys {
 		writeEmptyMarshalField(p, f, emptyBehaviorValue(f))
@@ -452,6 +510,7 @@ func writeMarshalAuxBuild(p *Printer, m *onkir.Message, c fieldCategories) {
 	writeEnumMarshalAssignments(p, c)
 	writeBytesMarshalAssignments(p, c)
 	writeTimestampMarshalAssignments(p, c)
+	writeDateItemsMarshalAssignments(p, c)
 	writeEmptyMarshalAssignments(p, c)
 	writeZeroCollectionAssignments(p, c)
 	if len(c.flattens) == 0 {
@@ -729,6 +788,7 @@ func writeCustomUnmarshalJSON(p *Printer, m *onkir.Message, c fieldCategories, n
 	writeEnumUnmarshalAssignments(p, c)
 	writeBytesUnmarshalAssignments(p, c)
 	writeTimestampUnmarshalAssignments(p, c)
+	writeDateItemsUnmarshalAssignments(p, c)
 
 	if len(c.flattens) > 0 {
 		writeRawObjectDecl(p)

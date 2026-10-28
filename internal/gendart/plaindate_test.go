@@ -12,12 +12,15 @@ const plainDateSchema = `namespace app;
 
 model Booking {
   day: plainDate;
+  days: plainDate[];
+  byCity: Record<plainDate>;
 }
 `
 
 // A plainDate is the calendar day the caller holds. Encoding it through
 // toUtc() sent local midnight east of UTC as the day before, and a late
-// evening west of UTC as the day after.
+// evening west of UTC as the day after. A list or map of them sent each item
+// as a full timestamp.
 func TestDartPlainDateSendsTheDayItHolds(t *testing.T) {
 	dir := dartPackage(t, compileDartSchema(t, plainDateSchema))
 	writeDartFile(t, filepath.Join(dir, "bin", "main.dart"), `
@@ -29,12 +32,13 @@ void main() {
     print('UTC');
     return;
   }
+  const want = '{"day":"2026-11-03","days":["2026-11-03"],"byCity":{"x":"2026-11-03"}}';
   for (final day in [DateTime(2026, 11, 3), DateTime(2026, 11, 3, 23, 59), DateTime.utc(2026, 11, 3)]) {
-    final wire = jsonEncode(Booking(day: day).toJson());
-    if (wire != '{"day":"2026-11-03"}') throw '$day (UTC${day.timeZoneOffset}) sent as $wire';
+    final wire = jsonEncode(Booking(day: day, days: [day], byCity: {'x': day}).toJson());
+    if (wire != want) throw '$day (UTC${day.timeZoneOffset}) sent as $wire';
   }
-  final back = Booking.fromJson({'day': '2026-11-03'});
-  if (jsonEncode(back.toJson()) != '{"day":"2026-11-03"}') throw 'decoded ${back.day} sent as ${back.toJson()}';
+  final back = Booking.fromJson(jsonDecode(want) as Map<String, dynamic>);
+  if (jsonEncode(back.toJson()) != want) throw 'decoded ${back.day} sent as ${back.toJson()}';
   print('OK');
 }
 `)

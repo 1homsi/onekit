@@ -31,10 +31,30 @@ func bytesEncoding(f *onkir.Field) string {
 }
 
 func timestampEncoding(f *onkir.Field) string {
-	if f == nil || f.Type == nil || f.Type.Kind != onkir.KindScalar || f.Type.Scalar != onkir.ScalarTimestamp {
+	if f == nil || f.Type == nil || !isTimestamp(f.Type) && !dateMap(f) {
 		return ""
 	}
 	return fieldEncodeValue(f)
+}
+
+// dateMap reports a map of timestamps: its encoding, which the compiler only
+// accepts as "date", applies to every value.
+func dateMap(f *onkir.Field) bool {
+	return f != nil && f.Type != nil && f.Type.Kind == onkir.KindMap && isTimestamp(f.Type.MapValue)
+}
+
+// mapValueField is the field whose encoding applies to each value of map
+// field f: f itself for a map of timestamps, and nil, the plain form,
+// otherwise.
+func mapValueField(f *onkir.Field) *onkir.Field {
+	if dateMap(f) {
+		return f
+	}
+	return nil
+}
+
+func isTimestamp(t *onkir.Type) bool {
+	return t != nil && t.Kind == onkir.KindScalar && t.Scalar == onkir.ScalarTimestamp
 }
 
 func flattenPrefix(f *onkir.Field) (string, bool) {

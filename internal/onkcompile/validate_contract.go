@@ -185,6 +185,10 @@ func validateCompiledField(filePath string, field *onkir.Field, options CompileO
 			switch field.Type.Kind {
 			case onkir.KindEnum:
 				valid = value == Int64EncodingNumber
+			case onkir.KindMap:
+				// A map of dates sends every value as YYYY-MM-DD.
+				valid = value == timestampEncodeDate && field.Type.MapValue != nil &&
+					field.Type.MapValue.Kind == onkir.KindScalar && field.Type.MapValue.Scalar == onkir.ScalarTimestamp
 			case onkir.KindScalar:
 				switch field.Type.Scalar {
 				case onkir.ScalarInt64, onkir.ScalarUint64:
@@ -192,7 +196,7 @@ func validateCompiledField(filePath string, field *onkir.Field, options CompileO
 				case onkir.ScalarBytes:
 					valid = value == "hex" || value == "base64" || value == "base64_raw" || value == "base64url" || value == "base64url_raw"
 				case onkir.ScalarTimestamp:
-					valid = value == "unix_seconds" || value == "unix_millis" || value == "date"
+					valid = value == "unix_seconds" || value == "unix_millis" || value == timestampEncodeDate
 				default:
 					valid = false
 				}

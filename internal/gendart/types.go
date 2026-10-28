@@ -237,7 +237,7 @@ func (p *Printer) encodeValue(t *onkir.Type, f *onkir.Field, expr string, inMap 
 		}
 		return expr + ".wire"
 	case onkir.KindMap:
-		inner := p.encodeValue(t.MapValue, nil, "v", true)
+		inner := p.encodeValue(t.MapValue, mapValueField(f), "v", true)
 		if inner == "v" {
 			return expr
 		}
@@ -260,10 +260,8 @@ func (p *Printer) encodeValue(t *onkir.Type, f *onkir.Field, expr string, inMap 
 			}
 			return "onekitBytesEncode(" + expr + ", " + dartString(enc) + ")"
 		case onkir.ScalarTimestamp:
-			enc := ""
-			if !inMap {
-				enc = timestampEncoding(f)
-			}
+			// A map passes its field only when it holds timestamps.
+			enc := timestampEncoding(f)
 			return "onekitTimeEncode(" + expr + ", " + dartString(enc) + ")"
 		}
 	}
@@ -280,7 +278,7 @@ func (p *Printer) decodeValue(t *onkir.Type, f *onkir.Field, expr string, inMap 
 		}
 		return p.EnumTypeName(t.Enum) + ".fromWire(" + expr + ")"
 	case onkir.KindMap:
-		return "onekitMap(" + expr + ", (v) => " + p.decodeValue(t.MapValue, nil, "v", true) + ")"
+		return "onekitMap(" + expr + ", (v) => " + p.decodeValue(t.MapValue, mapValueField(f), "v", true) + ")"
 	case onkir.KindScalar:
 		switch t.Scalar {
 		case onkir.ScalarString:
@@ -300,10 +298,8 @@ func (p *Printer) decodeValue(t *onkir.Type, f *onkir.Field, expr string, inMap 
 			}
 			return "onekitBytesDecode(" + expr + ", " + dartString(enc) + ")"
 		case onkir.ScalarTimestamp:
-			enc := ""
-			if !inMap {
-				enc = timestampEncoding(f)
-			}
+			// A map passes its field only when it holds timestamps.
+			enc := timestampEncoding(f)
 			return "onekitTimeDecode(" + expr + ", " + dartString(enc) + ")"
 		}
 	}

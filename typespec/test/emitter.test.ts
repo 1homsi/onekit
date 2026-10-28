@@ -181,3 +181,19 @@ describe("64-bit integers", () => {
     assert.equal(fields[2].decorators, undefined);
   });
 });
+
+describe("dates", () => {
+  it("keeps the date encoding on lists and maps of plainDate", async () => {
+    const doc = await emit(`
+      namespace app;
+      model Trip {
+        day: plainDate;
+        days: plainDate[];
+        byCity: Record<plainDate>;
+        stamps: utcDateTime[];
+        times: Record<utcDateTime>;
+      }`);
+    const encodings = messages(doc)[0].fields!.map((f) => f.decorators?.map((d) => [d.name, d.args?.[0].value]));
+    assert.deepEqual(encodings, [[["encode", "date"]], [["encode", "date"]], [["encode", "date"]], undefined, undefined]);
+  });
+});

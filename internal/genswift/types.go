@@ -212,7 +212,7 @@ func encodeValue(t *onkir.Type, f *onkir.Field, expr string, inMap bool) string 
 		}
 		return expr + ".rawValue"
 	case onkir.KindMap:
-		inner := encodeValue(t.MapValue, nil, "v", true)
+		inner := encodeValue(t.MapValue, mapValueField(f), "v", true)
 		if inner == "v" {
 			return expr
 		}
@@ -232,10 +232,8 @@ func encodeValue(t *onkir.Type, f *onkir.Field, expr string, inMap bool) string 
 			}
 			return "onekitBytesEncode(" + expr + ", " + swiftString(enc) + ")"
 		case onkir.ScalarTimestamp:
-			enc := ""
-			if !inMap {
-				enc = timestampEncoding(f)
-			}
+			// A map passes its field only when it holds timestamps.
+			enc := timestampEncoding(f)
 			return "onekitTimeEncode(" + expr + ", " + swiftString(enc) + ")"
 		}
 	}
@@ -252,7 +250,7 @@ func (p *Printer) decodeValue(t *onkir.Type, f *onkir.Field, expr string, inMap 
 		}
 		return p.enumRef(t.Enum) + ".fromWire(" + expr + ")"
 	case onkir.KindMap:
-		inner := p.decodeValue(t.MapValue, nil, "v", true)
+		inner := p.decodeValue(t.MapValue, mapValueField(f), "v", true)
 		return "onekitMap(" + expr + ") { v in " + tryPrefix(inner) + inner + " }"
 	case onkir.KindScalar:
 		switch t.Scalar {
@@ -279,10 +277,8 @@ func (p *Printer) decodeValue(t *onkir.Type, f *onkir.Field, expr string, inMap 
 			}
 			return "onekitBytesDecode(" + expr + ", " + swiftString(enc) + ")"
 		case onkir.ScalarTimestamp:
-			enc := ""
-			if !inMap {
-				enc = timestampEncoding(f)
-			}
+			// A map passes its field only when it holds timestamps.
+			enc := timestampEncoding(f)
 			return "onekitTimeDecode(" + expr + ", " + swiftString(enc) + ")"
 		case onkir.ScalarJSON:
 			return "onekitNonNull(" + expr + ")"

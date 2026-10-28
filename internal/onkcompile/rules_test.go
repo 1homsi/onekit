@@ -374,3 +374,31 @@ func TestInt64EncodingNumberRejectsExplicitStrings(t *testing.T) {
 		}
 	}
 }
+
+// A list or map of plainDate sends every item as YYYY-MM-DD, so the date
+// encoding stays on the field; no other encoding applies to every item.
+func TestListsAndMapsOfDatesKeepTheDateEncoding(t *testing.T) {
+	src := `namespace api;
+
+model M {
+  days: plainDate[];
+  byCity: Record<plainDate>;
+}
+`
+	pkg, err := Compile([]Source{{Path: "/p/api.tsp", AST: parseOrFatal(t, src)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range pkg.Files[0].Messages[0].Fields {
+		encode, ok := field.Decorator("encode")
+		if value, _ := encode.Value(); !ok || value != "date" {
+			t.Errorf("%s: decorators %+v, want @encode(\"date\")", field.Name, field.Decorators)
+		}
+	}
+	for _, field := range []string{"@Onkt.encode(\"unix_seconds\")\n  at: utcDateTime[];", "@Onkt.encode(\"unix_millis\")\n  at: Record<utcDateTime>;"} {
+		src := "namespace api;\n\nmodel M {\n  " + field + "\n}\n"
+		if _, err := Compile([]Source{{Path: "/p/api.tsp", AST: parseOrFatal(t, src)}}); err == nil {
+			t.Errorf("%q compiled; only the date encoding applies to every item", field)
+		}
+	}
+}

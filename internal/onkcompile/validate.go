@@ -92,7 +92,7 @@ var (
 	allowedEncodeValues = map[string]bool{
 		"number": true, "hex": true, "base64": true, "base64_raw": true,
 		"base64url": true, "base64url_raw": true, "unix_seconds": true,
-		"unix_millis": true, "date": true,
+		"unix_millis": true, timestampEncodeDate: true,
 		// "string" is only the explicit form of a 64-bit integer's default,
 		// recorded so it can be checked against int64_encoding.
 		encodeString: true,
@@ -352,7 +352,7 @@ func validateFieldDecoratorType(filePath string, field *onkschema.FieldDecl, nam
 			return &Error{Path: filePath, Line: field.Line, Msg: "@unwrap cannot be optional"}
 		}
 	case "encode":
-		if repeatedInt64Number(field) || int64EncodedAsString(field) {
+		if repeatedInt64Number(field) || int64EncodedAsString(field) || datedItems(field) {
 			break
 		}
 		if field.Repeated || field.Type.IsMap {
@@ -365,6 +365,10 @@ func validateFieldDecoratorType(filePath string, field *onkschema.FieldDecl, nam
 // encodeString is the @encode value that spells out a 64-bit integer's
 // default string form.
 const encodeString = "string"
+
+// timestampEncodeDate is the @encode value that sends a timestamp as a
+// calendar date, YYYY-MM-DD.
+const timestampEncodeDate = "date"
 
 // is64BitInteger reports a 64-bit integer type name.
 func is64BitInteger(name string) bool { return name == "int64" || name == "uint64" }
@@ -389,6 +393,24 @@ func repeatedInt64Number(field *onkschema.FieldDecl) bool {
 	}
 	encode, ok := findDecorator(field.Decorators, "encode")
 	return ok && len(encode.Args) == 1 && encode.Args[0].Value == Int64EncodingNumber
+}
+
+// datedItems reports a list or map of timestamps marked @encode("date"):
+// every item crosses the wire as YYYY-MM-DD, as a single date field does.
+func datedItems(field *onkschema.FieldDecl) bool {
+	if field.Type == nil {
+		return false
+	}
+	switch {
+	case field.Type.IsMap:
+		if !isScalarNamed(field.Type.MapVal, "timestamp") {
+			return false
+		}
+	case !field.Repeated || !isScalarNamed(field.Type, "timestamp"):
+		return false
+	}
+	encode, ok := findDecorator(field.Decorators, "encode")
+	return ok && len(encode.Args) == 1 && encode.Args[0].Value == timestampEncodeDate
 }
 
 func acceptsIn(field *onkschema.FieldDecl) bool {

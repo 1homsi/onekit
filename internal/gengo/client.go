@@ -321,7 +321,7 @@ func writeResponseBodyRuntime(p *Printer) {
 
 func bodyFieldNeedsCustomJSON(field *onkir.Field) bool {
 	return needsInt64StringEncoding(field) || needsEnumNumberEncoding(field) ||
-		bytesEncodingValue(field) != "" || timestampEncodingValue(field) != ""
+		bytesEncodingValue(field) != "" || timestampEncodingValue(field) != "" || dateItems(field)
 }
 
 func writeBodyValue(p *Printer, field *onkir.Field) {
@@ -350,6 +350,10 @@ func bodyWireValueExpr(field *onkir.Field, expr string) string {
 		return bytesEncodeCall(bytesEncodingValue(field), expr)
 	case timestampEncodingValue(field) != "":
 		return timestampEncodeExpr(timestampEncodingValue(field), expr)
+	case dateItems(field) && field.Repeated:
+		return "func() []string { out := make([]string, len(" + expr + ")); for i, v := range " + expr + " { out[i] = v.Format(\"2006-01-02\") }; return out }()"
+	case dateItems(field):
+		return "func() map[string]string { out := make(map[string]string, len(" + expr + ")); for k, v := range " + expr + " { out[k] = v.Format(\"2006-01-02\") }; return out }()"
 	default:
 		return expr
 	}
