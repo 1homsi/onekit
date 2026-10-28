@@ -137,20 +137,66 @@ console.log("OK");
 `)
 }
 
+// Each rule here reads only the caller, only the request, or neither, so every
+// authorize function has a parameter that nothing reads.
+const authorizeOneSidedTSSchema = `namespace app;
+
+@Onkt.principal
+model Principal {
+  user_id: string;
+  roles: string[];
+}
+
+model DeleteDoc {
+  id: string;
+}
+
+model ListDocs {
+  org: string;
+}
+
+model Ack {
+  ok: boolean;
+}
+
+@route("/v1")
+interface Docs {
+  @post
+  @route("/docs/delete")
+  @Onkt.authorize("'admin' in auth.roles", "admins only")
+  delete(...DeleteDoc): Ack;
+
+  @get
+  @route("/docs")
+  @Onkt.authorize("req.org != ''", "name an organization")
+  list(...ListDocs): Ack;
+
+  @post
+  @route("/docs/purge")
+  @Onkt.authorize("false", "purging is switched off")
+  purge(...DeleteDoc): Ack;
+}
+`
+
 func TestGeneratedTSAuthorizeTypeChecksStrictly(t *testing.T) {
 	if _, err := exec.LookPath("tsc"); err != nil {
 		t.Skip("tsc not available")
 	}
-	file := compileTSSchema(t, authorizeTSSchema)
-	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "types.ts"), string(GenerateTypes(file)))
-	writeFile(t, filepath.Join(dir, "server.ts"), string(GenerateServer(file)))
-	writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
+	for name, schema := range map[string]string{"rules read both": authorizeTSSchema, "rules read one side": authorizeOneSidedTSSchema} {
+		t.Run(name, func(t *testing.T) {
+			file := compileTSSchema(t, schema)
+			dir := t.TempDir()
+			writeFile(t, filepath.Join(dir, "types.ts"), string(GenerateTypes(file)))
+			writeFile(t, filepath.Join(dir, "client.ts"), string(GenerateClient(file)))
+			writeFile(t, filepath.Join(dir, "server.ts"), string(GenerateServer(file)))
+			writeFile(t, filepath.Join(dir, "tsconfig.json"), `{
   "compilerOptions": {
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "bundler",
     "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "noEmit": true,
@@ -159,9 +205,11 @@ func TestGeneratedTSAuthorizeTypeChecksStrictly(t *testing.T) {
   }
 }
 `)
-	cmd := exec.Command("tsc", "-p", "tsconfig.json")
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("generated authorize code does not type-check: %v\n%s", err, out)
+			cmd := exec.Command("tsc", "-p", "tsconfig.json")
+			cmd.Dir = dir
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("generated authorize code does not type-check: %v\n%s", err, out)
+			}
+		})
 	}
 }

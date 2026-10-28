@@ -35,6 +35,8 @@ type tsRuleCompiler struct {
 	field    *onkir.Field
 	vars     []string
 	bindings map[string]string
+	// read holds the bindings the compiled code refers to.
+	read map[string]bool
 }
 
 func jsString(s string) string {
@@ -114,6 +116,10 @@ func (c *tsRuleCompiler) ident(n *onkexpr.Ident) string {
 		}
 	}
 	if bound, ok := c.bindings[n.Name]; ok {
+		if c.read == nil {
+			c.read = map[string]bool{}
+		}
+		c.read[n.Name] = true
 		return bound
 	}
 	if n.Name == "value" && c.field != nil {
