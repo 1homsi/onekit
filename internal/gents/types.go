@@ -553,7 +553,9 @@ func collectCodecFields(naming tsNaming, m *onkir.Message, wirePrefix string) []
 
 func writeDecodeFunc(p *Printer, m *onkir.Message) {
 	p.P("export function decode", m.Name, "(v: any): ", m.Name, " {")
-	p.P("if (v === null || v === undefined) return v;")
+	// Anything but an object (null, 5, "x", []) passes through unchanged, so
+	// validate reports it instead of seeing an object of absent fields.
+	p.P("if (!(", tsIsObject("v"), ")) return v;")
 	p.P("return {")
 	for _, cf := range collectCodecFields(p.naming, m, "") {
 		decoded := decodeExpr(p, cf.field, "v."+cf.wire)
@@ -565,6 +567,11 @@ func writeDecodeFunc(p *Printer, m *onkir.Message) {
 	p.P("};")
 	p.P("}")
 	p.P()
+}
+
+// tsIsObject is true when expr is a JSON object: not null, not an array.
+func tsIsObject(expr string) string {
+	return fmt.Sprintf("typeof %s === \"object\" && %s !== null && !Array.isArray(%s)", expr, expr, expr)
 }
 
 func writeEncodeFunc(p *Printer, m *onkir.Message) {
@@ -647,9 +654,10 @@ func decodeExpr(p *Printer, f *onkir.Field, expr string) string {
 	case onkir.KindMap:
 		if f.Type.MapValue.Kind == onkir.KindMessage {
 			fn := p.MessageCodecName(f.Type.MapValue.Message, "decode")
+			// Anything but an object passes through for validate to report.
 			return fmt.Sprintf(
-				"(%s != null ? Object.fromEntries(Object.entries(%s as Record<string, any>).map(([k, val]) => [k, %s(val)])) : %s)",
-				expr,
+				"(%s ? Object.fromEntries(Object.entries(%s as Record<string, any>).map(([k, val]) => [k, %s(val)])) : %s)",
+				tsIsObject(expr),
 				expr,
 				fn,
 				expr,
