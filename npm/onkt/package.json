@@ -1,5 +1,5 @@
 {
-  "name": "onkt",
+  "name": "@onkt/cli",
   "version": "0.0.0-development",
   "description": "The onkt CLI: Go, TypeScript, Python, Rust, Dart and Swift servers and clients from TypeSpec",
   "license": "MIT",

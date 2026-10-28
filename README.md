@@ -114,24 +114,24 @@ The CLI itself is on npm too, so a project pins it in `package.json` beside the
 emitter and everyone on the project, CI included, runs the same version:
 
 ```bash
-npx onkt init ./my-api      # onkt.toml, main.tsp and package.json
+npx @onkt/cli init ./my-api # onkt.toml, main.tsp and package.json
 cd my-api
-npm install                 # onkt, @onkt/typespec, @typespec/compiler, @typespec/http
+npm install                 # @onkt/cli, @onkt/typespec, @typespec/compiler, @typespec/http
 npx onkt build              # generates everything configured in onkt.toml
 ```
 
-The `onkt` package is a small launcher. The first time it runs, it downloads the
+The `@onkt/cli` package is a small launcher; its command is `onkt`. The first time it runs, it downloads the
 binary for the machine (macOS, Linux and Windows, on x64 and arm64; the Linux
 binary is static, so Alpine works) from the GitHub release of its own version,
 checks it against the release's `checksums.txt`, and caches it under the user
 cache directory (`~/.cache/onekit/releases/<version>` on Linux). It needs no
 install script, so `--ignore-scripts` and pnpm are fine. Set
 `ONKT_DOWNLOAD_BASE` to a mirror of `https://github.com/1homsi/onekit/releases/download`
-or `ONKT_CACHE_DIR` to move the cache. Keep `onkt` and `@onkt/typespec` on the
+or `ONKT_CACHE_DIR` to move the cache. Keep `@onkt/cli` and `@onkt/typespec` on the
 same version: they are released together. To add both to an existing project:
 
 ```bash
-npm install --save-dev onkt @onkt/typespec @typespec/compiler @typespec/http
+npm install --save-dev @onkt/cli @onkt/typespec @typespec/compiler @typespec/http
 ```
 
 To work on onekit itself:

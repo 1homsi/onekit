@@ -1,15 +1,18 @@
-# onkt
+# @onkt/cli
 
 The onkt CLI generates Go, TypeScript, Python, Rust, Dart and Swift servers and
 clients, and OpenAPI documents, from a TypeSpec API. Install it next to the
 TypeSpec toolchain so a project pins one version of both:
 
 ```bash
-npm install --save-dev onkt @onkt/typespec @typespec/compiler @typespec/http
+npm install --save-dev @onkt/cli @onkt/typespec @typespec/compiler @typespec/http
 npx onkt build
 ```
 
-Keep `onkt` and `@onkt/typespec` on the same version: they are released
+The package installs the `onkt` command. Without installing it first, run
+`npx @onkt/cli init ./my-api` to start a project.
+
+Keep `@onkt/cli` and `@onkt/typespec` on the same version: they are released
 together.
 
 This package is a launcher. On first use it downloads the onkt binary for the
