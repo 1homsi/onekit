@@ -323,9 +323,22 @@ private func onekitTwo(_ value: Int) -> String {
     value < 10 ? "0\(value)" : "\(value)"
 }
 
+// A plainDate is a calendar day, not an instant. A Date carries no zone, so the
+// day is read in the device's current time zone on the Gregorian calendar: the
+// day a DatePicker value or a local midnight holds. Decoding gives local
+// midnight of the day, so a decoded value encodes back to the same day.
+private func onekitDateCalendar(_ zone: TimeZone = TimeZone.current) -> Calendar {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = zone
+    return calendar
+}
+
 public func onekitTimeEncode(_ value: Date, _ encoding: String) -> Any {
     let seconds = value.timeIntervalSince1970
     switch encoding {
+    case "date":
+        let parts = onekitDateCalendar().dateComponents([.year, .month, .day], from: value)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     case "unix_seconds":
         return Int64(seconds.rounded(.down))
     case "unix_millis":
@@ -341,7 +354,6 @@ public func onekitTimeEncode(_ value: Date, _ encoding: String) -> Any {
         let remainder = Int(whole - Int64(days) * 86400)
         let (year, month, day) = onekitCivilFromDays(days)
         let date = String(format: "%04d-%02d-%02d", year, month, day)
-        if encoding == "date" { return date }
         var out = date + "T" + onekitTwo(remainder / 3600) + ":" + onekitTwo(remainder % 3600 / 60) + ":" + onekitTwo(remainder % 60)
         if micros != 0 { out += "." + String(format: "%06d", micros) }
         return out + "Z"
@@ -355,7 +367,13 @@ public func onekitTimeDecode(_ value: Any?, _ encoding: String) throws -> Date {
     case "unix_millis":
         return Date(timeIntervalSince1970: Double(try onekitInt64(value)) / 1000)
     case "date":
-        return try onekitParseTimestamp(try onekitString(value) + "T00:00:00Z")
+        let text = try onekitString(value)
+        let utc = try onekitParseTimestamp(text + "T00:00:00Z")
+        let parts = onekitDateCalendar(TimeZone(secondsFromGMT: 0)!).dateComponents([.year, .month, .day], from: utc)
+        guard let local = onekitDateCalendar().date(from: parts) else {
+            throw OnekitError.decoding("invalid date: \(text)")
+        }
+        return local
     default:
         return try onekitParseTimestamp(try onekitString(value))
     }
