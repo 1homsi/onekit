@@ -158,6 +158,47 @@ model Item {
 	}
 }
 
+// A .onk schema under int64_encoding = "number" compiles to plain int64 fields
+// marked Int64Number; the TypeSpec emitter also writes @encode("number") on
+// each. A baseline from before onkt migrate must compare equal to its
+// migrated schema, and so must a field's own @encode("number").
+func TestCompareTreatsEveryNumericInt64FormAsOneContract(t *testing.T) {
+	src := `namespace app;
+
+model Item {
+  id: int64;
+  count: uint64;
+  name: string;
+}
+`
+	build := func(encoding string) *onkir.Package {
+		pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{*compile(t, src)}, onkcompile.CompileOptions{Int64Encoding: encoding})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pkg
+	}
+	migrated := build(onkcompile.Int64EncodingNumber)
+	onk := build(onkcompile.Int64EncodingNumber)
+	for _, file := range onk.Files {
+		for _, message := range file.Messages {
+			for _, field := range message.Fields {
+				if field.HasDecorator("encode") {
+					field.Decorators = nil
+				} else if field.Int64Number {
+					t.Fatalf("%s: the emitter no longer writes @encode(\"number\"), so this test checks nothing", field.Name)
+				}
+			}
+		}
+	}
+	if findings := Compare(onk, migrated); len(findings) != 0 {
+		t.Fatalf(".onk baseline against its migrated schema: %+v", findings)
+	}
+	if findings := Compare(build(""), migrated); len(findings) != 0 {
+		t.Fatalf("@encode(\"number\") against int64_encoding = \"number\": %+v", findings)
+	}
+}
+
 func TestCompareReportsChangedRouteMetadata(t *testing.T) {
 	base := `namespace app;
 model R { id: string; }

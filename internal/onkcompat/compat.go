@@ -306,13 +306,17 @@ func fieldTypeSignature(field *onkir.Field) string {
 
 func fieldContractSignature(field *onkir.Field) string {
 	var parts []string
+	numeric := int64AsNumber(field)
 	for _, decorator := range field.Decorators {
 		if decorator.Name == "query" || decorator.Name == "required" {
 			continue
 		}
+		if numeric && decorator.Name == "encode" {
+			continue
+		}
 		parts = append(parts, decoratorSignature(decorator))
 	}
-	if field.Int64Number && !field.HasDecorator("encode") {
+	if numeric {
 		parts = append(parts, "encode:number")
 	}
 	if field.EmitZero {
@@ -323,6 +327,26 @@ func fieldContractSignature(field *onkir.Field) string {
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, "|")
+}
+
+// int64AsNumber reports a 64-bit integer field that crosses the wire as a JSON
+// number. int64_encoding = "number" and a field's own @encode("number") send
+// the same JSON, and TypeSpec schemas carry the decorator while .onk schemas
+// under the project setting do not, so both count as one contract.
+func int64AsNumber(field *onkir.Field) bool {
+	if field.Int64Number {
+		return true
+	}
+	if field.Type == nil || field.Type.Kind != onkir.KindScalar ||
+		(field.Type.Scalar != onkir.ScalarInt64 && field.Type.Scalar != onkir.ScalarUint64) {
+		return false
+	}
+	for _, decorator := range field.Decorators {
+		if decorator.Name == "encode" && len(decorator.Args) == 1 && decorator.Args[0].Value == "number" {
+			return true
+		}
+	}
+	return false
 }
 
 func messageRulesSignature(message *onkir.Message) string {
