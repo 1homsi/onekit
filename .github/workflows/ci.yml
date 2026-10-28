@@ -181,7 +181,7 @@ jobs:
         run: npm test --workspace typespec
 
       - name: Check the onkt npm launcher and publish script
-        run: node --check npm/onkt/bin/onkt.js && bash -n scripts/npm-publish.sh
+        run: node --check npm/onkt/bin/onkt.js && bash -n scripts/npm-publish.sh && bash -n scripts/npm-cli-check.sh
 
       - name: Run tests
         run: ./scripts/run_tests.sh ${{ matrix.test-args }}

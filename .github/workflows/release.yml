@@ -231,13 +231,75 @@ jobs:
         with:
           subject-path: dist/checksums.txt
 
-  npm-cli:
-    # The onkt npm package downloads its binary from the GitHub release, so
-    # it is published once that release exists.
-    name: Publish onkt
+  npm-cli-check:
+    # The @onkt/cli launcher picks the release binary for the machine it runs
+    # on, so it runs once on each platform the release ships before npm gets
+    # it: a bad asset name or checksum fails here, not in a user's install.
+    name: Check @onkt/cli (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    needs: [prepare, release]
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64, os: ubuntu-latest }
+          - { name: linux-arm64, os: ubuntu-24.04-arm }
+          - { name: darwin-arm64, os: macos-latest }
+          - { name: darwin-x64, os: macos-15-intel }
+          - { name: windows-x64, os: windows-latest }
+          - { name: windows-arm64, os: windows-11-arm }
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+
+      - name: Download, verify and run the binary
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ONKT_CACHE_DIR: ${{ runner.temp }}/onkt-cache
+        run: scripts/npm-cli-check.sh "$VERSION"
+
+  npm-cli-check-musl:
+    # Alpine: the Linux binaries are static, so musl runs the same asset.
+    name: Check @onkt/cli (linux-x64 musl)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [prepare, release]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Download, verify and run the binary on Alpine
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          docker run --rm -v "$PWD:/src:ro" -e VERSION -e ONKT_CACHE_DIR=/tmp/onkt-cache node:24-alpine \
+            sh -c 'apk add --no-cache bash >/dev/null && mkdir /w && cp -r /src/npm /src/scripts /w/ && bash /w/scripts/npm-cli-check.sh "$VERSION"'
+
+  npm-cli:
+    # The onkt npm package downloads its binary from the GitHub release, so
+    # it is published once that release exists and the launcher has run on
+    # every platform.
+    name: Publish onkt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [prepare, release, npm-cli-check, npm-cli-check-musl]
     permissions:
       contents: read
       id-token: write
@@ -253,15 +315,6 @@ jobs:
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-
-      - name: Check the package downloads its binary
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-          ONKT_CACHE_DIR: ${{ runner.temp }}/onkt-cache
-        run: |
-          cd npm/onkt
-          npm version "$VERSION" --no-git-tag-version --allow-same-version
-          test "$(node bin/onkt.js version)" = "$VERSION"
 
       - name: Publish under the release version
         env:
