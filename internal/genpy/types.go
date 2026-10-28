@@ -857,6 +857,85 @@ func writePyFieldValidation(p *Printer, m *onkir.Message, f *onkir.Field) {
 			p.P("if ", accessor, " is None or ", accessor, " == \"\": violations.append(", fmt.Sprintf("%q", f.Name+" is required"), ")")
 		}
 	}
+	check := p.pyTypeCheck(f, accessor)
+	if check == "" {
+		writePyFieldChecks(p, f, accessor)
+		return
+	}
+	// The other checks assume the declared type, so they run only when the
+	// value is absent or has it: 12345 for a string is reported, not raised on.
+	p.P("if ", accessor, " is not None and not (", check, "): violations.append(", fmt.Sprintf("%q", f.Name+" has invalid type"), ")")
+	checks := &Printer{indent: p.indent + 1, resolver: p.resolver}
+	writePyFieldChecks(checks, f, accessor)
+	if checks.b.Len() > 0 {
+		p.P("else:")
+		p.b.WriteString(checks.b.String())
+	}
+}
+
+// pyTypeCheck is a Python expression that holds when expr has field f's
+// declared type, or "" when every value does. Lists must be lists and maps
+// dicts, item by item; a bool is not an integer.
+func (p *Printer) pyTypeCheck(f *onkir.Field, expr string) string {
+	if f.Oneof != nil || f.Type == nil {
+		return ""
+	}
+	if f.Repeated {
+		item := p.pyValueCheck(f.Type, "_item", false)
+		if item == "" {
+			return "isinstance(" + expr + ", list)"
+		}
+		return "isinstance(" + expr + ", list) and all(" + item + " for _item in " + expr + ")"
+	}
+	if f.Type.Kind == onkir.KindScalar && f.Type.Scalar == onkir.ScalarTimestamp && p.fieldPyType(f) == pyIntFunction {
+		return pyIntCheck(expr)
+	}
+	return p.pyValueCheck(f.Type, expr, true)
+}
+
+func (p *Printer) pyValueCheck(t *onkir.Type, expr string, top bool) string {
+	switch t.Kind {
+	case onkir.KindScalar:
+		return pyScalarCheck(t.Scalar, expr)
+	case onkir.KindEnum:
+		return pyIntCheck(expr) + " and " + expr + " in " + p.EnumTypeName(t.Enum) + "._value2member_map_"
+	case onkir.KindMessage:
+		return "isinstance(" + expr + ", " + p.MessageTypeName(t.Message) + ")"
+	case onkir.KindMap:
+		if !top || t.MapValue == nil {
+			return ""
+		}
+		parts := []string{pyScalarCheck(t.MapKey, "_key")}
+		if value := p.pyValueCheck(t.MapValue, "_value", false); value != "" {
+			parts = append(parts, value)
+		}
+		return "isinstance(" + expr + ", dict) and all(" + strings.Join(parts, " and ") + " for _key, _value in " + expr + ".items())"
+	}
+	return ""
+}
+
+func pyScalarCheck(kind onkir.ScalarKind, expr string) string {
+	switch kind {
+	case onkir.ScalarString, onkir.ScalarTimestamp:
+		return "isinstance(" + expr + ", str)"
+	case onkir.ScalarBool:
+		return "isinstance(" + expr + ", bool)"
+	case onkir.ScalarInt32, onkir.ScalarInt64, onkir.ScalarUint32, onkir.ScalarUint64:
+		return pyIntCheck(expr)
+	case onkir.ScalarFloat32, onkir.ScalarFloat64:
+		return "isinstance(" + expr + ", (int, float)) and not isinstance(" + expr + ", bool)"
+	case onkir.ScalarBytes:
+		return "isinstance(" + expr + ", (bytes, bytearray))"
+	}
+	return ""
+}
+
+func pyIntCheck(expr string) string {
+	return "isinstance(" + expr + ", int) and not isinstance(" + expr + ", bool)"
+}
+
+// writePyFieldChecks writes field f's checks other than its type and @required.
+func writePyFieldChecks(p *Printer, f *onkir.Field, accessor string) {
 	if f.Repeated {
 		if d, ok := f.Decorator("min_items"); ok {
 			value, _ := d.Value()
@@ -927,6 +1006,10 @@ func writePyScalarValidation(p *Printer, f *onkir.Field, accessor string) {
 			}
 			p.P("if ", present, " and ", accessor, " not in (", strings.Join(values, ", "), ",): violations.append(", fmt.Sprintf("%q", f.Name+" must be one of the allowed values"), ")")
 		}
+	}
+	if f.Type.Scalar == onkir.ScalarFloat32 || f.Type.Scalar == onkir.ScalarFloat64 {
+		// JSON has no NaN or infinity, so they cannot be sent.
+		p.P("if ", present, " and (", accessor, " != ", accessor, " or ", accessor, " in (float(\"inf\"), float(\"-inf\"))): violations.append(", fmt.Sprintf("%q", f.Name+" must be a finite number"), ")")
 	}
 	if isPyNumeric(f.Type.Scalar) {
 		if d, ok := f.Decorator("in"); ok {
