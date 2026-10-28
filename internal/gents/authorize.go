@@ -53,19 +53,33 @@ func writeTSAuthorizeFuncs(p *Printer, file *onkir.File) {
 				p.P()
 				continue
 			}
-			p.P("export function ", authorizeFuncName(m), "(auth: ", p.MessageTypeName(m.Principal), " | undefined, req: ", p.MessageTypeName(m.Request), "): string[] {")
-			p.P("const violations: string[] = [];")
-			for _, r := range rules {
-				c := &tsRuleCompiler{state: &p.rules, bindings: map[string]string{onkexpr.AuthBinding: "auth", onkexpr.RequestBinding: "req"}}
-				code := c.expr(r.Expr)
+			// The rules are compiled before the signature is written, so a
+			// parameter no rule reads can be named for noUnusedParameters.
+			c := &tsRuleCompiler{state: &p.rules, bindings: map[string]string{onkexpr.AuthBinding: "auth", onkexpr.RequestBinding: "req"}}
+			codes := make([]string, len(rules))
+			for i, r := range rules {
+				codes[i] = c.expr(r.Expr)
 				p.rules.used = true
-				p.P("if (!Onk.ruleHolds(() => ", code, ")) violations.push(", jsString(r.Message), ");")
+			}
+			p.P("export function ", authorizeFuncName(m), "(", authorizeParam(c, onkexpr.AuthBinding), ": ", p.MessageTypeName(m.Principal), " | undefined, ", authorizeParam(c, onkexpr.RequestBinding), ": ", p.MessageTypeName(m.Request), "): string[] {")
+			p.P("const violations: string[] = [];")
+			for i, r := range rules {
+				p.P("if (!Onk.ruleHolds(() => ", codes[i], ")) violations.push(", jsString(r.Message), ");")
 			}
 			p.P("return violations;")
 			p.P("}")
 			p.P()
 		}
 	}
+}
+
+// authorizeParam names the parameter of an authorize function that holds
+// binding, with a leading underscore when no rule reads it.
+func authorizeParam(c *tsRuleCompiler, binding string) string {
+	if c.read[binding] {
+		return c.bindings[binding]
+	}
+	return "_" + c.bindings[binding]
 }
 
 func writeRoutePrincipalFlag(p *Printer, m *onkir.Method) {
