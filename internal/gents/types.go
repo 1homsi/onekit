@@ -226,8 +226,6 @@ func writeRootCodecFuncs(p *Printer, m *onkir.Message) {
 // writeValidateFunc keeps generated TypeScript servers honest with the same
 // schema-level checks emitted for Go. It returns messages instead of throwing
 // so callers can decide whether to surface a 400, show form feedback, or both.
-//
-//nolint:gocognit // Each schema rule is an independent generated-code branch.
 func writeValidateFunc(p *Printer, m *onkir.Message) {
 	p.P("export function validate", m.Name, "(v: ", m.Name, "): string[] {")
 	p.P("if (v === null || v === undefined) return [\"value must be an object\"];")
@@ -237,99 +235,133 @@ func writeValidateFunc(p *Printer, m *onkir.Message) {
 		accessor := "v." + f.ts
 		present := accessor + " !== undefined && " + accessor + " !== null"
 		p.P("if (", present, " && !(", tsRuntimeTypeExpression(field, accessor), ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid type"), ");")
-		if field.HasDecorator("required") {
-			required := "!(" + present + ")"
-			switch {
-			case field.Repeated:
-				required += " || " + accessor + ".length === 0"
-			case field.Type != nil && field.Type.Kind == onkir.KindMap:
-				required += " || Object.keys(" + accessor + ").length === 0"
-			case field.Type != nil && field.Type.Kind == onkir.KindScalar && field.Type.Scalar == onkir.ScalarString:
-				required += " || " + accessor + " === \"\""
+		// The other checks assume the declared type and can throw on another
+		// ([...12345]), so they are skipped for a value of the wrong type.
+		checks := &Printer{resolver: p.resolver, naming: p.naming}
+		writeTSFieldChecks(checks, field, accessor, present)
+		if checks.b.Len() > 0 {
+			if shape, ok := tsContainerShape(field, accessor); ok {
+				p.P("if (!(", present, ") || ", shape, ") {")
+			} else {
+				p.P("else {")
 			}
-			p.P("if (", required, ") violations.push(", fmt.Sprintf("%q", field.Name+" is required"), ");")
-		}
-		if field.Repeated {
-			if d, ok := field.Decorator("min_items"); ok {
-				value, _ := d.Value()
-				p.P("if (", present, " && ", accessor, ".length < ", value, ") violations.push(", fmt.Sprintf("%q", field.Name+" must contain at least "+value+" items"), ");")
-			}
-			if d, ok := field.Decorator("max_items"); ok {
-				value, _ := d.Value()
-				p.P("if (", present, " && ", accessor, ".length > ", value, ") violations.push(", fmt.Sprintf("%q", field.Name+" must contain at most "+value+" items"), ");")
-			}
-			if field.Type != nil && field.Type.Kind == onkir.KindMessage {
-				fn := p.MessageCodecName(field.Type.Message, "validate")
-				p.P("if (", present, ") for (const item of ", accessor, ") violations.push(...", fn, "(item).map((message) => ", fmt.Sprintf("%q", field.Name+": "), " + message));")
-			}
-			continue
-		}
-		if field.Type != nil && field.Type.Kind == onkir.KindMessage {
-			fn := p.MessageCodecName(field.Type.Message, "validate")
-			p.P("if (", present, ") violations.push(...", fn, "(", accessor, ").map((message) => ", fmt.Sprintf("%q", field.Name+": "), " + message));")
-			continue
-		}
-		if field.Type != nil && field.Type.Kind == onkir.KindMap && field.Type.MapValue != nil && field.Type.MapValue.Kind == onkir.KindMessage {
-			fn := p.MessageCodecName(field.Type.MapValue.Message, "validate")
-			p.P("if (", present, ") for (const item of Object.values(", accessor, ")) violations.push(...", fn, "(item).map((message) => ", fmt.Sprintf("%q", field.Name+": "), " + message));")
-			continue
-		}
-		if field.Type == nil || field.Type.Kind != onkir.KindScalar {
-			continue
-		}
-		if field.Type.Scalar == onkir.ScalarString {
-			formatPresent := present + " && " + accessor + " !== \"\""
-			if field.HasDecorator("email") {
-				p.P("if (", formatPresent, " && !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid email"), ");")
-			}
-			if field.HasDecorator("uuid") {
-				p.P("if (", formatPresent, " && !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid UUID"), ");")
-			}
-			if field.HasDecorator("uri") {
-				p.P("if (", formatPresent, ") { try { new URL(", accessor, "); } catch { violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid URI"), "); } }")
-			}
-			if d, ok := field.Decorator("len"); ok && len(d.Args) == 2 {
-				p.P("if (", present, " && ([...", accessor, "].length < ", d.Args[0].Value, " || [...", accessor, "].length > ", d.Args[1].Value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid length"), ");")
-			}
-			if d, ok := field.Decorator("pattern"); ok {
-				value, _ := d.Value()
-				p.P("if (", formatPresent, " && !(new RegExp(", fmt.Sprintf("%q", value), ")).test(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid format"), ");")
-			}
-			if d, ok := field.Decorator("in"); ok {
-				values := make([]string, 0, len(d.Args))
-				for _, arg := range d.Args {
-					values = append(values, fmt.Sprintf("%q", arg.Value))
-				}
-				p.P("if (", present, " && ![", strings.Join(values, ", "), "].includes(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be one of the allowed values"), ");")
-			}
-		}
-		if isTSNumeric(field.Type.Scalar) && writeTS64Rules(p, field, present, accessor) {
-			continue
-		}
-		if isTSNumeric(field.Type.Scalar) {
-			numericAccessor := "Number(" + accessor + ")"
-			if d, ok := field.Decorator("in"); ok {
-				values := make([]string, 0, len(d.Args))
-				for _, arg := range d.Args {
-					values = append(values, arg.Value)
-				}
-				p.P("if (", present, " && ![", strings.Join(values, ", "), "].includes(", numericAccessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be one of the allowed values"), ");")
-			}
-			if d, ok := field.Decorator("range"); ok && len(d.Args) == 2 {
-				p.P("if (", present, " && (", numericAccessor, " < ", d.Args[0].Value, " || ", numericAccessor, " > ", d.Args[1].Value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" violates @range"), ");")
-			}
-			for _, rule := range []struct{ name, op string }{{"gt", ">"}, {"gte", ">="}, {"lt", "<"}, {"lte", "<="}} {
-				if d, ok := field.Decorator(rule.name); ok {
-					value, _ := d.Value()
-					p.P("if (", present, " && !(", numericAccessor, " ", rule.op, " ", value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" violates @"+rule.name), ");")
-				}
-			}
+			p.Raw(checks.b.String())
+			p.P("}")
 		}
 	}
 	writeTSRuleChecks(p, m, "v")
 	p.P("return violations;")
 	p.P("}")
 	p.P()
+}
+
+// tsContainerShape is what the checks of a list or map field need: an array or
+// an object. Each item is then checked on its own, so an item of the wrong type
+// is reported in its own violation.
+func tsContainerShape(field *onkir.Field, expr string) (string, bool) {
+	switch {
+	case field.Repeated:
+		return "Array.isArray(" + expr + ")", true
+	case field.Type != nil && field.Type.Kind == onkir.KindMap:
+		return fmt.Sprintf("(typeof %s === \"object\" && !Array.isArray(%s))", expr, expr), true
+	default:
+		return "", false
+	}
+}
+
+// writeTSFieldChecks writes the checks of one field whose value is absent or
+// of its declared type.
+//
+//nolint:gocognit // Each schema rule is an independent generated-code branch.
+func writeTSFieldChecks(p *Printer, field *onkir.Field, accessor, present string) {
+	if field.HasDecorator("required") {
+		required := "!(" + present + ")"
+		switch {
+		case field.Repeated:
+			required += " || " + accessor + ".length === 0"
+		case field.Type != nil && field.Type.Kind == onkir.KindMap:
+			required += " || Object.keys(" + accessor + ").length === 0"
+		case field.Type != nil && field.Type.Kind == onkir.KindScalar && field.Type.Scalar == onkir.ScalarString:
+			required += " || " + accessor + " === \"\""
+		}
+		p.P("if (", required, ") violations.push(", fmt.Sprintf("%q", field.Name+" is required"), ");")
+	}
+	if field.Repeated {
+		if d, ok := field.Decorator("min_items"); ok {
+			value, _ := d.Value()
+			p.P("if (", present, " && ", accessor, ".length < ", value, ") violations.push(", fmt.Sprintf("%q", field.Name+" must contain at least "+value+" items"), ");")
+		}
+		if d, ok := field.Decorator("max_items"); ok {
+			value, _ := d.Value()
+			p.P("if (", present, " && ", accessor, ".length > ", value, ") violations.push(", fmt.Sprintf("%q", field.Name+" must contain at most "+value+" items"), ");")
+		}
+		if field.Type != nil && field.Type.Kind == onkir.KindMessage {
+			fn := p.MessageCodecName(field.Type.Message, "validate")
+			p.P("if (", present, ") for (const item of ", accessor, ") violations.push(...", fn, "(item).map((message) => ", fmt.Sprintf("%q", field.Name+": "), " + message));")
+		}
+		return
+	}
+	if field.Type != nil && field.Type.Kind == onkir.KindMessage {
+		fn := p.MessageCodecName(field.Type.Message, "validate")
+		p.P("if (", present, ") violations.push(...", fn, "(", accessor, ").map((message) => ", fmt.Sprintf("%q", field.Name+": "), " + message));")
+		return
+	}
+	if field.Type != nil && field.Type.Kind == onkir.KindMap && field.Type.MapValue != nil && field.Type.MapValue.Kind == onkir.KindMessage {
+		fn := p.MessageCodecName(field.Type.MapValue.Message, "validate")
+		p.P("if (", present, ") for (const item of Object.values(", accessor, ")) violations.push(...", fn, "(item).map((message) => ", fmt.Sprintf("%q", field.Name+": "), " + message));")
+		return
+	}
+	if field.Type == nil || field.Type.Kind != onkir.KindScalar {
+		return
+	}
+	if field.Type.Scalar == onkir.ScalarString {
+		formatPresent := present + " && " + accessor + " !== \"\""
+		if field.HasDecorator("email") {
+			p.P("if (", formatPresent, " && !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid email"), ");")
+		}
+		if field.HasDecorator("uuid") {
+			p.P("if (", formatPresent, " && !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid UUID"), ");")
+		}
+		if field.HasDecorator("uri") {
+			p.P("if (", formatPresent, ") { try { new URL(", accessor, "); } catch { violations.push(", fmt.Sprintf("%q", field.Name+" must be a valid URI"), "); } }")
+		}
+		if d, ok := field.Decorator("len"); ok && len(d.Args) == 2 {
+			p.P("if (", present, " && ([...", accessor, "].length < ", d.Args[0].Value, " || [...", accessor, "].length > ", d.Args[1].Value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid length"), ");")
+		}
+		if d, ok := field.Decorator("pattern"); ok {
+			value, _ := d.Value()
+			p.P("if (", formatPresent, " && !(new RegExp(", fmt.Sprintf("%q", value), ")).test(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" has invalid format"), ");")
+		}
+		if d, ok := field.Decorator("in"); ok {
+			values := make([]string, 0, len(d.Args))
+			for _, arg := range d.Args {
+				values = append(values, fmt.Sprintf("%q", arg.Value))
+			}
+			p.P("if (", present, " && ![", strings.Join(values, ", "), "].includes(", accessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be one of the allowed values"), ");")
+		}
+	}
+	if isTSNumeric(field.Type.Scalar) && writeTS64Rules(p, field, present, accessor) {
+		return
+	}
+	if isTSNumeric(field.Type.Scalar) {
+		numericAccessor := "Number(" + accessor + ")"
+		if d, ok := field.Decorator("in"); ok {
+			values := make([]string, 0, len(d.Args))
+			for _, arg := range d.Args {
+				values = append(values, arg.Value)
+			}
+			p.P("if (", present, " && ![", strings.Join(values, ", "), "].includes(", numericAccessor, ")) violations.push(", fmt.Sprintf("%q", field.Name+" must be one of the allowed values"), ");")
+		}
+		if d, ok := field.Decorator("range"); ok && len(d.Args) == 2 {
+			p.P("if (", present, " && (", numericAccessor, " < ", d.Args[0].Value, " || ", numericAccessor, " > ", d.Args[1].Value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" violates @range"), ");")
+		}
+		for _, rule := range []struct{ name, op string }{{"gt", ">"}, {"gte", ">="}, {"lt", "<"}, {"lte", "<="}} {
+			if d, ok := field.Decorator(rule.name); ok {
+				value, _ := d.Value()
+				p.P("if (", present, " && !(", numericAccessor, " ", rule.op, " ", value, ")) violations.push(", fmt.Sprintf("%q", field.Name+" violates @"+rule.name), ");")
+			}
+		}
+	}
 }
 
 func isTSNumeric(kind onkir.ScalarKind) bool {
@@ -608,7 +640,8 @@ func decodeExpr(p *Printer, f *onkir.Field, expr string) string {
 	case onkir.KindMessage:
 		fn := p.MessageCodecName(f.Type.Message, "decode")
 		if f.Repeated {
-			return fmt.Sprintf("(%s != null ? (%s as any[]).map(%s) : %s)", expr, expr, fn, expr)
+			// Anything but an array passes through for validate to report.
+			return fmt.Sprintf("(Array.isArray(%s) ? %s.map(%s) : %s)", expr, expr, fn, expr)
 		}
 		return fmt.Sprintf("(%s !== undefined ? %s(%s) : %s)", expr, fn, expr, expr)
 	case onkir.KindMap:
