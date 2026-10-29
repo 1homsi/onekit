@@ -38,7 +38,7 @@ func writeRawClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 
 	writeJSDoc(p, tsDeprecatedDoc(m.Doc, m.Deprecated))
 	p.P(CamelCase(m.Name), "Url(req: ", reqType, "): string {")
-	p.P("return ", fn, "(this.baseUrl, req);")
+	p.P("return ", fn, "(this.baseUrl, req, this.options.validateRequests !== false);")
 	p.P("}")
 	p.P()
 	if !m.RawIsFetchable() {
@@ -63,7 +63,7 @@ func writeRawClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	if typedResponse {
 		assign = "const res ="
 	}
-	p.P(assign, " await this.request(", fn, "(this.baseUrl, req), {")
+	p.P(assign, " await this.request(", fn, "(this.baseUrl, req, this.options.validateRequests !== false), {")
 	p.P("method: ", methodExpr, ",")
 	switch m.RawRequestKind() {
 	case onkir.RawBodyJSON:
@@ -98,9 +98,8 @@ func writeRawURLFunc(p *Printer, s *onkir.Service, m *onkir.Method) {
 	path, _ := m.Path()
 	fullPath := s.BasePath + path
 	writeJSDoc(p, tsDeprecatedDoc(m.Doc, m.Deprecated))
-	p.P("export function ", rawURLFuncName(s, m), "(baseUrl: string, req: ", p.MessageTypeName(m.Request), "): string {")
-	p.P("const violations = ", p.MessageCodecName(m.Request, "validate"), "(req);")
-	p.P(`if (violations.length > 0) throw new RequestValidationError("invalid request", violations);`)
+	p.P("export function ", rawURLFuncName(s, m), "(baseUrl: string, req: ", p.MessageTypeName(m.Request), ", validate = true): string {")
+	writeClientRequestValidation(p, m, "validate")
 	p.P(fmt.Sprintf("let path = %q;", fullPath))
 	for _, paramName := range onkir.PathParamNames(path) {
 		field := onkir.FindField(m.Request, paramName)

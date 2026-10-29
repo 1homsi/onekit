@@ -207,9 +207,7 @@ func writeSSEClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeJSDoc(p, tsDeprecatedDoc(m.Doc, m.Deprecated))
 	p.P("async *", CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request),
 		", opts?: RequestOptions): AsyncGenerator<", p.MessageTypeName(m.Response), "> {")
-	validator := p.MessageCodecName(m.Request, "validate")
-	p.P("const violations = ", validator, "(req);")
-	p.P(`if (violations.length > 0) throw new RequestValidationError("invalid request", violations);`)
+	writeClientRequestValidation(p, m, "this.options.validateRequests !== false")
 	p.P(fmt.Sprintf("let path = %q;", fullPath))
 	for _, paramName := range onkir.PathParamNames(path) {
 		field := onkir.FindField(m.Request, paramName)

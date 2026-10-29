@@ -62,8 +62,11 @@ describe("@onkt/typespec emitter", () => {
         @minLength(1) @maxLength(40) name: string;
         @encode(string) big: int64;
         small: int64;
+        @minLength(3) nick: string;
       }`);
     const fields = messages(doc)[0].fields!;
+    // A minimum alone gets the largest length the compiler accepts.
+    assert.deepEqual(fields[4].decorators?.map((d) => [d.name, d.args?.map((a) => a.value)]), [["len", ["3", "2147483647"]]]);
     assert.deepEqual(fields[0].decorators?.map((d) => d.name), ["lte", "gte"]);
     assert.deepEqual(fields[1].decorators?.map((d) => [d.name, d.args?.map((a) => a.value)]), [["len", ["1", "40"]]]);
     // Written out, so onkt can check it against int64_encoding.

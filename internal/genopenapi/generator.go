@@ -320,7 +320,10 @@ func applyFieldValidation(schema *base.Schema, field *onkir.Field) {
 		case "len":
 			minimum, _ := strconv.ParseInt(decorator.Args[0].Value, 10, 64)
 			maximum, _ := strconv.ParseInt(decorator.Args[1].Value, 10, 64)
-			schema.MinLength, schema.MaxLength = &minimum, &maximum
+			schema.MinLength = &minimum
+			if maximum != math.MaxInt32 {
+				schema.MaxLength = &maximum
+			}
 		case "min_items":
 			minimum, _ := strconv.ParseInt(value, 10, 64)
 			schema.MinItems = &minimum

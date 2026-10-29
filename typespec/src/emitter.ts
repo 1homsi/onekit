@@ -73,6 +73,9 @@ export function buildDocument(program: Program): S.Document {
 
 const str = (value: string): OnktArg => ({ value, quoted: true });
 const num = (value: number | bigint): OnktArg => ({ value: String(value) });
+// The upper bound of a `len` with only a minimum: the compiler accepts counts
+// up to int32, so this is the largest length a schema can state.
+const UNBOUNDED_LENGTH = 2147483647;
 
 interface Position {
   line?: number;
@@ -373,7 +376,7 @@ class DocumentBuilder {
         case "@minLength":
           sawLength = true;
           if (nameOf(i + 1) === "@maxLength") add("len", [arg(i), arg(++i)]);
-          else add("len", [arg(i), num(Number.MAX_SAFE_INTEGER)]);
+          else add("len", [arg(i), num(UNBOUNDED_LENGTH)]);
           break;
         case "@maxLength":
           sawLength = true;
@@ -429,7 +432,7 @@ class DocumentBuilder {
       const minLength = getMinLength(p, type);
       const maxLength = getMaxLength(p, type);
       if (!sawLength && (minLength !== undefined || maxLength !== undefined)) {
-        add("len", [num(minLength ?? 0), num(maxLength ?? Number.MAX_SAFE_INTEGER)]);
+        add("len", [num(minLength ?? 0), num(maxLength ?? UNBOUNDED_LENGTH)]);
       }
       const pattern = getPattern(p, type);
       if (!sawPattern && pattern !== undefined) add("pattern", [str(pattern)]);

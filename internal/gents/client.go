@@ -280,6 +280,9 @@ func writeClientClass(p *Printer, s *onkir.Service) {
 	p.P("maxSSELineBytes?: number;")
 	p.P("timeoutMs?: number;")
 	p.P("errorParser?: ApiErrorParser;")
+	p.P("// false skips checking requests against the schema before they are sent,")
+	p.P("// so the server reports every violation. Defaults to true.")
+	p.P("validateRequests?: boolean;")
 	for _, m := range s.Methods {
 		if m.IsWebSocket() {
 			p.P("// Cap on one inbound WebSocket message (default DEFAULT_MAX_WS_FRAME_BYTES);")
@@ -355,9 +358,7 @@ func writeClientMethod(p *Printer, s *onkir.Service, m *onkir.Method) {
 	writeJSDoc(p, tsDeprecatedDoc(m.Doc, m.Deprecated))
 	p.P("async ", CamelCase(m.Name), "(req: ", p.MessageTypeName(m.Request),
 		", opts?: RequestOptions): Promise<", p.MessageTypeName(m.Response), "> {")
-	validator := p.MessageCodecName(m.Request, "validate")
-	p.P("const violations = ", validator, "(req);")
-	p.P(`if (violations.length > 0) throw new RequestValidationError("invalid request", violations);`)
+	writeClientRequestValidation(p, m, "this.options.validateRequests !== false")
 	p.P(fmt.Sprintf("let path = %q;", fullPath))
 	for _, paramName := range onkir.PathParamNames(path) {
 		field := onkir.FindField(m.Request, paramName)
@@ -436,6 +437,16 @@ func writeClientQueryParams(p *Printer, req *onkir.Message) {
 	}
 	p.P(`const queryStr = query.toString();`)
 	p.P(`if (queryStr) { path += "?" + queryStr; }`)
+}
+
+// writeClientRequestValidation checks req against the schema before it is
+// sent, when enabled (a TypeScript expression) holds; the validateRequests
+// client option turns it off so the server reports every violation.
+func writeClientRequestValidation(p *Printer, m *onkir.Method, enabled string) {
+	p.P("if (", enabled, ") {")
+	p.P("const violations = ", p.MessageCodecName(m.Request, "validate"), "(req);")
+	p.P(`if (violations.length > 0) throw new RequestValidationError("invalid request", violations);`)
+	p.P("}")
 }
 
 func writeClientErrorHandling(p *Printer, m *onkir.Method) {

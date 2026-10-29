@@ -1196,7 +1196,7 @@ and hands it to your authentication code in each target:
 
 | Target | What you get |
 | --- | --- |
-| Go server | `RequestMetadata.Scopes` in your `Authorizer`, plus `WithScopes(func(ctx, r) ([]string, error))`, which returns `403` with `missing required scope: ...` (a `*ScopeError`) and leaves authentication failures as `401` |
+| Go server | `RequestMetadata.Scopes` in your `Authorizer`, plus `WithScopes(func(ctx, r) ([]string, error))`, which returns `403` with `missing required scope: ...` (a `*ScopeError`, through `WithErrorWriter` with `Code` `"forbidden"`) and leaves authentication failures as `401`. The callback runs only for routes that declare `@Onkt.requires` (`RequestMetadataFromContext(ctx).Scopes` lists what the route needs), after middleware and before the request is decoded. It composes with `WithAuthorizer`: the scope check runs first and the `Authorizer` only when it passes |
 | TypeScript server | `scopes` on each `RouteDescriptor`, and `{ authorize: requireScopes((req) => grantedScopes) }` on `createXFetchHandler`, `createXNodeHandler` and `attachXNodeHandlers` (or your own `authorize(req, route)`) |
 | Rust server | `context.required_scopes` and `context.missing_scopes(&granted)` on the `RequestContext` passed to every handler |
 | OpenAPI | the scopes are listed under each auth scheme in the operation's `security` requirement (needs an `@auth` header on the service or method) |
@@ -1374,7 +1374,7 @@ The runtime directory must not share a name with a schema directory, and switchi
 
 ### TypeScript client call shape
 
-Each client method takes one request object holding every field, path parameters included, plus an optional `RequestOptions` (`signal`, `headers`, `timeoutMs`): `client.update({ id, name })`, not `update(id, input)`. A failed call throws `ApiError` carrying `statusCode`, the raw `body`, and, when the response follows the error envelope, `code`, `message` and `requestId`; set `errorParser` in the client options to read a custom envelope. Calls time out after 30 seconds and read at most 8 MiB; both are settable per client (`timeoutMs`, `maxResponseBodyBytes`) and `timeoutMs` per call.
+Each client method takes one request object holding every field, path parameters included, plus an optional `RequestOptions` (`signal`, `headers`, `timeoutMs`): `client.update({ id, name })`, not `update(id, input)`. A failed call throws `ApiError` carrying `statusCode`, the raw `body`, and, when the response follows the error envelope, `code`, `message` and `requestId`; set `errorParser` in the client options to read a custom envelope. Requests are checked against the schema before they are sent and an invalid one throws `RequestValidationError`; set `validateRequests: false` in the client options to send them anyway, so the server reports every violation in its own error envelope (WebSocket frames are still checked). Calls time out after 30 seconds and read at most 8 MiB; both are settable per client (`timeoutMs`, `maxResponseBodyBytes`) and `timeoutMs` per call.
 
 `defaultHeaders` is a record or a function (sync or async) that runs before every request, so a token that changes is read fresh; headers passed per call win over it. `onResponse(res, { method, url })` sees every response before the body is read, and `onUnauthorized(res, { method, url })` runs on a 401 before the `ApiError` is thrown, which is where an app redirects to its sign-in page. A custom `fetch` is only needed for transport changes now.
 

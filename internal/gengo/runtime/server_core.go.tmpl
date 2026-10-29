@@ -240,6 +240,7 @@ type ServerOptions struct {
 	RequestIDHeader     string
 	RequestIDGenerator  RequestIDGenerator
 	Authorizer          Authorizer
+	GrantedScopes       func(context.Context, *http.Request) ([]string, error)
 	ErrorWriter         ErrorWriter
 	Principal           func(context.Context, *http.Request) (any, error)
 	Observer            RequestObserver
@@ -278,35 +279,40 @@ func WithAuthorizer(authorizer Authorizer) ServerOption {
 	return func(o *ServerOptions) { o.Authorizer = authorizer }
 }
 
-// WithScopes installs an authorizer that enforces @requires: granted returns the
-// scopes the caller holds (return an error to reject the request, for example a
-// 401), and any scope a route requires but the caller lacks produces a *ScopeError.
-// It replaces a previous WithAuthorizer; to combine both, read RequestMetadata.Scopes
-// inside your own Authorizer.
+// WithScopes enforces @requires: granted returns the scopes the caller holds
+// (return an error to reject the request, for example a 401), and any scope a
+// route requires but the caller lacks produces a *ScopeError, a 403 written
+// through the error writer with Code "forbidden". granted is called only for
+// routes that declare @requires, after middleware and before the request is
+// decoded; RequestMetadataFromContext(ctx).Scopes holds the scopes the route
+// requires. It composes with WithAuthorizer: the scope check runs first, and
+// the Authorizer runs only when it passes.
 func WithScopes(granted func(context.Context, *http.Request) ([]string, error)) ServerOption {
-	return WithAuthorizer(func(ctx context.Context, metadata RequestMetadata, r *http.Request) error {
-		if len(metadata.Scopes) == 0 {
-			return nil
-		}
-		have, err := granted(ctx, r)
-		if err != nil {
-			return err
-		}
-		held := make(map[string]bool, len(have))
-		for _, scope := range have {
-			held[scope] = true
-		}
-		var missing []string
-		for _, scope := range metadata.Scopes {
-			if !held[scope] {
-				missing = append(missing, scope)
-			}
-		}
-		if len(missing) > 0 {
-			return &ScopeError{Missing: missing}
-		}
+	return func(o *ServerOptions) { o.GrantedScopes = granted }
+}
+
+func checkScopes(ctx context.Context, granted func(context.Context, *http.Request) ([]string, error), metadata RequestMetadata, r *http.Request) error {
+	if len(metadata.Scopes) == 0 {
 		return nil
-	})
+	}
+	have, err := granted(ctx, r)
+	if err != nil {
+		return err
+	}
+	held := make(map[string]bool, len(have))
+	for _, scope := range have {
+		held[scope] = true
+	}
+	var missing []string
+	for _, scope := range metadata.Scopes {
+		if !held[scope] {
+			missing = append(missing, scope)
+		}
+	}
+	if len(missing) > 0 {
+		return &ScopeError{Missing: missing}
+	}
+	return nil
 }
 
 // ServerError describes a failure the generated server is about to report.
@@ -615,10 +621,17 @@ func Mount(mux *http.ServeMux, pattern string, handler http.Handler, metadata Re
 }
 
 func (o ServerOptions) WrapHandler(handler http.Handler, metadata RequestMetadata) http.Handler {
-	if o.Authorizer != nil {
+	if o.Authorizer != nil || (o.GrantedScopes != nil && len(metadata.Scopes) > 0) {
 		next := handler
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if err := o.Authorizer(r.Context(), metadata, r); err != nil {
+			var err error
+			if o.GrantedScopes != nil {
+				err = checkScopes(r.Context(), o.GrantedScopes, metadata, r)
+			}
+			if err == nil && o.Authorizer != nil {
+				err = o.Authorizer(r.Context(), metadata, r)
+			}
+			if err != nil {
 				var statusErr interface{ HTTPStatusCode() int }
 				if errors.As(err, &statusErr) {
 					o.WriteHandlerError(w, r, err)
