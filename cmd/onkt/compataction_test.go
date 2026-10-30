@@ -100,10 +100,10 @@ func (e compatActionEnv) run(t *testing.T, against, allow string) (string, strin
 	outputFile := filepath.Join(tmp, "output.txt")
 	cmd := exec.Command("bash", e.script)
 	cmd.Env = append(os.Environ(),
-		"ONEK_BIN="+e.onkt,
-		"ONEK_DIR="+e.dir,
-		"ONEK_AGAINST="+against,
-		"ONEK_ALLOW="+allow,
+		"ONKT_BIN="+e.onkt,
+		"ONKT_DIR="+e.dir,
+		"ONKT_AGAINST="+against,
+		"ONKT_ALLOW="+allow,
 		"REPORT_FILE="+reportFile,
 		"GITHUB_OUTPUT="+outputFile,
 		"GITHUB_STEP_SUMMARY="+filepath.Join(tmp, "summary.md"),

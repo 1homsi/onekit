@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo="${ONKT_REPO:-${ONEK_REPO:-1homsi/onekit}}"
-version="${ONKT_VERSION:-${ONEK_VERSION:-latest}}"
-dest="${ONKT_INSTALL_DIR:-${ONEK_INSTALL_DIR:-${RUNNER_TEMP:-/tmp}/onkt-bin}}"
+repo="${ONKT_REPO:-1homsi/onekit}"
+version="${ONKT_VERSION:-latest}"
+dest="${ONKT_INSTALL_DIR:-${RUNNER_TEMP:-/tmp}/onkt-bin}"
 
 case "$(uname -s)" in
   Linux) os="Linux" ;;

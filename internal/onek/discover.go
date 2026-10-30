@@ -1,28 +1,22 @@
 package onek
 
 import (
-	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sort"
 	"strings"
 	"sync"
 )
 
-const (
-	onkExtension   = ".onk"
-	protoExtension = ".proto"
-)
-
-func defaultSchemaExtensions() []string { return []string{onkExtension, tspExtension} }
+// retiredOnkExtension is the retired .onk language. Discovery still finds
+// those files so a build can refuse them instead of ignoring them.
+const retiredOnkExtension = ".onk"
 
 func discoverProjectSchemaFiles(dir string) ([]string, error) {
-	return discoverSchemaFiles(dir, nil)
+	return discoverSchemaFiles(dir)
 }
 
 // discoveryMemo keeps the schema files found under each root for the length
@@ -48,22 +42,19 @@ func stopDiscoveryMemo() {
 	discoveryMemo.Unlock()
 }
 
-func discoverSchemaFiles(dir string, exts []string) ([]string, error) {
+func discoverSchemaFiles(dir string) ([]string, error) {
 	root, err := canonicalProjectDir(dir)
 	if err != nil {
 		return nil, err
 	}
-	if len(exts) == 0 {
-		exts = defaultSchemaExtensions()
-	}
-	key := root + "\x00" + strings.Join(exts, "\x00")
+	key := root
 	discoveryMemo.Lock()
 	if files, ok := discoveryMemo.results[key]; ok && discoveryMemo.active {
 		discoveryMemo.Unlock()
 		return append([]string(nil), files...), nil
 	}
 	discoveryMemo.Unlock()
-	files, err := walkSchemaFiles(root, dir, exts)
+	files, err := walkSchemaFiles(root, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -75,9 +66,9 @@ func discoverSchemaFiles(dir string, exts []string) ([]string, error) {
 	return files, nil
 }
 
-func walkSchemaFiles(root, dir string, exts []string) ([]string, error) {
+func walkSchemaFiles(root, dir string) ([]string, error) {
 	sem := make(chan struct{}, 2*runtime.GOMAXPROCS(0))
-	files, err := walkSchemaDir(root, root, sem, exts)
+	files, err := walkSchemaDir(root, root, sem)
 	if err != nil {
 		return nil, fmt.Errorf("walk %s: %w", dir, err)
 	}
@@ -93,7 +84,7 @@ type schemaWalkResult struct {
 	err   error
 }
 
-func walkSchemaDir(root, dir string, sem chan struct{}, exts []string) ([]string, error) {
+func walkSchemaDir(root, dir string, sem chan struct{}) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -103,7 +94,7 @@ func walkSchemaDir(root, dir string, sem chan struct{}, exts []string) ([]string
 	for i, entry := range entries {
 		path := filepath.Join(dir, entry.Name())
 		if !entry.IsDir() {
-			results[i] = checkSchemaEntry(root, path, entry, exts)
+			results[i] = checkSchemaEntry(root, path, entry)
 			continue
 		}
 		if skippedSchemaDir(entry.Name()) {
@@ -115,11 +106,11 @@ func walkSchemaDir(root, dir string, sem chan struct{}, exts []string) ([]string
 			go func() {
 				defer wg.Done()
 				defer func() { <-sem }()
-				files, err := walkSchemaDir(root, path, sem, exts)
+				files, err := walkSchemaDir(root, path, sem)
 				results[i] = schemaWalkResult{files: files, err: err}
 			}()
 		default:
-			files, err := walkSchemaDir(root, path, sem, exts)
+			files, err := walkSchemaDir(root, path, sem)
 			results[i] = schemaWalkResult{files: files, err: err}
 		}
 	}
@@ -134,14 +125,14 @@ func walkSchemaDir(root, dir string, sem chan struct{}, exts []string) ([]string
 	return files, nil
 }
 
-func checkSchemaEntry(root, path string, d fs.DirEntry, exts []string) schemaWalkResult {
+func checkSchemaEntry(root, path string, d fs.DirEntry) schemaWalkResult {
 	if d.Type()&os.ModeSymlink != 0 {
-		if hasSchemaExtension(path, exts) {
+		if hasSchemaExtension(path) {
 			return schemaWalkResult{err: fmt.Errorf("refusing symlinked schema file: %s", path)}
 		}
 		return schemaWalkResult{}
 	}
-	if !hasSchemaExtension(path, exts) {
+	if !hasSchemaExtension(path) {
 		return schemaWalkResult{}
 	}
 	info, err := d.Info()
@@ -157,46 +148,9 @@ func checkSchemaEntry(root, path string, d fs.DirEntry, exts []string) schemaWal
 	if err := validateSchemaPath(root, path); err != nil {
 		return schemaWalkResult{err: err}
 	}
-	if strings.HasSuffix(path, protoExtension) {
-		isProtobuf, err := looksLikeProtobuf(path)
-		if err != nil {
-			return schemaWalkResult{err: err}
-		}
-		if isProtobuf {
-			return schemaWalkResult{}
-		}
-	}
 	return schemaWalkResult{files: []string{path}}
 }
 
-func hasSchemaExtension(path string, exts []string) bool {
-	for _, ext := range exts {
-		if strings.HasSuffix(path, ext) {
-			return true
-		}
-	}
-	return false
-}
-
-var (
-	protobufSyntaxLine  = regexp.MustCompile(`(?m)^\s*syntax\s*=`)
-	protobufFieldNumber = regexp.MustCompile(`(?m)\b[A-Za-z_][A-Za-z0-9_]*\s*=\s*\d+\s*[;\[]`)
-)
-
-// looksLikeProtobuf reports whether a .proto file is real Protocol Buffers
-// (a syntax declaration, or numbered fields) rather than OneKit schema text
-// kept in a file with that extension.
-func looksLikeProtobuf(path string) (bool, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return false, err
-	}
-	defer file.Close()
-	head := make([]byte, 64<<10)
-	n, err := file.Read(head)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return false, err
-	}
-	text := string(head[:n])
-	return protobufSyntaxLine.MatchString(text) || protobufFieldNumber.MatchString(text), nil
+func hasSchemaExtension(path string) bool {
+	return strings.HasSuffix(path, tspExtension) || strings.HasSuffix(path, retiredOnkExtension)
 }

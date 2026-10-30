@@ -27,12 +27,12 @@ func discoverSchemaFilesSerial(dir string) ([]string, error) {
 			return nil
 		}
 		if d.Type()&os.ModeSymlink != 0 {
-			if hasSchemaExtension(path, defaultSchemaExtensions()) {
+			if hasSchemaExtension(path) {
 				return fmt.Errorf("refusing symlinked schema file: %s", path)
 			}
 			return nil
 		}
-		if hasSchemaExtension(path, defaultSchemaExtensions()) {
+		if hasSchemaExtension(path) {
 			info, infoErr := d.Info()
 			if infoErr != nil {
 				return infoErr

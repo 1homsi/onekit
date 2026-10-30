@@ -80,7 +80,7 @@ func TestPinnedVersionDownloadsVerifiesAndRunsTheRelease(t *testing.T) {
 	}
 	run := func(extraEnv ...string) (string, error) {
 		cmd := exec.Command(bin, "check", "--dir", project)
-		cmd.Env = append(os.Environ(), "ONEK_DOWNLOAD_BASE="+server.URL, "ONEK_CACHE_DIR="+filepath.Join(project, "cache"))
+		cmd.Env = append(os.Environ(), "ONKT_DOWNLOAD_BASE="+server.URL, "ONKT_CACHE_DIR="+filepath.Join(project, "cache"))
 		cmd.Env = append(cmd.Env, extraEnv...)
 		out, err := cmd.CombinedOutput()
 		return string(out), err
@@ -106,7 +106,7 @@ func TestPinnedVersionDownloadsVerifiesAndRunsTheRelease(t *testing.T) {
 	}))
 	defer bad.Close()
 	cmd := exec.Command(bin, "check", "--dir", project)
-	cmd.Env = append(os.Environ(), "ONEK_DOWNLOAD_BASE="+bad.URL, "ONEK_CACHE_DIR="+t.TempDir())
+	cmd.Env = append(os.Environ(), "ONKT_DOWNLOAD_BASE="+bad.URL, "ONKT_CACHE_DIR="+t.TempDir())
 	out2, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(out2), "checksum mismatch") {
 		t.Fatalf("a tampered archive must be refused, got %v\n%s", err, out2)

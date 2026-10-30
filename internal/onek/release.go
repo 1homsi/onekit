@@ -82,7 +82,7 @@ func (s ReleaseSource) base() string {
 	if s.BaseURL != "" {
 		return strings.TrimRight(s.BaseURL, "/")
 	}
-	if env := Getenv(releaseBaseEnv); env != "" {
+	if env := os.Getenv(releaseBaseEnv); env != "" {
 		return strings.TrimRight(env, "/")
 	}
 	return DefaultReleaseBase
@@ -92,7 +92,7 @@ func (s ReleaseSource) cacheDir() (string, error) {
 	if s.CacheDir != "" {
 		return s.CacheDir, nil
 	}
-	if env := Getenv(cacheDirEnv); env != "" {
+	if env := os.Getenv(cacheDirEnv); env != "" {
 		return env, nil
 	}
 	base, err := os.UserCacheDir()

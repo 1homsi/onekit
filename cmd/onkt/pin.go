@@ -14,10 +14,7 @@ const (
 	commandBuild = "build"
 	commandCheck = "check"
 	pinReexecEnv = "ONKT_PINNED_REEXEC"
-	// legacyPinReexecEnv is what a pinned release from before the rename to
-	// onkt checks, so it does not re-exec again.
-	legacyPinReexecEnv = "ONEK_PINNED_REEXEC"
-	pinSkipEnv         = "ONKT_NO_PIN"
+	pinSkipEnv   = "ONKT_NO_PIN"
 )
 
 var pinnedCommands = map[string]bool{commandBuild: true, "generate": true, commandCheck: true, "watch": true, "mock": true}
@@ -55,7 +52,7 @@ func pinDirectory(command string, args []string) string {
 }
 
 func pinnedBinary(command string, args []string) (string, error) {
-	if !pinnedCommands[command] || onek.Getenv(pinReexecEnv) != "" || onek.Getenv(pinSkipEnv) != "" {
+	if !pinnedCommands[command] || os.Getenv(pinReexecEnv) != "" || os.Getenv(pinSkipEnv) != "" {
 		return "", nil
 	}
 	wanted, err := onek.PinnedVersion(pinDirectory(command, args))
@@ -78,9 +75,6 @@ func pinnedBinary(command string, args []string) (string, error) {
 }
 
 func reexecPinned(path string, args []string) error {
-	if err := os.Setenv(legacyPinReexecEnv, "1"); err != nil {
-		return err
-	}
 	if err := os.Setenv(pinReexecEnv, "1"); err != nil {
 		return err
 	}

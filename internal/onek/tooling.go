@@ -143,11 +143,11 @@ func (f fileStamp) settled() bool {
 }
 
 func projectSnapshot(dir string, previous []fileStamp) ([]fileStamp, error) {
-	schemaRoot, exts, err := resolveSchemaTreeExts(dir)
+	schemaRoot, err := resolveSchemaRoot(dir)
 	if err != nil {
 		return nil, err
 	}
-	paths, err := discoverSchemaFiles(schemaRoot, exts)
+	paths, err := discoverSchemaFiles(schemaRoot)
 	if err != nil {
 		return nil, err
 	}

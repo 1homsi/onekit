@@ -190,12 +190,12 @@ func errOnkSchemas(root string, files []string) error {
 }
 
 // compileTree compiles every schema under dir.
-func compileTree(dir string, exts []string, options onkcompile.CompileOptions) (*onkir.Package, error) {
+func compileTree(dir string, options onkcompile.CompileOptions) (*onkir.Package, error) {
 	root, err := canonicalProjectDir(dir)
 	if err != nil {
 		return nil, err
 	}
-	files, err := discoverSchemaFiles(root, exts)
+	files, err := discoverSchemaFiles(root)
 	if err != nil {
 		return nil, err
 	}
@@ -244,15 +244,15 @@ func loadOptionalConfig(dir string) (*Config, error) {
 	return LoadConfig(dir)
 }
 
-func resolveSchemaTreeExts(dir string) (string, []string, error) {
+func resolveSchemaRoot(dir string) (string, error) {
 	cfg, err := loadOptionalConfig(dir)
 	if err != nil && !errors.Is(err, errNoConfigFile) {
-		return "", nil, err
+		return "", err
 	}
 	if cfg != nil {
-		return cfg.SchemaDir(), cfg.schemaExtensions(), nil
+		return cfg.SchemaDir(), nil
 	}
-	return dir, nil, nil
+	return dir, nil
 }
 
 // Check validates the project configuration and every schema under the
@@ -270,7 +270,7 @@ func Check(dir string) error {
 }
 
 func checkAt(root string, cfg *Config) error {
-	_, err := compileTree(root, cfg.schemaExtensions(), cfg.CompileOptions())
+	_, err := compileTree(root, cfg.CompileOptions())
 	return err
 }
 
@@ -299,24 +299,21 @@ func compileCompatibilityProject(dir string, fallback *Config) (*onkir.Package, 
 	root := dir
 	options := onkcompile.CompileOptions{}
 	routePrefix := ""
-	var exts []string
 	switch {
 	case cfg != nil:
 		root = cfg.SchemaDir()
 		options = cfg.CompileOptions()
 		routePrefix = cfg.RoutePrefix
-		exts = cfg.schemaExtensions()
 	case fallback != nil:
 		options = fallback.CompileOptions()
 		routePrefix = fallback.RoutePrefix
-		exts = fallback.schemaExtensions()
 		if fallback.SchemaRoot != "" {
 			if info, statErr := os.Stat(filepath.Join(dir, fallback.SchemaRoot)); statErr == nil && info.IsDir() {
 				root = filepath.Join(dir, fallback.SchemaRoot)
 			}
 		}
 	}
-	pkg, err := compileTree(root, exts, options)
+	pkg, err := compileTree(root, options)
 	if err != nil {
 		return nil, err
 	}

@@ -114,10 +114,9 @@ type Config struct {
 	// Version pins the onkt release this project builds with. When it differs
 	// from the running binary, onkt downloads that release (checksum
 	// verified), caches it and hands the command over to it.
-	Version          string   `toml:"version"`
-	RepeatedStyle    string   `toml:"repeated_style"`
-	SchemaExtensions []string `toml:"schema_extensions"`
-	Module           string   `toml:"module"`
+	Version       string `toml:"version"`
+	RepeatedStyle string `toml:"repeated_style"`
+	Module        string `toml:"module"`
 	// SchemaRoot points at the directory holding the schema tree,
 	// relative to the project directory (the one containing onkt.toml).
 	// It lets repositories keep schemas in a subdirectory while generator
@@ -173,25 +172,11 @@ func (c *Config) SchemaDir() string {
 	return c.schemaDir
 }
 
-const (
-	configFileName = "onkt.toml"
-	// legacyConfigFileName is the name projects used before onkt; it is
-	// still read when a project has no onkt.toml.
-	legacyConfigFileName = "onekit.toml"
-)
+const configFileName = "onkt.toml"
 
-// configFilePath is the project config in dir: onkt.toml, else a legacy
-// onekit.toml, else where onkt.toml would go.
+// configFilePath is the project config in dir.
 func configFilePath(dir string) string {
-	path := filepath.Join(dir, configFileName)
-	if _, err := os.Stat(path); err == nil {
-		return path
-	}
-	legacy := filepath.Join(dir, legacyConfigFileName)
-	if _, err := os.Stat(legacy); err == nil {
-		return legacy
-	}
-	return path
+	return filepath.Join(dir, configFileName)
 }
 
 // ConfigError gives editor integrations a concrete file location for TOML
@@ -256,9 +241,6 @@ func LoadConfig(dir string) (*Config, error) {
 		return nil, &ConfigError{Path: path, Err: err}
 	}
 	if err := validateInt64Encoding(cfg.Int64Encoding); err != nil {
-		return nil, &ConfigError{Path: path, Err: err}
-	}
-	if err := validateSchemaExtensions(cfg.SchemaExtensions); err != nil {
 		return nil, &ConfigError{Path: path, Err: err}
 	}
 	if err := validateRepeatedStyle(cfg.RepeatedStyle); err != nil {
@@ -561,30 +543,4 @@ func validateRepeatedStyle(value string) error {
 		return nil
 	}
 	return fmt.Errorf("repeated_style must be \"pointers\" or \"values\", not %q", value)
-}
-
-// validateSchemaExtensions checks the legacy schema_extensions key, which
-// let .onk schemas live in .proto files. Only onkt migrate still reads them.
-func validateSchemaExtensions(exts []string) error {
-	for _, ext := range exts {
-		if ext != onkExtension && ext != protoExtension {
-			return fmt.Errorf("schema_extensions is a legacy setting for .onk schemas kept in .proto files; its entries must be %q or %q, not %q", onkExtension, protoExtension, ext)
-		}
-	}
-	return nil
-}
-
-// schemaExtensions are the files a build discovers: TypeSpec, plus every
-// legacy .onk extension so a project that still has such schemas is pointed
-// at onkt migrate.
-func (c *Config) schemaExtensions() []string {
-	exts := defaultSchemaExtensions()
-	if c != nil {
-		for _, ext := range c.SchemaExtensions {
-			if !slices.Contains(exts, ext) {
-				exts = append(exts, ext)
-			}
-		}
-	}
-	return exts
 }

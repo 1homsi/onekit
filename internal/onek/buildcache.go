@@ -78,10 +78,10 @@ func recordOutput(path string, data []byte) {
 }
 
 func buildCachePath(projectDir string) (string, bool) {
-	if Getenv(noCacheEnv) != "" {
+	if os.Getenv(noCacheEnv) != "" {
 		return "", false
 	}
-	root := Getenv(cacheDirEnv)
+	root := os.Getenv(cacheDirEnv)
 	if root == "" {
 		base, err := os.UserCacheDir()
 		if err != nil {
@@ -149,7 +149,7 @@ type schemaFingerprint struct {
 }
 
 func buildFingerprint(cfg *Config) (schemaFingerprint, error) {
-	paths, err := discoverSchemaFiles(cfg.SchemaDir(), cfg.schemaExtensions())
+	paths, err := discoverSchemaFiles(cfg.SchemaDir())
 	if err != nil {
 		return schemaFingerprint{}, err
 	}

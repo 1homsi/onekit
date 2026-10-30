@@ -26,7 +26,7 @@ type generationManifest struct {
 // generated output set. It gives CI and editor tooling a stable way to detect
 // drift without guessing which files belong to OneKit.
 func writeGenerationManifest(cfg *Config, idx *sourceIndex) error {
-	paths, err := discoverSchemaFiles(cfg.SchemaDir(), cfg.schemaExtensions())
+	paths, err := discoverSchemaFiles(cfg.SchemaDir())
 	if err != nil {
 		return err
 	}

@@ -76,9 +76,9 @@ runs:
       id: report
       shell: bash
       env:
-        ONEK_DIR: ${{ inputs.directory }}
-        ONEK_AGAINST: ${{ steps.base.outputs.ref }}
-        ONEK_ALLOW: ${{ inputs.allow }}
+        ONKT_DIR: ${{ inputs.directory }}
+        ONKT_AGAINST: ${{ steps.base.outputs.ref }}
+        ONKT_ALLOW: ${{ inputs.allow }}
         REPORT_FILE: ${{ runner.temp }}/onkt-compat-report.md
       run: ${{ github.action_path }}/scripts/compat-report.sh
 

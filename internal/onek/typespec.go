@@ -145,18 +145,6 @@ func runTypeSpec(root, entry string) (*onkschema.Document, error) {
 	return onkschema.DecodeBytes(data)
 }
 
-// Getenv reads an ONKT_* environment variable, falling back to the ONEK_*
-// name it had before the rename to onkt.
-func Getenv(name string) string {
-	if value := os.Getenv(name); value != "" {
-		return value
-	}
-	if legacy, ok := strings.CutPrefix(name, "ONKT_"); ok {
-		return os.Getenv("ONEK_" + legacy)
-	}
-	return ""
-}
-
 // findEmitter is the project's installed @onkt/typespec, found the way npm
 // resolves packages from the schema root. TypeSpec would otherwise resolve
 // it from the entry file, which may be a generated one outside the project.
@@ -231,7 +219,7 @@ func typespecDiagnostics(output string) string {
 // goes through cmd.exe, which splits a project path that holds a space.
 // ONKT_TSP overrides the lookup.
 func findTypeSpecCompiler(root string) ([]string, error) {
-	if override := Getenv("ONKT_TSP"); override != "" {
+	if override := os.Getenv("ONKT_TSP"); override != "" {
 		return []string{override}, nil
 	}
 	for dir := root; ; dir = filepath.Dir(dir) {

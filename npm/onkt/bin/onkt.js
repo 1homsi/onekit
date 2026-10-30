@@ -96,9 +96,9 @@ function cacheDir() {
   return path.join(base, "onekit");
 }
 
-// An ONKT_* variable, or the ONEK_* name it had before the rename.
+// An ONKT_* environment variable.
 function env(name) {
-  return process.env[`ONKT_${name}`] || process.env[`ONEK_${name}`] || "";
+  return process.env[`ONKT_${name}`] || "";
 }
 
 function fail(message) {

@@ -228,7 +228,7 @@ func TestBuildCacheCanBeDisabled(t *testing.T) {
 	t.Setenv(noCacheEnv, "1")
 	buildSummary(t, dir)
 	if summary := buildSummary(t, dir); summary.Cached {
-		t.Fatal("ONEK_NO_CACHE was ignored")
+		t.Fatal("ONKT_NO_CACHE was ignored")
 	}
 	if path, ok := buildCachePath(dir); ok || path != "" {
 		t.Fatal("cache path should be unavailable when disabled")

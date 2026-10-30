@@ -153,5 +153,5 @@ ci-validate:
 
 .PHONY: check-generated
 check-generated: build typespec
-	@ONEK_NO_CACHE=1 ./bin/onkt build --dir examples/simple-api
+	@ONKT_NO_CACHE=1 ./bin/onkt build --dir examples/simple-api
 	@git diff --exit-code -- examples/simple-api/api examples/simple-api/docs

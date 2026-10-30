@@ -71,7 +71,7 @@ func build(dir string) (bool, error) {
 		}()
 	}
 
-	pkg, err := compileTree(cfg.SchemaDir(), cfg.schemaExtensions(), cfg.CompileOptions())
+	pkg, err := compileTree(cfg.SchemaDir(), cfg.CompileOptions())
 	if err != nil {
 		return false, err
 	}

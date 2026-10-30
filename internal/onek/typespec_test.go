@@ -89,7 +89,7 @@ func TestTypeSpecExampleBuilds(t *testing.T) {
 	dir := t.TempDir()
 	copyTree(t, filepath.Join("..", "..", "examples", "simple-api"), dir)
 	linkTypeSpec(t, dir)
-	t.Setenv("ONEK_NO_CACHE", "1")
+	t.Setenv("ONKT_NO_CACHE", "1")
 	if err := Build(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ model Req { id: string; }
 // The toolchain belongs where the project's package.json is, which is the
 // project root even when the schemas sit in a directory below it.
 func TestMissingCompilerPointsAtThePackageJSON(t *testing.T) {
-	if Getenv("ONKT_TSP") != "" {
+	if os.Getenv("ONKT_TSP") != "" {
 		t.Skip("ONKT_TSP overrides the lookup")
 	}
 	project := t.TempDir()
