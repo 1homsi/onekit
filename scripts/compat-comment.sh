@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-marker="<!-- onek-compat -->"
+marker="<!-- onkt-compat -->"
 report="${REPORT_FILE:?REPORT_FILE is required}"
 pr="${PR_NUMBER:?PR_NUMBER is required}"
 repo="${REPOSITORY:?REPOSITORY is required}"

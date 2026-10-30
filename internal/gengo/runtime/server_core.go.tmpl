@@ -247,12 +247,12 @@ type ServerOptions struct {
 	MaxRequestBodyBytes int64
 	SSEHeartbeat        time.Duration
 	SSEHeartbeatSet     bool
-	//onek:ws
+	//onkt:ws
 	MaxWSFrameBytes   int64
 	MaxWSMessageBytes int64
 	WSPingInterval    time.Duration
 	WSAcceptOptions   *websocket.AcceptOptions
-	//onek:end
+	//onkt:end
 }
 
 // WithMux supports the options-first registration form.

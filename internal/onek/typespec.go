@@ -114,7 +114,7 @@ func runTypeSpec(root, entry string) (*onkschema.Document, error) {
 	if err != nil {
 		return nil, err
 	}
-	out, err := os.MkdirTemp("", "onek-tsp-")
+	out, err := os.MkdirTemp("", "onkt-tsp-")
 	if err != nil {
 		return nil, err
 	}

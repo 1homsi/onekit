@@ -12,7 +12,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	cacheDir, err := os.MkdirTemp("", "onek-test-cache-")
+	cacheDir, err := os.MkdirTemp("", "onkt-test-cache-")
 	if err != nil {
 		panic(err)
 	}

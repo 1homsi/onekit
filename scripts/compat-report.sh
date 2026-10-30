@@ -4,8 +4,8 @@ set -uo pipefail
 bin="${ONKT_BIN:-onkt}"
 dir="${ONKT_DIR:-.}"
 against="${ONKT_AGAINST:?ONKT_AGAINST is required}"
-report="${REPORT_FILE:-onek-compat-report.md}"
-marker="<!-- onek-compat -->"
+report="${REPORT_FILE:-onkt-compat-report.md}"
+marker="<!-- onkt-compat -->"
 
 args=(compat --json)
 while IFS= read -r allowed; do

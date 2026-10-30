@@ -170,8 +170,8 @@ var serverCoreSource string
 //go:embed runtime/server_ws_options.go.tmpl
 var serverWSOptionsSource string
 
-// withoutMarkedBlock returns source with the lines between a "//onek:name"
-// marker and its "//onek:end" removed, or only the markers removed when keep
+// withoutMarkedBlock returns source with the lines between a "//onkt:name"
+// marker and its "//onkt:end" removed, or only the markers removed when keep
 // is true.
 func withoutMarkedBlock(source, name string, keep bool) string {
 	lines := strings.Split(source, "\n")
@@ -179,10 +179,10 @@ func withoutMarkedBlock(source, name string, keep bool) string {
 	skipping := false
 	for _, line := range lines {
 		switch strings.TrimSpace(line) {
-		case "//onek:" + name:
+		case "//onkt:" + name:
 			skipping = !keep
 			continue
-		case "//onek:end":
+		case "//onkt:end":
 			skipping = false
 			continue
 		}

@@ -155,11 +155,6 @@ for Windows (already on `PATH` if you have Git installed); the same setup
 (`choco install make`, and Git for Windows for `git`) works locally. WSL or
 a Git Bash terminal is the simplest way to get all of it at once.
 
-## The `onek` name
-
-The CLI used to be called `onek`. Releases still carry the binary under that
-name too, so existing scripts keep working while you switch.
-
 ## The `onkt` CLI
 
 A project is a directory with an `onkt.toml`, a `main.tsp` and a `package.json`:

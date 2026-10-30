@@ -131,7 +131,7 @@ func TestCompatActionReportsBreakingChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("script failed: %v", err)
 	}
-	for _, want := range []string{"<!-- onek-compat -->", "**1 breaking change(s)**", "`api.Item.count` | field was removed", "`go-server`, `dart-client`"} {
+	for _, want := range []string{"<!-- onkt-compat -->", "**1 breaking change(s)**", "`api.Item.count` | field was removed", "`go-server`, `dart-client`"} {
 		if !strings.Contains(report, want) {
 			t.Fatalf("report is missing %q:\n%s", want, report)
 		}

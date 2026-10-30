@@ -43,14 +43,7 @@ fi
 
 mkdir -p "$dest"
 tar -xzf "$work/$asset" -C "$dest"
-# Releases before the rename ship only onek; later ones ship both names.
-if [ -f "$dest/onkt" ]; then
-  chmod +x "$dest/onkt"
-  [ -f "$dest/onek" ] || ln -s onkt "$dest/onek"
-else
-  chmod +x "$dest/onek"
-  ln -sf onek "$dest/onkt"
-fi
+chmod +x "$dest/onkt"
 rm -rf "$work"
 
 if [ -n "${GITHUB_PATH:-}" ]; then

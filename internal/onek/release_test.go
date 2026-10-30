@@ -47,8 +47,8 @@ func TestReleaseAssetNamesMatchTheReleaseArchives(t *testing.T) {
 	}
 }
 
-func TestExtractBinaryFindsTheCurrentAndLegacyNames(t *testing.T) {
-	for _, name := range []string{"onkt", "onek"} {
+func TestExtractBinaryFindsTheCLI(t *testing.T) {
+	for _, name := range []string{"onkt"} {
 		var buf bytes.Buffer
 		gz := gzip.NewWriter(&buf)
 		tw := tar.NewWriter(gz)
@@ -65,9 +65,6 @@ func TestExtractBinaryFindsTheCurrentAndLegacyNames(t *testing.T) {
 			t.Fatal(err)
 		}
 		binary, err := extractBinary(buf.Bytes(), "onekit_1.0.0_Linux_x86_64.tar.gz", binaryName("linux"))
-		if err != nil {
-			binary, err = extractBinary(buf.Bytes(), "onekit_1.0.0_Linux_x86_64.tar.gz", legacyBinaryName("linux"))
-		}
 		if err != nil || string(binary) != "hi" {
 			t.Fatalf("%s: binary = %q, err = %v", name, binary, err)
 		}

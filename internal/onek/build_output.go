@@ -135,7 +135,7 @@ func ensureModeAfterCreate(f *os.File) error {
 }
 
 func replaceOutput(path, dir string, data []byte) error {
-	tmp, err := os.CreateTemp(dir, ".onek-*")
+	tmp, err := os.CreateTemp(dir, ".onkt-*")
 	if err != nil {
 		return fmt.Errorf("create temporary output for %s: %w", path, err)
 	}

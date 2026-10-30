@@ -19,13 +19,3 @@ func TestUnknownCommandSuggestsClosest(t *testing.T) {
 		t.Fatalf("help failed: %v", err)
 	}
 }
-
-func TestLegacyNameWarns(t *testing.T) {
-	for arg0, want := range map[string]bool{"/usr/local/bin/onek": true, `C:\bin\onek.exe`: true, "onkt": false} {
-		var stderr strings.Builder
-		warnLegacyName(arg0, &stderr)
-		if got := strings.Contains(stderr.String(), "onek is now onkt"); got != want {
-			t.Errorf("%s: warned = %v, want %v", arg0, got, want)
-		}
-	}
-}

@@ -45,17 +45,7 @@ const entryFile = "main.tsp"
 func main() {
 	info, ok := debug.ReadBuildInfo()
 	onek.SetToolVersion(resolveVersion(version, info, ok))
-	warnLegacyName(os.Args[0], os.Stderr)
 	os.Exit(exitCode(run(os.Args[1:]), os.Stdout, os.Stderr))
-}
-
-// warnLegacyName tells someone running the CLI by its old name, which
-// releases still ship so scripts and pinned versions keep working, to switch.
-func warnLegacyName(arg0 string, stderr io.Writer) {
-	name := arg0[strings.LastIndexAny(arg0, `/\`)+1:]
-	if strings.TrimSuffix(name, ".exe") == "onek" {
-		fmt.Fprintln(stderr, "onek is now onkt; run onkt instead (the onek name will be removed in a later release)")
-	}
 }
 
 func exitCode(err error, stdout, stderr io.Writer) int {

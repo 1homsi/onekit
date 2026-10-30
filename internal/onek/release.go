@@ -130,20 +130,12 @@ func releaseAssetName(version, goos, goarch string) (string, error) {
 	return fmt.Sprintf("onekit_%s_%s_%s.%s", version, osName, arch, ext), nil
 }
 
-// binaryName is the CLI's name for goos. Releases before the rename to onkt
-// ship only the legacy name.
+// binaryName is the CLI's name for goos.
 func binaryName(goos string) string {
 	if goos == goosWindows {
 		return "onkt.exe"
 	}
 	return "onkt"
-}
-
-func legacyBinaryName(goos string) string {
-	if goos == goosWindows {
-		return "onek.exe"
-	}
-	return "onek"
 }
 
 func (s ReleaseSource) download(ctx context.Context, url string) ([]byte, error) {
@@ -223,15 +215,12 @@ func (s ReleaseSource) Fetch(ctx context.Context, version string) (string, error
 	}
 	binary, err := extractBinary(archive, asset, binaryName(goos))
 	if err != nil {
-		binary, err = extractBinary(archive, asset, legacyBinaryName(goos))
-	}
-	if err != nil {
 		return "", fmt.Errorf("unpack %s: %w", asset, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
 		return "", err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(dest), ".onek-download-*")
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".onkt-download-*")
 	if err != nil {
 		return "", err
 	}

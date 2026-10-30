@@ -14,23 +14,11 @@ builds:
     ldflags:
       - -s -w -X main.version={{ .Version }}
     mod_timestamp: "{{ .CommitTimestamp }}"
-  # The same CLI under its old name, so scripts, the GitHub Action and
-  # versions pinned by older onek releases keep working. It prints a notice.
-  - id: onek
-    binary: onek
-    main: ./cmd/onkt
-    env: [CGO_ENABLED=0]
-    goos: [linux, darwin, windows]
-    goarch: [amd64, arm64]
-    ldflags:
-      - -s -w -X main.version={{ .Version }}
-    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - id: onkt-archive
     ids:
       - onkt
-      - onek
     name_template: >-
       onekit_
       {{- .Version }}_
@@ -76,8 +64,7 @@ release:
   header: |
     ## onekit {{ .Version }}
 
-    This release includes prebuilt `onkt` CLI binaries for Linux, macOS, and Windows
-    (each archive also carries the same binary as `onek`, its former name).
+    This release includes prebuilt `onkt` CLI binaries for Linux, macOS, and Windows.
   footer: |
     ## Install with Go
 

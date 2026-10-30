@@ -11,9 +11,6 @@ bin/
 # Test binary, built with `go test -c`
 *.test
 
-# Stray build output in the repo root (binaries belong in bin/)
-/onek
-
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
