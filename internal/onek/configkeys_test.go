@@ -60,16 +60,3 @@ func TestLoadConfigPassesEmitZeroValuesToTheCompiler(t *testing.T) {
 		t.Fatalf("emit_zero_values not passed to the compiler: %+v", cfg.CompileOptions())
 	}
 }
-
-func TestRetiredConfigIsNotRead(t *testing.T) {
-	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "onkt.toml"), "module = \"x\"\nschema_extensions = [\".onk\"]\n")
-	if _, err := LoadConfig(dir); err == nil || !strings.Contains(err.Error(), "schema_extensions") {
-		t.Fatalf("schema_extensions: err = %v, want an unknown key error", err)
-	}
-	legacy := t.TempDir()
-	writeTestFile(t, filepath.Join(legacy, "onekit.toml"), "module = \"x\"\n")
-	if _, err := LoadConfig(legacy); err == nil || !strings.Contains(err.Error(), "onkt.toml") {
-		t.Fatalf("onekit.toml: err = %v, want onkt.toml reported missing", err)
-	}
-}

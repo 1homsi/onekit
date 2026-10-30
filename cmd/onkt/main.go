@@ -39,9 +39,6 @@ func usage(w io.Writer) {
   onkt version`)
 }
 
-// errRemovedMigrate is what the removed `onkt migrate` answers with.
-var errRemovedMigrate = errors.New("onkt migrate was removed along with the .onk language; install onkt 0.39.x to migrate a .onk project to TypeSpec")
-
 // entryFile is the TypeSpec file a project compiles from.
 const entryFile = "main.tsp"
 
@@ -98,16 +95,10 @@ func run(args []string) error {
 		return reexecPinned(pinned, args)
 	}
 	switch args[0] {
-	case "migrate":
-		return errRemovedMigrate
-	case "mcp", "lsp":
-		return fmt.Errorf("onkt %s was removed with the .onk language; TypeSpec ships its own language server (the TypeSpec extension for VS Code and other editors)", args[0])
 	case "version":
 		return runVersion(args[1:])
 	case commandBuild, "generate", commandCheck:
 		return runProjectCommand(args[0], args[1:])
-	case "fmt":
-		return errors.New("onkt fmt was removed with the .onk language; format TypeSpec with `npx tsp format \"**/*.tsp\"`")
 	case "init":
 		return runInit(args[1:])
 	case "watch":

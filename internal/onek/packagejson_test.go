@@ -1,19 +1,9 @@
 package onek
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 )
-
-func TestProjectWithOnkSchemasIsRejected(t *testing.T) {
-	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "api.onk"), "package app\nmessage M {}\n")
-	err := Check(dir)
-	if err == nil || !strings.Contains(err.Error(), "api.onk") || !strings.Contains(err.Error(), "no longer supported") || !strings.Contains(err.Error(), "0.39.x") {
-		t.Fatalf("err = %v, want .onk named as unsupported with the 0.39.x hint", err)
-	}
-}
 
 func TestPackageJSONPinsTheMatchingEmitterAndCLI(t *testing.T) {
 	previous := toolVersion

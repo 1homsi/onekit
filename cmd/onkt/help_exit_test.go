@@ -20,10 +20,3 @@ func TestSubcommandHelpExitsZero(t *testing.T) {
 		t.Fatal("unknown flag exited zero")
 	}
 }
-
-func TestMigrateWasRemovedAndPointsAtTheLastRelease(t *testing.T) {
-	err := run([]string{"migrate", "--dir", "."})
-	if err == nil || !strings.Contains(err.Error(), "was removed") || !strings.Contains(err.Error(), "0.39.x") {
-		t.Fatalf("onkt migrate: err = %v, want a removal error with the 0.39.x hint", err)
-	}
-}

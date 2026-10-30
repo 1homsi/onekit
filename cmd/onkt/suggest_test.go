@@ -20,15 +20,6 @@ func TestUnknownCommandSuggestsClosest(t *testing.T) {
 	}
 }
 
-func TestRemovedOnkCommandsPointAtTypeSpec(t *testing.T) {
-	for command, want := range map[string]string{"fmt": "tsp format", "lsp": "TypeSpec", "mcp": "TypeSpec"} {
-		err := run([]string{command})
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Fatalf("%s: err = %v, want a pointer to %s", command, err, want)
-		}
-	}
-}
-
 func TestLegacyNameWarns(t *testing.T) {
 	for arg0, want := range map[string]bool{"/usr/local/bin/onek": true, `C:\bin\onek.exe`: true, "onkt": false} {
 		var stderr strings.Builder

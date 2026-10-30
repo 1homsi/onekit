@@ -155,14 +155,7 @@ for Windows (already on `PATH` if you have Git installed); the same setup
 (`choco install make`, and Git for Windows for `git`) works locally. WSL or
 a Git Bash terminal is the simplest way to get all of it at once.
 
-## Moving from `.onk`
-
-onekit used to have its own schema language, `.onk`, and dropped it in 0.40.0.
-A project that still has `.onk` files fails to build with an error that says
-so. Convert it with the migration command that onkt 0.39.x ships, then
-upgrade; the generated code stays the same, byte for byte.
-`onkt compat --against REF` cannot compare against a ref from before the
-move: pick one after the project was converted.
+## The `onek` name
 
 The CLI used to be called `onek`. Releases still carry the binary under that
 name too, so existing scripts keep working while you switch.

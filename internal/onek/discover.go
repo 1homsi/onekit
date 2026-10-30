@@ -11,10 +11,6 @@ import (
 	"sync"
 )
 
-// retiredOnkExtension is the retired .onk language. Discovery still finds
-// those files so a build can refuse them instead of ignoring them.
-const retiredOnkExtension = ".onk"
-
 func discoverProjectSchemaFiles(dir string) ([]string, error) {
 	return discoverSchemaFiles(dir)
 }
@@ -152,5 +148,5 @@ func checkSchemaEntry(root, path string, d fs.DirEntry) schemaWalkResult {
 }
 
 func hasSchemaExtension(path string) bool {
-	return strings.HasSuffix(path, tspExtension) || strings.HasSuffix(path, retiredOnkExtension)
+	return strings.HasSuffix(path, tspExtension)
 }
