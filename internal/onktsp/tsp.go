@@ -1,7 +1,8 @@
-// Package onkmigrate converts .onk schemas to TypeSpec. Every .onk construct
-// maps onto TypeSpec and the @onkt/typespec decorators so that the emitter
-// reproduces the same declarations, and therefore the same generated code.
-package onkmigrate
+// Package onktsp writes TypeSpec from an onkschema parse tree. Every
+// construct maps onto TypeSpec and the @onkt/typespec decorators so that the
+// emitter reproduces the same declarations, and therefore the same generated
+// code. onkt import renders its result through it.
+package onktsp
 
 import (
 	"fmt"
@@ -14,7 +15,7 @@ import (
 	"github.com/1homsi/onekit/internal/onkschema"
 )
 
-// Source is one parsed .onk file.
+// Source is one parsed schema file.
 type Source struct {
 	Path string
 	AST  *onkschema.File
@@ -26,32 +27,14 @@ type Output struct {
 	Content string
 }
 
-// Options tunes a conversion.
-type Options struct {
-	// BasePath returns the base path a service without base_path is served
-	// at, given its source file; .onk infers it from the directory, while
-	// TypeSpec routes are always explicit.
-	BasePath func(sourcePath string) string
-	// Lenient writes a type name that resolves to nothing as it is spelled,
-	// for converting documentation snippets that use undeclared types.
-	Lenient bool
-	// Int64Number is the project's int64_encoding = "number": every 64-bit
-	// integer already crosses as a JSON number, so none is written with
-	// @encode(string), which would say otherwise.
-	Int64Number bool
-}
-
-// EntryFile is the TypeSpec file every project compiles from.
-const EntryFile = "main.tsp"
-
 // scalarString is the string scalar, spelled the same in both languages.
 const scalarString = "string"
 
 // Convert translates every source into a .tsp file next to it, and returns
-// them in path order. Type references are resolved the way the .onk compiler
-// resolves them and written fully qualified across namespaces.
-func Convert(sources []Source, options Options) ([]Output, error) {
-	c := newConverter(sources, options)
+// them in path order. Type references are written fully qualified across
+// namespaces when a bare name would be ambiguous.
+func Convert(sources []Source) ([]Output, error) {
+	c := newConverter(sources)
 	c.prepare()
 	outputs := make([]Output, 0, len(sources))
 	for _, src := range sources {
@@ -59,44 +42,15 @@ func Convert(sources []Source, options Options) ([]Output, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", src.Path, err)
 		}
-		outputs = append(outputs, Output{Path: TSPPath(src.Path), Content: content})
+		outputs = append(outputs, Output{Path: tspPath(src.Path), Content: content})
 	}
 	sort.Slice(outputs, func(i, j int) bool { return outputs[i].Path < outputs[j].Path })
 	return outputs, nil
 }
 
-// TSPPath is the TypeSpec file a .onk (or .proto) schema converts to.
-func TSPPath(path string) string {
+// tspPath is the TypeSpec file a schema converts to.
+func tspPath(path string) string {
 	return strings.TrimSuffix(path, filepath.Ext(path)) + ".tsp"
-}
-
-// Entry returns main.tsp for root: it imports every converted file. When one
-// of the converted files is itself root/main.tsp, its content gains the
-// imports instead, and Entry reports false.
-func Entry(root string, outputs []Output) (Output, bool) {
-	entryPath := filepath.Join(root, EntryFile)
-	var imports []string
-	existing := -1
-	for i, out := range outputs {
-		if out.Path == entryPath {
-			existing = i
-			continue
-		}
-		rel, err := filepath.Rel(root, out.Path)
-		if err != nil {
-			rel = out.Path
-		}
-		imports = append(imports, "./"+filepath.ToSlash(rel))
-	}
-	sort.Strings(imports)
-	var b strings.Builder
-	for _, path := range imports {
-		fmt.Fprintf(&b, "import %s;\n", quote(path))
-	}
-	if existing >= 0 {
-		return Output{Path: entryPath, Content: b.String() + outputs[existing].Content}, false
-	}
-	return Output{Path: entryPath, Content: b.String()}, true
 }
 
 // ------------------------------------------------------------- resolution
@@ -111,7 +65,6 @@ type decl struct {
 
 type converter struct {
 	sources []Source
-	options Options
 
 	byDir     map[string]map[string]*decl
 	byName    map[string][]*decl
@@ -130,10 +83,9 @@ type converter struct {
 	interfaceNames map[*onkschema.ServiceDecl]string
 }
 
-func newConverter(sources []Source, options Options) *converter {
+func newConverter(sources []Source) *converter {
 	return &converter{
 		sources:    sources,
-		options:    options,
 		byDir:      map[string]map[string]*decl{},
 		byName:     map[string][]*decl{},
 		byPkg:      map[string]map[string]*decl{},
@@ -201,9 +153,9 @@ func (c *converter) indexDeclarations() {
 	}
 }
 
-// nameInterfaces gives every service an interface name. .onk let a service
-// share its name with a message or enum of its package, but TypeSpec gives
-// them one namespace, so such a service's interface is named <Name>Service
+// nameInterfaces gives every service an interface name. A service may share
+// its name with a message or enum of its package, but TypeSpec gives them
+// one namespace, so such a service's interface is named <Name>Service
 // and @Onkt.name keeps the name it generates under.
 func (c *converter) nameInterfaces() {
 	for _, src := range c.sources {
@@ -302,9 +254,6 @@ func (c *converter) resolve(src Source, name string) (*decl, error) {
 	}
 	switch matches := c.byName[name]; len(matches) {
 	case 0:
-		if c.options.Lenient {
-			return &decl{pkg: src.AST.Package, name: name}, nil
-		}
 		return nil, fmt.Errorf("unresolved type %q", name)
 	case 1:
 		return matches[0], nil
@@ -763,18 +712,16 @@ func (c *converter) fieldType(fc *fileContext, f *onkschema.FieldDecl, encode st
 	}
 	switch {
 	case (t.Name == "int64" || t.Name == "uint64") && f.Repeated:
-		// TypeSpec's int64[] is numbers; .onk's follows int64_encoding
-		// unless it says @encode("number").
-		if encode != "number" && !c.options.Int64Number {
+		// TypeSpec's int64[] is numbers; the default is spelled out as a
+		// string unless it says @encode("number").
+		if encode != "number" {
 			decorators = append(decorators, `@Onkt.encode("string")`)
 		}
 	case (t.Name == "int64" || t.Name == "uint64") && !f.Repeated:
 		switch encode {
 		case "number":
 		case "":
-			if !c.options.Int64Number {
-				decorators = append(decorators, "@encode(string)")
-			}
+			decorators = append(decorators, "@encode(string)")
 		default:
 			decorators = append(decorators, fmt.Sprintf("@Onkt.encode(%s)", quote(encode)))
 		}
@@ -903,14 +850,8 @@ func (c *converter) enum(fc *fileContext, e *onkschema.EnumDecl, parent *onksche
 
 func (c *converter) service(fc *fileContext, s *onkschema.ServiceDecl) error {
 	w := fc.w
-	// An explicit base path is written as @route, "/" included; an inferred
-	// one only when it is not the root, which TypeSpec infers the same way.
+	// An explicit base path is written as @route, "/" included.
 	basePath := s.BasePath
-	if basePath == "" && c.options.BasePath != nil {
-		if inferred := c.options.BasePath(fc.src.Path); inferred != "/" {
-			basePath = inferred
-		}
-	}
 
 	headersAlias := ""
 	if len(s.Headers) > 0 {

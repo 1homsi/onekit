@@ -24,8 +24,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/1homsi/onekit/internal/onkmigrate"
 	"github.com/1homsi/onekit/internal/onkschema"
+	"github.com/1homsi/onekit/internal/onktsp"
 )
 
 const maxDepth = 32
@@ -1186,7 +1186,7 @@ func (im *importer) file(service *onkschema.ServiceDecl) *onkschema.File {
 
 // render spells the declarations as TypeSpec.
 func render(file *onkschema.File) ([]byte, error) {
-	out, err := onkmigrate.Convert([]onkmigrate.Source{{Path: file.Package + ".tsp", AST: file}}, onkmigrate.Options{})
+	out, err := onktsp.Convert([]onktsp.Source{{Path: file.Package + ".tsp", AST: file}})
 	if err != nil {
 		return nil, fmt.Errorf("render the imported schema: %w", err)
 	}

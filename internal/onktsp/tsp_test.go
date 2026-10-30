@@ -1,4 +1,4 @@
-package onkmigrate
+package onktsp
 
 import (
 	"strings"
@@ -53,7 +53,7 @@ func TestConvertQualifiesOnlyAmbiguousNames(t *testing.T) {
 			Decorators: []onkschema.Decorator{{Name: "get", Args: []onkschema.Arg{{Value: "/u"}}}},
 		}},
 	}}}
-	out, err := Convert([]Source{{Path: "/p/models.onk", AST: models}, {Path: "/p/api.onk", AST: api}}, Options{})
+	out, err := Convert([]Source{{Path: "/p/models.tsp", AST: models}, {Path: "/p/api.tsp", AST: api}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestConvertKeepsTheTypeOfANonStringIn(t *testing.T) {
 		{Name: "ratio", Type: &onkschema.TypeRef{Name: "float64"}, Decorators: []onkschema.Decorator{{Name: "in", Args: []onkschema.Arg{{Value: "1"}}}}},
 		{Name: "tags", Repeated: true, Type: &onkschema.TypeRef{Name: "string"}, Decorators: []onkschema.Decorator{{Name: "in", Args: []onkschema.Arg{{Value: "a", Quoted: true}}}}},
 	}}}}
-	out, err := Convert([]Source{{Path: "/p/a.onk", AST: file}}, Options{})
+	out, err := Convert([]Source{{Path: "/p/a.tsp", AST: file}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestConvertSpellsEdgeCasesTheEmitterReadsBack(t *testing.T) {
 			Decorators: []onkschema.Decorator{{Name: "post", Args: []onkschema.Arg{q("/a")}}, {Name: "body", Args: []onkschema.Arg{q("b")}}, {Name: "max_body", Args: []onkschema.Arg{q("1KiB")}}},
 		}}}},
 	}
-	out, err := Convert([]Source{{Path: "/p/sub/a.onk", AST: file}}, Options{BasePath: func(string) string { return "/sub" }})
+	out, err := Convert([]Source{{Path: "/p/sub/a.tsp", AST: file}})
 	if err != nil {
 		t.Fatal(err)
 	}
