@@ -276,11 +276,23 @@ func checkAt(root string, cfg *Config) error {
 
 // Compatibility compares two schema directories and returns breaking changes.
 func Compatibility(previousDir, currentDir string) ([]onkcompat.Finding, error) {
+	return compatibility(previousDir, previousDir, currentDir)
+}
+
+// errBaselinePredatesTypeSpec marks a baseline that still has .onk schemas
+// and no main.tsp, which cannot be compared.
+var errBaselinePredatesTypeSpec = errors.New("predates TypeSpec schemas")
+
+// compatibility compares previousDir, called label in errors, with currentDir.
+func compatibility(previousDir, label, currentDir string) ([]onkcompat.Finding, error) {
 	currentCfg, err := loadOptionalConfig(currentDir)
 	if err != nil && !errors.Is(err, errNoConfigFile) {
 		return nil, fmt.Errorf("compile current schema: %w", err)
 	}
 	previous, err := compileCompatibilityProject(previousDir, currentCfg)
+	if errors.Is(err, errBaselinePredatesTypeSpec) {
+		return nil, fmt.Errorf("%s predates TypeSpec schemas; compare against a ref after the project was migrated", label)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("compile previous schema: %w", err)
 	}
@@ -313,10 +325,31 @@ func compileCompatibilityProject(dir string, fallback *Config) (*onkir.Package, 
 			}
 		}
 	}
+	if err := checkBaselineIsTypeSpec(root); err != nil {
+		return nil, err
+	}
 	pkg, err := compileTree(root, options)
 	if err != nil {
 		return nil, err
 	}
 	applyRoutePrefix(pkg, routePrefix)
 	return pkg, nil
+}
+
+// checkBaselineIsTypeSpec reports errBaselinePredatesTypeSpec for a baseline
+// that has .onk schemas and no main.tsp.
+func checkBaselineIsTypeSpec(root string) error {
+	if _, err := os.Stat(filepath.Join(root, typespecEntry)); err == nil {
+		return nil
+	}
+	files, err := discoverSchemaFiles(root)
+	if err != nil {
+		return nil //nolint:nilerr // compiling the baseline reports it
+	}
+	for _, file := range files {
+		if strings.HasSuffix(file, retiredOnkExtension) {
+			return errBaselinePredatesTypeSpec
+		}
+	}
+	return nil
 }

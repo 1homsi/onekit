@@ -132,7 +132,7 @@ model Item {
 }
 `
 	// Under "number" the schema cannot also ask for strings, so the move
-	// drops them, as onkt migrate does.
+	// drops them.
 	numeric := strings.NewReplacer("  @encode(string)\n", "", "  @Onkt.encode(\"string\")\n", "").Replace(src)
 	build := func(encoding string) *onkir.Package {
 		schema := src
@@ -158,44 +158,40 @@ model Item {
 	}
 }
 
-// A .onk schema under int64_encoding = "number" compiles to plain int64 fields
-// marked Int64Number; the TypeSpec emitter also writes @encode("number") on
-// each. A baseline from before onkt migrate must compare equal to its
-// migrated schema, and so must a field's own @encode("number").
+// int64_encoding = "number" compiles to plain int64 fields marked Int64Number;
+// the TypeSpec emitter also writes @encode("number") on a field. Both are the
+// same JSON, so they must compare equal.
 func TestCompareTreatsEveryNumericInt64FormAsOneContract(t *testing.T) {
-	src := `namespace app;
-
-model Item {
-  id: int64;
-  count: uint64;
-  name: string;
-}
-`
-	build := func(encoding string) *onkir.Package {
+	build := func(src, encoding string) *onkir.Package {
 		pkg, err := onkcompile.CompileWithOptions([]onkcompile.Source{*compile(t, src)}, onkcompile.CompileOptions{Int64Encoding: encoding})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return pkg
 	}
-	migrated := build(onkcompile.Int64EncodingNumber)
-	onk := build(onkcompile.Int64EncodingNumber)
-	for _, file := range onk.Files {
-		for _, message := range file.Messages {
-			for _, field := range message.Fields {
-				if field.HasDecorator("encode") {
-					field.Decorators = nil
-				} else if field.Int64Number {
-					t.Fatalf("%s: the emitter no longer writes @encode(\"number\"), so this test checks nothing", field.Name)
-				}
-			}
-		}
-	}
-	if findings := Compare(onk, migrated); len(findings) != 0 {
-		t.Fatalf(".onk baseline against its migrated schema: %+v", findings)
-	}
-	if findings := Compare(build(""), migrated); len(findings) != 0 {
+	project := build(`namespace app;
+
+model Item {
+  id: int64;
+  count: uint64;
+  name: string;
+}
+`, onkcompile.Int64EncodingNumber)
+	field := build(`namespace app;
+
+model Item {
+  @Onkt.encode("number")
+  id: int64;
+  @Onkt.encode("number")
+  count: uint64;
+  name: string;
+}
+`, "")
+	if findings := Compare(field, project); len(findings) != 0 {
 		t.Fatalf("@encode(\"number\") against int64_encoding = \"number\": %+v", findings)
+	}
+	if findings := Compare(project, field); len(findings) != 0 {
+		t.Fatalf("int64_encoding = \"number\" against @encode(\"number\"): %+v", findings)
 	}
 }
 

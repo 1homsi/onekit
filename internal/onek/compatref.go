@@ -49,7 +49,7 @@ func CompatibilityAgainstRef(ref, currentDir string) ([]onkcompat.Finding, error
 	}
 	previous := filepath.Join(baseline, rel)
 	linkNodeModules(absDir, previous)
-	return Compatibility(previous, currentDir)
+	return compatibility(previous, ref, currentDir)
 }
 
 // linkNodeModules gives a checked-out baseline the current project's npm

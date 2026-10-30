@@ -331,8 +331,7 @@ func fieldContractSignature(field *onkir.Field) string {
 
 // int64AsNumber reports a 64-bit integer field that crosses the wire as a JSON
 // number. int64_encoding = "number" and a field's own @encode("number") send
-// the same JSON, and TypeSpec schemas carry the decorator while .onk schemas
-// under the project setting do not, so both count as one contract.
+// the same JSON, so both count as one contract.
 func int64AsNumber(field *onkir.Field) bool {
 	if field.Int64Number {
 		return true
