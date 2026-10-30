@@ -100,8 +100,7 @@ func applyRoutePrefix(pkg *onkir.Package, prefix string) {
 
 // sourceGroup is one compiled schema directory: every schema file directly
 // under it, merged into a single onkir.File for generation. Each directory
-// maps 1:1 to one generated Go/TS/Python package - the same "one service per
-// directory" convention already used by every migrated proto-based service.
+// maps 1:1 to one generated Go/TS/Python package.
 type sourceGroup struct {
 	relDir string
 	file   *onkir.File
