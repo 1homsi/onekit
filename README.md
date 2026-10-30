@@ -157,21 +157,15 @@ a Git Bash terminal is the simplest way to get all of it at once.
 
 ## Moving from `.onk`
 
-onekit used to have its own schema language, `.onk`. `onkt migrate` converts a
-project: it writes a `.tsp` file next to every `.onk` file, a `main.tsp` that
-imports them, and a `package.json` for the TypeSpec toolchain, renames
-`onekit.toml` to `onkt.toml`, moves a pinned `version` to the release doing
-the migration, and removes the `.onk` files (`--keep` leaves them). A project
-that already has a `package.json` keeps it; `onkt migrate` prints the
-`npm install --save-dev` line that adds the TypeSpec toolchain to it. A project that kept `.onk` schemas in `.proto` files with
-`schema_extensions` is converted too, and real Protocol Buffers files are left
-alone. Then run `npm install` and `onkt build`; the generated code is the same
-as before, byte for byte. `onkt compat --against main` still reads a `.onk`
-baseline, so the move can be checked against the schema it replaces.
+onekit used to have its own schema language, `.onk`, and dropped it in 0.40.0.
+A project that still has `.onk` files fails to build with an error that says
+so. Convert it with the migration command that onkt 0.39.x ships, then
+upgrade; the generated code stays the same, byte for byte.
+`onkt compat --against REF` cannot compare against a ref from before the
+move: pick one after the project was converted.
 
 The CLI used to be called `onek`. Releases still carry the binary under that
-name too, and `onekit.toml` and the `ONEK_*` environment variables are still
-read, so existing scripts keep working while you switch.
+name too, so existing scripts keep working while you switch.
 
 ## The `onkt` CLI
 
@@ -257,7 +251,6 @@ onkt init --list-templates                  # every starter project
 onkt watch   # rebuild on schema/config changes until interrupted
 onkt mock    # dev server serving schema-derived fixtures for every route
 onkt import api.yaml        # convert an OpenAPI 3.x document into TypeSpec
-onkt migrate                # convert a .onk project to TypeSpec
 ```
 
 Format TypeSpec with `npx tsp format "**/*.tsp"`, and use the TypeSpec
@@ -1082,13 +1075,13 @@ It applies to every JSON response the server writes, errors included, and to the
 
 A TypeSpec `int64` or `uint64` crosses the wire as a JSON number, as TypeSpec intends, and so does every item of an `int64[]`. Write `@encode(string) id: int64` to carry one as a JSON string instead, so JavaScript and other double-based parsers never lose precision on values beyond 2^53; on an array, `@Onkt.encode("string")` does the same. Map values are always numbers, and a oneof variant whose payload is a 64-bit integer keeps the string form.
 
-A project migrated from `.onk` may set `int64_encoding = "number"` in `onkt.toml`, which sends every 64-bit integer as a JSON number, oneof payloads included:
+A project may set `int64_encoding = "number"` in `onkt.toml`, which sends every 64-bit integer as a JSON number, oneof payloads included:
 
 ```toml
 int64_encoding = "number"   # "string" is the default
 ```
 
-The schema must then not say otherwise: `@encode(string)` (or `@Onkt.encode("string")`) on a 64-bit integer is an error under that setting, so a `.tsp` never claims a string the wire does not carry. `onkt migrate` writes plain `int64` fields for such a project.
+The schema must then not say otherwise: `@encode(string)` (or `@Onkt.encode("string")`) on a 64-bit integer is an error under that setting, so a `.tsp` never claims a string the wire does not carry.
 
 Changing a field's encoding on an existing API is a wire change, so `onkt compat` reports every affected field.
 
@@ -1444,8 +1437,8 @@ Every target is held to the same conformance suite (`internal/onkexpr/conformanc
 | `internal/onkschema/` | The versioned schema document every frontend writes and the compiler reads |
 | `internal/onkcompile/` | Checks the declarations and compiles them into the IR, resolving cross-file type references |
 | `internal/onkir/` | The native intermediate representation every generator consumes |
-| `internal/onek/` | `onkt.toml` parsing and the `build`/`check`/`migrate` orchestration |
-| `internal/onkmigrate/`, `internal/onklang/` | `onkt migrate`: the `.onk` parser and its conversion to TypeSpec |
+| `internal/onek/` | `onkt.toml` parsing and the `build`/`check` orchestration |
+| `internal/onktsp/` | Writes TypeSpec from a parse tree, for `onkt import` |
 | `internal/gengo/`, `internal/gents/`, `internal/genpy/`, `internal/gendart/`, `internal/genswift/`, `internal/genrust/`, `internal/genopenapi/` | Generator backends |
 | `examples/simple-api/` | A complete, working example with committed generated output |
 
