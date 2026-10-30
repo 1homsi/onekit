@@ -21,7 +21,6 @@ import (
 	"github.com/1homsi/onekit/internal/onkcompat"
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkimport"
-	"github.com/1homsi/onekit/internal/onkmigrate"
 )
 
 var version = "dev"
@@ -37,9 +36,14 @@ func usage(w io.Writer) {
   onkt import [--out DIR] [--package NAME] [--service NAME] [--force] [--stdout] OPENAPI-FILE
   onkt compat [--json] PREVIOUS-DIR CURRENT-DIR
   onkt compat [--json] --against GIT-REF [CURRENT-DIR]
-  onkt migrate [--keep] [--force] [--dir DIR]
   onkt version`)
 }
+
+// errRemovedMigrate is what the removed `onkt migrate` answers with.
+var errRemovedMigrate = errors.New("onkt migrate was removed along with the .onk language; install onkt 0.39.x to migrate a .onk project to TypeSpec")
+
+// entryFile is the TypeSpec file a project compiles from.
+const entryFile = "main.tsp"
 
 func main() {
 	info, ok := debug.ReadBuildInfo()
@@ -94,6 +98,8 @@ func run(args []string) error {
 		return reexecPinned(pinned, args)
 	}
 	switch args[0] {
+	case "migrate":
+		return errRemovedMigrate
 	case "mcp", "lsp":
 		return fmt.Errorf("onkt %s was removed with the .onk language; TypeSpec ships its own language server (the TypeSpec extension for VS Code and other editors)", args[0])
 	case "version":
@@ -112,8 +118,6 @@ func run(args []string) error {
 		return runImport(args[1:])
 	case "compat":
 		return runCompat(args[1:])
-	case "migrate":
-		return runMigrate(args[1:])
 	default:
 		if strings.HasPrefix(args[0], "-") {
 			usage(os.Stderr)
@@ -216,26 +220,6 @@ func runInit(args []string) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "onkt: created onkt.toml, main.tsp and package.json (%s template); run `npm install`, edit main.tsp, then run: onkt build --dir %s\n", *template, dir)
-	return nil
-}
-
-func runMigrate(args []string) error {
-	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	dir := fs.String("dir", ".", "schema project directory")
-	keep := fs.Bool("keep", false, "keep the .onk files after writing the .tsp files")
-	force := fs.Bool("force", false, "overwrite existing .tsp files")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if fs.NArg() != 0 {
-		return errors.New("migrate does not accept positional arguments; use --dir")
-	}
-	result, err := onek.Migrate(*dir, onek.MigrateOptions{KeepSchemas: *keep, Force: *force})
-	if err != nil {
-		return err
-	}
-	fmt.Fprintln(os.Stderr, "onkt:", onek.DescribeMigration(result))
 	return nil
 }
 
@@ -349,7 +333,7 @@ func runImport(args []string) error {
 	if err := os.WriteFile(target, []byte(schema), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", target, err)
 	}
-	entry := filepath.Join(*outDir, onkmigrate.EntryFile)
+	entry := filepath.Join(*outDir, entryFile)
 	if _, err := os.Lstat(entry); errors.Is(err, os.ErrNotExist) {
 		main := fmt.Sprintf("import \"./%s\";\n", filepath.Base(target))
 		//nolint:gosec // main.tsp inside the user-chosen out dir.
@@ -455,7 +439,7 @@ func (e *jsonDiagnosticsExitError) Error() string { return e.err.Error() }
 
 func (*jsonDiagnosticsExitError) ExitCode() int { return 1 }
 
-var commandNames = []string{"build", "check", "generate", "watch", "mock", "init", "import", "compat", "migrate", "version", "help"}
+var commandNames = []string{"build", "check", "generate", "watch", "mock", "init", "import", "compat", "version", "help"}
 
 var commandAliases = map[string]string{"lint": "check", "validate": "check", "gen": "generate", "serve": "mock", "new": "init"}
 

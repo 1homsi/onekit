@@ -2,11 +2,9 @@ package onek
 
 import (
 	"errors"
-	"fmt"
 	"path/filepath"
 
 	"github.com/1homsi/onekit/internal/onkcompile"
-	"github.com/1homsi/onekit/internal/onklang"
 )
 
 // Diagnostic is the stable machine-readable shape used by `onkt check
@@ -19,22 +17,6 @@ type Diagnostic struct {
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message"`
 }
-
-// ParseDiagnosticError attaches the source path to a parser/lexer error while
-// retaining the original error for errors.As and normal error wrapping.
-type ParseDiagnosticError struct {
-	Path string
-	Err  error
-}
-
-func (e *ParseDiagnosticError) Error() string {
-	if e.Path == "" {
-		return e.Err.Error()
-	}
-	return fmt.Sprintf("parse %s: %v", e.Path, e.Err)
-}
-
-func (e *ParseDiagnosticError) Unwrap() error { return e.Err }
 
 // Diagnostics converts one error chain into the JSON diagnostics consumed by
 // editors and CI. It intentionally returns one fallback diagnostic for
@@ -56,17 +38,6 @@ func Diagnostics(err error) []Diagnostic {
 			Code:    code,
 			Message: compileErr.Msg,
 		}}
-	}
-	var parseErr *ParseDiagnosticError
-	if errors.As(err, &parseErr) {
-		diagnostic := Diagnostic{Path: parseErr.Path, Code: "parse_error", Message: parseErr.Err.Error()}
-		var syntaxErr *onklang.Error
-		if errors.As(parseErr.Err, &syntaxErr) {
-			diagnostic.Line = syntaxErr.Line
-			diagnostic.Column = syntaxErr.Column
-			diagnostic.Message = syntaxErr.Message
-		}
-		return []Diagnostic{diagnostic}
 	}
 	var configErr *ConfigError
 	if errors.As(err, &configErr) {

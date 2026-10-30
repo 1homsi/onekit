@@ -52,18 +52,3 @@ func TestInitRefusesToOverwriteWithoutForce(t *testing.T) {
 		t.Fatalf("forced Init: %v", err)
 	}
 }
-
-func TestDiagnosticsPreserveParserLocation(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "broken.tsp")
-	if err := os.WriteFile(path, []byte("model Broken {\n  value: string\n"), 0o644); err != nil {
-		t.Fatalf("write broken schema: %v", err)
-	}
-	_, err := parseSources([]string{path})
-	if err == nil {
-		t.Fatal("expected parser error")
-	}
-	diagnostics := Diagnostics(err)
-	if len(diagnostics) != 1 || diagnostics[0].Path != path || diagnostics[0].Line == 0 || diagnostics[0].Column == 0 {
-		t.Fatalf("unexpected diagnostics: %+v", diagnostics)
-	}
-}

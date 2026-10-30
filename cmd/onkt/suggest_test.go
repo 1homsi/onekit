@@ -6,7 +6,7 @@ import (
 )
 
 func TestUnknownCommandSuggestsClosest(t *testing.T) {
-	for input, want := range map[string]string{"biuld": "build", "chek": "check", "migrat": "migrate", "lint": "check", "comp": "compat", "wach": "watch"} {
+	for input, want := range map[string]string{"biuld": "build", "chek": "check", "lint": "check", "comp": "compat", "wach": "watch"} {
 		err := run([]string{input})
 		if err == nil || !strings.Contains(err.Error(), `did you mean "`+want+`"`) {
 			t.Fatalf("%s: want suggestion %q, got %v", input, want, err)

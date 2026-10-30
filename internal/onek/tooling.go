@@ -235,3 +235,32 @@ func Watch(ctx context.Context, dir string, interval time.Duration, out io.Write
 		}
 	}
 }
+
+// toolVersion is the running onkt release ("dev" for a development build);
+// projects onkt creates pin the matching @onkt/typespec.
+var toolVersion = "dev"
+
+// SetToolVersion records the running onkt release.
+func SetToolVersion(version string) {
+	toolVersion = version
+}
+
+// typespecPackageJSON is written for a project onkt creates, so `npm install`
+// brings in the TypeSpec toolchain and the onkt CLI itself. @onkt/cli and
+// @onkt/typespec are published with every release under the same version.
+func typespecPackageJSON() string {
+	emitter := "latest"
+	if version := NormalizeVersion(toolVersion); validatePinnedVersion(version) == nil && version != "" {
+		emitter = "^" + version
+	}
+	return `{
+  "private": true,
+  "devDependencies": {
+    "@onkt/cli": "` + emitter + `",
+    "@onkt/typespec": "` + emitter + `",
+    "@typespec/compiler": "^1.17.0",
+    "@typespec/http": "^1.17.0"
+  }
+}
+`
+}

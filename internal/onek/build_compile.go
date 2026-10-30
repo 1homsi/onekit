@@ -7,12 +7,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync/atomic"
 
 	"github.com/1homsi/onekit/internal/onkcompat"
 	"github.com/1homsi/onekit/internal/onkcompile"
 	"github.com/1homsi/onekit/internal/onkir"
-	"github.com/1homsi/onekit/internal/onklang"
 )
 
 func skippedSchemaDir(name string) bool {
@@ -24,30 +22,6 @@ func skippedSchemaDir(name string) bool {
 		return true
 	}
 	return false
-}
-
-func parseSources(paths []string) ([]onkcompile.Source, error) {
-	sources := make([]onkcompile.Source, len(paths))
-	errs := make([]error, len(paths))
-	parallelFor(len(paths), func(i int) {
-		data, err := readRegularFile(paths[i])
-		if err != nil {
-			errs[i] = fmt.Errorf("read %s: %w", paths[i], err)
-			return
-		}
-		ast, err := onklang.Parse(string(data))
-		if err != nil {
-			errs[i] = &ParseDiagnosticError{Path: paths[i], Err: err}
-			return
-		}
-		sources[i] = onkcompile.Source{Path: paths[i], AST: ast}
-	})
-	for _, err := range errs {
-		if err != nil {
-			return nil, err
-		}
-	}
-	return sources, nil
 }
 
 // repointFileBacklinks retargets every declaration's back link onto dst after
@@ -206,27 +180,17 @@ func groupByDirectory(pkg *onkir.Package, schemaRoot string) (*sourceIndex, erro
 	return idx, nil
 }
 
-// onkSchemasAccepted lets .onk schemas build. Projects build from TypeSpec;
-// only TestMigrateCorpus builds a .onk project, to compare it with the
-// TypeSpec onkt migrate writes for it.
-var onkSchemasAccepted atomic.Bool
-
-// errOnkSchemas is the error a project still on .onk schemas gets.
+// errOnkSchemas is the error a project that still has .onk files gets.
 func errOnkSchemas(root string, files []string) error {
 	rel, err := filepath.Rel(root, files[0])
 	if err != nil {
 		rel = files[0]
 	}
-	return fmt.Errorf("%s is a .onk schema; onkt now reads TypeSpec. Run `onkt migrate --dir %s` to convert the project", rel, root)
+	return fmt.Errorf("%s is a .onk schema, and .onk is no longer supported; use onkt 0.39.x to migrate the project to TypeSpec", rel)
 }
 
+// compileTree compiles every schema under dir.
 func compileTree(dir string, exts []string, options onkcompile.CompileOptions) (*onkir.Package, error) {
-	return compileSchemaTree(dir, exts, options, onkSchemasAccepted.Load())
-}
-
-// compileSchemaTree compiles every schema under dir; acceptOnk lets .onk
-// schemas through, as a compatibility baseline from before a migration.
-func compileSchemaTree(dir string, exts []string, options onkcompile.CompileOptions, acceptOnk bool) (*onkir.Package, error) {
 	root, err := canonicalProjectDir(dir)
 	if err != nil {
 		return nil, err
@@ -246,19 +210,12 @@ func compileSchemaTree(dir string, exts []string, options onkcompile.CompileOpti
 		}
 		onkFiles = append(onkFiles, file)
 	}
-	if len(onkFiles) > 0 && !acceptOnk {
+	if len(onkFiles) > 0 {
 		return nil, errOnkSchemas(root, onkFiles)
 	}
-	sources, err := parseSources(onkFiles)
+	sources, err := typespecSources(root, tspFiles)
 	if err != nil {
 		return nil, err
-	}
-	if len(tspFiles) > 0 {
-		tspSources, err := typespecSources(root, tspFiles)
-		if err != nil {
-			return nil, err
-		}
-		sources = append(sources, tspSources...)
 	}
 	pkg, err := onkcompile.CompileWithOptions(sources, options)
 	if err != nil {
@@ -359,8 +316,7 @@ func compileCompatibilityProject(dir string, fallback *Config) (*onkir.Package, 
 			}
 		}
 	}
-	// The previous side of a comparison may predate the move to TypeSpec.
-	pkg, err := compileSchemaTree(root, exts, options, true)
+	pkg, err := compileTree(root, exts, options)
 	if err != nil {
 		return nil, err
 	}

@@ -557,7 +557,7 @@ model A {
 		t.Fatalf("discoverProjectSchemaFiles: %v", err)
 	}
 	if len(files) != 1 || filepath.Base(files[0]) != "api.tsp" {
-		t.Fatalf("want only api.onk, got %v", files)
+		t.Fatalf("want only api.tsp, got %v", files)
 	}
 	if err := os.Symlink(filepath.Join(dir, "api.tsp"), filepath.Join(dir, "linked.tsp")); err != nil {
 		t.Fatal(err)
